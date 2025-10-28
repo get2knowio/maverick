@@ -4,7 +4,8 @@
   "remoteUser": "vscode",
   "features": {},
   "remoteEnv": {
-    "GH_PAGER": ""
+    "GH_PAGER": "",
+    "CODEX_HOME": "/workspaces/maverick/.codex"
   },
   "initializeCommand": "docker pull ghcr.io/get2knowio/devcontainer:latest",
   "mounts": [
