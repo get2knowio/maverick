@@ -1,14 +1,15 @@
 <!--
 Sync Impact Report:
-- Version change: [template] → 1.0.0
-- Modified principles: None (initial creation)
-- Added sections: All core principles and governance sections
+- Version change: 1.0.0 → 1.1.0
+- Modified principles: IV. Temporal-First Architecture (expanded with determinism rules)
+- Added sections: "Temporal Workflow Best Practices" subsection under Technology Standards
 - Removed sections: None
 - Templates requiring updates: 
   ✅ .specify/templates/plan-template.md (Constitution Check section aligns)
   ✅ .specify/templates/spec-template.md (requirements alignment confirmed)
   ✅ .specify/templates/tasks-template.md (task categorization aligns)
 - Follow-up TODOs: None
+- Rationale: MINOR version bump (1.1.0) due to materially expanded guidance on Temporal workflow determinism and type safety, adding non-negotiable rules for workflow correctness.
 -->
 
 # Maverick Constitution
@@ -33,7 +34,17 @@ All dependency management and script execution MUST use uv (https://docs.astral.
 ### IV. Temporal-First Architecture
 Code MUST be organized around Temporal workflow concepts: Activities, Workflows, and Workers. Business logic MUST be contained in Activities (testable, deterministic). Workflows MUST orchestrate Activities without side effects. All temporal concerns MUST be explicit and well-documented.
 
-**Rationale**: Proper separation of concerns in Temporal applications prevents common pitfalls like non-deterministic workflows and ensures proper replay behavior.
+**Critical Determinism Rules (NON-NEGOTIABLE)**:
+- Workflows MUST NEVER use `time.time()` - use `workflow.now()` instead (returns datetime)
+- Workflows MUST NEVER use `datetime.now()` - use `workflow.now()` for current workflow time
+- Workflows MUST NEVER use `random.random()` - use `workflow.random()` for deterministic randomness
+- Duration calculation MUST use `(workflow.now() - start_time).total_seconds()` for timedelta math
+
+**Type Safety Requirements**:
+- Activity calls MUST specify `result_type` when returning dataclasses to ensure proper deserialization
+- Data models MUST use `Literal` types instead of `Enum` for status/state values to avoid custom serialization complexity
+
+**Rationale**: Temporal workflows must be deterministic to support replay. Non-deterministic operations like system time calls will cause `RestrictedWorkflowAccessError` and prevent workflow execution. Proper type hints and serialization ensure correct deserialization and prevent runtime AttributeErrors. These rules are based on production lessons learned during initial feature implementation.
 
 ### V. Observability and Monitoring
 All workflows and activities MUST include structured logging, metrics, and tracing. Temporal dashboard integration MUST be maintained. Error handling MUST provide clear context for debugging both during development and in production.
@@ -53,6 +64,58 @@ All workflows and activities MUST include structured logging, metrics, and traci
 - Worker processes MUST be containerizable
 - Workflow and Activity definitions MUST be versioned carefully
 - Local development MUST use Temporal dev server or Docker Compose
+
+#### Temporal Workflow Best Practices
+
+**Determinism Enforcement**:
+```python
+# ✓ CORRECT: Deterministic time tracking
+start_time = workflow.now()  # Returns datetime
+# ... workflow logic ...
+end_time = workflow.now()
+duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+# ✗ INCORRECT: Non-deterministic (will fail with RestrictedWorkflowAccessError)
+import time
+start_time = time.time()  # ❌ NEVER use in workflows
+```
+
+**Activity Result Deserialization**:
+```python
+# ✓ CORRECT: Specify result_type for proper deserialization
+result = await workflow.execute_activity(
+    "my_activity",
+    start_to_close_timeout=timedelta(seconds=30),
+    result_type=MyDataClass,  # Returns MyDataClass instance
+)
+
+# ✗ INCORRECT: Missing result_type returns dict instead of dataclass
+result = await workflow.execute_activity(
+    "my_activity",
+    start_to_close_timeout=timedelta(seconds=30),
+)  # Returns dict, causes AttributeError on attribute access
+```
+
+**Type Safety with Literals**:
+```python
+# ✓ CORRECT: Literal types for type safety and seamless serialization
+from typing import Literal
+
+CheckStatus = Literal["pass", "fail"]
+
+@dataclass
+class PrereqCheckResult:
+    tool: str
+    status: CheckStatus  # Type-safe, serializes naturally
+    message: str
+
+# ✗ INCORRECT: Enum requires custom serializer
+class CheckStatus(Enum):  # ❌ Needs custom data converter
+    PASS = "pass"
+    FAIL = "fail"
+```
+
+These patterns are mandatory for all Temporal workflow and activity implementations.
 
 ### Testing Standards
 - pytest as test framework with temporal testing utilities
@@ -89,4 +152,4 @@ This constitution supersedes all other development practices. Changes require ex
 
 **Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness and test coverage.
 
-**Version**: 1.0.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-10-28
+**Version**: 1.1.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-10-28
