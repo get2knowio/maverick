@@ -30,6 +30,10 @@ ignore = []
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+[project.scripts]
+readiness-worker = "src.workers.readiness_worker:run_worker"
+readiness-check = "src.cli.readiness:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

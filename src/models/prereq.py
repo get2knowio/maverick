@@ -5,20 +5,12 @@ and the overall readiness summary per data-model.md specification.
 """
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
-class CheckStatus(str, Enum):
-    """Status of an individual prerequisite check."""
-    PASS = "pass"
-    FAIL = "fail"
-
-
-class OverallStatus(str, Enum):
-    """Overall readiness status."""
-    READY = "ready"
-    NOT_READY = "not_ready"
+# Type aliases for status values (simpler than Enums for Temporal)
+CheckStatus = Literal["pass", "fail"]
+OverallStatus = Literal["ready", "not_ready"]
 
 
 @dataclass
@@ -27,7 +19,7 @@ class PrereqCheckResult:
     
     Attributes:
         tool: Name of the tool checked (e.g., "gh", "copilot")
-        status: Whether the check passed or failed
+        status: Whether the check passed or failed ("pass" or "fail")
         message: Human-readable detail about the check result
         remediation: Optional human-readable guidance for fixing failures
     """
@@ -40,6 +32,8 @@ class PrereqCheckResult:
         """Validate the result after initialization."""
         if not self.tool:
             raise ValueError("tool must not be empty")
+        if self.status not in ("pass", "fail"):
+            raise ValueError("status must be 'pass' or 'fail'")
         if not self.message:
             raise ValueError("message must be present for both pass and fail")
 
@@ -50,7 +44,7 @@ class ReadinessSummary:
     
     Attributes:
         results: List of individual prerequisite check results
-        overall_status: Overall readiness status (ready if all checks pass)
+        overall_status: Overall readiness status ("ready" or "not_ready")
         duration_ms: Execution time in milliseconds
     """
     results: List[PrereqCheckResult]
@@ -68,11 +62,14 @@ class ReadinessSummary:
             raise ValueError("Each tool must be unique within results")
         
         # Validate overall_status consistency
-        all_passed = all(r.status == CheckStatus.PASS for r in self.results)
-        if all_passed and self.overall_status != OverallStatus.READY:
+        all_passed = all(r.status == "pass" for r in self.results)
+        if all_passed and self.overall_status != "ready":
             raise ValueError("overall_status must be 'ready' if all checks pass")
-        if not all_passed and self.overall_status == OverallStatus.READY:
+        if not all_passed and self.overall_status == "ready":
             raise ValueError("overall_status must be 'not_ready' if any check fails")
+        
+        if self.overall_status not in ("ready", "not_ready"):
+            raise ValueError("overall_status must be 'ready' or 'not_ready'")
         
         if self.duration_ms < 0:
             raise ValueError("duration_ms must be non-negative")

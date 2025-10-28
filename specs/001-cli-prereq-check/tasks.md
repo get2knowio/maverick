@@ -56,19 +56,19 @@ Independent Test: Run the readiness check with tools properly installed/authenti
 
 ### Tests for User Story 1 (write first)
 
-- [ ] T008 [P] [US1] Unit test for gh auth status parsing and exit codes in `tests/unit/test_gh_status.py`
-- [ ] T009 [P] [US1] Unit test for copilot availability (`copilot help`) in `tests/unit/test_copilot_help.py`
-- [ ] T010 [US1] Integration test for readiness workflow orchestration in `tests/integration/test_readiness_workflow.py`
+- [X] T008 [P] [US1] Unit test for gh auth status parsing and exit codes in `tests/unit/test_gh_status.py`
+- [X] T009 [P] [US1] Unit test for copilot availability (`copilot help`) in `tests/unit/test_copilot_help.py`
+- [X] T010 [US1] Integration test for readiness workflow orchestration in `tests/integration/test_readiness_workflow.py`
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Implement gh_status activity function in `src/activities/gh_status.py` (non-interactive, parse `gh auth status`)
-- [ ] T012 [P] [US1] Implement copilot_help activity function in `src/activities/copilot_help.py` (execute `copilot help` safely)
-- [ ] T013 [US1] Implement readiness workflow in `src/workflows/readiness.py` (call both activities; assemble `ReadinessSummary`)
-- [ ] T014 [US1] Implement Temporal worker to host activities/workflows in `src/workers/readiness_worker.py`
-- [ ] T015 [US1] Implement CLI entrypoint to trigger workflow and print human-readable summary in `src/cli/readiness.py`
-- [ ] T016 [US1] Add uv scripts in `pyproject.toml` for `uv run readiness:worker` and `uv run readiness:check`
-- [ ] T017 [US1] Add structured logging in activities/workflow per constitution (use `src/common/logging.py`)
+- [X] T011 [P] [US1] Implement gh_status activity function in `src/activities/gh_status.py` (non-interactive, parse `gh auth status`)
+- [X] T012 [P] [US1] Implement copilot_help activity function in `src/activities/copilot_help.py` (execute `copilot help` safely)
+- [X] T013 [US1] Implement readiness workflow in `src/workflows/readiness.py` (call both activities; assemble `ReadinessSummary`)
+- [X] T014 [US1] Implement Temporal worker to host activities/workflows in `src/workers/readiness_worker.py`
+- [X] T015 [US1] Implement CLI entrypoint to trigger workflow and print human-readable summary in `src/cli/readiness.py`
+- [X] T016 [US1] Add uv scripts in `pyproject.toml` for `uv run readiness:worker` and `uv run readiness:check`
+- [X] T017 [US1] Add structured logging in activities/workflow per constitution (use `src/common/logging.py`)
 
 Checkpoint: At this point, User Story 1 should be fully functional and testable independently
 
