@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
-from src.models.prereq import PrereqCheckResult, CheckStatus
+from src.models.prereq import PrereqCheckResult
 
 
 @pytest.mark.asyncio
@@ -24,7 +24,7 @@ async def test_gh_status_authenticated():
         
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
-        assert result.status == CheckStatus.PASS
+        assert result.status == "pass"
         assert "authenticated" in result.message.lower() or "logged in" in result.message.lower()
         assert result.remediation is None or result.remediation == ""
 
@@ -48,7 +48,7 @@ async def test_gh_status_not_authenticated():
         
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
-        assert result.status == CheckStatus.FAIL
+        assert result.status == "fail"
         assert "not authenticated" in result.message.lower() or "not logged in" in result.message.lower()
         assert result.remediation is not None
         assert len(result.remediation) > 0
@@ -68,7 +68,7 @@ async def test_gh_status_not_installed():
         
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
-        assert result.status == CheckStatus.FAIL
+        assert result.status == "fail"
         assert "not installed" in result.message.lower() or "not found" in result.message.lower()
         assert result.remediation is not None
         assert "install" in result.remediation.lower()
@@ -87,7 +87,7 @@ async def test_gh_status_timeout():
         
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
-        assert result.status == CheckStatus.FAIL
+        assert result.status == "fail"
         assert "timeout" in result.message.lower() or "timed out" in result.message.lower()
 
 
@@ -104,5 +104,5 @@ async def test_gh_status_unexpected_error():
         
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
-        assert result.status == CheckStatus.FAIL
+        assert result.status == "fail"
         assert "error" in result.message.lower()

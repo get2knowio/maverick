@@ -82,16 +82,16 @@ Independent Test: Temporarily deconfigure a tool and verify the guidance directs
 
 ### Tests for User Story 2 (write first)
 
-- [ ] T018 [P] [US2] Unit tests for remediation messages (gh unauthenticated; copilot missing) in `tests/unit/test_remediation_messages.py`
-- [ ] T019 [US2] Extend integration test to assert guidance content appears on failure in `tests/integration/test_readiness_workflow.py`
+- [X] T018 [P] [US2] Unit tests for remediation messages (gh unauthenticated; copilot missing) in `tests/unit/test_remediation_messages.py`
+- [X] T019 [US2] Extend integration test to assert guidance content appears on failure in `tests/integration/test_readiness_workflow.py`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [US2] Implement remediation guidance strings for gh in `src/activities/gh_status.py` (auth steps, docs link)
-- [ ] T021 [US2] Implement remediation guidance strings for copilot in `src/activities/copilot_help.py` (install steps, docs link)
-- [ ] T022 [US2] Ensure workflow summary includes `remediation` fields where applicable in `src/workflows/readiness.py`
-- [ ] T023 [US2] Improve CLI formatting to show guidance clearly (headings/bullets) in `src/cli/readiness.py`
-- [ ] T024 [P] [US2] Document contract mapping from `POST /readiness-check` to workflow/CLI in `specs/001-cli-prereq-check/contracts/README.md`
+- [X] T020 [US2] Implement remediation guidance strings for gh in `src/activities/gh_status.py` (auth steps, docs link)
+- [X] T021 [US2] Implement remediation guidance strings for copilot in `src/activities/copilot_help.py` (install steps, docs link)
+- [X] T022 [US2] Ensure workflow summary includes `remediation` fields where applicable in `src/workflows/readiness.py`
+- [X] T023 [US2] Improve CLI formatting to show guidance clearly (headings/bullets) in `src/cli/readiness.py`
+- [X] T024 [P] [US2] Document contract mapping from `POST /readiness-check` to workflow/CLI in `specs/001-cli-prereq-check/contracts/README.md`
 
 Checkpoint: At this point, User Stories 1 AND 2 should both work; US2 guidance builds on US1 readiness checks
 

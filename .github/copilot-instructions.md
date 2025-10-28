@@ -90,5 +90,12 @@ Temporal workflows must be **deterministic** to support replay. Non-deterministi
 
 - 001-cli-prereq-check: Added Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests)
 
+## MCP Server Usage
+
+When assistance is needed beyond local codebase context:
+
+- **context7 MCP server**: Use for retrieving up-to-date library documentation and code examples (e.g., Temporal SDK usage, Python standard library)
+- **github MCP server**: Use for GitHub operations like creating issues, PRs, managing branches, and searching repositories
+
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
