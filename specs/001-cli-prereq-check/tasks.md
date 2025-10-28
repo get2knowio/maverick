@@ -40,9 +40,9 @@ Purpose: Core infrastructure that MUST be complete before ANY user story can be 
 
 ⚠️ CRITICAL: No user story work can begin until this phase is complete
 
-- [ ] T005 Create data models per data-model.md: define `PrereqCheckResult` and `ReadinessSummary` dataclasses in `src/models/prereq.py`
-- [ ] T006 [P] Add structured logging setup in `src/common/logging.py` (formatter, level, module logger helper)
-- [ ] T007 [P] Create test scaffolding: `tests/conftest.py` with common fixtures and Temporal test env bootstrap (placeholder)
+- [X] T005 Create data models per data-model.md: define `PrereqCheckResult` and `ReadinessSummary` dataclasses in `src/models/prereq.py`
+- [X] T006 [P] Add structured logging setup in `src/common/logging.py` (formatter, level, module logger helper)
+- [X] T007 [P] Create test scaffolding: `tests/conftest.py` with common fixtures and Temporal test env bootstrap (placeholder)
 
 Checkpoint: Foundation ready — user story implementation can now begin in parallel
 
