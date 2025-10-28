@@ -27,10 +27,10 @@ Organization: Tasks are grouped by user story to enable independent implementati
 
 Purpose: Project initialization and basic structure
 
-- [ ] T001 Create project structure (dirs) at repo root: src/activities/, src/workflows/, src/workers/, src/cli/, src/models/, tests/unit/, tests/integration/
-- [ ] T002 Initialize Python project with uv: create `pyproject.toml` with project metadata at `pyproject.toml`
-- [ ] T003 [P] Add core dependencies in `pyproject.toml` ([tool.uv] and [project.dependencies]): temporalio, pytest, pytest-asyncio
-- [ ] T004 [P] Configure ruff linting in `pyproject.toml` ([tool.ruff]) and add `ruff check .` task
+- [X] T001 Create project structure (dirs) at repo root: src/activities/, src/workflows/, src/workers/, src/cli/, src/models/, tests/unit/, tests/integration/
+- [X] T002 Initialize Python project with uv: create `pyproject.toml` with project metadata at `pyproject.toml`
+- [X] T003 [P] Add core dependencies in `pyproject.toml` ([tool.uv] and [project.dependencies]): temporalio, pytest, pytest-asyncio
+- [X] T004 [P] Configure ruff linting in `pyproject.toml` ([tool.ruff]) and add `ruff check .` task
 
 ---
 
