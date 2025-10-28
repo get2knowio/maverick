@@ -1,0 +1,49 @@
+openapi: 3.0.3
+info:
+  title: Readiness Check API
+  version: 0.1.0
+  description: Contract mapping to the Temporal readiness workflow input/output
+paths:
+  /readiness-check:
+    post:
+      summary: Run CLI readiness check
+      description: Triggers the readiness workflow and returns a summary of prerequisite checks.
+      requestBody:
+        required: false
+      responses:
+        '200':
+          description: Readiness summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessSummary'
+components:
+  schemas:
+    PrereqCheckResult:
+      type: object
+      properties:
+        tool:
+          type: string
+          enum: [gh, copilot]
+        status:
+          type: string
+          enum: [pass, fail]
+        message:
+          type: string
+        remediation:
+          type: string
+      required: [tool, status, message]
+    ReadinessSummary:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrereqCheckResult'
+        overall_status:
+          type: string
+          enum: [ready, not_ready]
+        duration_ms:
+          type: integer
+          format: int64
+      required: [results, overall_status]
