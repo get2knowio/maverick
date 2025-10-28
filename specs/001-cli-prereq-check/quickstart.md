@@ -4,9 +4,9 @@
 
 This feature defines a Temporal workflow that verifies two prerequisites:This feature defines a Temporal workflow that verifies two prerequisites:
 
-- GitHub CLI is installed and authenticated- GitHub CLI is installed and authenticated
+- GitHub CLI is installed and authenticated
 
-- Standalone Copilot CLI binary is available- Standalone Copilot CLI binary is available
+- Standalone Copilot CLI binary is available
 
 
 
