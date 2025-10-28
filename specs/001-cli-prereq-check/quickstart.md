@@ -30,11 +30,8 @@ This feature defines a Temporal workflow that verifies two prerequisites:This fe
 
 
 
-```bash```bash
-
-uv syncuv sync
-
-``````
+```bash
+uv sync
 
 
 
