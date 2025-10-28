@@ -1,114 +1,57 @@
 # Quickstart: CLI Prerequisite Check
 
+This guide walks through running the Temporal workflow that verifies two prerequisites:
 
+- GitHub CLI is installed and authenticated.
+- The standalone Copilot CLI binary is available.
 
-This feature defines a Temporal workflow that verifies two prerequisites:This feature defines a Temporal workflow that verifies two prerequisites:
+## Prerequisites
 
-- GitHub CLI is installed and authenticated
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Temporal development server (Temporal CLI `start-dev` or Docker Compose)
 
-- Standalone Copilot CLI binary is available
+## Install Dependencies
 
-
-
-## Prerequisites## Prerequisites
-
-
-
-- Python 3.11+- Python 3.11
-
-- [uv](https://docs.astral.sh/uv/) package manager- uv (https://docs.astral.sh/uv/)
-
-- Temporal server (local dev server)- Temporal server (local dev server or Docker Compose)
-
-
-
-## Installation## Install dependencies (planned)
-
-
-
-1. **Install dependencies**:A `pyproject.toml` will define dependencies and scripts. Once added, install with:
-
-
+Ensure the repository `pyproject.toml` is present, then install dependencies:
 
 ```bash
 uv sync
+```
 
+This installs the Temporal Python SDK, test tooling (`pytest`, `pytest-asyncio`), linting (`ruff`), and supporting libraries required by the readiness workflow.
 
+## Run Temporal Locally
 
-This will install:
+Start a local Temporal server before launching the workflow:
 
-## Run Temporal locally (dev server)
-- `temporalio` (Temporal Python SDK)
-
-- `pytest` and `pytest-asyncio` (testing)- Option A: Temporal CLI dev server
-
-- `ruff` (linting, dev dependency)- Option B: Docker Compose (if provided in repo)
-
-
-
-## Running the Readiness Check## Execute readiness workflow (planned uv script)
-
-
-
-### Step 1: Start Temporal ServerOnce `pyproject.toml` is in place, a script will be available:
-
-
-
-Start the Temporal dev server (in a separate terminal):```bash
-
-uv run workflows:readiness
-
-```bash```
-
+```bash
 temporal server start-dev
-
-```This will:
-
-1) Start a worker (if not already running)
-
-This will start a local Temporal server at `localhost:7233` with a web UI at `localhost:8233`.2) Execute the readiness workflow
-
-3) Print human‑readable summary and exit non‑zero on failure
-
-### Step 2: Start the Readiness Worker
-
-## Testing
-
-In another terminal, start the worker that will process workflow tasks:
-
-Run tests (unit + integration) with:
-
-```bash
-
-uv run readiness-worker```bash
-
-```uv run pytest -q
-
 ```
 
-The worker will:
+This command starts Temporal at `localhost:7233` with the web UI at `localhost:8233`.
 
-- Connect to Temporal server at `localhost:7233`Temporal tests will:
+## Running the Readiness Check
 
-- Register the `ReadinessWorkflow` and activity functions- Unit-test activity functions (gh auth status parsing; copilot help presence)
+### Step 1: Start the Readiness Worker
 
-- Listen on the `readiness-task-queue` for tasks- Integration-test workflow orchestration and summary mapping
-
-- Keep running until you stop it (Ctrl+C)
-
-### Step 3: Execute the Readiness Check
-
-In your original terminal, run the readiness check:
+In a new terminal, run the worker that hosts the workflow activities:
 
 ```bash
-uv run readiness-check
+uv run readiness:worker
 ```
 
-This will:
-1. Connect to the Temporal server
-2. Execute the readiness workflow
-3. Display a human-readable summary of prerequisite checks
-4. Exit with code 0 if ready, 1 if not ready, or 2 on error
+The worker connects to the Temporal server, registers `ReadinessWorkflow`, and continues running until you stop it (Ctrl+C).
+
+### Step 2: Execute the Readiness Check
+
+From your original terminal, trigger the workflow:
+
+```bash
+uv run readiness:check
+```
+
+The CLI client connects to Temporal, schedules the readiness workflow, prints a human-readable summary, and exits with code `0` when ready, `1` when not ready, or `2` on error.
 
 ### Example Output (Success)
 
@@ -205,7 +148,7 @@ The test suite includes:
 If you get an error like "workflow execution failed", ensure the worker is running:
 
 ```bash
-uv run readiness-worker
+uv run readiness:worker
 ```
 
 ### Temporal Server Not Running

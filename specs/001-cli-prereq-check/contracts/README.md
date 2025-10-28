@@ -323,5 +323,3 @@ When adding new features:
 2. Implement Python models matching the schema
 3. Update this validation section
 4. Add integration tests validating serialization
-
-````

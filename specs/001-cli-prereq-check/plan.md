@@ -33,12 +33,6 @@ guidance on failures. Non‑interactive by default; no environment mutations.
 
 Re-check after Phase 1 design: No changes causing violations identified. → PASS
 
-## Constitution Check
-
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
-
-[Gates determined based on constitution file]
-
 ## Project Structure
 
 ### Documentation (this feature)
