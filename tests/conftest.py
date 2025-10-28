@@ -4,14 +4,14 @@ Provides common test fixtures and Temporal test environment setup
 for unit and integration tests.
 """
 
+
 import pytest
-from typing import Generator
 
 
 @pytest.fixture
 def sample_fixture() -> str:
     """Example fixture for testing.
-    
+
     Returns:
         A sample string value
     """
@@ -32,12 +32,12 @@ def sample_fixture() -> str:
 @pytest.fixture
 def mock_subprocess_success(monkeypatch):
     """Mock subprocess.run to return successful results.
-    
+
     Useful for testing activities that execute external commands
     without actually running them.
     """
     import subprocess
-    
+
     def mock_run(*args, **kwargs):
         """Mock successful subprocess execution."""
         result = subprocess.CompletedProcess(
@@ -47,7 +47,7 @@ def mock_subprocess_success(monkeypatch):
             stderr="",
         )
         return result
-    
+
     monkeypatch.setattr("subprocess.run", mock_run)
     return mock_run
 
@@ -55,11 +55,11 @@ def mock_subprocess_success(monkeypatch):
 @pytest.fixture
 def mock_subprocess_failure(monkeypatch):
     """Mock subprocess.run to return failure results.
-    
+
     Useful for testing error handling in activities.
     """
     import subprocess
-    
+
     def mock_run(*args, **kwargs):
         """Mock failed subprocess execution."""
         result = subprocess.CompletedProcess(
@@ -69,6 +69,6 @@ def mock_subprocess_failure(monkeypatch):
             stderr="mock error output",
         )
         return result
-    
+
     monkeypatch.setattr("subprocess.run", mock_run)
     return mock_run

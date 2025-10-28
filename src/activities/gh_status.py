@@ -5,9 +5,11 @@ the user is authenticated.
 """
 
 import asyncio
+
 from temporalio import activity
-from src.models.prereq import PrereqCheckResult
+
 from src.common.logging import get_logger
+from src.models.prereq import PrereqCheckResult
 
 logger = get_logger(__name__)
 
@@ -21,7 +23,7 @@ Install GitHub CLI:
 
 After installation, authenticate with:
   gh auth login
-  
+
 Official documentation: https://cli.github.com/
 """
 
@@ -39,12 +41,12 @@ Official documentation: https://cli.github.com/manual/gh_auth_login
 @activity.defn(name="check_gh_status")
 async def check_gh_status() -> PrereqCheckResult:
     """Check if GitHub CLI is installed and authenticated.
-    
+
     Returns:
         PrereqCheckResult with pass/fail status and remediation guidance
     """
     logger.info("Checking GitHub CLI status")
-    
+
     try:
         # Execute gh auth status
         process = await asyncio.create_subprocess_exec(
@@ -52,13 +54,13 @@ async def check_gh_status() -> PrereqCheckResult:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=10.0
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("gh auth status command timed out")
             return PrereqCheckResult(
                 tool="gh",
@@ -66,7 +68,7 @@ async def check_gh_status() -> PrereqCheckResult:
                 message="GitHub CLI check timed out after 10 seconds",
                 remediation="Check if gh is functioning properly and try again"
             )
-        
+
         # gh auth status returns 0 if authenticated, 1 if not
         if process.returncode == 0:
             logger.info("GitHub CLI is authenticated")
@@ -80,14 +82,14 @@ async def check_gh_status() -> PrereqCheckResult:
             # Parse stderr for helpful context
             stderr_text = stderr.decode('utf-8', errors='replace')
             logger.warning(f"GitHub CLI is not authenticated: {stderr_text}")
-            
+
             return PrereqCheckResult(
                 tool="gh",
                 status="fail",
                 message="GitHub CLI is not authenticated",
                 remediation=GH_NOT_AUTHENTICATED_REMEDIATION.strip()
             )
-            
+
     except FileNotFoundError:
         logger.error("GitHub CLI is not installed (command not found)")
         return PrereqCheckResult(

@@ -1,7 +1,9 @@
 """Unit tests for gh_status activity function."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.models.prereq import PrereqCheckResult
 
 
@@ -9,7 +11,7 @@ from src.models.prereq import PrereqCheckResult
 async def test_gh_status_authenticated():
     """Test gh auth status when authenticated successfully."""
     from src.activities.gh_status import check_gh_status
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock successful gh auth status
         mock_process = AsyncMock()
@@ -19,9 +21,9 @@ async def test_gh_status_authenticated():
         )
         mock_process.returncode = 0
         mock_exec.return_value = mock_process
-        
+
         result = await check_gh_status()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
         assert result.status == "pass"
@@ -33,7 +35,7 @@ async def test_gh_status_authenticated():
 async def test_gh_status_not_authenticated():
     """Test gh auth status when not authenticated."""
     from src.activities.gh_status import check_gh_status
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock unauthenticated gh auth status
         mock_process = AsyncMock()
@@ -43,9 +45,9 @@ async def test_gh_status_not_authenticated():
         )
         mock_process.returncode = 1
         mock_exec.return_value = mock_process
-        
+
         result = await check_gh_status()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
         assert result.status == "fail"
@@ -59,13 +61,13 @@ async def test_gh_status_not_authenticated():
 async def test_gh_status_not_installed():
     """Test when gh command is not found."""
     from src.activities.gh_status import check_gh_status
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock command not found
         mock_exec.side_effect = FileNotFoundError("gh command not found")
-        
+
         result = await check_gh_status()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
         assert result.status == "fail"
@@ -78,13 +80,13 @@ async def test_gh_status_not_installed():
 async def test_gh_status_timeout():
     """Test gh command timeout handling."""
     from src.activities.gh_status import check_gh_status
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock timeout
         mock_exec.side_effect = TimeoutError("Command timed out")
-        
+
         result = await check_gh_status()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
         assert result.status == "fail"
@@ -95,13 +97,13 @@ async def test_gh_status_timeout():
 async def test_gh_status_unexpected_error():
     """Test handling of unexpected errors."""
     from src.activities.gh_status import check_gh_status
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock unexpected error
         mock_exec.side_effect = Exception("Unexpected error")
-        
+
         result = await check_gh_status()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "gh"
         assert result.status == "fail"

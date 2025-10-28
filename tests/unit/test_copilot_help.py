@@ -1,7 +1,9 @@
 """Unit tests for copilot_help activity function."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.models.prereq import PrereqCheckResult
 
 
@@ -9,7 +11,7 @@ from src.models.prereq import PrereqCheckResult
 async def test_copilot_help_available():
     """Test copilot help when copilot binary is available."""
     from src.activities.copilot_help import check_copilot_help
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock successful copilot help
         mock_process = AsyncMock()
@@ -19,9 +21,9 @@ async def test_copilot_help_available():
         )
         mock_process.returncode = 0
         mock_exec.return_value = mock_process
-        
+
         result = await check_copilot_help()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "copilot"
         assert result.status == "pass"
@@ -33,13 +35,13 @@ async def test_copilot_help_available():
 async def test_copilot_help_not_installed():
     """Test when copilot command is not found."""
     from src.activities.copilot_help import check_copilot_help
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock command not found
         mock_exec.side_effect = FileNotFoundError("copilot command not found")
-        
+
         result = await check_copilot_help()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "copilot"
         assert result.status == "fail"
@@ -53,7 +55,7 @@ async def test_copilot_help_not_installed():
 async def test_copilot_help_command_fails():
     """Test when copilot help returns non-zero exit code."""
     from src.activities.copilot_help import check_copilot_help
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock copilot help failure
         mock_process = AsyncMock()
@@ -63,9 +65,9 @@ async def test_copilot_help_command_fails():
         )
         mock_process.returncode = 1
         mock_exec.return_value = mock_process
-        
+
         result = await check_copilot_help()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "copilot"
         assert result.status == "fail"
@@ -76,13 +78,13 @@ async def test_copilot_help_command_fails():
 async def test_copilot_help_timeout():
     """Test copilot command timeout handling."""
     from src.activities.copilot_help import check_copilot_help
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock timeout
         mock_exec.side_effect = TimeoutError("Command timed out")
-        
+
         result = await check_copilot_help()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "copilot"
         assert result.status == "fail"
@@ -93,13 +95,13 @@ async def test_copilot_help_timeout():
 async def test_copilot_help_unexpected_error():
     """Test handling of unexpected errors."""
     from src.activities.copilot_help import check_copilot_help
-    
+
     with patch('asyncio.create_subprocess_exec') as mock_exec:
         # Mock unexpected error
         mock_exec.side_effect = Exception("Unexpected error")
-        
+
         result = await check_copilot_help()
-        
+
         assert isinstance(result, PrereqCheckResult)
         assert result.tool == "copilot"
         assert result.status == "fail"

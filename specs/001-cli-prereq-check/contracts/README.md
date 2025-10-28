@@ -285,3 +285,43 @@ To add new prerequisite checks:
 - **Implementation Plan**: `../plan.md`
 - **OpenAPI Contract**: `./openapi.yaml`
 - **Quick Start Guide**: `../quickstart.md`
+
+---
+
+## Contract Validation Status
+
+**Last Validated**: 2025-10-28 (Phase 5 - Polish)
+**Validator**: Automated implementation review
+
+### Validation Results
+
+✅ **OpenAPI Schema Alignment**: PASS
+- All properties match Python dataclass definitions
+- Enum values align with Literal types
+- Required fields match implementation constraints
+
+✅ **Data Type Consistency**: PASS
+- `tool`: string (gh, copilot) - matches implementation
+- `status`: string (pass, fail) - matches CheckStatus Literal
+- `overall_status`: string (ready, not_ready) - matches OverallStatus Literal
+- `duration_ms`: int64 - matches Python int type
+- `remediation`: optional string - matches Optional[str]
+
+✅ **Business Logic Alignment**: PASS
+- Overall status calculation matches implementation
+- Remediation presence rules match implementation
+- Activity result structure matches contract
+
+### Known Gaps
+
+None. The OpenAPI contract is fully aligned with the current implementation.
+
+### Future Considerations
+
+When adding new features:
+1. Update OpenAPI schema first
+2. Implement Python models matching the schema
+3. Update this validation section
+4. Add integration tests validating serialization
+
+````

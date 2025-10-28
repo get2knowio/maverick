@@ -6,8 +6,6 @@ and CLI components with appropriate formatting and log levels.
 
 import logging
 import sys
-from typing import Optional
-
 
 # Default log format with timestamp, level, logger name, and message
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -16,11 +14,11 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def setup_logging(
     level: int = logging.INFO,
-    format_string: Optional[str] = None,
-    date_format: Optional[str] = None,
+    format_string: str | None = None,
+    date_format: str | None = None,
 ) -> None:
     """Configure the root logger with standard formatting.
-    
+
     Args:
         level: Logging level (default: INFO)
         format_string: Custom log format (default: LOG_FORMAT)
@@ -35,13 +33,13 @@ def setup_logging(
     )
 
 
-def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
+def get_logger(name: str, level: int | None = None) -> logging.Logger:
     """Get a logger for the specified module.
-    
+
     Args:
         name: Logger name (typically __name__ from calling module)
         level: Optional logging level override for this logger
-        
+
     Returns:
         Configured logger instance
     """

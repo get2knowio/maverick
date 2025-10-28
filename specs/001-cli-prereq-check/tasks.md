@@ -101,10 +101,10 @@ Checkpoint: At this point, User Stories 1 AND 2 should both work; US2 guidance b
 
 Purpose: Improvements that affect multiple user stories
 
-- [ ] T025 [P] Update `specs/001-cli-prereq-check/quickstart.md` with exact uv commands and examples verified against current code
-- [ ] T026 Code cleanup and ruff fixes across `src/` and `tests/`
-- [ ] T027 [P] Update repository `README.md` with feature overview and run instructions
-- [ ] T028 Validate OpenAPI contract alignment with implementation in `specs/001-cli-prereq-check/contracts/openapi.yaml` and note gaps
+- [X] T025 [P] Update `specs/001-cli-prereq-check/quickstart.md` with exact uv commands and examples verified against current code
+- [X] T026 Code cleanup and ruff fixes across `src/` and `tests/`
+- [X] T027 [P] Update repository `README.md` with feature overview and run instructions
+- [X] T028 Validate OpenAPI contract alignment with implementation in `specs/001-cli-prereq-check/contracts/openapi.yaml` and note gaps
 
 ---
 
