@@ -1,4 +1,3 @@
-````markdown
 # Maverick
 
 Temporal-based CLI tools for development workflow automation.
