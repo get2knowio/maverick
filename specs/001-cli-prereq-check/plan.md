@@ -62,10 +62,6 @@ specs/[###-feature]/
 -->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-```text
 src/
 ├── activities/
 │   ├── gh_status.py
