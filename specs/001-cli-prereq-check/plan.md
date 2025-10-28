@@ -21,7 +21,6 @@ guidance on failures. Non‑interactive by default; no environment mutations.
 **Performance Goals**: Readiness check completes < 30s locally
 **Constraints**: Non‑interactive; human‑readable only; no environment changes
 **Scale/Scope**: Single workflow, 2 activities (gh status, copilot availability)
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
