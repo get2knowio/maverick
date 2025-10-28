@@ -35,8 +35,9 @@ uv sync
 
 
 
-This will install:## Run Temporal locally (dev server)
+This will install:
 
+## Run Temporal locally (dev server)
 - `temporalio` (Temporal Python SDK)
 
 - `pytest` and `pytest-asyncio` (testing)- Option A: Temporal CLI dev server
