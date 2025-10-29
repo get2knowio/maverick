@@ -31,7 +31,7 @@ ignore = []
 packages = ["src"]
 
 [project.scripts]
-readiness-worker = "src.workers.readiness_worker:run_worker"
+maverick-worker = "src.workers.main:run_worker"
 readiness-check = "src.cli.readiness:main"
 
 [build-system]

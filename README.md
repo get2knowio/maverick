@@ -8,17 +8,18 @@ Maverick provides Temporal workflows and activities to automate common developme
 
 ## Features
 
-### CLI Prerequisite Check
+### CLI Readiness Check
 
-Verifies that essential development tools are installed and properly configured before starting work.
+Verifies that essential development tools are installed and properly configured, and validates GitHub repository access before starting work.
 
 **What it checks:**
 - ✓ GitHub CLI (`gh`) - Installed and authenticated
 - ✓ Copilot CLI (`copilot`) - Available and functional
+- ✓ GitHub Repository - Accessible and valid
 
 **Key capabilities:**
 - Non-interactive, automated checks
-- Clear pass/fail status for each tool
+- Clear pass/fail status for each check
 - Actionable remediation guidance with official documentation links
 - Fast execution (< 30 seconds)
 - Structured logging for observability
@@ -30,13 +31,11 @@ Verifies that essential development tools are installed and properly configured 
 temporal server start-dev
 
 # Start the worker (separate terminal)
-uv run readiness-worker
+uv run maverick-worker
 
-# Run the readiness check
-uv run readiness-check
+# Run the readiness check with your repository URL
+uv run readiness-check https://github.com/owner/repo
 ```
-
-See [quickstart guide](specs/001-cli-prereq-check/quickstart.md) for detailed instructions.
 
 ## Requirements
 
@@ -113,11 +112,11 @@ uv run ruff check --fix .
 ### Development Workflow
 
 1. Start Temporal server: `temporal server start-dev`
-2. Start the worker: `uv run readiness-worker`
+2. Start the worker: `uv run maverick-worker`
 3. Make your changes
 4. Run tests: `uv run pytest`
 5. Run linting: `uv run ruff check .`
-6. Execute CLI: `uv run readiness-check`
+6. Execute CLI: `uv run readiness-check https://github.com/owner/repo`
 
 ## Architecture
 
@@ -125,14 +124,35 @@ Maverick follows Temporal best practices:
 
 - **Activities**: Pure functions that interact with external systems (CLI tools, APIs)
 - **Workflows**: Orchestration logic that coordinates activities
-- **Workers**: Long-running processes that execute activities and workflows
+- **Workers**: Single consolidated worker that hosts all workflows and activities
 - **CLI**: User-facing commands that trigger workflows
+
+### Worker Architecture
+
+Maverick uses a **unified worker architecture**:
+- Single worker process (`maverick-worker`) hosts all workflows and activities
+- Single task queue (`maverick-task-queue`) for all workflow types
+- Benefits: Simplified operations, better resource utilization, easier deployment
+
+Available workflows:
+- **ReadinessWorkflow**: Checks CLI tool prerequisites and verifies GitHub repository access
 
 Key principles:
 - **Deterministic workflows**: All non-deterministic operations (time, randomness) use Temporal-safe APIs
 - **Type safety**: Proper `result_type` specifications for activity results
 - **Literal types**: Used instead of Enums for seamless JSON serialization
-- **Structured logging**: Consistent logging format across all components
+- **Structured logging**: JSON-based logging in activities/workers, traditional logging in CLI
+- **Error resilience**: Safe subprocess decoding, JSON serialization with fallbacks
+- **Single worker**: Consolidated architecture for simplified operations
+
+### Logging Architecture
+
+Maverick uses two logging approaches:
+- **Activities & Workers**: Structured JSON logging (`src/utils/logging.py`) with SafeJSONEncoder
+- **CLI & User-facing**: Traditional formatted logging (`src/common/logging.py`)
+- **Workflows**: Use `workflow.logger` exclusively (never import loggers)
+
+This separation ensures proper observability while maintaining deterministic workflow behavior.
 
 ## Contributing
 

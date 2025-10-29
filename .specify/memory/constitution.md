@@ -1,15 +1,22 @@
 <!--
 Sync Impact Report:
-- Version change: 1.0.0 → 1.1.0
-- Modified principles: IV. Temporal-First Architecture (expanded with determinism rules)
-- Added sections: "Temporal Workflow Best Practices" subsection under Technology Standards
+- Version change: 1.1.0 → 1.2.0
+- Modified principles: 
+  - IV. Temporal-First Architecture (added worker patterns and logging rules)
+  - V. Observability and Monitoring (expanded with logging architecture details)
+- Added sections: 
+  - "Worker Best Practices" subsection under Technology Standards
+  - "Code Quality Standards" subsection under Technology Standards
+  - "Error Handling & Resilience" subsection under Technology Standards
+  - "Documentation Standards" subsection under Development Workflow
 - Removed sections: None
 - Templates requiring updates: 
   ✅ .specify/templates/plan-template.md (Constitution Check section aligns)
   ✅ .specify/templates/spec-template.md (requirements alignment confirmed)
   ✅ .specify/templates/tasks-template.md (task categorization aligns)
-- Follow-up TODOs: None
-- Rationale: MINOR version bump (1.1.0) due to materially expanded guidance on Temporal workflow determinism and type safety, adding non-negotiable rules for workflow correctness.
+  ⚠ .specify/templates/agent-file-template.md (should include Documentation Standards section)
+- Follow-up TODOs: Update agent-file-template.md to include Documentation Standards section
+- Rationale: MINOR version bump (1.2.0) due to substantial new operational guidance added from production learnings: worker shutdown patterns, connection management, error handling, logging architecture, and documentation standards. No breaking changes to existing principles.
 -->
 
 # Maverick Constitution
@@ -40,16 +47,50 @@ Code MUST be organized around Temporal workflow concepts: Activities, Workflows,
 - Workflows MUST NEVER use `random.random()` - use `workflow.random()` for deterministic randomness
 - Duration calculation MUST use `(workflow.now() - start_time).total_seconds()` for timedelta math
 
+**Workflow Logging (NON-NEGOTIABLE)**:
+- Workflows MUST ALWAYS use `workflow.logger` - never import module-level loggers
+- Metadata MUST be passed via `extra` dict using standard Python logging format
+- Must include workflow context: `workflow.info().workflow_id`, `workflow.info().run_id`
+
 **Type Safety Requirements**:
 - Activity calls MUST specify `result_type` when returning dataclasses to ensure proper deserialization
 - Data models MUST use `Literal` types instead of `Enum` for status/state values to avoid custom serialization complexity
 
-**Rationale**: Temporal workflows must be deterministic to support replay. Non-deterministic operations like system time calls will cause `RestrictedWorkflowAccessError` and prevent workflow execution. Proper type hints and serialization ensure correct deserialization and prevent runtime AttributeErrors. These rules are based on production lessons learned during initial feature implementation.
+**Worker Architecture Requirements**:
+- Single consolidated worker process MUST host ALL workflows and activities
+- Unified task queue MUST be used for all workflow types
+- Worker processes MUST implement graceful shutdown with signal handlers (SIGTERM, SIGINT)
+- Connection management MUST use timeouts and explicit error handling
+
+**Rationale**: Temporal workflows must be deterministic to support replay. Non-deterministic operations like system time calls will cause `RestrictedWorkflowAccessError` and prevent workflow execution. Module-level loggers can cause non-deterministic behavior during replay. Proper type hints and serialization ensure correct deserialization and prevent runtime AttributeErrors. Consolidated worker architecture simplifies operations and resource utilization. These rules are based on production lessons learned during feature implementation.
 
 ### V. Observability and Monitoring
 All workflows and activities MUST include structured logging, metrics, and tracing. Temporal dashboard integration MUST be maintained. Error handling MUST provide clear context for debugging both during development and in production.
 
-**Rationale**: Temporal workflows execute across time and failures; comprehensive observability is essential for understanding system behavior and debugging issues.
+**Logging Architecture (REQUIRED)**:
+- Activities & Workers: Structured JSON logging via `src/utils/logging.py` with SafeJSONEncoder
+- CLI & User-facing: Traditional formatted logging via `src/common/logging.py`
+- Workflows: Exclusively use `workflow.logger` (never import loggers)
+- JSON serialization MUST handle datetime, sets, bytes, and custom objects with fallback handling
+
+**Rationale**: Temporal workflows execute across time and failures; comprehensive observability is essential for understanding system behavior and debugging issues. Separate logging architectures ensure proper observability while maintaining deterministic workflow behavior.
+
+### VI. Documentation Standards
+Documentation MUST distinguish between ephemeral working documents and durable reference materials. Ephemeral specs (in `specs/` directory) MUST NOT be referenced from durable documentation like README or agent guidance files.
+
+**Durable Documentation Requirements**:
+- README.md: User-facing project documentation and quick start guides
+- AGENTS.md: Comprehensive AI agent development guidelines  
+- Code comments: Inline documentation for maintainability
+- Docstrings: API documentation within code
+
+**Ephemeral Specifications**:
+- `specs/` directory contains working documents used during active development
+- Specs may be moved, renamed, or deleted after feature completion
+- Specs MUST NOT be linked from durable documentation
+- Completed specs may be archived to `specs-completed/` for historical reference
+
+**Rationale**: Clear separation between temporary planning documents and permanent reference materials prevents broken links and confusion as the project evolves. Specs are valuable during development but should not create maintenance burden in production documentation.
 
 ## Technology Standards
 
@@ -117,6 +158,72 @@ class CheckStatus(Enum):  # ❌ Needs custom data converter
 
 These patterns are mandatory for all Temporal workflow and activity implementations.
 
+#### Worker Best Practices (REQUIRED)
+
+**Graceful Shutdown**:
+Every worker MUST implement proper shutdown handling before starting:
+- Add signal handlers for SIGTERM and SIGINT
+- Use asyncio.Event for shutdown coordination
+- Cancel tasks properly and await their cancellation
+- Clean up resources in finally blocks (remove signal handlers)
+
+**Connection Management**:
+All Temporal client connections MUST follow this pattern:
+- Use environment variables for configuration (TEMPORAL_HOST, TEMPORAL_CONNECTION_TIMEOUT)
+- Validate configuration before attempting connection (non-empty, positive values)
+- Apply connection timeouts with `asyncio.wait_for()`
+- Handle exceptions explicitly (TimeoutError, generic Exception)
+- Log all connection attempts with target and timeout
+- Exit on failure with `sys.exit(1)` to prevent silent crashes
+
+**Rationale**: Proper shutdown handling prevents data loss and ensures clean termination. Connection management with timeouts and validation prevents hanging workers and provides clear error messages for debugging connection issues.
+
+### Code Quality Standards (REQUIRED)
+
+**Linting Configuration**:
+- Avoid contradictory rules (don't globally ignore rules that have per-file-ignores)
+- Use per-file-ignores deliberately (e.g., allow T201/print only in `src/cli/*.py`)
+- Keep global ignores minimal (only rules that apply project-wide)
+
+**Data Model Validation**:
+All dataclasses with business rules MUST validate in `__post_init__`:
+- Validate invariants immediately (fail fast on construction)
+- Provide clear error messages (include what failed and expected value)
+- Document invariants in docstrings
+- Check both directions of constraints (if applicable)
+
+**Input Validation**:
+All input parsing and validation MUST follow this pattern:
+- Validate early (check inputs immediately after extraction)
+- Call validation in correct order (e.g., host before slug)
+- Apply validation consistently (same validation for all input formats)
+- Let exceptions propagate (don't swallow validation errors)
+
+**Rationale**: Consistent code quality standards prevent subtle bugs and make code more maintainable. Early validation with clear error messages helps developers identify issues quickly.
+
+### Error Handling & Resilience (CRITICAL)
+
+**Subprocess Output Decoding (REQUIRED)**:
+All subprocess stderr/stdout decoding MUST use tolerant error handling:
+- Always use `errors='replace'` with `.decode()` to prevent UnicodeDecodeError
+- Never use bare `.decode()` which can crash on non-UTF-8 bytes
+- Call `.lower()` after decoding for safe case-insensitive matching
+
+**JSON Serialization Safety (REQUIRED)**:
+All structured logging MUST use safe JSON serialization:
+- Use SafeJSONEncoder to handle datetime, sets, bytes, custom objects
+- Implement fallback handling (never let serialization errors propagate)
+- Provide minimal fallback with event name and error details
+
+**CLI Tool Integration (REQUIRED)**:
+When integrating with external CLI tools (gh, git, etc.):
+- Validate tool flags against documentation for supported options
+- Use documented APIs (prefer environment variables or URL formats)
+- Handle tool-specific formats properly (e.g., `HOST/OWNER/REPO` for gh CLI)
+- Research tool options with `--help` or official documentation before use
+
+**Rationale**: External tools may output non-UTF-8 bytes; tolerant decoding ensures activities never crash due to encoding issues. Safe JSON serialization with fallbacks ensures logging never fails silently. Proper CLI tool integration prevents errors from invalid flags or formats.
+
 ### Testing Standards
 - pytest as test framework with temporal testing utilities
 - Unit tests for all Activities (pure functions where possible)
@@ -131,6 +238,8 @@ These patterns are mandatory for all Temporal workflow and activity implementati
 - Workflows in `src/workflows/` with minimal logic
 - Workers in `src/workers/` for process management
 - Shared models in `src/models/` for data structures
+- Utilities in `src/utils/` for structured logging and helpers
+- Common code in `src/common/` for CLI and user-facing utilities
 - Tests mirror source structure in `tests/`
 
 ### Quality Gates
@@ -146,10 +255,10 @@ These patterns are mandatory for all Temporal workflow and activity implementati
 
 ## Governance
 
-This constitution supersedes all other development practices. Changes require explicit amendment with version bump and impact assessment. All features MUST demonstrate compliance with these principles, particularly Simplicity First and Test-Driven Development.
+This constitution supersedes all other development practices. Changes require explicit amendment with version bump and impact assessment. All features MUST demonstrate compliance with these principles, particularly Simplicity First, Test-Driven Development, and the Temporal-specific operational patterns.
 
 **Amendment Process**: Constitutional changes require documentation of impact on existing workflows, approval from maintainers, and migration plan for existing code.
 
-**Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness and test coverage.
+**Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness, operational patterns (worker shutdown, connection management, error handling), and test coverage.
 
-**Version**: 1.1.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-10-28
+**Version**: 1.2.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-10-29

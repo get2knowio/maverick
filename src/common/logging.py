@@ -7,6 +7,7 @@ and CLI components with appropriate formatting and log levels.
 import logging
 import sys
 
+
 # Default log format with timestamp, level, logger name, and message
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"

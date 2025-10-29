@@ -8,10 +8,11 @@ import asyncio
 
 from temporalio import activity
 
-from src.common.logging import get_logger
 from src.models.prereq import PrereqCheckResult
+from src.utils.logging import get_structured_logger
 
-logger = get_logger(__name__)
+
+logger = get_structured_logger("activity.copilot_help")
 
 # Remediation guidance for Copilot CLI issues
 COPILOT_NOT_INSTALLED_REMEDIATION = """Copilot CLI is not installed.
@@ -44,7 +45,7 @@ async def check_copilot_help() -> PrereqCheckResult:
     Returns:
         PrereqCheckResult with pass/fail status and remediation guidance
     """
-    logger.info("Checking Copilot CLI availability")
+    logger.info("copilot_help_check_started")
 
     try:
         # Execute copilot help
@@ -60,7 +61,7 @@ async def check_copilot_help() -> PrereqCheckResult:
                 timeout=10.0
             )
         except TimeoutError:
-            logger.error("copilot help command timed out")
+            logger.error("copilot_help_timeout", timeout_seconds=10.0)
             return PrereqCheckResult(
                 tool="copilot",
                 status="fail",
@@ -70,7 +71,7 @@ async def check_copilot_help() -> PrereqCheckResult:
 
         # copilot help should return 0 if successful
         if process.returncode == 0:
-            logger.info("Copilot CLI is available and responding")
+            logger.info("copilot_help_available")
             return PrereqCheckResult(
                 tool="copilot",
                 status="pass",
@@ -80,7 +81,7 @@ async def check_copilot_help() -> PrereqCheckResult:
         else:
             # Command failed
             stderr_text = stderr.decode('utf-8', errors='replace')
-            logger.warning(f"Copilot CLI command failed: {stderr_text}")
+            logger.warning("copilot_help_command_failed", exit_code=process.returncode, stderr=stderr_text)
 
             return PrereqCheckResult(
                 tool="copilot",
@@ -90,7 +91,7 @@ async def check_copilot_help() -> PrereqCheckResult:
             )
 
     except FileNotFoundError:
-        logger.error("Copilot CLI is not installed (command not found)")
+        logger.error("copilot_help_not_installed", error="command_not_found")
         return PrereqCheckResult(
             tool="copilot",
             status="fail",
@@ -98,7 +99,7 @@ async def check_copilot_help() -> PrereqCheckResult:
             remediation=COPILOT_NOT_INSTALLED_REMEDIATION.strip()
         )
     except Exception as e:
-        logger.error(f"Unexpected error checking Copilot CLI: {e}")
+        logger.error("copilot_help_error", error_type=type(e).__name__, error_message=str(e))
         return PrereqCheckResult(
             tool="copilot",
             status="fail",

@@ -1,0 +1,104 @@
+openapi: 3.0.3
+info:
+  title: Parameterized Workflow API
+  version: 0.1.0
+servers:
+  - url: https://api.example.com
+paths:
+  /workflows/start:
+    post:
+      summary: Start a workflow run with parameters
+      description: Starts a Temporal workflow run. Performs repo verification at the beginning of the run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  additionalProperties: true
+                  required:
+                    - github_repo_url
+                  properties:
+                    github_repo_url:
+                      type: string
+                      description: HTTPS or SSH GitHub repo URL
+              required:
+                - parameters
+      responses:
+        '202':
+          description: Run accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                  verification:
+                    $ref: '#/components/schemas/VerificationResult'
+        '400':
+          description: Validation error (e.g., malformed URL or unsupported host)
+        '401':
+          description: GitHub not authenticated for target host
+        '404':
+          description: Repository not found
+        '429':
+          description: Rate limited
+        '503':
+          description: Transient upstream error
+
+  /workflows/{run_id}:
+    get:
+      summary: Get workflow run status
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Run status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                  state:
+                    type: string
+                    enum: [pending, verified, failed]
+                  verification:
+                    $ref: '#/components/schemas/VerificationResult'
+        '404':
+          description: Run not found
+
+components:
+  schemas:
+    VerificationResult:
+      type: object
+      properties:
+        tool:
+          type: string
+          enum: [gh]
+        status:
+          type: string
+          enum: [pass, fail]
+        message:
+          type: string
+        host:
+          type: string
+        repo_slug:
+          type: string
+        error_code:
+          type: string
+          enum: [none, validation_error, auth_error, not_found, access_denied, transient_error]
+        attempts:
+          type: integer
+        duration_ms:
+          type: integer
+
