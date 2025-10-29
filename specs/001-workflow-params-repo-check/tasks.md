@@ -28,8 +28,8 @@ description: "Tasks for Parameterized Workflow with Repo Verification"
 
 **Purpose**: Initialize the Python 3.11 project with uv-managed dependencies and basic tooling.
 
-- [ ] T001 Initialize uv project with Temporal SDK and tooling in pyproject.toml
-- [ ] T002 [P] Configure Ruff linter settings in ruff.toml
+- [x] T001 Initialize uv project with Temporal SDK and tooling in pyproject.toml
+- [x] T002 [P] Configure Ruff linter settings in ruff.toml
 
 ---
 
@@ -39,13 +39,13 @@ description: "Tasks for Parameterized Workflow with Repo Verification"
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Create Parameters dataclass defining required keys in src/models/parameters.py
-- [ ] T004 [P] Define VerificationResult dataclass and error taxonomy in src/models/verification_result.py
-- [ ] T005 [P] Define WorkflowState dataclass and literals in src/models/workflow_state.py
-- [ ] T006 Implement GitHub URL normalization utility (HTTPS/SSH → host + owner/repo) in src/utils/url_normalization.py
-- [ ] T007 [P] Implement typed parameter accessor utility in src/utils/param_accessor.py
-- [ ] T008 [P] Add structured logging helper in src/utils/logging.py
-- [ ] T009 Create Temporal worker entrypoint (no registrations yet) in src/workers/main.py
+- [x] T003 Create Parameters dataclass defining required keys in src/models/parameters.py
+- [x] T004 [P] Define VerificationResult dataclass and error taxonomy in src/models/verification_result.py
+- [x] T005 [P] Define WorkflowState dataclass and literals in src/models/workflow_state.py
+- [x] T006 Implement GitHub URL normalization utility (HTTPS/SSH → host + owner/repo) in src/utils/url_normalization.py
+- [x] T007 [P] Implement typed parameter accessor utility in src/utils/param_accessor.py
+- [x] T008 [P] Add structured logging helper in src/utils/logging.py
+- [x] T009 Create Temporal worker entrypoint (no registrations yet) in src/workers/main.py
 
 Checkpoint: Foundation ready — user story implementation can now begin.
 
@@ -59,13 +59,13 @@ Checkpoint: Foundation ready — user story implementation can now begin.
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Implement repo verification activity using gh CLI (auth check + repo view) in src/activities/repo_verification.py
-- [ ] T011 [US1] Implement workflow to read params and invoke verification activity in src/workflows/repo_verification_workflow.py
-- [ ] T012 [US1] Register workflow and activity with worker in src/workers/main.py
-- [ ] T013 [P] [US1] Add auth pre-check (`gh auth status` with host) handling in src/activities/repo_verification.py
-- [ ] T014 [P] [US1] Add timeout and single-retry with backoff around gh calls in src/activities/repo_verification.py
-- [ ] T015 [P] [US1] Add structured logging for verification lifecycle in src/activities/repo_verification.py
-- [ ] T016 [P] [US1] Add structured logging for workflow start/result in src/workflows/repo_verification_workflow.py
+- [x] T010 [US1] Implement repo verification activity using gh CLI (auth check + repo view) in src/activities/repo_verification.py
+- [x] T011 [US1] Implement workflow to read params and invoke verification activity in src/workflows/repo_verification_workflow.py
+- [x] T012 [US1] Register workflow and activity with worker in src/workers/main.py
+- [x] T013 [P] [US1] Add auth pre-check (`gh auth status` with host) handling in src/activities/repo_verification.py
+- [x] T014 [P] [US1] Add timeout and single-retry with backoff around gh calls in src/activities/repo_verification.py
+- [x] T015 [P] [US1] Add structured logging for verification lifecycle in src/activities/repo_verification.py
+- [x] T016 [P] [US1] Add structured logging for workflow start/result in src/workflows/repo_verification_workflow.py
 
 Checkpoint: User Story 1 is fully functional and independently testable.
 
@@ -79,9 +79,9 @@ Checkpoint: User Story 1 is fully functional and independently testable.
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Integrate typed parameter accessor into verification activity in src/activities/repo_verification.py
-- [ ] T018 [P] [US2] Add a simple parameter echo activity demonstrating accessor usage in src/activities/param_echo.py
-- [ ] T019 [US2] Update workflow to call parameter echo activity after verification in src/workflows/repo_verification_workflow.py
+- [x] T017 [US2] Integrate typed parameter accessor into verification activity in src/activities/repo_verification.py
+- [x] T018 [P] [US2] Add a simple parameter echo activity demonstrating accessor usage in src/activities/param_echo.py
+- [x] T019 [US2] Update workflow to call parameter echo activity after verification in src/workflows/repo_verification_workflow.py
 
 Checkpoint: User Stories 1 and 2 both work independently (US2 demonstrably accesses parameters in steps).
 
@@ -95,10 +95,10 @@ Checkpoint: User Stories 1 and 2 both work independently (US2 demonstrably acces
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] Map failure modes to structured error_code/messages in src/activities/repo_verification.py
-- [ ] T021 [US3] Implement workflow state transitions (`pending` → `verified`/`failed`) and early halt in src/workflows/repo_verification_workflow.py
-- [ ] T022 [P] [US3] Ensure retry-once with small backoff on transient gh failures in src/activities/repo_verification.py
-- [ ] T023 [P] [US3] Add failure result emission to structured logs in src/workers/main.py
+- [x] T020 [US3] Map failure modes to structured error_code/messages in src/activities/repo_verification.py
+- [x] T021 [US3] Implement workflow state transitions (`pending` → `verified`/`failed`) and early halt in src/workflows/repo_verification_workflow.py
+- [x] T022 [P] [US3] Ensure retry-once with small backoff on transient gh failures in src/activities/repo_verification.py
+- [x] T023 [P] [US3] Add failure result emission to structured logs in src/workers/main.py
 
 Checkpoint: All three user stories are independently functional with clear failure behavior.
 
@@ -108,10 +108,10 @@ Checkpoint: All three user stories are independently functional with clear failu
 
 **Purpose**: Improvements that affect multiple user stories.
 
-- [ ] T024 [P] Document parameter keys and URL formats in specs/001-workflow-params-repo-check/quickstart.md
-- [ ] T025 Run Ruff checks and fix lint across src/ (ruff check .)
-- [ ] T026 [P] Validate Quickstart end-to-end with dev Temporal server per specs/001-workflow-params-repo-check/quickstart.md
-- [ ] T027 Performance tune timeouts/backoff to meet p95≤5s target in src/activities/repo_verification.py
+- [X] T024 [P] Document parameter keys and URL formats in specs/001-workflow-params-repo-check/quickstart.md
+- [X] T025 Run Ruff checks and fix lint across src/ (ruff check .)
+- [X] T026 [P] Validate Quickstart end-to-end with dev Temporal server per specs/001-workflow-params-repo-check/quickstart.md
+- [X] T027 Performance tune timeouts/backoff to meet p95≤5s target in src/activities/repo_verification.py
 - [ ] T028 [P] Optional: Scaffold HTTP API aligning to contracts at src/api/server.py
 
 ---

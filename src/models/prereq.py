@@ -4,8 +4,13 @@ Defines the data structures for individual prerequisite check results
 and the overall readiness summary per data-model.md specification.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal
+
+from src.models.verification_result import VerificationResult
+
 
 # Type aliases for status values (simpler than Enums for Temporal)
 CheckStatus = Literal["pass", "fail"]
@@ -39,14 +44,16 @@ class PrereqCheckResult:
 
 @dataclass
 class ReadinessSummary:
-    """Summary of all prerequisite checks.
+    """Summary of all prerequisite checks and repository verification.
 
     Attributes:
         results: List of individual prerequisite check results
+        repo_verification: Repository verification result
         overall_status: Overall readiness status ("ready" or "not_ready")
         duration_ms: Execution time in milliseconds
     """
     results: list[PrereqCheckResult]
+    repo_verification: VerificationResult | None
     overall_status: OverallStatus
     duration_ms: int
 
@@ -61,7 +68,14 @@ class ReadinessSummary:
             raise ValueError("Each tool must be unique within results")
 
         # Validate overall_status consistency
-        all_passed = all(r.status == "pass" for r in self.results)
+        # All CLI checks and repo verification (if present) must pass for "ready" status
+        cli_checks_passed = all(r.status == "pass" for r in self.results)
+        repo_check_passed = (
+            self.repo_verification is None or
+            self.repo_verification.status == "pass"
+        )
+        all_passed = cli_checks_passed and repo_check_passed
+
         if all_passed and self.overall_status != "ready":
             raise ValueError("overall_status must be 'ready' if all checks pass")
         if not all_passed and self.overall_status == "ready":

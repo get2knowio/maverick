@@ -8,10 +8,11 @@ import asyncio
 
 from temporalio import activity
 
-from src.common.logging import get_logger
 from src.models.prereq import PrereqCheckResult
+from src.utils.logging import get_structured_logger
 
-logger = get_logger(__name__)
+
+logger = get_structured_logger("activity.gh_status")
 
 # Remediation guidance for GitHub CLI issues
 GH_NOT_INSTALLED_REMEDIATION = """GitHub CLI is not installed.
@@ -45,7 +46,7 @@ async def check_gh_status() -> PrereqCheckResult:
     Returns:
         PrereqCheckResult with pass/fail status and remediation guidance
     """
-    logger.info("Checking GitHub CLI status")
+    logger.info("gh_status_check_started")
 
     try:
         # Execute gh auth status
@@ -61,7 +62,7 @@ async def check_gh_status() -> PrereqCheckResult:
                 timeout=10.0
             )
         except TimeoutError:
-            logger.error("gh auth status command timed out")
+            logger.error("gh_status_timeout", timeout_seconds=10.0)
             return PrereqCheckResult(
                 tool="gh",
                 status="fail",
@@ -71,7 +72,7 @@ async def check_gh_status() -> PrereqCheckResult:
 
         # gh auth status returns 0 if authenticated, 1 if not
         if process.returncode == 0:
-            logger.info("GitHub CLI is authenticated")
+            logger.info("gh_status_authenticated")
             return PrereqCheckResult(
                 tool="gh",
                 status="pass",
@@ -81,7 +82,7 @@ async def check_gh_status() -> PrereqCheckResult:
         else:
             # Parse stderr for helpful context
             stderr_text = stderr.decode('utf-8', errors='replace')
-            logger.warning(f"GitHub CLI is not authenticated: {stderr_text}")
+            logger.warning("gh_status_not_authenticated", stderr=stderr_text)
 
             return PrereqCheckResult(
                 tool="gh",
@@ -91,7 +92,7 @@ async def check_gh_status() -> PrereqCheckResult:
             )
 
     except FileNotFoundError:
-        logger.error("GitHub CLI is not installed (command not found)")
+        logger.error("gh_status_not_installed", error="command_not_found")
         return PrereqCheckResult(
             tool="gh",
             status="fail",
@@ -99,7 +100,7 @@ async def check_gh_status() -> PrereqCheckResult:
             remediation=GH_NOT_INSTALLED_REMEDIATION.strip()
         )
     except Exception as e:
-        logger.error(f"Unexpected error checking GitHub CLI status: {e}")
+        logger.error("gh_status_error", error_type=type(e).__name__, error_message=str(e))
         return PrereqCheckResult(
             tool="gh",
             status="fail",

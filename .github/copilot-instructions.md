@@ -86,9 +86,206 @@ class CheckStatus(Enum):  # ❌ Needs custom data converter
 ### Why This Matters
 Temporal workflows must be **deterministic** to support replay. Non-deterministic operations like system time calls will cause `RestrictedWorkflowAccessError` and prevent workflow execution. Proper type hints ensure correct deserialization and type safety.
 
+### Workflow Logging
+- **ALWAYS use `workflow.logger`** - Never use module-level loggers in workflows
+- **Pass metadata via `extra` dict** - Use standard Python logging format
+- Include workflow context: `workflow.info().workflow_id`, `workflow.info().run_id`
+
+```python
+# Correct: Use workflow.logger with extra dict
+workflow.logger.info(
+    "workflow_started",
+    extra={
+        "workflow_id": workflow.info().workflow_id,
+        "run_id": workflow.info().run_id,
+        "param": value
+    }
+)
+
+# Incorrect: Module-level logger
+logger = get_structured_logger("my_workflow")  # ❌ Non-deterministic
+logger.info("workflow_started", param=value)
+```
+
+## Worker Best Practices
+
+### Graceful Shutdown
+- **Add signal handlers** for SIGTERM and SIGINT
+- **Use asyncio.Event** for shutdown coordination
+- **Cancel tasks properly** on shutdown
+- **Clean up resources** in finally blocks
+
+```python
+# Set up shutdown handling
+loop = asyncio.get_event_loop()
+shutdown_event = asyncio.Event()
+
+def handle_shutdown(sig: int) -> None:
+    logger.info("shutdown_signal_received", signal=signal.Signals(sig).name)
+    shutdown_event.set()
+
+loop.add_signal_handler(signal.SIGTERM, lambda: handle_shutdown(signal.SIGTERM))
+loop.add_signal_handler(signal.SIGINT, lambda: handle_shutdown(signal.SIGINT))
+
+try:
+    # Run worker...
+finally:
+    loop.remove_signal_handler(signal.SIGTERM)
+    loop.remove_signal_handler(signal.SIGINT)
+```
+
+### Connection Management
+- **Use environment variables** for configuration (TEMPORAL_HOST, TEMPORAL_CONNECTION_TIMEOUT)
+- **Validate configuration** before use (non-empty, positive values)
+- **Apply connection timeouts** with `asyncio.wait_for()`
+- **Handle specific exceptions** (TimeoutError, generic Exception)
+- **Log connection attempts** with target and timeout
+- **Exit explicitly on failure** with `sys.exit(1)` to prevent silent crashes
+
+```python
+# Correct: Configurable connection with timeout
+temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+connection_timeout = float(os.getenv("TEMPORAL_CONNECTION_TIMEOUT", "10.0"))
+
+# Validate
+if not temporal_host or not temporal_host.strip():
+    logger.error("temporal_config_invalid", error="TEMPORAL_HOST cannot be empty")
+    sys.exit(1)
+
+try:
+    client = await asyncio.wait_for(
+        Client.connect(temporal_host),
+        timeout=connection_timeout
+    )
+except asyncio.TimeoutError:
+    logger.error("temporal_connection_failed", error_type="TimeoutError", ...)
+    sys.exit(1)
+except Exception as e:
+    logger.error("temporal_connection_failed", error_type=type(e).__name__, ...)
+    sys.exit(1)
+```
+
+## Code Quality Standards
+
+### Linting Configuration
+- **Avoid contradictory rules** - Don't globally ignore rules that have per-file-ignores
+- **Use per-file-ignores deliberately** - Allow exceptions only where needed (e.g., T201 for CLI)
+- **Keep global ignores minimal** - Only ignore rules that apply project-wide
+
+### Data Model Validation
+- **Validate invariants in `__post_init__`** - Use dataclass post-init for business rules
+- **Provide clear error messages** - Include what failed and why
+- **Document invariants** in docstrings
+
+```python
+@dataclass
+class WorkflowState:
+    """State tracking.
+    
+    Invariants:
+        - state="pending" requires verification=None
+        - state="verified" requires verification with status="pass"
+    """
+    state: WorkflowStateType
+    verification: VerificationResult | None = None
+    
+    def __post_init__(self) -> None:
+        if self.state == "pending" and self.verification is not None:
+            raise ValueError("state=pending requires verification=None")
+```
+
+### Input Validation
+- **Validate early** - Check inputs before processing
+- **Call validation functions** in the correct order
+- **Let exceptions propagate** - Don't swallow validation errors
+
+```python
+# Correct: Validate host before using it
+host = https_match.group(1).lower()
+validate_github_host(host)  # ✓ Validates before proceeding
+owner = https_match.group(2)
+# ... continue processing
+```
+
+## Error Handling & Resilience
+
+### Subprocess Output Decoding
+- **Always use `errors='replace'`** with `.decode()` to prevent UnicodeDecodeError
+- **Never use bare `.decode()`** - can crash on non-UTF-8 bytes from external tools
+
+```python
+# Correct: Tolerant decoding
+stderr_text = stderr.decode('utf-8', errors='replace')
+error_output = stderr.decode('utf-8', errors='replace').lower()
+
+# Incorrect: Can crash
+stderr_text = stderr.decode()  # ❌ Crashes on invalid UTF-8
+```
+
+### JSON Serialization Safety
+- **Use SafeJSONEncoder** for structured logging
+- **Implement fallback handling** - never let serialization errors propagate
+- SafeJSONEncoder should handle: datetime, sets, bytes, custom objects
+
+```python
+# Safe serialization with fallback
+try:
+    json_output = json.dumps(log_entry, cls=SafeJSONEncoder)
+except Exception as e:
+    fallback_entry = {"logger": name, "event": event, "serialization_error": str(e)}
+    json_output = json.dumps(fallback_entry)
+```
+
+### CLI Tool Integration
+- **Validate tool flags** - check documentation for supported options
+- **Use documented APIs** - prefer environment variables or URL formats
+- **Example**: Use `HOST/OWNER/REPO` format for gh CLI, not invalid flags
+
+```python
+# Correct: Use documented format
+repo_with_host = f"{host}/{repo_slug}"
+cmd = ["gh", "repo", "view", repo_with_host]
+```
+
+## Logging Architecture
+
+### Module Separation
+- **`src/utils/logging.py`** - Structured JSON logging for Activities & Workers
+- **`src/common/logging.py`** - Traditional logging for CLI & user-facing code
+- **Workflows** - ALWAYS use `workflow.logger` (never import loggers)
+
+```python
+# Activities: Structured logging
+from src.utils.logging import get_structured_logger
+logger = get_structured_logger("activity.my_activity")
+
+# Workflows: Use workflow.logger ONLY
+workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id})
+```
+
+## Worker Architecture
+
+### Consolidation Pattern
+- **Single worker** in `src/workers/main.py` hosts ALL workflows and activities
+- **Unified task queue** - All workflows use same queue
+- **Benefits** - Simplified operations, better resource utilization, easier deployment
+
 ## Recent Changes
 
 - 001-cli-prereq-check: Added Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests)
+
+## Documentation Standards
+
+### Ephemeral Specs
+- **`specs/` directory**: Contains ephemeral feature specifications used during development
+- **DO NOT reference** specs in durable documentation (README, AGENTS.md, etc.)
+- **DO NOT link** to specs from user-facing documentation
+- Specs are working documents that may be moved, renamed, or deleted after feature completion
+
+### Durable Documentation
+- **README.md**: User-facing project documentation
+- **AGENTS.md**: AI agent development guidelines
+- **Code comments**: Inline documentation for maintainability
 
 ## MCP Server Usage
 

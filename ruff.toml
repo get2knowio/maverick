@@ -1,0 +1,51 @@
+# Ruff configuration for maverick project
+# See: https://docs.astral.sh/ruff/configuration/
+
+line-length = 120
+target-version = "py311"
+indent-width = 4
+
+[lint]
+# Enable specific rule sets
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "N",   # pep8-naming
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade (Python version-specific improvements)
+    "B",   # flake8-bugbear (common bugs)
+    "C4",  # flake8-comprehensions
+    "DTZ", # flake8-datetimez (timezone-aware datetimes)
+    "T20", # flake8-print (no print statements)
+    "SIM", # flake8-simplify
+]
+
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[lint.per-file-ignores]
+# Allow print in CLI scripts
+"src/cli/*.py" = ["T201"]
+# Ignore import order in __init__.py files
+"**/__init__.py" = ["F401"]
+
+[lint.isort]
+known-first-party = ["src"]
+force-single-line = false
+lines-after-imports = 2
+
+[format]
+# Use double quotes for strings
+quote-style = "double"
+# Indent with spaces
+indent-style = "space"
+# Respect magic trailing comma
+skip-magic-trailing-comma = false
+# Unix line endings
+line-ending = "lf"

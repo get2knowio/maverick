@@ -4,20 +4,23 @@ This module provides the command-line interface for executing
 the readiness workflow and displaying the results.
 """
 
+import argparse
 import asyncio
 import sys
 
 from temporalio.client import Client
 
 from src.common.logging import get_logger
+from src.models.parameters import Parameters
 from src.models.prereq import ReadinessSummary
 from src.workflows.readiness import ReadinessWorkflow
+
 
 logger = get_logger(__name__)
 
 # Configuration
 TEMPORAL_HOST = "localhost:7233"
-TASK_QUEUE = "readiness-task-queue"
+TASK_QUEUE = "maverick-task-queue"  # Unified task queue for all workflows
 
 
 def format_summary(summary: ReadinessSummary) -> str:
@@ -51,6 +54,23 @@ def format_summary(summary: ReadinessSummary) -> str:
 
         lines.append("")
 
+    # Repository verification result
+    if summary.repo_verification:
+        repo = summary.repo_verification
+        status_symbol = "✓" if repo.status == "pass" else "✗"
+        status_text = "PASS" if repo.status == "pass" else "FAIL"
+
+        lines.append(f"{status_symbol} REPOSITORY: {status_text}")
+        lines.append(f"  {repo.message}")
+        lines.append(f"  Repository: {repo.host}/{repo.repo_slug}")
+
+        if repo.status == "fail":
+            lines.append(f"  Error: {repo.error_code}")
+            lines.append(f"  Attempts: {repo.attempts}")
+            lines.append(f"  Duration: {repo.duration_ms}ms")
+
+        lines.append("")
+
     # Overall status
     lines.append("-" * 60)
     if summary.overall_status == "ready":
@@ -70,8 +90,11 @@ def format_summary(summary: ReadinessSummary) -> str:
     return "\n".join(lines)
 
 
-async def run_check() -> int:
+async def run_check(github_repo_url: str) -> int:
     """Execute the readiness workflow and display results.
+
+    Args:
+        github_repo_url: GitHub repository URL to verify
 
     Returns:
         Exit code: 0 if ready, 1 if not ready, 2 on error
@@ -82,11 +105,15 @@ async def run_check() -> int:
         # Connect to Temporal server
         client = await Client.connect(TEMPORAL_HOST)
 
-        logger.info("Executing readiness workflow")
+        logger.info(f"Executing readiness workflow for repository: {github_repo_url}")
+
+        # Create parameters
+        params = Parameters(github_repo_url=github_repo_url)
 
         # Execute workflow
         result: ReadinessSummary = await client.execute_workflow(
             ReadinessWorkflow.run,
+            params,
             id=f"readiness-check-{asyncio.get_event_loop().time()}",
             task_queue=TASK_QUEUE,
         )
@@ -107,14 +134,24 @@ async def run_check() -> int:
         print(f"\nError: Failed to execute readiness check: {e}", file=sys.stderr)
         print("\nTroubleshooting:", file=sys.stderr)
         print("  1. Ensure Temporal server is running (temporal server start-dev)", file=sys.stderr)
-        print("  2. Ensure the readiness worker is running (uv run readiness:worker)", file=sys.stderr)
+        print("  2. Ensure the readiness worker is running (uv run readiness-worker)", file=sys.stderr)
         print("  3. Check logs for more details", file=sys.stderr)
         return 2
 
 
 def main():
     """Entry point for the CLI command (synchronous wrapper)."""
-    exit_code = asyncio.run(run_check())
+    parser = argparse.ArgumentParser(
+        description="Check CLI readiness and verify GitHub repository access"
+    )
+    parser.add_argument(
+        "github_repo_url",
+        help="GitHub repository URL (e.g., https://github.com/owner/repo)"
+    )
+
+    args = parser.parse_args()
+
+    exit_code = asyncio.run(run_check(args.github_repo_url))
     sys.exit(exit_code)
 
 
