@@ -1,0 +1,373 @@
+openapi: 3.1.0
+info:
+  title: Docker Compose Runner - Temporal Workflow & Activity Contracts
+  version: 1.0.0
+  description: |
+    Contracts for Docker Compose integration in Maverick Temporal workflows.
+    These are not HTTP APIs but Temporal workflow/activity interfaces.
+    
+    This specification serves as documentation for:
+    - Workflow parameters and return types
+    - Activity signatures and result types
+    - Data models used across the feature
+
+components:
+  schemas:
+    # Core Data Models
+    
+    ComposeConfig:
+      type: object
+      required:
+        - yaml_content
+        - parsed_config
+      properties:
+        yaml_content:
+          type: string
+          maxLength: 1048576  # 1 MB in bytes
+          description: Original YAML content as string for serialization to file
+        parsed_config:
+          type: object
+          description: Parsed YAML structure for validation and service lookup
+          required:
+            - services
+          properties:
+            services:
+              type: object
+              minProperties: 1
+              additionalProperties: true
+        target_service:
+          type: string
+          nullable: true
+          description: Explicit service name for validation execution (null triggers default)
+        startup_timeout_seconds:
+          type: integer
+          default: 300
+          minimum: 1
+          description: Maximum time to wait for environment startup and health checks
+        validation_timeout_seconds:
+          type: integer
+          default: 60
+          minimum: 1
+          description: Maximum time per validation step execution
+    
+    ComposeEnvironment:
+      type: object
+      required:
+        - project_name
+        - target_service
+        - health_status
+        - container_ids
+        - started_at
+      properties:
+        project_name:
+          type: string
+          pattern: '^maverick-[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+$'
+          description: Unique Docker Compose project name (format maverick-<workflow_id>-<run_id>)
+        target_service:
+          type: string
+          minLength: 1
+          description: Resolved service name where validations execute
+        health_status:
+          type: string
+          enum: [starting, healthy, unhealthy]
+          description: Current health state of target service
+        container_ids:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of service names to container IDs
+        started_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when environment started
+    
+    ComposeUpResult:
+      type: object
+      required:
+        - success
+        - error_type
+        - duration_ms
+      properties:
+        success:
+          type: boolean
+          description: Whether startup succeeded
+        environment:
+          $ref: '#/components/schemas/ComposeEnvironment'
+          nullable: true
+          description: Environment details if successful (required when success=true)
+        error_message:
+          type: string
+          nullable: true
+          description: Human-readable error if failed (required when success=false)
+        error_type:
+          type: string
+          enum:
+            - none
+            - validation_error
+            - docker_unavailable
+            - startup_failed
+            - health_check_timeout
+            - health_check_failed
+          description: Categorized error type (must be 'none' if success=true)
+        duration_ms:
+          type: integer
+          minimum: 0
+          description: Time taken for startup attempt in milliseconds
+        stderr_excerpt:
+          type: string
+          nullable: true
+          description: Last 50 lines of stderr if failed
+    
+    ComposeCleanupParams:
+      type: object
+      required:
+        - project_name
+        - mode
+      properties:
+        project_name:
+          type: string
+          minLength: 1
+          description: Docker Compose project name to clean up
+        mode:
+          type: string
+          enum: [graceful, preserve]
+          description: |
+            Cleanup mode:
+            - graceful: Remove all resources (success path)
+            - preserve: Log instructions only (failure path)
+    
+    ValidateInContainerParams:
+      type: object
+      required:
+        - project_name
+        - service_name
+        - command
+        - timeout_seconds
+      properties:
+        project_name:
+          type: string
+          minLength: 1
+          description: Docker Compose project name
+        service_name:
+          type: string
+          minLength: 1
+          description: Service to execute command in
+        command:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Command and arguments to execute
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          description: Maximum execution time
+    
+    ValidationResult:
+      type: object
+      required:
+        - success
+        - stdout
+        - stderr
+        - return_code
+        - duration_ms
+      properties:
+        success:
+          type: boolean
+          description: Whether validation command succeeded (return_code == 0)
+        stdout:
+          type: string
+          description: Standard output from command
+        stderr:
+          type: string
+          description: Standard error from command
+        return_code:
+          type: integer
+          description: Exit code from command
+        duration_ms:
+          type: integer
+          minimum: 0
+          description: Execution time in milliseconds
+
+# Activity Contracts (not HTTP endpoints - Temporal activities)
+
+paths:
+  /activities/compose_up:
+    post:
+      operationId: compose_up_activity
+      summary: Start Docker Compose environment
+      description: |
+        Temporal Activity: Creates temporary compose file, starts environment,
+        waits for health checks, returns environment details.
+        
+        Timeout: Controlled by ComposeConfig.startup_timeout_seconds
+        Retry Policy: Temporal default (exponential backoff)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComposeConfig'
+      responses:
+        '200':
+          description: Activity completed (check success field in result)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeUpResult'
+  
+  /activities/compose_down:
+    post:
+      operationId: compose_down_activity
+      summary: Tear down Docker Compose environment
+      description: |
+        Temporal Activity: Removes Docker Compose resources based on mode.
+        
+        Modes:
+        - graceful: Executes `docker compose -p <project> down -v`
+        - preserve: Logs manual cleanup instructions only
+        
+        Timeout: 120 seconds recommended
+        Retry Policy: Temporal default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComposeCleanupParams'
+      responses:
+        '200':
+          description: Activity completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleaned:
+                    type: boolean
+                    description: Whether resources were actually removed
+                  instructions:
+                    type: string
+                    nullable: true
+                    description: Manual cleanup command if mode=preserve
+  
+  /activities/validate_in_container:
+    post:
+      operationId: validate_in_container_activity
+      summary: Execute validation command inside target container
+      description: |
+        Temporal Activity: Runs command via `docker compose exec <service> <command>`.
+        
+        Timeout: Controlled by ValidateInContainerParams.timeout_seconds
+        Retry Policy: Temporal default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateInContainerParams'
+      responses:
+        '200':
+          description: Activity completed (check success field in result)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+
+  /workflows/readiness_with_compose:
+    post:
+      operationId: readiness_workflow
+      summary: Readiness Workflow with optional Docker Compose environment
+      description: |
+        Temporal Workflow: Modified ReadinessWorkflow that optionally creates
+        a containerized environment before running validations.
+        
+        Flow:
+        1. If compose_config provided: Start environment, wait for health
+        2. Run existing validation steps (gh_status, repo_verification, etc.)
+           - If compose env exists: Run validations inside container via docker compose exec
+           - If no compose env: Run validations on host (existing behavior)
+        3. On success: Clean up environment gracefully
+        4. On failure: Preserve environment, log cleanup instructions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - repo_url
+              properties:
+                repo_url:
+                  type: string
+                  description: Repository URL to verify
+                compose_config:
+                  $ref: '#/components/schemas/ComposeConfig'
+                  nullable: true
+                  description: Optional Docker Compose configuration
+      responses:
+        '200':
+          description: Workflow completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, not_ready]
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        passed:
+                          type: boolean
+                        message:
+                          type: string
+                  compose_environment:
+                    $ref: '#/components/schemas/ComposeEnvironment'
+                    nullable: true
+                    description: Environment details if compose_config was provided
+                  cleanup_instructions:
+                    type: string
+                    nullable: true
+                    description: Manual cleanup command if workflow failed with compose
+
+  /cli/readiness:
+    get:
+      operationId: cli_readiness
+      summary: CLI command for readiness check
+      description: |
+        Not an HTTP endpoint - CLI command interface.
+        
+        Usage: maverick readiness <repo-url> [--compose-file <path>]
+        
+        Behavior:
+        1. Validate compose file if provided (size, YAML syntax, health checks)
+        2. Parse YAML and create ComposeConfig
+        3. Start Temporal workflow with parameters
+        4. Stream results to stdout
+      parameters:
+        - name: repo-url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Repository URL to check readiness for
+        - name: compose-file
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Path to Docker Compose YAML file (optional)
+      responses:
+        '200':
+          description: Workflow completed successfully
+        '400':
+          description: Invalid input (bad YAML, missing health checks, size limit)
+        '500':
+          description: Workflow execution failed
+
