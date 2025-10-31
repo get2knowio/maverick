@@ -149,22 +149,38 @@ class ReadinessWorkflow:
         )
 
         # Execute both prerequisite checks in parallel
-        # If compose_environment exists, pass it to run checks inside the container
-        gh_check_task = workflow.execute_activity(
-            "check_gh_status",
-            compose_environment,  # Pass compose environment (None if not using containers)
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=prereq_retry_policy,
-            result_type=PrereqCheckResult,
-        )
+        # If compose_environment exists, pass it to run checks inside the container;
+        # otherwise, call activities with no arguments to keep compatibility with tests/mocks
+        if compose_environment is not None:
+            gh_check_task = workflow.execute_activity(
+                "check_gh_status",
+                compose_environment,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=prereq_retry_policy,
+                result_type=PrereqCheckResult,
+            )
 
-        copilot_check_task = workflow.execute_activity(
-            "check_copilot_help",
-            compose_environment,  # Pass compose environment (None if not using containers)
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=prereq_retry_policy,
-            result_type=PrereqCheckResult,
-        )
+            copilot_check_task = workflow.execute_activity(
+                "check_copilot_help",
+                compose_environment,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=prereq_retry_policy,
+                result_type=PrereqCheckResult,
+            )
+        else:
+            gh_check_task = workflow.execute_activity(
+                "check_gh_status",
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=prereq_retry_policy,
+                result_type=PrereqCheckResult,
+            )
+
+            copilot_check_task = workflow.execute_activity(
+                "check_copilot_help",
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=prereq_retry_policy,
+                result_type=PrereqCheckResult,
+            )
 
         # Wait for both CLI checks to complete
         gh_result: PrereqCheckResult = await gh_check_task
