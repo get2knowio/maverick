@@ -5,11 +5,17 @@ import contextlib
 import logging
 import os
 import signal
+import subprocess
 import sys
 
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from src.activities.compose import (
+    compose_down_activity,
+    compose_up_activity,
+    validate_in_container_activity,
+)
 from src.activities.copilot_help import check_copilot_help
 from src.activities.gh_status import check_gh_status
 from src.activities.param_echo import echo_parameters
@@ -36,8 +42,60 @@ async def main() -> None:
     logger.info(
         "worker_starting",
         workflows=["ReadinessWorkflow"],
-        activities=["check_gh_status", "check_copilot_help", "verify_repository", "echo_parameters"]
+        activities=[
+            "check_gh_status",
+            "check_copilot_help",
+            "verify_repository",
+            "echo_parameters",
+            "compose_up_activity",
+            "compose_down_activity",
+            "validate_in_container_activity",
+        ]
     )
+
+    # Verify Docker Compose V2 availability
+    logger.info("docker_compose_check", status="checking")
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        if result.returncode != 0:
+            logger.error(
+                "docker_compose_unavailable",
+                error="docker compose version check failed",
+                stderr=result.stderr.strip(),
+                return_code=result.returncode
+            )
+            sys.exit(1)
+
+        version_output = result.stdout.strip()
+        logger.info(
+            "docker_compose_available",
+            version=version_output
+        )
+    except FileNotFoundError:
+        logger.error(
+            "docker_compose_unavailable",
+            error="docker command not found",
+            hint="Ensure Docker is installed and on PATH"
+        )
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "docker_compose_unavailable",
+            error="docker compose version check timed out after 5s"
+        )
+        sys.exit(1)
+    except Exception as e:
+        logger.error(
+            "docker_compose_unavailable",
+            error_type=type(e).__name__,
+            error_message=str(e)
+        )
+        sys.exit(1)
 
     # Get Temporal server configuration from environment
     temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
@@ -102,14 +160,22 @@ async def main() -> None:
         client,
         task_queue="maverick-task-queue",
         workflows=[ReadinessWorkflow],
-        activities=[check_gh_status, check_copilot_help, verify_repository, echo_parameters]
+        activities=[
+            check_gh_status,
+            check_copilot_help,
+            verify_repository,
+            echo_parameters,
+            compose_up_activity,
+            compose_down_activity,
+            validate_in_container_activity,
+        ]
     )
 
     logger.info(
         "worker_created",
         task_queue="maverick-task-queue",
         workflows_count=1,
-        activities_count=4
+        activities_count=7
     )
 
     # Set up graceful shutdown

@@ -12,6 +12,7 @@ dependencies = [
     "temporalio>=1.7.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]

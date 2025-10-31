@@ -3,6 +3,8 @@
 Auto-generated from all feature plans. Last updated: 2025-10-29
 
 ## Active Technologies
+- Python 3.11 + Temporal Python SDK, PyYAML (for YAML parsing), uv (dependency management) (001-docker-compose-runner)
+- Temporary filesystem (for Docker Compose YAML files) (001-docker-compose-runner)
 
 - Python 3.11 + Temporal Python SDK, gh CLI (runtime tool), uv (dependency manager) (001-workflow-params-repo-check)
 
@@ -475,6 +477,8 @@ All code MUST follow the Maverick Constitution:
 - Error handling MUST provide clear context for debugging
 
 ## Recent Changes
+- 001-docker-compose-runner: Added Python 3.11 + Temporal Python SDK, PyYAML (for YAML parsing), uv (dependency management)
+- 001-docker-compose-runner: Added Python 3.11 + Temporal Python SDK, PyYAML (for YAML parsing), uv (dependency management)
 
 - 001-workflow-params-repo-check: Added Python 3.11 + Temporal Python SDK, gh CLI (runtime tool), uv (dependency manager)
 

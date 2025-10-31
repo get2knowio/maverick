@@ -28,10 +28,10 @@ Single project structure: `src/`, `tests/` at repository root
 
 **Purpose**: Project initialization and dependency management
 
-- [ ] T001 Add PyYAML dependency via `uv add pyyaml` in pyproject.toml
-- [ ] T002 Verify Docker Compose V2 availability by running `docker compose version` in worker startup
-- [ ] T003 [P] Create src/models/compose.py for Docker Compose data models
-- [ ] T004 [P] Create src/activities/compose.py for Docker Compose activities
+- [X] T001 Add PyYAML dependency via `uv add pyyaml` in pyproject.toml
+- [X] T002 Verify Docker Compose V2 availability by running `docker compose version` in worker startup
+- [X] T003 [P] Create src/models/compose.py for Docker Compose data models
+- [X] T004 [P] Create src/activities/compose.py for Docker Compose activities
 
 ---
 
@@ -41,14 +41,14 @@ Single project structure: `src/`, `tests/` at repository root
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement ComposeConfig dataclass in src/models/compose.py
-- [ ] T006 Implement ComposeEnvironment dataclass in src/models/compose.py
-- [ ] T007 Implement ComposeUpResult dataclass in src/models/compose.py
-- [ ] T008 Implement ComposeCleanupParams dataclass in src/models/compose.py
-- [ ] T009 Implement ValidateInContainerParams dataclass in src/models/compose.py
-- [ ] T010 Implement ValidationResult dataclass in src/models/compose.py
-- [ ] T011 Implement resolve_target_service() function in src/models/compose.py
-- [ ] T012 Add compose_config: ComposeConfig | None field to WorkflowParameters in src/models/parameters.py
+- [X] T005 Implement ComposeConfig dataclass in src/models/compose.py
+- [X] T006 Implement ComposeEnvironment dataclass in src/models/compose.py
+- [X] T007 Implement ComposeUpResult dataclass in src/models/compose.py
+- [X] T008 Implement ComposeCleanupParams dataclass in src/models/compose.py
+- [X] T009 Implement ValidateInContainerParams dataclass in src/models/compose.py
+- [X] T010 Implement ValidationResult dataclass in src/models/compose.py
+- [X] T011 Implement resolve_target_service() function in src/models/compose.py
+- [X] T012 Add compose_config: ComposeConfig | None field to WorkflowParameters in src/models/parameters.py
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -62,17 +62,17 @@ Single project structure: `src/`, `tests/` at repository root
 
 ### Implementation for User Story 1
 
-- [ ] T013 [P] [US1] Implement compose_up_activity() in src/activities/compose.py to start Docker Compose environment with health checks
-- [ ] T014 [P] [US1] Implement validate_in_container_activity() in src/activities/compose.py to execute commands inside target container
-- [ ] T015 [P] [US1] Implement compose_down_activity() in src/activities/compose.py for cleanup operations
-- [ ] T016 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to add compose setup step before existing validations
-- [ ] T017 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to wrap existing validation activities with container execution when compose_config is provided
-- [ ] T018 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to add graceful cleanup step on success
-- [ ] T019 [US1] Update worker registration in src/workers/main.py to include new compose activities
-- [ ] T020 [US1] Modify CLI in src/cli/readiness.py to accept --compose-file parameter
-- [ ] T021 [US1] Implement YAML file reading and parsing in src/cli/readiness.py
-- [ ] T022 [US1] Implement ComposeConfig creation from parsed YAML in src/cli/readiness.py
-- [ ] T023 [US1] Update workflow invocation in src/cli/readiness.py to pass ComposeConfig parameter
+- [X] T013 [P] [US1] Implement compose_up_activity() in src/activities/compose.py to start Docker Compose environment with health checks
+- [X] T014 [P] [US1] Implement validate_in_container_activity() in src/activities/compose.py to execute commands inside target container
+- [X] T015 [P] [US1] Implement compose_down_activity() in src/activities/compose.py for cleanup operations
+- [X] T016 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to add compose setup step before existing validations
+- [X] T017 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to wrap existing validation activities with container execution when compose_config is provided
+- [X] T018 [US1] Modify ReadinessWorkflow in src/workflows/readiness.py to add graceful cleanup step on success
+- [X] T019 [US1] Update worker registration in src/workers/main.py to include new compose activities
+- [X] T020 [US1] Modify CLI in src/cli/readiness.py to accept --compose-file parameter
+- [X] T021 [US1] Implement YAML file reading and parsing in src/cli/readiness.py
+- [X] T022 [US1] Implement ComposeConfig creation from parsed YAML in src/cli/readiness.py
+- [X] T023 [US1] Update workflow invocation in src/cli/readiness.py to pass ComposeConfig parameter
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. A developer can run the readiness workflow with a Docker Compose file, and validations will execute inside the container.
 
@@ -86,15 +86,15 @@ Single project structure: `src/`, `tests/` at repository root
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement early YAML validation in src/cli/readiness.py to check file size limit (1 MB)
-- [ ] T025 [US2] Implement YAML syntax validation in src/cli/readiness.py using yaml.safe_load with error handling
-- [ ] T026 [US2] Implement health check presence validation in src/cli/readiness.py for target service
-- [ ] T027 [US2] Enhance compose_up_activity() error handling in src/activities/compose.py to categorize error types (validation_error, docker_unavailable, startup_failed, health_check_timeout, health_check_failed)
-- [ ] T028 [US2] Implement stderr capture and last-50-lines extraction in src/activities/compose.py with tolerant decoding (errors='replace')
-- [ ] T029 [US2] Modify ReadinessWorkflow in src/workflows/readiness.py to add error handling for compose_up failures
-- [ ] T030 [US2] Implement conditional cleanup logic in src/workflows/readiness.py (preserve on runtime failures, cleanup on validation errors)
-- [ ] T031 [US2] Add cleanup instructions to workflow result in src/workflows/readiness.py when resources are preserved
-- [ ] T032 [US2] Update CLI error reporting in src/cli/readiness.py to display detailed error messages and cleanup instructions
+- [X] T024 [US2] Implement early YAML validation in src/cli/readiness.py to check file size limit (1 MB)
+- [X] T025 [US2] Implement YAML syntax validation in src/cli/readiness.py using yaml.safe_load with error handling
+- [X] T026 [US2] Implement health check presence validation in src/cli/readiness.py for target service
+- [X] T027 [US2] Enhance compose_up_activity() error handling in src/activities/compose.py to categorize error types (validation_error, docker_unavailable, startup_failed, health_check_timeout, health_check_failed)
+- [X] T028 [US2] Implement stderr capture and last-50-lines extraction in src/activities/compose.py with tolerant decoding (errors='replace')
+- [X] T029 [US2] Modify ReadinessWorkflow in src/workflows/readiness.py to add error handling for compose_up failures
+- [X] T030 [US2] Implement conditional cleanup logic in src/workflows/readiness.py (preserve on runtime failures, cleanup on validation errors)
+- [X] T031 [US2] Add cleanup instructions to workflow result in src/workflows/readiness.py when resources are preserved
+- [X] T032 [US2] Update CLI error reporting in src/cli/readiness.py to display detailed error messages and cleanup instructions
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently. Invalid configurations are caught early with clear messages, and failed environments are preserved for troubleshooting.
 
@@ -108,14 +108,14 @@ Single project structure: `src/`, `tests/` at repository root
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Add --target-service parameter to CLI in src/cli/readiness.py
-- [ ] T034 [US3] Implement default target selection logic in resolve_target_service() in src/models/compose.py (single service → use it, multiple → use "app", else → require explicit)
-- [ ] T035 [US3] Call resolve_target_service() during compose_up_activity() in src/activities/compose.py before starting environment
-- [ ] T036 [US3] Update error messages in resolve_target_service() in src/models/compose.py to list available services when target cannot be determined
-- [ ] T037 [US3] Store resolved target_service in ComposeEnvironment in src/activities/compose.py
-- [ ] T038 [US3] Use resolved target_service in validate_in_container_activity() in src/activities/compose.py
-- [ ] T039 [US3] Include resolved target_service in workflow result in src/workflows/readiness.py
-- [ ] T040 [US3] Update CLI help text in src/cli/readiness.py to document default selection policy
+- [X] T033 [US3] Add --target-service parameter to CLI in src/cli/readiness.py
+- [X] T034 [US3] Implement default target selection logic in resolve_target_service() in src/models/compose.py (single service → use it, multiple → use "app", else → require explicit)
+- [X] T035 [US3] Call resolve_target_service() during compose_up_activity() in src/activities/compose.py before starting environment
+- [X] T036 [US3] Update error messages in resolve_target_service() in src/models/compose.py to list available services when target cannot be determined
+- [X] T037 [US3] Store resolved target_service in ComposeEnvironment in src/activities/compose.py
+- [X] T038 [US3] Use resolved target_service in validate_in_container_activity() in src/activities/compose.py
+- [X] T039 [US3] Include resolved target_service in workflow result in src/workflows/readiness.py
+- [X] T040 [US3] Update CLI help text in src/cli/readiness.py to document default selection policy
 
 **Checkpoint**: All three user stories are now independently functional. Multi-service Compose files are fully supported with explicit or automatic service selection.
 
@@ -125,16 +125,16 @@ Single project structure: `src/`, `tests/` at repository root
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T041 [P] Add structured logging to compose_up_activity() in src/activities/compose.py for startup progress
-- [ ] T042 [P] Add structured logging to compose_down_activity() in src/activities/compose.py for cleanup operations
-- [ ] T043 [P] Add workflow.logger calls in ReadinessWorkflow in src/workflows/readiness.py for compose lifecycle events
-- [ ] T044 Implement exponential backoff health check polling in compose_up_activity() in src/activities/compose.py (1s, 2s, 4s, 8s, ..., max 30s)
-- [ ] T045 Implement unique project naming using workflow.info().workflow_id and workflow.info().run_id in src/workflows/readiness.py
-- [ ] T046 Implement temporary directory management using tempfile.mkdtemp() in compose_up_activity() in src/activities/compose.py
-- [ ] T047 Add duration tracking (workflow.now()) to compose operations in src/workflows/readiness.py
-- [ ] T048 Update README.md with Docker Compose feature overview and prerequisites
-- [ ] T049 Update AGENTS.md via update-agent-context.sh script to reflect new compose activities
-- [ ] T050 Validate quickstart.md examples by running through documented scenarios
+- [X] T041 [P] Add structured logging to compose_up_activity() in src/activities/compose.py for startup progress
+- [X] T042 [P] Add structured logging to compose_down_activity() in src/activities/compose.py for cleanup operations
+- [X] T043 [P] Add workflow.logger calls in ReadinessWorkflow in src/workflows/readiness.py for compose lifecycle events
+- [X] T044 Implement exponential backoff health check polling in compose_up_activity() in src/activities/compose.py (1s, 2s, 4s, 8s, ..., max 30s)
+- [X] T045 Implement unique project naming using workflow.info().workflow_id and workflow.info().run_id in src/workflows/readiness.py
+- [X] T046 Implement temporary directory management using tempfile.mkdtemp() in compose_up_activity() in src/activities/compose.py
+- [X] T047 Add duration tracking (workflow.now()) to compose operations in src/workflows/readiness.py
+- [X] T048 Update README.md with Docker Compose feature overview and prerequisites
+- [X] T049 Update AGENTS.md via update-agent-context.sh script to reflect new compose activities
+- [X] T050 Validate quickstart.md examples by running through documented scenarios
 
 ---
 

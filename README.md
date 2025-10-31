@@ -37,11 +37,60 @@ uv run maverick-worker
 uv run readiness-check https://github.com/owner/repo
 ```
 
+### Containerized Validation with Docker Compose
+
+Run validation checks inside a containerized environment using Docker Compose. This ensures consistent, reproducible validation regardless of your local setup.
+
+**What it does:**
+- Starts a Docker Compose environment from your YAML configuration
+- Waits for services to become healthy (health checks required)
+- Executes all validation checks inside the target container
+- Automatically cleans up on success, preserves failed environments for troubleshooting
+
+**Key features:**
+- **Fresh environments**: Each workflow run gets a unique, isolated environment
+- **Health check validation**: Ensures services are ready before running checks
+- **Smart cleanup**: Successful runs clean up automatically; failures preserved for debugging
+- **Multi-service support**: Intelligently selects target service or uses explicit configuration
+
+**Quick start with Docker Compose:**
+
+```bash
+# Create a compose file with health checks
+cat > my-compose.yml <<EOF
+services:
+  app:
+    image: python:3.11-slim
+    command: sleep infinity
+    healthcheck:
+      test: ["CMD", "python", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+EOF
+
+# Run readiness check in the containerized environment
+uv run readiness-check https://github.com/owner/repo --compose-file ./my-compose.yml
+```
+
+**Requirements for containerized validation:**
+- Docker Compose V2 (`docker compose` plugin)
+- Health checks defined for target service (required)
+- YAML file size ≤ 1 MB
+
+**Target service selection:**
+- Single service: Automatically selected
+- Multiple services with "app": Uses "app" service
+- Multiple services without "app": Must specify `--target-service <name>`
+
+See `specs/001-docker-compose-runner/quickstart.md` for detailed examples and troubleshooting.
+
 ## Requirements
 
 - **Python**: 3.11 or later
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Temporal**: Local dev server or remote cluster
+- **Docker Compose V2** (optional): Required for containerized validation features
 
 ## Installation
 
@@ -153,6 +202,14 @@ Maverick uses two logging approaches:
 - **Workflows**: Use `workflow.logger` exclusively (never import loggers)
 
 This separation ensures proper observability while maintaining deterministic workflow behavior.
+
+## Examples
+
+Complete, runnable examples are available in the [`examples/`](./examples/) directory:
+
+- **[Containerized Validation](./examples/containerized-validation/)**: Run readiness checks inside Docker containers using Docker Compose integration
+
+Each example includes detailed documentation, configuration files, and invocation scripts.
 
 ## Contributing
 

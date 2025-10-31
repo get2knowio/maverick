@@ -1,0 +1,24 @@
+services:
+  app:
+    image: ghcr.io/get2knowio/devcontainer:latest
+    command: sleep infinity
+    
+    # Health check is REQUIRED for containerized validation
+    healthcheck:
+      test: ["CMD", "python", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    # Optional: Set working directory for validation commands
+    working_dir: /workspace
+    
+    # Optional: Environment variables that may be needed by validation tools
+    # environment:
+    #   - PYTHONUNBUFFERED=1
+    #   - TERM=xterm-256color
+    
+    # Optional: Mount local workspace if needed for file access
+    # volumes:
+    #   - .:/workspace

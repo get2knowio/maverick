@@ -12,7 +12,7 @@
 - Q: Which Docker Compose version should the implementation target? → A: Docker Compose V2 (integrated `docker compose` plugin)
 - Q: What is the maximum allowed size for the Docker Compose YAML parameter? → A: 1 MB (allows complex multi-service setups with extended configs)
 - Q: How long should failed containers be retained before automatic cleanup? → A: No automatic cleanup (could fail overnight)
-- Q: How should Docker Compose project names be managed to avoid conflicts between concurrent or successive workflow runs? → A: Generate unique project name per workflow run (e.g., `maverick-<workflow_id>-<run_id>`)
+- Q: How should Docker Compose project names be managed to avoid conflicts between concurrent or successive workflow runs? → A: Generate unique project name per workflow run using a deterministic 8-character hash (e.g., `maverick-a1b2c3d4` where the hash is derived from workflow_id and run_id)
 - Q: Should the workflow require Docker Compose health checks to be defined for the target service? → A: Required with validation - check health status before running validations
 
 ## User Scenarios & Testing *(mandatory)*
@@ -110,7 +110,7 @@ Default selection policy:
 - **FR-005**: The system MUST expose clear, human-readable error messages when environment startup or in-container execution fails, including captured logs. If health checks fail or are not defined for the target service, the workflow MUST fail with specific guidance.
 - **FR-006**: The system MUST enforce reasonable timeouts for environment startup (including health check validation) and for each validation step execution; timeouts SHOULD be configurable per run.
 - **FR-007**: The system MUST tear down the environment on success and retain it indefinitely on failure to aid troubleshooting; failed environments require manual cleanup.
-- **FR-008**: The system MUST avoid leaving orphaned containers, networks, or volumes created by the run. Each workflow run MUST use a unique Docker Compose project name derived from the workflow execution identifier (e.g., `maverick-<workflow_id>-<run_id>`) to prevent conflicts between concurrent or successive runs.
+- **FR-008**: The system MUST avoid leaving orphaned containers, networks, or volumes created by the run. Each workflow run MUST use a unique Docker Compose project name derived from a deterministic hash of the workflow execution identifier (e.g., `maverick-a1b2c3d4` using 8-char SHA256 hash of workflow_id:run_id) to prevent conflicts between concurrent or successive runs while keeping names readable.
 - **FR-009**: The system MUST perform early parameter validation (non-empty YAML, maximum size of 1 MB, valid YAML structure, optional target service name format).
 - **FR-010**: The system MUST record in the readiness summary that validations ran inside a containerized environment and identify the target service used.
 - **FR-011**: The system MUST fail fast if Docker Compose resources with conflicting names are detected, providing clear remediation steps. The use of unique project names per workflow run ensures concurrent executions do not interfere with each other.

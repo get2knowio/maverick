@@ -51,30 +51,38 @@ class ReadinessSummary:
         repo_verification: Repository verification result
         overall_status: Overall readiness status ("ready" or "not_ready")
         duration_ms: Execution time in milliseconds
+        compose_error: Compose startup error details (if compose failed)
+        cleanup_instructions: Manual cleanup instructions (if environment preserved)
+        target_service: Resolved target service name (if compose was used)
     """
     results: list[PrereqCheckResult]
     repo_verification: VerificationResult | None
     overall_status: OverallStatus
     duration_ms: int
+    compose_error: str | None = None
+    cleanup_instructions: str | None = None
+    target_service: str | None = None
 
     def __post_init__(self):
         """Validate the summary after initialization."""
-        if not self.results:
-            raise ValueError("results must contain at least one check")
+        # Allow empty results if compose startup failed before checks could run
+        if not self.results and self.compose_error is None:
+            raise ValueError("results must contain at least one check (unless compose_error is set)")
 
-        # Validate unique tools
-        tools = [r.tool for r in self.results]
-        if len(tools) != len(set(tools)):
-            raise ValueError("Each tool must be unique within results")
+        # Validate unique tools (if results exist)
+        if self.results:
+            tools = [r.tool for r in self.results]
+            if len(tools) != len(set(tools)):
+                raise ValueError("Each tool must be unique within results")
 
         # Validate overall_status consistency
         # All CLI checks and repo verification (if present) must pass for "ready" status
-        cli_checks_passed = all(r.status == "pass" for r in self.results)
+        cli_checks_passed = all(r.status == "pass" for r in self.results) if self.results else False
         repo_check_passed = (
             self.repo_verification is None or
             self.repo_verification.status == "pass"
         )
-        all_passed = cli_checks_passed and repo_check_passed
+        all_passed = cli_checks_passed and repo_check_passed and self.compose_error is None
 
         if all_passed and self.overall_status != "ready":
             raise ValueError("overall_status must be 'ready' if all checks pass")

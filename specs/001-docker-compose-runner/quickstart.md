@@ -33,10 +33,10 @@ services:
 
 ### 2. Run the Readiness Workflow
 
-Using the CLI (once implemented):
+Using the CLI:
 
 ```bash
-uv run python -m src.cli.readiness \
+uv run readiness-check \
   https://github.com/owner/repo \
   --compose-file ./my-compose.yml \
   --target-service app
@@ -47,7 +47,7 @@ Or invoke the workflow directly via Temporal client:
 ```python
 from temporalio.client import Client
 from src.workflows.readiness import ReadinessWorkflow
-from src.models.parameters import WorkflowParameters
+from src.models.parameters import Parameters
 from src.models.compose import ComposeConfig
 import yaml
 
@@ -65,8 +65,8 @@ config = ComposeConfig(
     validation_timeout_seconds=60
 )
 
-params = WorkflowParameters(
-    repo_url="https://github.com/owner/repo",
+params = Parameters(
+    github_repo_url="https://github.com/owner/repo",
     compose_config=config
 )
 
@@ -79,22 +79,21 @@ result = await client.execute_workflow(
     task_queue="maverick-task-queue"
 )
 
-print(f"Workflow status: {result.status}")
-if result.compose_environment:
-    print(f"Environment project: {result.compose_environment.project_name}")
-    print(f"Target service: {result.compose_environment.target_service}")
+print(f"Workflow status: {result.overall_status}")
+if result.target_service:
+    print(f"Target service: {result.target_service}")
 ```
 
 ### 3. Check Results
 
 **On Success**:
-- Workflow returns `status="ready"`
+- Workflow returns `overall_status="ready"`
 - All checks pass
 - Docker Compose environment cleaned up automatically
 - No manual intervention required
 
 **On Failure**:
-- Workflow returns `status="not_ready"` with failed check details
+- Workflow returns `overall_status="not_ready"` with failed check details
 - Docker Compose environment **preserved indefinitely** for troubleshooting
 - Result includes `cleanup_instructions` with manual cleanup command
 - Inspect containers: `docker compose -p <project_name> logs`
@@ -149,7 +148,7 @@ The Docker Compose activities are registered in the main worker. Ensure the work
 
 ```bash
 # From project root
-uv run python -m src.workers.main
+uv run maverick-worker
 ```
 
 The worker will output:
@@ -278,9 +277,11 @@ docker network ls --filter "name=maverick-" --format "{{.Name}}" | xargs -r dock
 
 ## Next Steps
 
-- Implement activities in `src/activities/compose.py`
-- Modify ReadinessWorkflow in `src/workflows/readiness.py`
-- Add CLI support in `src/cli/readiness.py`
-- Write unit tests for compose activities
-- Write integration tests for full workflow
+All features are now implemented! You can:
+
+- Try containerized validation with your own Docker Compose files
+- Experiment with multi-service configurations and target service selection
+- Review implementation details in `src/activities/compose.py` and `src/workflows/readiness.py`
+- Write additional tests for specific scenarios
+- Integrate containerized validation into your CI/CD pipelines
 

@@ -64,14 +64,16 @@ class ComposeConfig:
 **Description**: Represents a running Docker Compose environment for a workflow execution.
 
 **Fields**:
-- `project_name`: str - Unique Docker Compose project name (format: `maverick-<workflow_id>-<run_id>`)
+- `project_name`: str - Unique Docker Compose project name (format: `maverick-<hash8>` where hash8 is 8-char SHA256 hash of workflow_id:run_id)
 - `target_service`: str - Resolved service name where validations execute
 - `health_status`: Literal["starting", "healthy", "unhealthy"] - Current health state
 - `container_ids`: dict[str, str] - Map of service names to container IDs
 - `started_at`: str - ISO 8601 timestamp when environment started
 
 **Validation Rules**:
-- `project_name` must match pattern `maverick-[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+`
+- `project_name` must start with `maverick-`
+- `project_name` must contain only lowercase alphanumeric, hyphens, underscores
+- `project_name` must start with letter or number
 - `target_service` must not be empty
 - `started_at` must be valid ISO 8601 format
 - `health_status` must be one of: "starting", "healthy", "unhealthy"

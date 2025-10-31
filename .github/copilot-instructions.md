@@ -275,9 +275,9 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 
 ## Recent Changes
 - 001-docker-compose-runner: Added Python 3.11 + Temporal Python SDK, PyYAML (for YAML parsing), uv (dependency management)
+- 001-docker-compose-runner: Added Python 3.11 + Temporal Python SDK, PyYAML (for YAML parsing), uv (dependency management)
 - 001-docker-compose-runner: Added Python 3.11 + Temporal Python SDK; uv (tooling); PyYAML (for YAML parsing, to be added at implementation time)
 
-- 001-cli-prereq-check: Added Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests)
 
 ## Documentation Standards
 
