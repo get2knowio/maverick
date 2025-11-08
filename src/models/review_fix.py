@@ -202,7 +202,7 @@ class ValidationResult:
     Invariants:
         - command must be non-empty
         - started_at must be before or equal to completed_at
-    
+
     Note: Command format depends on project type (cargo for Rust, pytest for Python, etc.)
     """
 
