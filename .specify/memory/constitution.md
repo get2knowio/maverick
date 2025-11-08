@@ -1,22 +1,16 @@
 <!--
 Sync Impact Report:
-- Version change: 1.1.0 → 1.2.0
-- Modified principles: 
-  - IV. Temporal-First Architecture (added worker patterns and logging rules)
-  - V. Observability and Monitoring (expanded with logging architecture details)
+- Version change: 1.2.0 → 1.3.0
+- Modified principles: None (new guidance added under Technology Standards)
 - Added sections: 
-  - "Worker Best Practices" subsection under Technology Standards
-  - "Code Quality Standards" subsection under Technology Standards
-  - "Error Handling & Resilience" subsection under Technology Standards
-  - "Documentation Standards" subsection under Development Workflow
+  - "Speckit Workflow Integration" subsection under Technology Standards
 - Removed sections: None
-- Templates requiring updates: 
-  ✅ .specify/templates/plan-template.md (Constitution Check section aligns)
-  ✅ .specify/templates/spec-template.md (requirements alignment confirmed)
-  ✅ .specify/templates/tasks-template.md (task categorization aligns)
-  ⚠ .specify/templates/agent-file-template.md (should include Documentation Standards section)
-- Follow-up TODOs: Update agent-file-template.md to include Documentation Standards section
-- Rationale: MINOR version bump (1.2.0) due to substantial new operational guidance added from production learnings: worker shutdown patterns, connection management, error handling, logging architecture, and documentation standards. No breaking changes to existing principles.
+- Templates requiring updates:
+  ✅ .specify/templates/plan-template.md (Constitution Check language still accurate)
+  ✅ .specify/templates/spec-template.md (no changes required)
+  ✅ .specify/templates/tasks-template.md (no changes required)
+- Follow-up TODOs: ⚠ Verify absence of `.specify/templates/commands/*.md` is intentional for command prompts
+- Rationale: MINOR version bump (1.3.0) to codify Speckit automation rules without altering existing principles.
 -->
 
 # Maverick Constitution
@@ -105,6 +99,15 @@ Documentation MUST distinguish between ephemeral working documents and durable r
 - Worker processes MUST be containerizable
 - Workflow and Activity definitions MUST be versioned carefully
 - Local development MUST use Temporal dev server or Docker Compose
+
+### Speckit Workflow Integration (REQUIRED)
+- Temporal workflows implementing Speckit specifications MUST treat Speckit-generated `tasks.md` files as the authoritative backlog and re-parse the live document before applying checkpoint-based decisions.
+- Activities MUST encapsulate all Speckit CLI calls (`speckit.plan`, `speckit.tasks`, `speckit.implement`, etc.) and MUST capture stdout/stderr using tolerant decoding with `errors='replace'`.
+- Workflows MUST preserve determinism by delegating parsing, hashing, and CLI invocation logic to activities; workflow code stores only workflow-safe metadata and checkpoint state.
+- Each automated phase MUST emit machine-readable JSON reports capturing status, timestamps, log locations, and remediation guidance to support auditing and follow-up automation.
+- Tests MUST cover markdown parsing fixtures, checkpoint drift detection, and resume scenarios for every supported Speckit-driven workflow path.
+
+**Rationale**: The project automates execution of Speckit task plans; codifying these rules keeps automation deterministic, auditable, and aligned with Temporal best practices.
 
 #### Temporal Workflow Best Practices
 
@@ -261,4 +264,4 @@ This constitution supersedes all other development practices. Changes require ex
 
 **Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness, operational patterns (worker shutdown, connection management, error handling), and test coverage.
 
-**Version**: 1.2.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-10-29
+**Version**: 1.3.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-11-08

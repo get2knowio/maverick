@@ -19,21 +19,11 @@ async def test_readiness_workflow_all_pass():
     # Create mock activities
     @activity.defn(name="check_gh_status")
     async def mock_gh_status() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="gh",
-            status="pass",
-            message="GitHub CLI is authenticated",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="gh", status="pass", message="GitHub CLI is authenticated", remediation="")
 
     @activity.defn(name="check_copilot_help")
     async def mock_copilot_help() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="copilot",
-            status="pass",
-            message="Copilot CLI is available",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="copilot", status="pass", message="Copilot CLI is available", remediation="")
 
     @activity.defn(name="verify_repository")
     async def mock_verify_repository(params: Parameters) -> VerificationResult:
@@ -45,7 +35,7 @@ async def test_readiness_workflow_all_pass():
             repo_slug="owner/repo",
             error_code="none",
             attempts=1,
-            duration_ms=100
+            duration_ms=100,
         )
 
     @activity.defn(name="echo_parameters")
@@ -54,11 +44,14 @@ async def test_readiness_workflow_all_pass():
 
     params = Parameters(github_repo_url="https://github.com/owner/repo")
 
-    async with await WorkflowEnvironment.start_time_skipping() as env, Worker(
-        env.client,
-        task_queue="readiness-task-queue",
-        workflows=[ReadinessWorkflow],
-        activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="readiness-task-queue",
+            workflows=[ReadinessWorkflow],
+            activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+        ),
     ):
         result = await env.client.execute_workflow(
             ReadinessWorkflow.run,
@@ -97,17 +90,12 @@ Authenticate with GitHub:
 
 Follow the prompts to authenticate via your browser or personal access token.
 
-Official documentation: https://cli.github.com/manual/gh_auth_login"""
+Official documentation: https://cli.github.com/manual/gh_auth_login""",
         )
 
     @activity.defn(name="check_copilot_help")
     async def mock_copilot_help() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="copilot",
-            status="pass",
-            message="Copilot CLI is available",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="copilot", status="pass", message="Copilot CLI is available", remediation="")
 
     @activity.defn(name="verify_repository")
     async def mock_verify_repository(params: Parameters) -> VerificationResult:
@@ -119,7 +107,7 @@ Official documentation: https://cli.github.com/manual/gh_auth_login"""
             repo_slug="owner/repo",
             error_code="none",
             attempts=1,
-            duration_ms=100
+            duration_ms=100,
         )
 
     @activity.defn(name="echo_parameters")
@@ -128,11 +116,14 @@ Official documentation: https://cli.github.com/manual/gh_auth_login"""
 
     params = Parameters(github_repo_url="https://github.com/owner/repo")
 
-    async with await WorkflowEnvironment.start_time_skipping() as env, Worker(
-        env.client,
-        task_queue="readiness-task-queue",
-        workflows=[ReadinessWorkflow],
-        activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="readiness-task-queue",
+            workflows=[ReadinessWorkflow],
+            activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+        ),
     ):
         result = await env.client.execute_workflow(
             ReadinessWorkflow.run,
@@ -151,10 +142,10 @@ Official documentation: https://cli.github.com/manual/gh_auth_login"""
 
         # Verify guidance content is actionable
         remediation_lower = gh_check.remediation.lower()
-        assert "gh auth login" in remediation_lower, \
-                "Remediation should include authentication command"
-        assert any(term in remediation_lower for term in ["cli.github.com", "github.com/cli"]), \
-                "Remediation should include documentation link"
+        assert "gh auth login" in remediation_lower, "Remediation should include authentication command"
+        assert any(term in remediation_lower for term in ["cli.github.com", "github.com/cli"]), (
+            "Remediation should include documentation link"
+        )
 
 
 @pytest.mark.asyncio
@@ -167,12 +158,7 @@ async def test_readiness_workflow_copilot_fails():
     # Create mock activities
     @activity.defn(name="check_gh_status")
     async def mock_gh_status() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="gh",
-            status="pass",
-            message="GitHub CLI is authenticated",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="gh", status="pass", message="GitHub CLI is authenticated", remediation="")
 
     @activity.defn(name="check_copilot_help")
     async def mock_copilot_help() -> PrereqCheckResult:
@@ -180,7 +166,7 @@ async def test_readiness_workflow_copilot_fails():
             tool="copilot",
             status="fail",
             message="Copilot CLI is not installed",
-            remediation="Install Copilot CLI from https://github.com/github/gh-copilot"
+            remediation="Install Copilot CLI from https://github.com/github/gh-copilot",
         )
 
     @activity.defn(name="verify_repository")
@@ -193,7 +179,7 @@ async def test_readiness_workflow_copilot_fails():
             repo_slug="owner/repo",
             error_code="none",
             attempts=1,
-            duration_ms=100
+            duration_ms=100,
         )
 
     @activity.defn(name="echo_parameters")
@@ -202,11 +188,14 @@ async def test_readiness_workflow_copilot_fails():
 
     params = Parameters(github_repo_url="https://github.com/owner/repo")
 
-    async with await WorkflowEnvironment.start_time_skipping() as env, Worker(
-        env.client,
-        task_queue="readiness-task-queue",
-        workflows=[ReadinessWorkflow],
-        activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="readiness-task-queue",
+            workflows=[ReadinessWorkflow],
+            activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+        ),
     ):
         result = await env.client.execute_workflow(
             ReadinessWorkflow.run,
@@ -224,10 +213,10 @@ async def test_readiness_workflow_copilot_fails():
 
         # Verify guidance content is actionable
         remediation_lower = copilot_check.remediation.lower()
-        assert "install" in remediation_lower, \
-                "Remediation should include installation instructions"
-        assert "github.com" in remediation_lower or "copilot" in remediation_lower, \
-                "Remediation should include documentation or tool reference"
+        assert "install" in remediation_lower, "Remediation should include installation instructions"
+        assert "github.com" in remediation_lower or "copilot" in remediation_lower, (
+            "Remediation should include documentation or tool reference"
+        )
 
 
 @pytest.mark.asyncio
@@ -244,7 +233,7 @@ async def test_readiness_workflow_both_fail():
             tool="gh",
             status="fail",
             message="GitHub CLI is not installed",
-            remediation="Install GitHub CLI from https://cli.github.com"
+            remediation="Install GitHub CLI from https://cli.github.com",
         )
 
     @activity.defn(name="check_copilot_help")
@@ -253,7 +242,7 @@ async def test_readiness_workflow_both_fail():
             tool="copilot",
             status="fail",
             message="Copilot CLI is not installed",
-            remediation="Install Copilot CLI from https://github.com/github/gh-copilot"
+            remediation="Install Copilot CLI from https://github.com/github/gh-copilot",
         )
 
     @activity.defn(name="verify_repository")
@@ -266,7 +255,7 @@ async def test_readiness_workflow_both_fail():
             repo_slug="owner/repo",
             error_code="none",
             attempts=1,
-            duration_ms=100
+            duration_ms=100,
         )
 
     @activity.defn(name="echo_parameters")
@@ -275,11 +264,14 @@ async def test_readiness_workflow_both_fail():
 
     params = Parameters(github_repo_url="https://github.com/owner/repo")
 
-    async with await WorkflowEnvironment.start_time_skipping() as env, Worker(
-        env.client,
-        task_queue="readiness-task-queue",
-        workflows=[ReadinessWorkflow],
-        activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="readiness-task-queue",
+            workflows=[ReadinessWorkflow],
+            activities=[mock_gh_status, mock_copilot_help, mock_verify_repository, mock_echo_parameters],
+        ),
     ):
         result = await env.client.execute_workflow(
             ReadinessWorkflow.run,
@@ -297,8 +289,7 @@ async def test_readiness_workflow_both_fail():
         # Verify both have actionable guidance
         for check in result.results:
             assert check.remediation is not None
-            assert len(check.remediation) > 0, \
-                    f"{check.tool} should have remediation guidance"
+            assert len(check.remediation) > 0, f"{check.tool} should have remediation guidance"
 
             if check.tool == "gh":
                 assert "install" in check.remediation.lower() or "cli.github.com" in check.remediation.lower()
@@ -316,21 +307,11 @@ async def test_readiness_workflow_repo_verification_fails():
     # Create mock activities
     @activity.defn(name="check_gh_status")
     async def mock_gh_status() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="gh",
-            status="pass",
-            message="GitHub CLI is authenticated",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="gh", status="pass", message="GitHub CLI is authenticated", remediation="")
 
     @activity.defn(name="check_copilot_help")
     async def mock_copilot_help() -> PrereqCheckResult:
-        return PrereqCheckResult(
-            tool="copilot",
-            status="pass",
-            message="Copilot CLI is available",
-            remediation=""
-        )
+        return PrereqCheckResult(tool="copilot", status="pass", message="Copilot CLI is available", remediation="")
 
     @activity.defn(name="verify_repository")
     async def mock_verify_repository(params: Parameters) -> VerificationResult:
@@ -342,16 +323,19 @@ async def test_readiness_workflow_repo_verification_fails():
             repo_slug="owner/nonexistent",
             error_code="not_found",
             attempts=2,
-            duration_ms=200
+            duration_ms=200,
         )
 
     params = Parameters(github_repo_url="https://github.com/owner/nonexistent")
 
-    async with await WorkflowEnvironment.start_time_skipping() as env, Worker(
-        env.client,
-        task_queue="readiness-task-queue",
-        workflows=[ReadinessWorkflow],
-        activities=[mock_gh_status, mock_copilot_help, mock_verify_repository],
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="readiness-task-queue",
+            workflows=[ReadinessWorkflow],
+            activities=[mock_gh_status, mock_copilot_help, mock_verify_repository],
+        ),
     ):
         result = await env.client.execute_workflow(
             ReadinessWorkflow.run,

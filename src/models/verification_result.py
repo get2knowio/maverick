@@ -6,12 +6,12 @@ from typing import Literal
 
 # Error taxonomy for verification failures
 ErrorCode = Literal[
-    "none",                # Success
-    "validation_error",    # Malformed URL or unsupported host
-    "auth_error",         # GitHub not authenticated
-    "not_found",          # Repository does not exist
-    "access_denied",      # Repository exists but no access
-    "transient_error"     # Network/timeout/rate limit
+    "none",  # Success
+    "validation_error",  # Malformed URL or unsupported host
+    "auth_error",  # GitHub not authenticated
+    "not_found",  # Repository does not exist
+    "access_denied",  # Repository exists but no access
+    "transient_error",  # Network/timeout/rate limit
 ]
 
 # Verification status

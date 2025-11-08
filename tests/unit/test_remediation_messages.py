@@ -14,12 +14,12 @@ async def test_gh_not_authenticated_remediation_content():
     """Test that gh unauthenticated remediation includes auth steps and docs link."""
     from src.activities.gh_status import check_gh_status
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock unauthenticated gh auth status
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (
             b"",
-            b"You are not logged into any GitHub hosts. Run gh auth login to authenticate.\n"
+            b"You are not logged into any GitHub hosts. Run gh auth login to authenticate.\n",
         )
         mock_process.returncode = 1
         mock_exec.return_value = mock_process
@@ -47,7 +47,7 @@ async def test_gh_not_installed_remediation_content():
     """Test that gh not installed remediation includes install steps and docs link."""
     from src.activities.gh_status import check_gh_status
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock command not found
         mock_exec.side_effect = FileNotFoundError("gh command not found")
 
@@ -81,7 +81,7 @@ async def test_copilot_not_installed_remediation_content():
     """Test that copilot not installed remediation includes install steps and docs link."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock command not found
         mock_exec.side_effect = FileNotFoundError("copilot command not found")
 
@@ -111,13 +111,10 @@ async def test_copilot_failed_remediation_content():
     """Test that copilot execution failure remediation includes troubleshooting steps."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock command execution failure
         mock_process = AsyncMock()
-        mock_process.communicate.return_value = (
-            b"",
-            b"error: command failed\n"
-        )
+        mock_process.communicate.return_value = (b"", b"error: command failed\n")
         mock_process.returncode = 1
         mock_exec.return_value = mock_process
 
@@ -141,7 +138,7 @@ async def test_remediation_message_formatting():
     """Test that remediation messages are well-formatted with clear steps."""
     from src.activities.gh_status import check_gh_status
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock unauthenticated
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (b"", b"not logged in")
@@ -160,7 +157,7 @@ async def test_remediation_message_formatting():
         assert remediation[0].isupper()
 
         # Should contain proper punctuation (not just a fragment)
-        assert any(char in remediation for char in ['.', ':', '\n'])
+        assert any(char in remediation for char in [".", ":", "\n"])
 
 
 @pytest.mark.asyncio
@@ -170,7 +167,7 @@ async def test_remediation_none_on_pass():
     from src.activities.gh_status import check_gh_status
 
     # Test gh passing
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (b"authenticated", b"")
         mock_process.returncode = 0
@@ -181,7 +178,7 @@ async def test_remediation_none_on_pass():
         assert result.remediation is None or result.remediation == ""
 
     # Test copilot passing
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (b"help text", b"")
         mock_process.returncode = 0
@@ -199,7 +196,7 @@ async def test_all_remediation_messages_are_actionable():
     from src.activities.gh_status import check_gh_status
 
     # Test gh not authenticated
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (b"", b"not logged in")
         mock_process.returncode = 1
@@ -214,14 +211,23 @@ async def test_all_remediation_messages_are_actionable():
         # Remediation should suggest an action (contains a verb)
         remediation_lower = result.remediation.lower()
         action_verbs = [
-            "install", "run", "authenticate", "login", "check",
-            "verify", "try", "execute", "download", "see"
+            "install",
+            "run",
+            "authenticate",
+            "login",
+            "check",
+            "verify",
+            "try",
+            "execute",
+            "download",
+            "see",
         ]
-        assert any(verb in remediation_lower for verb in action_verbs), \
+        assert any(verb in remediation_lower for verb in action_verbs), (
             f"Remediation should contain an action verb: {result.remediation}"
+        )
 
     # Test gh not installed
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_exec.side_effect = FileNotFoundError()
 
         result = await check_gh_status()
@@ -231,7 +237,7 @@ async def test_all_remediation_messages_are_actionable():
         assert len(result.remediation) > 0
 
     # Test copilot not installed
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_exec.side_effect = FileNotFoundError()
 
         result = await check_copilot_help()
@@ -241,7 +247,7 @@ async def test_all_remediation_messages_are_actionable():
         assert len(result.remediation) > 0
 
     # Test copilot failed
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (b"", b"error")
         mock_process.returncode = 1

@@ -3,20 +3,16 @@
 from typing import Any, TypeVar
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ParameterAccessError(KeyError):
     """Raised when required parameter is missing or invalid."""
+
     pass
 
 
-def get_required_param(
-    params: dict[str, Any],
-    key: str,
-    expected_type: type[T],
-    description: str | None = None
-) -> T:
+def get_required_param(params: dict[str, Any], key: str, expected_type: type[T], description: str | None = None) -> T:
     """Get a required parameter with type checking.
 
     Args:
@@ -33,9 +29,7 @@ def get_required_param(
     """
     if key not in params:
         desc = f" ({description})" if description else ""
-        raise ParameterAccessError(
-            f"Required parameter '{key}'{desc} is missing"
-        )
+        raise ParameterAccessError(f"Required parameter '{key}'{desc} is missing")
 
     value = params[key]
 
@@ -43,19 +37,13 @@ def get_required_param(
         actual_type = type(value).__name__
         expected_name = expected_type.__name__
         desc = f" ({description})" if description else ""
-        raise ParameterAccessError(
-            f"Parameter '{key}'{desc} has type {actual_type}, expected {expected_name}"
-        )
+        raise ParameterAccessError(f"Parameter '{key}'{desc} has type {actual_type}, expected {expected_name}")
 
     return value
 
 
 def get_optional_param(
-    params: dict[str, Any],
-    key: str,
-    expected_type: type[T],
-    default: T | None = None,
-    description: str | None = None
+    params: dict[str, Any], key: str, expected_type: type[T], default: T | None = None, description: str | None = None
 ) -> T | None:
     """Get an optional parameter with type checking.
 
@@ -81,8 +69,6 @@ def get_optional_param(
         actual_type = type(value).__name__
         expected_name = expected_type.__name__
         desc = f" ({description})" if description else ""
-        raise ParameterAccessError(
-            f"Parameter '{key}'{desc} has type {actual_type}, expected {expected_name}"
-        )
+        raise ParameterAccessError(f"Parameter '{key}'{desc} has type {actual_type}, expected {expected_name}")
 
     return value

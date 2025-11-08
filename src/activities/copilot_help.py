@@ -50,44 +50,36 @@ async def check_copilot_help() -> PrereqCheckResult:
     try:
         # Execute copilot help
         process = await asyncio.create_subprocess_exec(
-            "copilot", "help",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "copilot", "help", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=10.0
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
         except TimeoutError:
             logger.error("copilot_help_timeout", timeout_seconds=10.0)
             return PrereqCheckResult(
                 tool="copilot",
                 status="fail",
                 message="Copilot CLI check timed out after 10 seconds",
-                remediation="Check if copilot is functioning properly and try again"
+                remediation="Check if copilot is functioning properly and try again",
             )
 
         # copilot help should return 0 if successful
         if process.returncode == 0:
             logger.info("copilot_help_available")
             return PrereqCheckResult(
-                tool="copilot",
-                status="pass",
-                message="Copilot CLI is available and ready",
-                remediation=None
+                tool="copilot", status="pass", message="Copilot CLI is available and ready", remediation=None
             )
         else:
             # Command failed
-            stderr_text = stderr.decode('utf-8', errors='replace')
+            stderr_text = stderr.decode("utf-8", errors="replace")
             logger.warning("copilot_help_command_failed", exit_code=process.returncode, stderr=stderr_text)
 
             return PrereqCheckResult(
                 tool="copilot",
                 status="fail",
                 message=f"Copilot CLI command failed with exit code {process.returncode}",
-                remediation=COPILOT_FAILED_REMEDIATION.strip()
+                remediation=COPILOT_FAILED_REMEDIATION.strip(),
             )
 
     except FileNotFoundError:
@@ -96,7 +88,7 @@ async def check_copilot_help() -> PrereqCheckResult:
             tool="copilot",
             status="fail",
             message="Copilot CLI is not installed or not found in PATH",
-            remediation=COPILOT_NOT_INSTALLED_REMEDIATION.strip()
+            remediation=COPILOT_NOT_INSTALLED_REMEDIATION.strip(),
         )
     except Exception as e:
         logger.error("copilot_help_error", error_type=type(e).__name__, error_message=str(e))
@@ -104,5 +96,5 @@ async def check_copilot_help() -> PrereqCheckResult:
             tool="copilot",
             status="fail",
             message=f"Error checking Copilot CLI: {str(e)}",
-            remediation="Check if copilot is functioning properly and try again"
+            remediation="Check if copilot is functioning properly and try again",
         )
