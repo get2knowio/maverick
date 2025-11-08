@@ -3,6 +3,8 @@
 Auto-generated from all feature plans. Last updated: 2025-10-28
 
 ## Active Technologies
+- Python 3.11 + Temporal Python SDK, uv toolchain, OpenCode CLI (`speckit.implement`) (001-automate-phase-tasks)
+- Temporal workflow state (no new external stores) (001-automate-phase-tasks)
 
 - Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests) (001-cli-prereq-check)
 
@@ -271,6 +273,7 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 - **Benefits** - Simplified operations, better resource utilization, easier deployment
 
 ## Recent Changes
+- 001-automate-phase-tasks: Added Python 3.11 + Temporal Python SDK, uv toolchain, OpenCode CLI (`speckit.implement`)
 
 - 001-cli-prereq-check: Added Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests)
 

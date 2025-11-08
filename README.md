@@ -37,6 +37,51 @@ uv run maverick-worker
 uv run readiness-check https://github.com/owner/repo
 ```
 
+### Automated Phase Execution
+
+Automates the sequential execution of Speckit `tasks.md` phases, enabling AI-backed implementation with built-in checkpoint management and resume capabilities.
+
+**What it does:**
+- ✓ Parses `tasks.md` into structured phase definitions
+- ✓ Executes phases sequentially via `speckit.implement`
+- ✓ Maintains checkpoints for fault-tolerant resume
+- ✓ Supports per-phase AI model and agent profile overrides
+- ✓ Captures structured execution logs and results
+- ✓ Handles document drift with automatic checkpoint recalculation
+
+**Key capabilities:**
+- Sequential phase orchestration with deterministic execution
+- Resume from failure without repeating completed phases
+- Per-phase execution context (timeout, retry policy, AI settings)
+- Machine-readable phase results (JSON with timestamps, task IDs, logs)
+- Automatic checkpoint validation and drift detection
+- Structured logging for observability and debugging
+
+**Quick start:**
+
+```bash
+# Start Temporal server (separate terminal)
+temporal server start-dev
+
+# Start the worker (separate terminal)
+uv run maverick-worker
+
+# Run phase automation on your tasks.md
+uv run python -m src.cli.readiness --workflow automate-phase-tasks \
+  --tasks-md-path /path/to/specs/feature/tasks.md \
+  --repo-path /path/to/repo \
+  --branch feature-branch
+
+# Resume after a failure (automatically skips completed phases)
+uv run python -m src.cli.readiness --workflow automate-phase-tasks \
+  --tasks-md-path /path/to/specs/feature/tasks.md \
+  --repo-path /path/to/repo \
+  --branch feature-branch
+
+# Review phase results
+cat /tmp/phase-results/<workflow-id>/<phase-id>.json
+```
+
 ## Requirements
 
 - **Python**: 3.11 or later
@@ -136,6 +181,7 @@ Maverick uses a **unified worker architecture**:
 
 Available workflows:
 - **ReadinessWorkflow**: Checks CLI tool prerequisites and verifies GitHub repository access
+- **AutomatePhaseTasksWorkflow**: Orchestrates sequential execution of Speckit `tasks.md` phases with checkpoint management
 
 Key principles:
 - **Deterministic workflows**: All non-deterministic operations (time, randomness) use Temporal-safe APIs
