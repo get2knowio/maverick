@@ -14,7 +14,7 @@ def compute_review_fingerprint(
     """Compute deterministic fingerprint for review loop retry detection.
 
     Args:
-        commit_range: List of commit SHAs in sorted order
+        commit_range: List of commit SHAs (order not required - will be sorted internally)
         findings_hash: SHA-256 hash of sanitized CodeRabbit findings
 
     Returns:

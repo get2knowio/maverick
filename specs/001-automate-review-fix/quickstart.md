@@ -2,7 +2,9 @@
 
 ## Prerequisites
 - Temporal worker environment with Python 3.11, uv, CodeRabbit CLI, OpenCode CLI, and Rust toolchain installed.
-- Auth tokens for CodeRabbit and OpenCode configured via environment variables consumed by their CLIs.
+- Auth tokens for CodeRabbit and OpenCode configured via environment variables:
+  - **CodeRabbit**: `export CODERABBIT_TOKEN="your_token_here"` (see [CodeRabbit CLI docs](https://docs.coderabbit.ai/) for credential setup)
+  - **OpenCode**: `export OPENCODE_TOKEN="your_token_here"` (see [OpenCode CLI docs](https://docs.opencode.ai/) for credential setup)
 - Feature branch with AI-generated Rust changes pushed to remote.
 - Temporal server running and accessible (default: localhost:7233)
 

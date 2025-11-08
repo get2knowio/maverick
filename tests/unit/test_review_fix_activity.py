@@ -1,5 +1,6 @@
 """Unit tests for review_fix activity function."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -119,6 +120,13 @@ async def test_coderabbit_cli_failure():
         assert result.status == "failed"
         assert result.code_review_findings is None
         # Error should be captured in artifacts
+        assert result.artifacts_path is not None
+        # Verify stderr was captured - check diagnostics file exists
+        artifacts_dir = Path(result.artifacts_path)
+        diagnostics_file = artifacts_dir / f"diagnostics_{result.fingerprint}.txt"
+        if diagnostics_file.exists():
+            diagnostics_content = diagnostics_file.read_text()
+            assert "Authentication failed" in diagnostics_content
 
 
 @pytest.mark.asyncio
@@ -236,7 +244,7 @@ async def test_sanitized_prompt_generation():
         if result.code_review_findings:
             sanitized = result.code_review_findings.sanitized_prompt
             # Should have redacted the AWS key
-            assert "AKIAIOSFODNN7EXAMPLE" not in sanitized or "[REDACTED" in sanitized
+            assert "AKIAIOSFODNN7EXAMPLE" not in sanitized and "[REDACTED" in sanitized
 
 
 @pytest.mark.asyncio

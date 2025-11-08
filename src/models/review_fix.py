@@ -84,11 +84,16 @@ class ReviewLoopInput:
         if not self.branch_ref or not self.branch_ref.strip():
             raise ValueError("branch_ref must be non-empty")
 
+        # Normalize and validate commit SHAs
+        normalized_commits = []
         for commit in self.commit_range:
             if not (7 <= len(commit) <= 40):
                 raise ValueError(f"commit SHA must be 7-40 chars, got {len(commit)}: {commit}")
             if not all(c in "0123456789abcdef" for c in commit.lower()):
                 raise ValueError(f"commit SHA must be hex chars: {commit}")
+            # Normalize to lowercase for consistency
+            normalized_commits.append(commit.lower())
+        self.commit_range = normalized_commits
 
         if self.implementation_summary is not None and len(self.implementation_summary) > 2000:
             raise ValueError(f"implementation_summary must be <= 2000 chars, got {len(self.implementation_summary)}")
@@ -192,11 +197,13 @@ class FixAttemptRecord:
 
 @dataclass
 class ValidationResult:
-    """Outcome of validation command (default cargo test).
+    """Outcome of validation command (e.g., 'cargo test' for Rust projects).
 
     Invariants:
-        - command must be non-empty and start with "uv"
+        - command must be non-empty
         - started_at must be before or equal to completed_at
+    
+    Note: Command format depends on project type (cargo for Rust, pytest for Python, etc.)
     """
 
     command: list[str]
@@ -210,8 +217,6 @@ class ValidationResult:
         """Validate validation result invariants."""
         if not self.command:
             raise ValueError("command must be non-empty")
-        if self.command[0] != "uv":
-            raise ValueError(f"command must start with 'uv', got {self.command[0]}")
         if self.started_at > self.completed_at:
             raise ValueError(
                 f"started_at ({self.started_at}) must be before or equal to completed_at ({self.completed_at})"
@@ -237,7 +242,7 @@ class ReviewLoopOutcome:
     code_review_findings: CodeReviewFindings | None = None
     fix_attempt: FixAttemptRecord | None = None
     validation_result: ValidationResult | None = None
-    artifacts_path: str = ""
+    artifacts_path: str | None = None
 
     def __post_init__(self) -> None:
         """Validate outcome invariants."""

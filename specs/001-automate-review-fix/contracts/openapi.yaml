@@ -28,6 +28,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AcceptedResponse'
+        "400":
+          description: Bad request - invalid input parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Unprocessable entity - validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /automation/review-loop/outcomes/{fingerprint}:
     get:
       summary: Fetch the most recent outcome for a fingerprint
@@ -38,7 +68,23 @@ paths:
             type: string
             pattern: '^[0-9a-f]{64}$'
           required: true
-          description: Deterministic fingerprint from commits + findings
+          description: |
+            Deterministic fingerprint computed as SHA-256 hash (lowercase hex, 64 chars) derived from:
+            1. Commit SHAs in topological order (sorted lexicographically, newline-delimited)
+            2. CodeRabbit findings (normalized: issue IDs sorted, titles/descriptions whitespace-normalized)
+            3. Tool versions (CodeRabbit CLI version, OpenCode CLI version)
+            
+            Canonicalization rules:
+            - Commit SHAs: Sorted alphabetically, one per line, lowercase hex
+            - Finding attributes: JSON-serialized with sorted keys, whitespace collapsed
+            - Field delimiter: Newline (\n) between sections
+            - Hash algorithm: SHA-256
+            - Output encoding: Lowercase hexadecimal string (64 characters)
+            
+            Recompute fingerprint when:
+            - Commit range changes (new commits added/removed)
+            - CodeRabbit findings change (different issues or content)
+            - Tool versions change (CLI upgrades affecting output format)
       responses:
         "200":
           description: Outcome found
@@ -48,6 +94,22 @@ paths:
                 $ref: '#/components/schemas/ReviewLoopOutcome'
         "404":
           description: No outcome recorded for fingerprint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
     AcceptedResponse:
@@ -102,6 +164,11 @@ components:
       required: [previous_fingerprint, attempt_counter, last_status]
     ReviewLoopOutcome:
       type: object
+      description: |
+        Outcome of a review/fix execution. Field requirements vary by status:
+        - status="clean": Only status, fingerprint, completed_at are required
+        - status="fixed": Requires code_review_findings, fix_attempt, validation_result
+        - status="failed": Requires code_review_findings; fix_attempt populated if failure occurred during/after fix application
       properties:
         status:
           type: string
@@ -200,3 +267,17 @@ components:
           type: string
           format: date-time
       required: [command, exit_code, started_at, completed_at]
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Optional additional error context
+          additionalProperties: true
+      required: [code, message]

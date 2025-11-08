@@ -18,6 +18,7 @@ from src.models.review_fix import (
     CodeReviewFindings,
     CodeReviewIssue,
     FixAttemptRecord,
+    IssueSeverity,
     ReviewLoopInput,
     ReviewLoopOutcome,
     ValidationResult,
@@ -45,8 +46,8 @@ OPENCODE_TIMEOUT = 300
 # Timeout for validation command execution (seconds)
 VALIDATION_TIMEOUT = 600
 
-# Default validation command
-DEFAULT_VALIDATION_CMD = ["uv", "run", "cargo", "test", "--all", "--locked"]
+# Default validation command - Rust project validation via cargo
+DEFAULT_VALIDATION_CMD = ["cargo", "test", "--all", "--locked"]
 
 
 async def _invoke_coderabbit_cli(branch_ref: str, commit_range: list[str]) -> tuple[bytes, bytes, int]:
@@ -81,13 +82,10 @@ async def _invoke_coderabbit_cli(branch_ref: str, commit_range: list[str]) -> tu
         cmd.extend(["--commits", ",".join(commit_range)])
 
     try:
-        process = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=CODERABBIT_TIMEOUT,
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await asyncio.wait_for(
@@ -173,9 +171,12 @@ def _sanitize_transcript(transcript: str) -> str:
             max_length=max_length,
         )
 
-    # Normalize whitespace
-    sanitized = re.sub(r'\s+', ' ', sanitized)
-    sanitized = sanitized.strip()
+    # Normalize whitespace - preserve line breaks, collapse horizontal whitespace
+    # Replace runs of spaces/tabs with single space
+    sanitized = re.sub(r'[ \t]+', ' ', sanitized)
+    # Strip trailing/leading whitespace per line while preserving newlines
+    lines = sanitized.split('\n')
+    sanitized = '\n'.join(line.strip() for line in lines)
 
     return sanitized
 
@@ -212,7 +213,9 @@ def _parse_coderabbit_transcript(transcript: str) -> list[CodeReviewIssue]:
         # Check for issue header
         issue_match = re.match(issue_pattern, line)
         if issue_match:
-            severity = issue_match.group(1).lower()
+            severity_str = issue_match.group(1).lower()
+            # Map to IssueSeverity type (validated by regex pattern)
+            severity: IssueSeverity = severity_str  # type: ignore[assignment]
             title = issue_match.group(2).strip()
 
             # Look for details on next line
@@ -237,7 +240,7 @@ def _parse_coderabbit_transcript(transcript: str) -> list[CodeReviewIssue]:
             issues.append(
                 CodeReviewIssue(
                     title=title,
-                    severity=severity,  # type: ignore[arg-type]
+                    severity=severity,
                     details=details,
                     anchor=anchor,
                 )
@@ -310,19 +313,24 @@ async def _invoke_opencode_cli(sanitized_prompt: str, branch_ref: str) -> FixAtt
         timeout_seconds=OPENCODE_TIMEOUT,
     )
 
-    # Build OpenCode command
-    # Note: Actual OpenCode CLI invocation pattern (to be determined from tooling docs)
-    # For now: uv run opencode implement --prompt <prompt> --branch <branch>
-    cmd = ["uv", "run", "opencode", "implement", "--branch", branch_ref, "--prompt", sanitized_prompt]
-
+    # Write prompt to temporary file to avoid argv length limits
+    import tempfile
+    temp_prompt_file = None
     try:
-        process = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=OPENCODE_TIMEOUT,
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
+            f.write(sanitized_prompt)
+            f.flush()
+            temp_prompt_file = f.name
+
+        # Build OpenCode command using temp file
+        # Note: Actual OpenCode CLI invocation pattern (to be determined from tooling docs)
+        # For now: uv run opencode implement --prompt-file <file> --branch <branch>
+        cmd = ["uv", "run", "opencode", "implement", "--branch", branch_ref, "--prompt-file", temp_prompt_file]
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await asyncio.wait_for(
@@ -376,6 +384,14 @@ async def _invoke_opencode_cli(sanitized_prompt: str, branch_ref: str) -> FixAtt
             error=str(e),
         )
         raise
+    finally:
+        # Clean up temporary prompt file
+        if temp_prompt_file:
+            try:
+                import os
+                os.unlink(temp_prompt_file)
+            except Exception:
+                pass  # Ignore cleanup errors
 
 
 def _parse_opencode_changes(stdout: str) -> list[str]:
@@ -556,13 +572,10 @@ async def _invoke_validation_command(
     )
 
     try:
-        process = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=VALIDATION_TIMEOUT,
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await asyncio.wait_for(
@@ -857,7 +870,9 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
     # Step 7: Persist artifacts
     artifacts_path = ""
     try:
-        artifacts_dir = Path("/tmp/maverick-artifacts") / fingerprint
+        import tempfile
+        base_artifacts_dir = Path(tempfile.gettempdir()) / "maverick-artifacts"
+        artifacts_dir = base_artifacts_dir / fingerprint
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Save sanitized prompt

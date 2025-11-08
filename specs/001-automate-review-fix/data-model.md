@@ -15,7 +15,7 @@
 - **Fields**:
   - `previous_fingerprint: str` – Hex-encoded fingerprint from last run; MUST be 64 hex chars.
   - `attempt_counter: int` – Number of attempts already taken; MUST be >= 0.
-  - `last_status: str` – Enum-like literal (`"clean" | "fixed" | "failed"`); ensures downstream comparison.
+  - `last_status: Literal["clean", "fixed", "failed"]` – Type-safe status literal matching ReviewLoopOutcome status values; ensures downstream comparison.
   - `artifacts_path: str | None` – Optional reference to persisted artifacts from prior run.
 
 ## CodeReviewFindings

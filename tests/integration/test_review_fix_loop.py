@@ -862,7 +862,6 @@ async def test_retry_with_different_findings_reruns_fix():
         mock_exec.side_effect = [
             mock_process_coderabbit,
             mock_process_opencode,
-            mock_process_coderabbit,  # Re-run CodeRabbit
             mock_process_validation,
         ]
 
@@ -913,7 +912,6 @@ async def test_retry_with_different_findings_reruns_fix():
         mock_exec.side_effect = [
             mock_process_coderabbit,
             mock_process_opencode,
-            mock_process_coderabbit,  # Re-run CodeRabbit
             mock_process_validation,
         ]
 

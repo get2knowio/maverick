@@ -35,6 +35,9 @@
 - [X] T007 Extend artifact persistence to handle sanitized prompts and fix summaries in `src/utils/phase_results_store.py`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin in parallel.
+- All models pass type checks and invariant validation tests
+- All utilities are exported with proper type hints and have passing unit tests
+- Artifact persistence handles sanitized prompts and fix summaries with passing tests
 
 ---
 
@@ -56,6 +59,9 @@
 - [X] T012 [US1] Emit `ReviewLoopOutcome` for clean/issues states and persist artifacts via `src/utils/phase_results_store.py`
 
 **Checkpoint**: User Story 1 is fully functional and testable independently.
+- All unit tests for review-only outcomes pass with 90%+ coverage
+- Integration test successfully handles clean and issues-found scenarios
+- CodeRabbit subprocess invocation properly handles timeouts and errors
 
 ---
 
@@ -79,6 +85,9 @@
 - [X] T026 [US2] Implement failure escalation paths that surface actionable diagnostics when CodeRabbit, OpenCode, or validation fails in `src/activities/review_fix.py`
 
 **Checkpoint**: User Stories 1 and 2 operate independently and satisfy acceptance scenarios.
+- All OpenCode invocation and fix application tests pass
+- Validation command execution properly handles errors with tolerant decoding
+- Failure diagnostics are persisted and accessible for all error paths
 
 ---
 
@@ -97,6 +106,11 @@
 
 - [X] T020 [US3] Integrate fingerprint helper into retry flow within `src/activities/review_fix.py`
 - [X] T021 [US3] Persist and surface retry metadata via `src/utils/phase_results_store.py` and `src/models/review_fix.py`
+
+**Checkpoint**: User Story 3 prevents duplicate fix applications.
+- Fingerprint computation is deterministic and passes all unit tests
+- Retry detection correctly short-circuits on duplicate fingerprints
+- Retry metadata is persisted and properly surfaced in outcomes
 
 **Checkpoint**: All user stories now support idempotent retries with auditable artifacts.
 
