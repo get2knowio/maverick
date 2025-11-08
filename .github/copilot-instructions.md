@@ -6,6 +6,8 @@ Auto-generated from all feature plans. Last updated: 2025-10-28
 - Python 3.11 + Temporal Python SDK, uv toolchain, OpenCode CLI (`speckit.implement`); Temporal workflow state (no new external stores) (001-automate-phase-tasks)
 - Python 3.11, Rust toolchain (cargo), Temporal Python SDK, uv tooling, CodeRabbit CLI, OpenCode CLI; Temporal workflow state and downstream artifact persistence (001-automate-review-fix)
 - Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests) (001-cli-prereq-check)
+- Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain (001-pr-ci-automation)
+- N/A (stateful data returned via Temporal workflow payloads) (001-pr-ci-automation)
 
 ## Project Structure
 
@@ -272,10 +274,10 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 - **Benefits** - Simplified operations, better resource utilization, easier deployment
 
 ## Recent Changes
+- 001-pr-ci-automation: Added Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain
+- 001-pr-ci-automation: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 001-automate-review-fix: Added Python 3.11 (Temporal activity implementation), Rust toolchain for validation (cargo) + Temporal Python SDK, uv tooling, CodeRabbit CLI, OpenCode CLI, cargo
-- 001-automate-phase-tasks: Added Python 3.11 + Temporal Python SDK, uv toolchain, OpenCode CLI (`speckit.implement`)
 
-- 001-cli-prereq-check: Added Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests)
 
 ## Documentation Standards
 

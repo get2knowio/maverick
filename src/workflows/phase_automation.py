@@ -29,10 +29,13 @@ with workflow.unsafe.imports_passed_through():
         PhaseExecutionContext,
         PhaseExecutionHints,
         PhaseResult,
+        PullRequestAutomationRequest,
+        PullRequestAutomationResult,
         ResumeState,
         RetryPolicySettings,
         WorkflowCheckpoint,
     )
+    from src.utils.phase_results_store import save_pr_automation_result
     from src.utils.tasks_markdown import is_phase_complete
 
 
@@ -418,4 +421,179 @@ class AutomatePhaseTasksWorkflow:
         return summary
 
 
-__all__ = ["AutomatePhaseTasksWorkflow"]
+async def invoke_pr_automation(
+    request: PullRequestAutomationRequest,
+    timeout_minutes: int = 60,
+) -> PullRequestAutomationResult:
+    """Invoke PR CI automation activity from workflow context.
+
+    This helper function provides a reusable way for workflows to create,
+    monitor, and merge pull requests. It includes SLA metrics logging and
+    structured error handling.
+
+    Args:
+        request: PR automation request with branch, target, summary, and config
+        timeout_minutes: Activity timeout (default: 60 minutes for long CI runs)
+
+    Returns:
+        PullRequestAutomationResult with terminal status and metadata
+
+    Usage:
+        result = await invoke_pr_automation(
+            PullRequestAutomationRequest(
+                source_branch="feature/ai-changes",
+                target_branch="main",
+                summary="AI-generated changes",
+                workflow_attempt_id=workflow.info().workflow_id,
+            )
+        )
+    """
+    workflow.logger.info(
+        "pr_automation_invoked",
+        extra={
+            "workflow_id": workflow.info().workflow_id,
+            "source_branch": request.source_branch,
+            "target_branch": request.target_branch,
+            "timeout_minutes": timeout_minutes,
+        },
+    )
+
+    result: PullRequestAutomationResult = await workflow.execute_activity(
+        "pr_ci_automation",
+        request,
+        start_to_close_timeout=timedelta(minutes=timeout_minutes),
+        result_type=PullRequestAutomationResult,
+    )
+
+    # Surface SLA metrics and status through workflow logging (T043)
+    workflow.logger.info(
+        "pr_automation_completed",
+        extra={
+            "workflow_id": workflow.info().workflow_id,
+            "status": result.status,
+            "pr_number": result.pull_request_number,
+            "pr_url": result.pull_request_url,
+            "merge_commit_sha": result.merge_commit_sha,
+            "polling_duration_seconds": result.polling_duration_seconds,
+            "ci_failures_count": len(result.ci_failures) if result.ci_failures else 0,
+            "error_detail": result.error_detail,
+            "retry_advice": result.retry_advice,
+        },
+    )
+
+    # Log SLA-specific metrics for observability
+    if result.status == "merged":
+        workflow.logger.info(
+            "pr_merge_sla_achieved",
+            extra={
+                "workflow_id": workflow.info().workflow_id,
+                "pr_number": result.pull_request_number,
+                "polling_duration_seconds": result.polling_duration_seconds,
+                "merge_commit_sha": result.merge_commit_sha,
+            },
+        )
+    elif result.status == "ci_failed":
+        # Surface failure evidence for downstream remediation (T019 context)
+        workflow.logger.info(
+            "pr_ci_failures_detected",
+            extra={
+                "workflow_id": workflow.info().workflow_id,
+                "pr_number": result.pull_request_number,
+                "failure_count": len(result.ci_failures),
+                "failed_jobs": [f.job_name for f in result.ci_failures] if result.ci_failures else [],
+            },
+        )
+    elif result.status == "error":
+        # Surface error context including base-branch mismatches (T043)
+        workflow.logger.warning(
+            "pr_automation_error",
+            extra={
+                "workflow_id": workflow.info().workflow_id,
+                "pr_number": result.pull_request_number,
+                "error_detail": result.error_detail,
+                "retry_advice": result.retry_advice,
+            },
+        )
+    elif result.status == "timeout":
+        workflow.logger.warning(
+            "pr_automation_timeout",
+            extra={
+                "workflow_id": workflow.info().workflow_id,
+                "pr_number": result.pull_request_number,
+                "polling_duration_seconds": result.polling_duration_seconds,
+            },
+        )
+
+    return result
+
+
+async def persist_pr_automation_result(
+    result: PullRequestAutomationResult,
+    workflow_id: str,
+    results_base_dir: str = "/tmp/pr-automation-results",
+) -> str:
+    """Persist PR automation result to disk for downstream remediation (T019).
+
+    This function saves PR automation results including failure evidence,
+    SLA metrics, and error context to a JSON file. The persisted data enables
+    downstream workflow phases to access CI failure details, retry decisions,
+    and merge outcomes without re-querying GitHub.
+
+    Args:
+        result: PR automation result to persist
+        workflow_id: Temporal workflow ID for unique file naming
+        results_base_dir: Base directory for result files
+
+    Returns:
+        Path to the persisted JSON file
+
+    Raises:
+        Exception: If persistence fails (logged but not fatal to workflow)
+    """
+    from pathlib import Path
+
+    workflow.logger.info(
+        "persisting_pr_automation_result",
+        extra={
+            "workflow_id": workflow_id,
+            "status": result.status,
+            "pr_number": result.pull_request_number,
+            "results_base_dir": results_base_dir,
+        },
+    )
+
+    try:
+        output_dir = Path(results_base_dir) / workflow_id
+        output_path = output_dir / "pr_automation_result.json"
+
+        # Use existing serialization utility
+        save_pr_automation_result(result, output_path)
+
+        workflow.logger.info(
+            "pr_automation_result_persisted",
+            extra={
+                "workflow_id": workflow_id,
+                "persisted_path": str(output_path),
+                "status": result.status,
+            },
+        )
+
+        return str(output_path)
+
+    except Exception as e:
+        workflow.logger.error(
+            "pr_automation_persistence_failed",
+            extra={
+                "workflow_id": workflow_id,
+                "error_type": type(e).__name__,
+                "error": str(e),
+            },
+        )
+        raise
+
+
+__all__ = [
+    "AutomatePhaseTasksWorkflow",
+    "invoke_pr_automation",
+    "persist_pr_automation_result",
+]

@@ -205,8 +205,7 @@ async def test_successful_fix_run_end_to_end():
         # Validation passes
         validation_process = AsyncMock()
         validation_process.communicate.return_value = (
-            b"running 10 tests\n"
-            b"test result: ok. 10 passed; 0 failed; 0 ignored\n",
+            b"running 10 tests\ntest result: ok. 10 passed; 0 failed; 0 ignored\n",
             b"",
         )
         validation_process.returncode = 0
@@ -261,8 +260,7 @@ async def test_fix_run_with_validation_failure():
         # CodeRabbit
         coderabbit_process = AsyncMock()
         coderabbit_process.communicate.return_value = (
-            b"[MAJOR] Type error in handler.rs:30\n"
-            b"Details: Mismatched types\n",
+            b"[MAJOR] Type error in handler.rs:30\nDetails: Mismatched types\n",
             b"",
         )
         coderabbit_process.returncode = 0
@@ -279,8 +277,7 @@ async def test_fix_run_with_validation_failure():
         validation_process = AsyncMock()
         validation_process.communicate.return_value = (
             b"",
-            b"error: test failed, to rerun pass '--test integration'\n"
-            b"test result: FAILED. 8 passed; 2 failed\n",
+            b"error: test failed, to rerun pass '--test integration'\ntest result: FAILED. 8 passed; 2 failed\n",
         )
         validation_process.returncode = 101
 
@@ -315,8 +312,7 @@ async def test_fix_run_with_opencode_failure():
         # CodeRabbit
         coderabbit_process = AsyncMock()
         coderabbit_process.communicate.return_value = (
-            b"[BLOCKER] Complex architectural issue\n"
-            b"Details: Requires major refactoring\n",
+            b"[BLOCKER] Complex architectural issue\nDetails: Requires major refactoring\n",
             b"",
         )
         coderabbit_process.returncode = 0
@@ -325,8 +321,7 @@ async def test_fix_run_with_opencode_failure():
         opencode_process = AsyncMock()
         opencode_process.communicate.return_value = (
             b"",
-            b"Error: Cannot determine safe fix for architectural issue\n"
-            b"Recommendation: Manual intervention required\n",
+            b"Error: Cannot determine safe fix for architectural issue\nRecommendation: Manual intervention required\n",
         )
         opencode_process.returncode = 1
 
@@ -468,9 +463,7 @@ async def test_opencode_produces_no_changes():
         # OpenCode succeeds but produces no changes
         opencode_process = AsyncMock()
         opencode_process.communicate.return_value = (
-            b"Analysis complete\n"
-            b"No actionable changes identified\n"
-            b"Modified files: (none)\n",
+            b"Analysis complete\nNo actionable changes identified\nModified files: (none)\n",
             b"",
         )
         opencode_process.returncode = 0
@@ -514,9 +507,7 @@ async def test_opencode_produces_invalid_output():
         # OpenCode returns malformed output
         opencode_process = AsyncMock()
         opencode_process.communicate.return_value = (
-            b"Some random text\n"
-            b"Not following expected format\n"
-            b"<HTML>Error Page</HTML>\n",
+            b"Some random text\nNot following expected format\n<HTML>Error Page</HTML>\n",
             b"",
         )
         opencode_process.returncode = 0
@@ -836,9 +827,7 @@ async def test_retry_with_different_findings_reruns_fix():
         # Mock CodeRabbit finding first issue
         mock_process_coderabbit = AsyncMock()
         mock_process_coderabbit.communicate.return_value = (
-            b"CodeRabbit Review Complete\n"
-            b"[MAJOR] Missing error handling in main.rs:100\n"
-            b"Details: Function may panic\n",
+            b"CodeRabbit Review Complete\n[MAJOR] Missing error handling in main.rs:100\nDetails: Function may panic\n",
             b"",
         )
         mock_process_coderabbit.returncode = 0
@@ -945,9 +934,7 @@ async def test_retry_metadata_increments_attempt_counter():
     with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (
-            b"CodeRabbit Review Complete\n"
-            b"[MAJOR] Issue found\n"
-            b"Details: Something wrong\n",
+            b"CodeRabbit Review Complete\n[MAJOR] Issue found\nDetails: Something wrong\n",
             b"",
         )
         mock_process.returncode = 0
@@ -973,9 +960,7 @@ async def test_retry_metadata_increments_attempt_counter():
     with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (
-            b"CodeRabbit Review Complete\n"
-            b"[MAJOR] Issue found\n"
-            b"Details: Something wrong\n",
+            b"CodeRabbit Review Complete\n[MAJOR] Issue found\nDetails: Something wrong\n",
             b"",
         )
         mock_process.returncode = 0
@@ -1003,9 +988,7 @@ async def test_retry_metadata_increments_attempt_counter():
     with patch("asyncio.create_subprocess_exec") as mock_exec:
         mock_process = AsyncMock()
         mock_process.communicate.return_value = (
-            b"CodeRabbit Review Complete\n"
-            b"[MAJOR] Issue found\n"
-            b"Details: Something wrong\n",
+            b"CodeRabbit Review Complete\n[MAJOR] Issue found\nDetails: Something wrong\n",
             b"",
         )
         mock_process.returncode = 0
@@ -1072,9 +1055,7 @@ async def test_review_loop_timing_metrics_recorded():
             # First call: CodeRabbit finds issues
             if call_count == 1:
                 mock_process.communicate.return_value = (
-                    b"CodeRabbit Review Complete\n"
-                    b"[MAJOR] Missing error handling\n"
-                    b"Details: Function may panic\n",
+                    b"CodeRabbit Review Complete\n[MAJOR] Missing error handling\nDetails: Function may panic\n",
                     b"",
                 )
                 mock_process.returncode = 0
@@ -1106,9 +1087,7 @@ async def test_review_loop_timing_metrics_recorded():
         assert result_fix.fix_attempt.completed_at is not None
 
         # Verify fix_attempt timing is sane
-        fix_duration = (
-            result_fix.fix_attempt.completed_at - result_fix.fix_attempt.started_at
-        ).total_seconds()
+        fix_duration = (result_fix.fix_attempt.completed_at - result_fix.fix_attempt.started_at).total_seconds()
         assert fix_duration >= 0, "Fix duration should be non-negative"
 
         # Verify validation timing
@@ -1117,8 +1096,7 @@ async def test_review_loop_timing_metrics_recorded():
         assert result_fix.validation_result.completed_at is not None
 
         validation_duration = (
-            result_fix.validation_result.completed_at
-            - result_fix.validation_result.started_at
+            result_fix.validation_result.completed_at - result_fix.validation_result.started_at
         ).total_seconds()
         assert validation_duration >= 0, "Validation duration should be non-negative"
 

@@ -9,10 +9,14 @@ from pathlib import Path
 import pytest
 
 from src.models.phase_automation import (
+    CiFailureDetail,
     PhaseDefinition,
     PhaseExecutionContext,
     PhaseExecutionHints,
     PhaseResult,
+    PollingConfiguration,
+    PullRequestAutomationRequest,
+    PullRequestAutomationResult,
     ResumeState,
     TaskItem,
     WorkflowCheckpoint,
@@ -192,3 +196,182 @@ def test_resume_state_requires_matching_start_index(sample_phase: PhaseDefinitio
             skipped_phase_ids=[],
             checkpoint=None,
         )
+
+
+# PR Automation Models Tests
+
+
+@pytest.fixture
+def sample_polling_config() -> PollingConfiguration:
+    return PollingConfiguration(
+        interval_seconds=30,
+        timeout_minutes=45,
+        max_retries=5,
+        backoff_coefficient=2.0,
+    )
+
+
+@pytest.fixture
+def sample_pr_request(sample_polling_config: PollingConfiguration) -> PullRequestAutomationRequest:
+    return PullRequestAutomationRequest(
+        source_branch="feature/test",
+        summary="Test PR summary",
+        workflow_attempt_id="attempt-123",
+        target_branch="main",
+        polling=sample_polling_config,
+        metadata={"key": "value"},
+    )
+
+
+@pytest.fixture
+def sample_ci_failure() -> CiFailureDetail:
+    return CiFailureDetail(
+        job_name="test-job",
+        attempt=1,
+        status="failure",
+        summary="Test failed",
+        log_url="https://example.com/logs",
+        completed_at=datetime(2025, 11, 8, 12, 0, tzinfo=UTC),
+    )
+
+
+@pytest.fixture
+def sample_pr_result() -> PullRequestAutomationResult:
+    return PullRequestAutomationResult(
+        status="merged",
+        polling_duration_seconds=120,
+        pull_request_number=42,
+        pull_request_url="https://github.com/test/repo/pull/42",
+        merge_commit_sha="abc123",
+        ci_failures=[],
+        retry_advice=None,
+        error_detail=None,
+    )
+
+
+def test_polling_configuration_requires_positive_interval() -> None:
+    with pytest.raises(ValueError, match="interval_seconds must be >= 1"):
+        PollingConfiguration(interval_seconds=0)
+
+
+def test_polling_configuration_requires_positive_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout_minutes must be >= 1"):
+        PollingConfiguration(timeout_minutes=0)
+
+
+def test_polling_configuration_requires_non_negative_retries() -> None:
+    with pytest.raises(ValueError, match="max_retries must be >= 0"):
+        PollingConfiguration(max_retries=-1)
+
+
+def test_polling_configuration_requires_valid_backoff() -> None:
+    with pytest.raises(ValueError, match="backoff_coefficient must be >= 1.0"):
+        PollingConfiguration(backoff_coefficient=0.5)
+
+
+def test_ci_failure_detail_requires_job_name() -> None:
+    with pytest.raises(ValueError, match="job_name must be non-empty"):
+        CiFailureDetail(job_name="", attempt=1, status="failure")
+
+
+def test_ci_failure_detail_requires_positive_attempt() -> None:
+    with pytest.raises(ValueError, match="attempt must be >= 1"):
+        CiFailureDetail(job_name="test", attempt=0, status="failure")
+
+
+def test_ci_failure_detail_requires_timezone_aware_timestamp() -> None:
+    with pytest.raises(ValueError, match="completed_at must be timezone-aware"):
+        CiFailureDetail(
+            job_name="test",
+            attempt=1,
+            status="failure",
+            completed_at=datetime(2025, 11, 8, 12, 0),  # No timezone - intentionally testing validation  # noqa: DTZ001
+        )
+
+
+def test_pr_request_requires_source_branch() -> None:
+    with pytest.raises(ValueError, match="source_branch must be non-empty"):
+        PullRequestAutomationRequest(
+            source_branch="",
+            summary="test",
+            workflow_attempt_id="attempt-123",
+        )
+
+
+def test_pr_request_requires_summary() -> None:
+    with pytest.raises(ValueError, match="summary must be non-empty"):
+        PullRequestAutomationRequest(
+            source_branch="feature/test",
+            summary="",
+            workflow_attempt_id="attempt-123",
+        )
+
+
+def test_pr_request_requires_workflow_attempt_id() -> None:
+    with pytest.raises(ValueError, match="workflow_attempt_id must be non-empty"):
+        PullRequestAutomationRequest(
+            source_branch="feature/test",
+            summary="test",
+            workflow_attempt_id="",
+        )
+
+
+def test_pr_request_requires_target_branch() -> None:
+    with pytest.raises(ValueError, match="target_branch must be non-empty"):
+        PullRequestAutomationRequest(
+            source_branch="feature/test",
+            summary="test",
+            workflow_attempt_id="attempt-123",
+            target_branch="",
+        )
+
+
+def test_pr_result_requires_non_negative_duration(sample_pr_result: PullRequestAutomationResult) -> None:
+    with pytest.raises(ValueError, match="polling_duration_seconds must be >= 0"):
+        replace(sample_pr_result, polling_duration_seconds=-1)
+
+
+def test_pr_result_merged_requires_commit_sha() -> None:
+    with pytest.raises(ValueError, match="merge_commit_sha must be provided"):
+        PullRequestAutomationResult(
+            status="merged",
+            polling_duration_seconds=120,
+            merge_commit_sha=None,  # Invalid for merged status
+        )
+
+
+def test_pr_result_ci_failed_requires_failures(sample_ci_failure: CiFailureDetail) -> None:
+    with pytest.raises(ValueError, match="ci_failures must be non-empty"):
+        PullRequestAutomationResult(
+            status="ci_failed",
+            polling_duration_seconds=120,
+            ci_failures=[],  # Invalid for ci_failed status
+        )
+
+    # Valid case with failures
+    result = PullRequestAutomationResult(
+        status="ci_failed",
+        polling_duration_seconds=120,
+        ci_failures=[sample_ci_failure],
+    )
+    assert len(result.ci_failures) == 1
+
+
+def test_pr_result_error_requires_detail() -> None:
+    with pytest.raises(ValueError, match="error_detail must be provided"):
+        PullRequestAutomationResult(
+            status="error",
+            polling_duration_seconds=120,
+            error_detail=None,  # Invalid for error status
+        )
+
+
+def test_pr_result_immutable_ci_failures(sample_ci_failure: CiFailureDetail) -> None:
+    result = PullRequestAutomationResult(
+        status="ci_failed",
+        polling_duration_seconds=120,
+        ci_failures=[sample_ci_failure],
+    )
+
+    # Verify ci_failures is a tuple
+    assert isinstance(result.ci_failures, tuple)

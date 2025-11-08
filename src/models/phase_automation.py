@@ -13,6 +13,8 @@ from temporalio.common import RetryPolicy
 
 
 PhaseResultStatus = Literal["success", "failed", "skipped"]
+PrAutomationStatus = Literal["merged", "ci_failed", "timeout", "error"]
+CiJobStatus = Literal["queued", "in_progress", "failure", "cancelled", "timed_out"]
 
 _TASK_ID_PATTERN = re.compile(r"^T\d{3,}$")
 _PHASE_ID_TEMPLATE = "phase-{ordinal}"
@@ -326,14 +328,122 @@ class PhaseAutomationSummary:
         object.__setattr__(self, "skipped_phase_ids", tuple(self.skipped_phase_ids))
 
 
+@dataclass(frozen=True)
+class PollingConfiguration:
+    """Configuration for CI polling behavior."""
+
+    interval_seconds: int = 30
+    timeout_minutes: int = 45
+    max_retries: int = 5
+    backoff_coefficient: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.interval_seconds < 1:
+            raise ValueError("interval_seconds must be >= 1")
+        if self.timeout_minutes < 1:
+            raise ValueError("timeout_minutes must be >= 1")
+        if self.max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+        if self.backoff_coefficient < 1.0:
+            raise ValueError("backoff_coefficient must be >= 1.0")
+
+
+@dataclass(frozen=True)
+class CiFailureDetail:
+    """Per-job failure record for CI failures."""
+
+    job_name: str
+    attempt: int
+    status: CiJobStatus
+    summary: str | None = None
+    log_url: str | None = None
+    completed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.job_name.strip():
+            raise ValueError("job_name must be non-empty")
+        if self.attempt < 1:
+            raise ValueError("attempt must be >= 1")
+        if self.completed_at is not None:
+            _ensure_timezone(self.completed_at, "completed_at")
+
+
+@dataclass(frozen=True)
+class PullRequestAutomationRequest:
+    """Input payload for PR CI automation activity."""
+
+    source_branch: str
+    summary: str
+    workflow_attempt_id: str
+    target_branch: str = "main"
+    polling: PollingConfiguration | None = None
+    metadata: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.source_branch.strip():
+            raise ValueError("source_branch must be non-empty")
+        if not self.summary.strip():
+            raise ValueError("summary must be non-empty")
+        if not self.workflow_attempt_id.strip():
+            raise ValueError("workflow_attempt_id must be non-empty")
+        if not self.target_branch.strip():
+            raise ValueError("target_branch must be non-empty")
+
+        # Normalize strings
+        object.__setattr__(self, "source_branch", self.source_branch.strip())
+        object.__setattr__(self, "summary", self.summary.strip())
+        object.__setattr__(self, "workflow_attempt_id", self.workflow_attempt_id.strip())
+        object.__setattr__(self, "target_branch", self.target_branch.strip())
+
+        # Ensure metadata is immutable
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+
+@dataclass(frozen=True)
+class PullRequestAutomationResult:
+    """Deterministic activity response for PR CI automation."""
+
+    status: PrAutomationStatus
+    polling_duration_seconds: int
+    pull_request_number: int | None = None
+    pull_request_url: str | None = None
+    merge_commit_sha: str | None = None
+    ci_failures: Sequence[CiFailureDetail] = field(default_factory=tuple)
+    retry_advice: str | None = None
+    error_detail: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.polling_duration_seconds < 0:
+            raise ValueError("polling_duration_seconds must be >= 0")
+
+        # Validate status-specific invariants
+        if self.status == "merged" and (self.merge_commit_sha is None or not self.merge_commit_sha.strip()):
+            raise ValueError("merge_commit_sha must be provided when status='merged'")
+
+        if self.status == "ci_failed" and not self.ci_failures:
+            raise ValueError("ci_failures must be non-empty when status='ci_failed'")
+
+        if self.status == "error" and not self.error_detail:
+            raise ValueError("error_detail must be provided when status='error'")
+
+        # Ensure ci_failures is immutable tuple
+        object.__setattr__(self, "ci_failures", tuple(self.ci_failures))
+
+
 __all__ = [
     "AutomatePhaseTasksParams",
+    "CiFailureDetail",
+    "CiJobStatus",
     "PhaseDefinition",
     "PhaseExecutionContext",
     "PhaseExecutionHints",
     "PhaseResult",
     "PhaseResultStatus",
     "PhaseAutomationSummary",
+    "PollingConfiguration",
+    "PrAutomationStatus",
+    "PullRequestAutomationRequest",
+    "PullRequestAutomationResult",
     "ResumeState",
     "RetryPolicySettings",
     "TaskItem",

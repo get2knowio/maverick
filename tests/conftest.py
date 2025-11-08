@@ -108,3 +108,20 @@ def invalid_tasks_md_content(invalid_tasks_md_path: Path) -> str:
     """Load markdown missing phase headings for parser validation tests."""
 
     return invalid_tasks_md_path.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def gh_cli_stub():
+    """Provide GhCliStubHelper for mocking gh CLI commands in tests.
+
+    Returns:
+        GhCliStubHelper instance configured for PR CI automation testing
+
+    Example:
+        def test_pr_view(gh_cli_stub, monkeypatch):
+            gh_cli_stub.stub_pr_view(pr_number=123, state="OPEN")
+            # Mock subprocess to return gh_cli_stub responses
+    """
+    from tests.fixtures.pr_ci_automation.gh_cli_stub import GhCliStubHelper
+
+    return GhCliStubHelper()

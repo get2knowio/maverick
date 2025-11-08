@@ -143,21 +143,21 @@ def _sanitize_transcript(transcript: str) -> str:
     sanitized = transcript
 
     # Redact AWS keys (pattern: AKIA followed by 16 alphanumeric)
-    aws_pattern = r'AKIA[0-9A-Z]{16}'
+    aws_pattern = r"AKIA[0-9A-Z]{16}"
     if re.search(aws_pattern, sanitized):
-        sanitized = re.sub(aws_pattern, '[REDACTED-AWS-KEY]', sanitized)
+        sanitized = re.sub(aws_pattern, "[REDACTED-AWS-KEY]", sanitized)
         logger.info("sanitization_redacted_aws_keys")
 
     # Redact GitHub tokens (pattern: ghp_ or gho_ followed by alphanumeric)
-    github_pattern = r'gh[po]_[A-Za-z0-9]{36,255}'
+    github_pattern = r"gh[po]_[A-Za-z0-9]{36,255}"
     if re.search(github_pattern, sanitized):
-        sanitized = re.sub(github_pattern, '[REDACTED-GITHUB-TOKEN]', sanitized)
+        sanitized = re.sub(github_pattern, "[REDACTED-GITHUB-TOKEN]", sanitized)
         logger.info("sanitization_redacted_github_tokens")
 
     # Redact PEM blocks
-    pem_pattern = r'-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----'
+    pem_pattern = r"-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----"
     if re.search(pem_pattern, sanitized):
-        sanitized = re.sub(pem_pattern, '[REDACTED-PEM-BLOCK]', sanitized)
+        sanitized = re.sub(pem_pattern, "[REDACTED-PEM-BLOCK]", sanitized)
         logger.info("sanitization_redacted_pem_blocks")
 
     # Truncate to max length
@@ -173,10 +173,10 @@ def _sanitize_transcript(transcript: str) -> str:
 
     # Normalize whitespace - preserve line breaks, collapse horizontal whitespace
     # Replace runs of spaces/tabs with single space
-    sanitized = re.sub(r'[ \t]+', ' ', sanitized)
+    sanitized = re.sub(r"[ \t]+", " ", sanitized)
     # Strip trailing/leading whitespace per line while preserving newlines
-    lines = sanitized.split('\n')
-    sanitized = '\n'.join(line.strip() for line in lines)
+    lines = sanitized.split("\n")
+    sanitized = "\n".join(line.strip() for line in lines)
 
     return sanitized
 
@@ -200,11 +200,11 @@ def _parse_coderabbit_transcript(transcript: str) -> list[CodeReviewIssue]:
     # Pattern: [SEVERITY] title text
     # Details: details text
     # Optional: file.rs:line
-    issue_pattern = r'\[(BLOCKER|MAJOR|MINOR)\]\s+(.+?)(?:\n|$)'
-    details_pattern = r'Details:\s+(.+?)(?:\n|$)'
-    anchor_pattern = r'([a-zA-Z0-9_/.-]+\.rs):(\d+)'
+    issue_pattern = r"\[(BLOCKER|MAJOR|MINOR)\]\s+(.+?)(?:\n|$)"
+    details_pattern = r"Details:\s+(.+?)(?:\n|$)"
+    anchor_pattern = r"([a-zA-Z0-9_/.-]+\.rs):(\d+)"
 
-    lines = transcript.split('\n')
+    lines = transcript.split("\n")
     i = 0
 
     while i < len(lines):
@@ -315,9 +315,10 @@ async def _invoke_opencode_cli(sanitized_prompt: str, branch_ref: str) -> FixAtt
 
     # Write prompt to temporary file to avoid argv length limits
     import tempfile
+
     temp_prompt_file = None
     try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
             f.write(sanitized_prompt)
             f.flush()
             temp_prompt_file = f.name
@@ -342,8 +343,8 @@ async def _invoke_opencode_cli(sanitized_prompt: str, branch_ref: str) -> FixAtt
         completed_at = datetime.now(UTC)
 
         # Decode with tolerant error handling
-        stdout_text = stdout.decode('utf-8', errors='replace')
-        stderr_text = stderr.decode('utf-8', errors='replace')
+        stdout_text = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace")
 
         # Parse applied changes from stdout
         applied_changes = _parse_opencode_changes(stdout_text)
@@ -389,6 +390,7 @@ async def _invoke_opencode_cli(sanitized_prompt: str, branch_ref: str) -> FixAtt
         if temp_prompt_file:
             try:
                 import os
+
                 os.unlink(temp_prompt_file)
             except Exception:
                 pass  # Ignore cleanup errors
@@ -413,7 +415,7 @@ def _parse_opencode_changes(stdout: str) -> list[str]:
 
     # Pattern 1: "Modified files:" section
     if "Modified files:" in stdout:
-        lines = stdout.split('\n')
+        lines = stdout.split("\n")
         in_section = False
         for line in lines:
             if "Modified files:" in line:
@@ -421,22 +423,22 @@ def _parse_opencode_changes(stdout: str) -> list[str]:
                 continue
             if in_section:
                 # Look for file paths (usually indented)
-                match = re.search(r'[-*]\s+(.+\.rs)', line)
+                match = re.search(r"[-*]\s+(.+\.rs)", line)
                 if match:
                     changes.append(match.group(1).strip())
-                elif line.strip() and not line.strip().startswith(('-', '*', ' ')):
+                elif line.strip() and not line.strip().startswith(("-", "*", " ")):
                     # End of section
                     break
 
     # Pattern 2: "Applied changes to" or "Changed:"
-    changed_pattern = r'(?:Applied changes to|Changed:|Modified):\s+(.+\.rs)'
+    changed_pattern = r"(?:Applied changes to|Changed:|Modified):\s+(.+\.rs)"
     for match in re.finditer(changed_pattern, stdout):
         file_path = match.group(1).strip()
         if file_path not in changes:
             changes.append(file_path)
 
     # Pattern 3: File paths anywhere in output (src/*.rs pattern)
-    file_pattern = r'(src/[a-zA-Z0-9_/.-]+\.rs)'
+    file_pattern = r"(src/[a-zA-Z0-9_/.-]+\.rs)"
     for match in re.finditer(file_pattern, stdout):
         file_path = match.group(1).strip()
         if file_path not in changes:
@@ -497,11 +499,11 @@ def _build_failure_diagnostics(
             diagnostics.append(f"OpenCode failed with exit code {fix_attempt.exit_code}")
             if fix_attempt.stderr:
                 # Show first few lines of stderr
-                stderr_lines = fix_attempt.stderr.strip().split('\n')[:10]
+                stderr_lines = fix_attempt.stderr.strip().split("\n")[:10]
                 diagnostics.append("Error output:")
                 for line in stderr_lines:
                     diagnostics.append(f"  {line}")
-                if len(fix_attempt.stderr.split('\n')) > 10:
+                if len(fix_attempt.stderr.split("\n")) > 10:
                     diagnostics.append("  ...")
             diagnostics.append("")
         elif not fix_attempt.applied_changes:
@@ -518,11 +520,11 @@ def _build_failure_diagnostics(
         diagnostics.append(f"Command: {' '.join(validation_result.command)}")
         if validation_result.stderr:
             # Show first few lines of stderr
-            stderr_lines = validation_result.stderr.strip().split('\n')[:10]
+            stderr_lines = validation_result.stderr.strip().split("\n")[:10]
             diagnostics.append("Error output:")
             for line in stderr_lines:
                 diagnostics.append(f"  {line}")
-            if len(validation_result.stderr.split('\n')) > 10:
+            if len(validation_result.stderr.split("\n")) > 10:
                 diagnostics.append("  ...")
         diagnostics.append("")
 
@@ -587,8 +589,8 @@ async def _invoke_validation_command(
         completed_at = datetime.now(UTC)
 
         # Decode with tolerant error handling
-        stdout_text = stdout.decode('utf-8', errors='replace')
-        stderr_text = stderr.decode('utf-8', errors='replace')
+        stdout_text = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace")
 
         duration_ms = int((completed_at - started_at).total_seconds() * 1000)
 
@@ -670,8 +672,8 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
         )
 
         # Decode with tolerant error handling (per AGENTS.md best practices)
-        transcript = stdout.decode('utf-8', errors='replace')
-        stderr_text = stderr.decode('utf-8', errors='replace')
+        transcript = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace")
 
         if exit_code != 0:
             logger.error(
@@ -681,9 +683,7 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
             )
 
             # Generate failure fingerprint
-            fingerprint = hashlib.sha256(
-                f"{','.join(input_data.commit_range)}:cli_failed".encode()
-            ).hexdigest()
+            fingerprint = hashlib.sha256(f"{','.join(input_data.commit_range)}:cli_failed".encode()).hexdigest()
 
             return ReviewLoopOutcome(
                 status="failed",
@@ -702,9 +702,7 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
         )
 
         # Generate failure fingerprint
-        fingerprint = hashlib.sha256(
-            f"{','.join(input_data.commit_range)}:invocation_failed".encode()
-        ).hexdigest()
+        fingerprint = hashlib.sha256(f"{','.join(input_data.commit_range)}:invocation_failed".encode()).hexdigest()
 
         return ReviewLoopOutcome(
             status="failed",
@@ -871,6 +869,7 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
     artifacts_path = ""
     try:
         import tempfile
+
         base_artifacts_dir = Path(tempfile.gettempdir()) / "maverick-artifacts"
         artifacts_dir = base_artifacts_dir / fingerprint
         artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -921,9 +920,7 @@ async def run_review_fix_loop(input_data: ReviewLoopInput) -> ReviewLoopOutcome:
     validation_duration_ms: int | None = None
 
     if fix_attempt:
-        opencode_duration_ms = int(
-            (fix_attempt.completed_at - fix_attempt.started_at).total_seconds() * 1000
-        )
+        opencode_duration_ms = int((fix_attempt.completed_at - fix_attempt.started_at).total_seconds() * 1000)
 
     if validation_result:
         validation_duration_ms = int(
