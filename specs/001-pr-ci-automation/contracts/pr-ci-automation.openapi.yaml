@@ -1,0 +1,155 @@
+openapi: 3.1.0
+info:
+  title: PR CI Automation Activity
+  version: 0.1.0
+  description: >-
+    Contract describing the Temporal activity interface that publishes pull requests,
+    polls CI status, and merges or reports failures.
+servers:
+  - url: https://temporal-worker/internal
+paths:
+  /activities/pr-ci-automation:
+    post:
+      summary: Execute PR CI automation activity
+      operationId: executePrCiAutomation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullRequestAutomationRequest'
+      responses:
+        '200':
+          description: Deterministic activity result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullRequestAutomationResult'
+        '400':
+          description: Validation error in request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Transient GitHub failure exceeding retry budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    PullRequestAutomationRequest:
+      type: object
+      required:
+        - source_branch
+        - summary
+        - workflow_attempt_id
+      properties:
+        source_branch:
+          type: string
+          description: Git branch containing AI-authored changes.
+        target_branch:
+          type: string
+          default: main
+          description: Merge destination branch.
+        summary:
+          type: string
+          description: AI-generated PR description body.
+        workflow_attempt_id:
+          type: string
+          description: Temporal workflow attempt identifier for idempotency.
+        polling:
+          $ref: '#/components/schemas/PollingConfiguration'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional key-value context passed through by the workflow.
+    PollingConfiguration:
+      type: object
+      properties:
+        interval_seconds:
+          type: integer
+          minimum: 1
+          default: 30
+        timeout_minutes:
+          type: integer
+          minimum: 1
+          default: 45
+        max_retries:
+          type: integer
+          minimum: 0
+          default: 5
+        backoff_coefficient:
+          type: number
+          minimum: 1
+          default: 2.0
+    PullRequestAutomationResult:
+      type: object
+      required:
+        - status
+        - polling_duration_seconds
+      properties:
+        status:
+          type: string
+          enum: [merged, ci_failed, timeout, error]
+        pull_request_number:
+          type: integer
+          nullable: true
+        pull_request_url:
+          type: string
+          format: uri
+          nullable: true
+        merge_commit_sha:
+          type: string
+          nullable: true
+        ci_failures:
+          type: array
+          items:
+            $ref: '#/components/schemas/CiFailureDetail'
+        polling_duration_seconds:
+          type: integer
+          minimum: 0
+        retry_advice:
+          type: string
+          nullable: true
+        error_detail:
+          type: string
+          nullable: true
+    CiFailureDetail:
+      type: object
+      required:
+        - job_name
+        - attempt
+        - status
+      properties:
+        job_name:
+          type: string
+        attempt:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [queued, in_progress, failure, cancelled, timed_out]
+        summary:
+          type: string
+          nullable: true
+        log_url:
+          type: string
+          format: uri
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+          nullable: true

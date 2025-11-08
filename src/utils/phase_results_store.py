@@ -7,7 +7,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.models.phase_automation import PhaseResult
+from src.models.phase_automation import (
+    CiFailureDetail,
+    PhaseResult,
+    PullRequestAutomationResult,
+)
 from src.models.review_fix import (
     CodeReviewFindings,
     CodeReviewIssue,
@@ -439,19 +443,150 @@ def load_retry_metadata(input_path: Path) -> RetryMetadata:
     return deserialize_retry_metadata(data)
 
 
+def serialize_pr_automation_result(result: PullRequestAutomationResult) -> dict[str, Any]:
+    """Convert PullRequestAutomationResult to JSON-serializable dictionary.
+
+    Args:
+        result: PullRequestAutomationResult instance to serialize
+
+    Returns:
+        Dictionary with all fields converted to JSON-compatible types
+    """
+    data: dict[str, Any] = {
+        "status": result.status,
+        "polling_duration_seconds": result.polling_duration_seconds,
+        "pull_request_number": result.pull_request_number,
+        "pull_request_url": result.pull_request_url,
+        "merge_commit_sha": result.merge_commit_sha,
+        "retry_advice": result.retry_advice,
+        "error_detail": result.error_detail,
+    }
+
+    # Serialize ci_failures
+    if result.ci_failures:
+        data["ci_failures"] = [
+            {
+                "job_name": failure.job_name,
+                "attempt": failure.attempt,
+                "status": failure.status,
+                "summary": failure.summary,
+                "log_url": failure.log_url,
+                "completed_at": failure.completed_at.isoformat() if failure.completed_at else None,
+            }
+            for failure in result.ci_failures
+        ]
+    else:
+        data["ci_failures"] = []
+
+    return data
+
+
+def deserialize_pr_automation_result(data: dict[str, Any]) -> PullRequestAutomationResult:
+    """Reconstruct PullRequestAutomationResult from JSON dictionary.
+
+    Args:
+        data: Dictionary containing serialized PullRequestAutomationResult fields
+
+    Returns:
+        PullRequestAutomationResult instance
+
+    Raises:
+        ValueError: If data contains invalid timestamp format or missing required fields
+        KeyError: If required fields are missing from data
+    """
+    # Deserialize ci_failures
+    ci_failures = []
+    if "ci_failures" in data and data["ci_failures"]:
+        for failure_data in data["ci_failures"]:
+            completed_at = None
+            if failure_data.get("completed_at"):
+                try:
+                    completed_at = datetime.fromisoformat(failure_data["completed_at"])
+                except ValueError as e:
+                    raise ValueError(f"Invalid timestamp format in ci_failure: {e}") from e
+
+            ci_failures.append(
+                CiFailureDetail(
+                    job_name=failure_data["job_name"],
+                    attempt=failure_data["attempt"],
+                    status=failure_data["status"],
+                    summary=failure_data.get("summary"),
+                    log_url=failure_data.get("log_url"),
+                    completed_at=completed_at,
+                )
+            )
+
+    return PullRequestAutomationResult(
+        status=data["status"],
+        polling_duration_seconds=data["polling_duration_seconds"],
+        pull_request_number=data.get("pull_request_number"),
+        pull_request_url=data.get("pull_request_url"),
+        merge_commit_sha=data.get("merge_commit_sha"),
+        ci_failures=ci_failures,
+        retry_advice=data.get("retry_advice"),
+        error_detail=data.get("error_detail"),
+    )
+
+
+def save_pr_automation_result(result: PullRequestAutomationResult, output_path: Path) -> None:
+    """Persist PullRequestAutomationResult to JSON file.
+
+    Creates parent directories if they don't exist. Overwrites existing file.
+
+    Args:
+        result: PullRequestAutomationResult to save
+        output_path: Target file path (will create parent directories)
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    serialized = serialize_pr_automation_result(result)
+
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(serialized, f, indent=2, ensure_ascii=False)
+
+
+def load_pr_automation_result(input_path: Path) -> PullRequestAutomationResult:
+    """Load PullRequestAutomationResult from JSON file.
+
+    Args:
+        input_path: Path to JSON file containing serialized PullRequestAutomationResult
+
+    Returns:
+        Deserialized PullRequestAutomationResult instance
+
+    Raises:
+        FileNotFoundError: If input_path does not exist
+        ValueError: If file contains invalid JSON or cannot be deserialized
+    """
+    if not input_path.exists():
+        raise FileNotFoundError(f"PR automation result file not found: {input_path}")
+
+    try:
+        with input_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse JSON from {input_path}: {e}") from e
+
+    return deserialize_pr_automation_result(data)
+
+
 __all__ = [
     "deserialize_phase_result",
+    "deserialize_pr_automation_result",
     "deserialize_retry_metadata",
     "deserialize_review_outcome",
     "load_phase_result",
+    "load_pr_automation_result",
     "load_retry_metadata",
     "load_review_outcome",
     "save_fix_summary",
     "save_phase_result",
+    "save_pr_automation_result",
     "save_retry_metadata",
     "save_review_outcome",
     "save_sanitized_prompt",
     "serialize_phase_result",
+    "serialize_pr_automation_result",
     "serialize_retry_metadata",
     "serialize_review_outcome",
 ]

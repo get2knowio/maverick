@@ -352,8 +352,7 @@ async def test_opencode_successful_fix():
         # Second call: OpenCode applies fixes
         opencode_process = AsyncMock()
         opencode_process.communicate.return_value = (
-            b"OpenCode: Applied fixes to main.rs\n"
-            b"Changes: Added error handling\n",
+            b"OpenCode: Applied fixes to main.rs\nChanges: Added error handling\n",
             b"",
         )
         opencode_process.returncode = 0

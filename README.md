@@ -82,6 +82,109 @@ uv run python -m src.cli.readiness --workflow automate-phase-tasks \
 cat /tmp/phase-results/<workflow-id>/<phase-id>.json
 ```
 
+### PR CI Automation
+
+Automates the creation, monitoring, and merging of AI-authored pull requests by standardizing on the GitHub CLI (`gh`). Provides deterministic outcomes for workflow orchestration with built-in retry logic and structured failure reporting.
+
+**What it does:**
+- ✓ Creates or reuses pull requests from AI-authored branches
+- ✓ Monitors GitHub Actions CI status with bounded polling
+- ✓ Merges PRs automatically when all checks pass
+- ✓ Returns structured failure evidence for remediation
+- ✓ Handles timeouts, base branch mismatches, and resume scenarios
+- ✓ Emits SLA metrics for polling and merge operations
+
+**Key capabilities:**
+- **Idempotent PR management**: Reuses existing PRs, prevents duplicates
+- **Bounded CI polling**: Exponential backoff with configurable timeout (default: 45 min)
+- **Deterministic results**: Four terminal states: `merged`, `ci_failed`, `timeout`, `error`
+- **Failure aggregation**: Captures job names, statuses, and log URLs for failed checks
+- **Base branch validation**: Prevents merge when PR targets unexpected branch
+- **Resume-safe**: Handles workflow replays and retries without side effects
+- **Observability**: Structured logging with SLA timing metrics
+
+**Terminal States:**
+- `merged`: CI passed, PR merged successfully with commit SHA
+- `ci_failed`: One or more checks failed, returns failure details with log URLs
+- `timeout`: CI didn't complete within timeout, PR left open for investigation
+- `error`: Pre-merge failure (missing branch, base mismatch, CLI errors)
+
+**Integration:**
+
+Used as a Temporal activity within workflows. Example from phase automation:
+
+```python
+from src.models.phase_automation import (
+    PullRequestAutomationRequest,
+    PullRequestAutomationResult,
+    PollingConfiguration,
+)
+
+# Configure PR automation request
+pr_request = PullRequestAutomationRequest(
+    source_branch="feature-123",
+    target_branch="main",  # Optional, defaults to repo default branch
+    summary="AI-generated PR description...",
+    workflow_attempt_id="workflow-id-123",
+    polling=PollingConfiguration(
+        interval_seconds=30,
+        timeout_minutes=45,
+        max_retries=5,
+    ),
+)
+
+# Execute as Temporal activity
+result: PullRequestAutomationResult = await workflow.execute_activity(
+    "pr_ci_automation",
+    pr_request,
+    start_to_close_timeout=timedelta(hours=1),
+    result_type=PullRequestAutomationResult,
+)
+
+# Handle deterministic outcomes
+if result.status == "merged":
+    # Success: PR merged, commit SHA available
+    logger.info("pr_merged", merge_sha=result.merge_commit_sha)
+elif result.status == "ci_failed":
+    # Failure: Start remediation with failure details
+    for failure in result.ci_failures:
+        logger.error("check_failed", job=failure.job_name, url=failure.log_url)
+elif result.status == "timeout":
+    # Timeout: Extend timeout or manual investigation
+    logger.warning("ci_timeout", duration=result.polling_duration_seconds)
+elif result.status == "error":
+    # Error: Address root cause per retry_advice
+    logger.error("pr_error", detail=result.error_detail)
+```
+
+**CLI Prerequisites:**
+- GitHub CLI (`gh`) authenticated with repository access
+- Source branch pushed to remote
+- Repository with GitHub Actions configured (optional, PRs without CI auto-merge)
+
+**Configuration:**
+- Default polling interval: 30 seconds
+- Default timeout: 45 minutes
+- Default max retries: 5 (for transient errors)
+- Exponential backoff coefficient: 2.0x
+
+**Observability:**
+
+Key log events:
+- `pr_ci_automation_started` → Activity begins
+- `existing_pr_found` / `pr_created` → PR ready
+- `base_branch_validated` → Target alignment confirmed
+- `ci_poll_started` → Polling begins
+- `ci_poll_update` → Per-poll status (periodic)
+- `ci_poll_completed_success` / `ci_poll_completed_failure` / `ci_poll_timeout` → Terminal state
+- `pull_request_merged` → Merge completed
+- `ci_poll_sla_metrics` / `pr_merge_sla_metrics` → Timing metrics
+
+**See Also:**
+- Full flow examples: `specs/001-pr-ci-automation/quickstart.md`
+- Data model: `specs/001-pr-ci-automation/data-model.md`
+- Implementation: `src/activities/pr_ci_automation.py`
+
 ## Requirements
 
 - **Python**: 3.11 or later
@@ -182,6 +285,7 @@ Maverick uses a **unified worker architecture**:
 Available workflows:
 - **ReadinessWorkflow**: Checks CLI tool prerequisites and verifies GitHub repository access
 - **AutomatePhaseTasksWorkflow**: Orchestrates sequential execution of Speckit `tasks.md` phases with checkpoint management
+- **PR CI Automation**: Creates/monitors/merges pull requests with deterministic CI status handling (used as activity within workflows)
 
 Key principles:
 - **Deterministic workflows**: All non-deterministic operations (time, randomness) use Temporal-safe APIs
