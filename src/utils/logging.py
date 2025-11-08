@@ -8,6 +8,7 @@ from typing import Any
 
 try:
     from temporalio import workflow
+
     WORKFLOW_AVAILABLE = True
 except ImportError:
     WORKFLOW_AVAILABLE = False
@@ -37,7 +38,7 @@ class SafeJSONEncoder(json.JSONEncoder):
         elif isinstance(obj, (set, frozenset)):
             return list(obj)
         elif isinstance(obj, bytes):
-            return obj.decode('utf-8', errors='replace')
+            return obj.decode("utf-8", errors="replace")
         else:
             # Fallback: convert to string
             return str(obj)
@@ -59,12 +60,7 @@ class StructuredLogger:
         self.name = name
         self.logger = logger or logging.getLogger(name)
 
-    def _log_structured(
-        self,
-        level: int,
-        event: str,
-        **fields: Any
-    ) -> None:
+    def _log_structured(self, level: int, event: str, **fields: Any) -> None:
         """Log a structured message.
 
         Args:
@@ -72,11 +68,7 @@ class StructuredLogger:
             event: Event name/type
             **fields: Additional structured fields
         """
-        log_entry = {
-            "logger": self.name,
-            "event": event,
-            **fields
-        }
+        log_entry = {"logger": self.name, "event": event, **fields}
 
         # Get timestamp in a Temporal-safe way
         # In workflow context, use workflow.now() which is deterministic
@@ -98,7 +90,7 @@ class StructuredLogger:
                 "logger": self.name,
                 "event": event,
                 "timestamp": log_entry.get("timestamp", datetime.now(UTC).isoformat()),
-                "serialization_error": str(e)
+                "serialization_error": str(e),
             }
             try:
                 json_output = json.dumps(fallback_entry)

@@ -38,8 +38,8 @@ class ReadinessWorkflow:
                 "workflow_id": workflow.info().workflow_id,
                 "run_id": workflow.info().run_id,
                 "github_repo_url": params.github_repo_url,
-                "start_time": start_time.isoformat()
-            }
+                "start_time": start_time.isoformat(),
+            },
         )
 
         # Define retry policy for prerequisite check activities
@@ -47,7 +47,7 @@ class ReadinessWorkflow:
             initial_interval=timedelta(seconds=1),
             maximum_interval=timedelta(seconds=10),
             maximum_attempts=3,
-            non_retryable_error_types=["FileNotFoundError"]
+            non_retryable_error_types=["FileNotFoundError"],
         )
 
         # Execute both prerequisite checks in parallel
@@ -74,8 +74,8 @@ class ReadinessWorkflow:
             extra={
                 "workflow_id": workflow.info().workflow_id,
                 "gh_status": gh_result.status,
-                "copilot_status": copilot_result.status
-            }
+                "copilot_status": copilot_result.status,
+            },
         )
 
         # Execute repository verification
@@ -86,7 +86,7 @@ class ReadinessWorkflow:
             retry_policy=RetryPolicy(
                 maximum_attempts=1  # No workflow-level retries; activity handles retries
             ),
-            result_type=VerificationResult
+            result_type=VerificationResult,
         )
 
         workflow.logger.info(
@@ -96,25 +96,19 @@ class ReadinessWorkflow:
                 "repo_status": repo_result.status,
                 "repo_slug": repo_result.repo_slug,
                 "host": repo_result.host,
-                "error_code": repo_result.error_code
-            }
+                "error_code": repo_result.error_code,
+            },
         )
 
         # Execute parameter echo activity (demonstrates parameter access)
         if repo_result.status == "pass":
             echo_result = await workflow.execute_activity(
-                "echo_parameters",
-                params,
-                start_to_close_timeout=timedelta(seconds=5),
-                result_type=dict
+                "echo_parameters", params, start_to_close_timeout=timedelta(seconds=5), result_type=dict
             )
 
             workflow.logger.info(
                 "parameter_echo_completed",
-                extra={
-                    "workflow_id": workflow.info().workflow_id,
-                    "echo_result": echo_result
-                }
+                extra={"workflow_id": workflow.info().workflow_id, "echo_result": echo_result},
             )
 
         # Calculate duration using workflow time
@@ -122,11 +116,7 @@ class ReadinessWorkflow:
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
         # Determine overall status - all checks must pass
-        all_passed = (
-            gh_result.status == "pass" and
-            copilot_result.status == "pass" and
-            repo_result.status == "pass"
-        )
+        all_passed = gh_result.status == "pass" and copilot_result.status == "pass" and repo_result.status == "pass"
         overall_status = "ready" if all_passed else "not_ready"
 
         # Build summary
@@ -134,7 +124,7 @@ class ReadinessWorkflow:
             results=[gh_result, copilot_result],
             repo_verification=repo_result,
             overall_status=overall_status,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
         )
 
         workflow.logger.info(
@@ -143,8 +133,8 @@ class ReadinessWorkflow:
                 "workflow_id": workflow.info().workflow_id,
                 "run_id": workflow.info().run_id,
                 "overall_status": overall_status,
-                "duration_ms": duration_ms
-            }
+                "duration_ms": duration_ms,
+            },
         )
 
         return summary

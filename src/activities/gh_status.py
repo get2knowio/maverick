@@ -51,44 +51,36 @@ async def check_gh_status() -> PrereqCheckResult:
     try:
         # Execute gh auth status
         process = await asyncio.create_subprocess_exec(
-            "gh", "auth", "status",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "gh", "auth", "status", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=10.0
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
         except TimeoutError:
             logger.error("gh_status_timeout", timeout_seconds=10.0)
             return PrereqCheckResult(
                 tool="gh",
                 status="fail",
                 message="GitHub CLI check timed out after 10 seconds",
-                remediation="Check if gh is functioning properly and try again"
+                remediation="Check if gh is functioning properly and try again",
             )
 
         # gh auth status returns 0 if authenticated, 1 if not
         if process.returncode == 0:
             logger.info("gh_status_authenticated")
             return PrereqCheckResult(
-                tool="gh",
-                status="pass",
-                message="GitHub CLI is installed and authenticated",
-                remediation=None
+                tool="gh", status="pass", message="GitHub CLI is installed and authenticated", remediation=None
             )
         else:
             # Parse stderr for helpful context
-            stderr_text = stderr.decode('utf-8', errors='replace')
+            stderr_text = stderr.decode("utf-8", errors="replace")
             logger.warning("gh_status_not_authenticated", stderr=stderr_text)
 
             return PrereqCheckResult(
                 tool="gh",
                 status="fail",
                 message="GitHub CLI is not authenticated",
-                remediation=GH_NOT_AUTHENTICATED_REMEDIATION.strip()
+                remediation=GH_NOT_AUTHENTICATED_REMEDIATION.strip(),
             )
 
     except FileNotFoundError:
@@ -97,7 +89,7 @@ async def check_gh_status() -> PrereqCheckResult:
             tool="gh",
             status="fail",
             message="GitHub CLI is not installed",
-            remediation=GH_NOT_INSTALLED_REMEDIATION.strip()
+            remediation=GH_NOT_INSTALLED_REMEDIATION.strip(),
         )
     except Exception as e:
         logger.error("gh_status_error", error_type=type(e).__name__, error_message=str(e))
@@ -105,5 +97,5 @@ async def check_gh_status() -> PrereqCheckResult:
             tool="gh",
             status="fail",
             message=f"Error checking GitHub CLI: {str(e)}",
-            remediation="Check if gh is functioning properly and try again"
+            remediation="Check if gh is functioning properly and try again",
         )

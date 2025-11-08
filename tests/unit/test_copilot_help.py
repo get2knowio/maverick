@@ -12,13 +12,10 @@ async def test_copilot_help_available():
     """Test copilot help when copilot binary is available."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock successful copilot help
         mock_process = AsyncMock()
-        mock_process.communicate.return_value = (
-            b"GitHub Copilot CLI\n\nUsage:\n  copilot [command]\n",
-            b""
-        )
+        mock_process.communicate.return_value = (b"GitHub Copilot CLI\n\nUsage:\n  copilot [command]\n", b"")
         mock_process.returncode = 0
         mock_exec.return_value = mock_process
 
@@ -36,7 +33,7 @@ async def test_copilot_help_not_installed():
     """Test when copilot command is not found."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock command not found
         mock_exec.side_effect = FileNotFoundError("copilot command not found")
 
@@ -56,13 +53,10 @@ async def test_copilot_help_command_fails():
     """Test when copilot help returns non-zero exit code."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock copilot help failure
         mock_process = AsyncMock()
-        mock_process.communicate.return_value = (
-            b"",
-            b"error: unknown command\n"
-        )
+        mock_process.communicate.return_value = (b"", b"error: unknown command\n")
         mock_process.returncode = 1
         mock_exec.return_value = mock_process
 
@@ -79,7 +73,7 @@ async def test_copilot_help_timeout():
     """Test copilot command timeout handling."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock timeout
         mock_exec.side_effect = TimeoutError("Command timed out")
 
@@ -96,7 +90,7 @@ async def test_copilot_help_unexpected_error():
     """Test handling of unexpected errors."""
     from src.activities.copilot_help import check_copilot_help
 
-    with patch('asyncio.create_subprocess_exec') as mock_exec:
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
         # Mock unexpected error
         mock_exec.side_effect = Exception("Unexpected error")
 

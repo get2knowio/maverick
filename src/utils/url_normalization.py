@@ -19,6 +19,7 @@ class NormalizedRepo:
 
 class URLNormalizationError(ValueError):
     """Raised when URL cannot be normalized."""
+
     pass
 
 
@@ -35,7 +36,7 @@ def _validate_repo_slug(repo_slug: str) -> None:
         URLNormalizationError: If repo_slug contains invalid characters
     """
     # GitHub pattern: owner and repo can contain A-Z, a-z, 0-9, -, _, .
-    if not re.match(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$', repo_slug):
+    if not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", repo_slug):
         raise URLNormalizationError(
             f"Invalid repository slug: {repo_slug}. "
             "Owner and repository names must contain only alphanumeric characters, hyphens, underscores, and dots."
@@ -68,11 +69,7 @@ def normalize_github_url(url: str) -> NormalizedRepo:
         raise URLNormalizationError("URL cannot be empty")
 
     # Try HTTPS format: https://host/owner/repo[.git]
-    https_match = re.match(
-        r'^https?://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?/?$',
-        url,
-        re.IGNORECASE
-    )
+    https_match = re.match(r"^https?://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?/?$", url, re.IGNORECASE)
 
     if https_match:
         host = https_match.group(1).lower()
@@ -84,11 +81,7 @@ def normalize_github_url(url: str) -> NormalizedRepo:
         return NormalizedRepo(host=host, repo_slug=repo_slug)
 
     # Try SSH format: git@host:owner/repo[.git]
-    ssh_match = re.match(
-        r'^git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?/?$',
-        url,
-        re.IGNORECASE
-    )
+    ssh_match = re.match(r"^git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?/?$", url, re.IGNORECASE)
 
     if ssh_match:
         host = ssh_match.group(1).lower()
@@ -101,8 +94,7 @@ def normalize_github_url(url: str) -> NormalizedRepo:
 
     # Unrecognized format
     raise URLNormalizationError(
-        f"Unsupported URL format: {url}. "
-        "Expected HTTPS (https://host/owner/repo) or SSH (git@host:owner/repo)"
+        f"Unsupported URL format: {url}. Expected HTTPS (https://host/owner/repo) or SSH (git@host:owner/repo)"
     )
 
 
@@ -122,5 +114,5 @@ def validate_github_host(host: str) -> None:
         raise URLNormalizationError("Host cannot be empty")
 
     # Basic domain validation: alphanumeric, dots, hyphens
-    if not re.match(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$', host, re.IGNORECASE):
+    if not re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$", host, re.IGNORECASE):
         raise URLNormalizationError(f"Invalid host format: {host}")

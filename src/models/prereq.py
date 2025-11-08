@@ -27,6 +27,7 @@ class PrereqCheckResult:
         message: Human-readable detail about the check result
         remediation: Optional human-readable guidance for fixing failures
     """
+
     tool: str
     status: CheckStatus
     message: str
@@ -52,6 +53,7 @@ class ReadinessSummary:
         overall_status: Overall readiness status ("ready" or "not_ready")
         duration_ms: Execution time in milliseconds
     """
+
     results: list[PrereqCheckResult]
     repo_verification: VerificationResult | None
     overall_status: OverallStatus
@@ -70,10 +72,7 @@ class ReadinessSummary:
         # Validate overall_status consistency
         # All CLI checks and repo verification (if present) must pass for "ready" status
         cli_checks_passed = all(r.status == "pass" for r in self.results)
-        repo_check_passed = (
-            self.repo_verification is None or
-            self.repo_verification.status == "pass"
-        )
+        repo_check_passed = self.repo_verification is None or self.repo_verification.status == "pass"
         all_passed = cli_checks_passed and repo_check_passed
 
         if all_passed and self.overall_status != "ready":

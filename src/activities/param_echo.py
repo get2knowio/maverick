@@ -26,32 +26,20 @@ async def echo_parameters(params: Parameters) -> dict[str, str]:
     Returns:
         Dictionary with echoed parameters and access method used
     """
-    logger.info(
-        "param_echo_started",
-        workflow_info=activity.info().workflow_id if activity.info() else "unknown"
-    )
+    logger.info("param_echo_started", workflow_info=activity.info().workflow_id if activity.info() else "unknown")
 
     # Convert parameters to dict for accessor
     params_dict = asdict(params)
 
     # Demonstrate accessing github_repo_url using typed accessor
-    github_repo_url = get_required_param(
-        params_dict,
-        "github_repo_url",
-        str,
-        "GitHub repository URL"
-    )
+    github_repo_url = get_required_param(params_dict, "github_repo_url", str, "GitHub repository URL")
 
     result = {
         "github_repo_url": github_repo_url,
         "access_method": "typed_parameter_accessor",
-        "parameter_count": str(len(params_dict))
+        "parameter_count": str(len(params_dict)),
     }
 
-    logger.info(
-        "param_echo_completed",
-        github_repo_url=github_repo_url,
-        parameter_count=len(params_dict)
-    )
+    logger.info("param_echo_completed", github_repo_url=github_repo_url, parameter_count=len(params_dict))
 
     return result
