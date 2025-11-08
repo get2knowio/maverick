@@ -33,6 +33,7 @@ packages = ["src"]
 [project.scripts]
 maverick-worker = "src.workers.main:run_worker"
 readiness-check = "src.cli.readiness:main"
+review-fix-activity = "src.cli.review_fix:main"
 
 [build-system]
 requires = ["hatchling"]

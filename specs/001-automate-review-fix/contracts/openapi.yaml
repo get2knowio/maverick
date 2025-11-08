@@ -1,0 +1,283 @@
+openapi: 3.0.3
+info:
+  title: Automated Review & Fix Loop API
+  version: "0.1.0"
+  description: |
+    Internal API contract describing payloads exchanged between the Temporal
+    workflow automation and the review/fix activity.
+servers:
+  - url: https://automation.internal.example.com
+paths:
+  /automation/review-loop/run:
+    post:
+      summary: Trigger automated CodeRabbit review and optional remediation
+      description: |
+        Enqueues a Temporal activity execution for a git branch containing
+        AI-authored Rust changes. The request mirrors the `ReviewLoopInput`
+        model; the response mirrors `ReviewLoopOutcome`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewLoopInput'
+      responses:
+        "202":
+          description: Accepted for execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedResponse'
+        "400":
+          description: Bad request - invalid input parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Unprocessable entity - validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /automation/review-loop/outcomes/{fingerprint}:
+    get:
+      summary: Fetch the most recent outcome for a fingerprint
+      parameters:
+        - in: path
+          name: fingerprint
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+          required: true
+          description: |
+            Deterministic fingerprint computed as SHA-256 hash (lowercase hex, 64 chars) derived from:
+            1. Commit SHAs in topological order (sorted lexicographically, newline-delimited)
+            2. CodeRabbit findings (normalized: issue IDs sorted, titles/descriptions whitespace-normalized)
+            3. Tool versions (CodeRabbit CLI version, OpenCode CLI version)
+            
+            Canonicalization rules:
+            - Commit SHAs: Sorted alphabetically, one per line, lowercase hex
+            - Finding attributes: JSON-serialized with sorted keys, whitespace collapsed
+            - Field delimiter: Newline (\n) between sections
+            - Hash algorithm: SHA-256
+            - Output encoding: Lowercase hexadecimal string (64 characters)
+            
+            Recompute fingerprint when:
+            - Commit range changes (new commits added/removed)
+            - CodeRabbit findings change (different issues or content)
+            - Tool versions change (CLI upgrades affecting output format)
+      responses:
+        "200":
+          description: Outcome found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLoopOutcome'
+        "404":
+          description: No outcome recorded for fingerprint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    AcceptedResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: Temporal run identifier
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        status_url:
+          type: string
+          format: uri
+      required: [run_id, fingerprint, status_url]
+    ReviewLoopInput:
+      type: object
+      properties:
+        branch_ref:
+          type: string
+        commit_range:
+          type: array
+          items:
+            type: string
+            pattern: '^[0-9a-f]{7,40}$'
+        implementation_summary:
+          type: string
+          maxLength: 2000
+        validation_command:
+          type: array
+          items:
+            type: string
+        retry_metadata:
+          $ref: '#/components/schemas/RetryMetadata'
+        enable_fixes:
+          type: boolean
+      required: [branch_ref, enable_fixes]
+    RetryMetadata:
+      type: object
+      properties:
+        previous_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        attempt_counter:
+          type: integer
+          minimum: 0
+        last_status:
+          type: string
+          enum: [clean, fixed, failed]
+        artifacts_path:
+          type: string
+      required: [previous_fingerprint, attempt_counter, last_status]
+    ReviewLoopOutcome:
+      type: object
+      description: |
+        Outcome of a review/fix execution. Field requirements vary by status:
+        - status="clean": Only status, fingerprint, completed_at are required
+        - status="fixed": Requires code_review_findings, fix_attempt, validation_result
+        - status="failed": Requires code_review_findings; fix_attempt populated if failure occurred during/after fix application
+      properties:
+        status:
+          type: string
+          enum: [clean, fixed, failed]
+        issues_fixed:
+          type: integer
+          minimum: 0
+        code_review_findings:
+          $ref: '#/components/schemas/CodeReviewFindings'
+        fix_attempt:
+          $ref: '#/components/schemas/FixAttemptRecord'
+        validation_result:
+          $ref: '#/components/schemas/ValidationResult'
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        artifacts_path:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+      required: [status, fingerprint, completed_at]
+    CodeReviewFindings:
+      type: object
+      properties:
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeReviewIssue'
+        transcript:
+          type: string
+        sanitized_prompt:
+          type: string
+        summary:
+          type: string
+        raw_hash:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+      required: [issues, sanitized_prompt, raw_hash, generated_at]
+    CodeReviewIssue:
+      type: object
+      properties:
+        title:
+          type: string
+        severity:
+          type: string
+          enum: [blocker, major, minor]
+        details:
+          type: string
+        anchor:
+          type: string
+      required: [title, severity, details]
+    FixAttemptRecord:
+      type: object
+      properties:
+        request_id:
+          type: string
+        sanitized_prompt:
+          type: string
+        applied_changes:
+          type: array
+          items:
+            type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+      required: [request_id, sanitized_prompt, exit_code, started_at, completed_at]
+    ValidationResult:
+      type: object
+      properties:
+        command:
+          type: array
+          items:
+            type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+      required: [command, exit_code, started_at, completed_at]
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Optional additional error context
+          additionalProperties: true
+      required: [code, message]

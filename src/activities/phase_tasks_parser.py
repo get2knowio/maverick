@@ -61,7 +61,7 @@ class ParseTasksMdResult:
 
 
 @activity.defn(name="parse_tasks_md")
-def parse_tasks_md(request: ParseTasksMdRequest) -> ParseTasksMdResult:
+async def parse_tasks_md(request: ParseTasksMdRequest) -> ParseTasksMdResult:
     """Parse Speckit tasks markdown into structured phase definitions."""
 
     logger.info(
