@@ -212,3 +212,4 @@ __marimo__/
 .codex/sessions/
 .codex/config.toml
 .codex/history.jsonl
+.DS_Store
