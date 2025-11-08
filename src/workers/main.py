@@ -17,6 +17,7 @@ from src.activities.persist_phase_result import persist_phase_result
 from src.activities.phase_runner import run_phase
 from src.activities.phase_tasks_parser import parse_tasks_md
 from src.activities.repo_verification import verify_repository
+from src.activities.review_fix import run_review_fix_loop
 from src.utils.logging import get_structured_logger
 from src.workflows.phase_automation import AutomatePhaseTasksWorkflow
 from src.workflows.readiness import ReadinessWorkflow
@@ -48,6 +49,7 @@ async def main() -> None:
             "parse_tasks_md",
             "run_phase",
             "persist_phase_result",
+            "run_review_fix_loop",
         ],
     )
 
@@ -107,10 +109,11 @@ async def main() -> None:
             parse_tasks_md,
             run_phase,
             persist_phase_result,
+            run_review_fix_loop,
         ],
     )
 
-    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=2, activities_count=7)
+    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=2, activities_count=8)
 
     # Set up graceful shutdown
     loop = asyncio.get_event_loop()

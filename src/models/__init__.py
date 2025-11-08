@@ -11,6 +11,17 @@ from src.models.phase_automation import (
     TaskItem,
     WorkflowCheckpoint,
 )
+from src.models.review_fix import (
+    CodeReviewFindings,
+    CodeReviewIssue,
+    FixAttemptRecord,
+    IssueSeverity,
+    RetryMetadata,
+    ReviewLoopInput,
+    ReviewLoopOutcome,
+    ReviewOutcomeStatus,
+    ValidationResult,
+)
 from src.models.verification_result import (
     ErrorCode,
     Tool,
@@ -36,4 +47,13 @@ __all__ = [
     "WorkflowState",
     "WorkflowStateType",
     "WorkflowCheckpoint",
+    "CodeReviewFindings",
+    "CodeReviewIssue",
+    "FixAttemptRecord",
+    "IssueSeverity",
+    "RetryMetadata",
+    "ReviewLoopInput",
+    "ReviewLoopOutcome",
+    "ReviewOutcomeStatus",
+    "ValidationResult",
 ]

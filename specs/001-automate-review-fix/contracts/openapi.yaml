@@ -1,0 +1,202 @@
+openapi: 3.0.3
+info:
+  title: Automated Review & Fix Loop API
+  version: "0.1.0"
+  description: |
+    Internal API contract describing payloads exchanged between the Temporal
+    workflow automation and the review/fix activity.
+servers:
+  - url: https://automation.internal.example.com
+paths:
+  /automation/review-loop/run:
+    post:
+      summary: Trigger automated CodeRabbit review and optional remediation
+      description: |
+        Enqueues a Temporal activity execution for a git branch containing
+        AI-authored Rust changes. The request mirrors the `ReviewLoopInput`
+        model; the response mirrors `ReviewLoopOutcome`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewLoopInput'
+      responses:
+        "202":
+          description: Accepted for execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedResponse'
+  /automation/review-loop/outcomes/{fingerprint}:
+    get:
+      summary: Fetch the most recent outcome for a fingerprint
+      parameters:
+        - in: path
+          name: fingerprint
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+          required: true
+          description: Deterministic fingerprint from commits + findings
+      responses:
+        "200":
+          description: Outcome found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLoopOutcome'
+        "404":
+          description: No outcome recorded for fingerprint
+components:
+  schemas:
+    AcceptedResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: Temporal run identifier
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        status_url:
+          type: string
+          format: uri
+      required: [run_id, fingerprint, status_url]
+    ReviewLoopInput:
+      type: object
+      properties:
+        branch_ref:
+          type: string
+        commit_range:
+          type: array
+          items:
+            type: string
+            pattern: '^[0-9a-f]{7,40}$'
+        implementation_summary:
+          type: string
+          maxLength: 2000
+        validation_command:
+          type: array
+          items:
+            type: string
+        retry_metadata:
+          $ref: '#/components/schemas/RetryMetadata'
+        enable_fixes:
+          type: boolean
+      required: [branch_ref, enable_fixes]
+    RetryMetadata:
+      type: object
+      properties:
+        previous_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        attempt_counter:
+          type: integer
+          minimum: 0
+        last_status:
+          type: string
+          enum: [clean, fixed, failed]
+        artifacts_path:
+          type: string
+      required: [previous_fingerprint, attempt_counter, last_status]
+    ReviewLoopOutcome:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [clean, fixed, failed]
+        issues_fixed:
+          type: integer
+          minimum: 0
+        code_review_findings:
+          $ref: '#/components/schemas/CodeReviewFindings'
+        fix_attempt:
+          $ref: '#/components/schemas/FixAttemptRecord'
+        validation_result:
+          $ref: '#/components/schemas/ValidationResult'
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        artifacts_path:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+      required: [status, fingerprint, completed_at]
+    CodeReviewFindings:
+      type: object
+      properties:
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeReviewIssue'
+        transcript:
+          type: string
+        sanitized_prompt:
+          type: string
+        summary:
+          type: string
+        raw_hash:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+      required: [issues, sanitized_prompt, raw_hash, generated_at]
+    CodeReviewIssue:
+      type: object
+      properties:
+        title:
+          type: string
+        severity:
+          type: string
+          enum: [blocker, major, minor]
+        details:
+          type: string
+        anchor:
+          type: string
+      required: [title, severity, details]
+    FixAttemptRecord:
+      type: object
+      properties:
+        request_id:
+          type: string
+        sanitized_prompt:
+          type: string
+        applied_changes:
+          type: array
+          items:
+            type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+      required: [request_id, sanitized_prompt, exit_code, started_at, completed_at]
+    ValidationResult:
+      type: object
+      properties:
+        command:
+          type: array
+          items:
+            type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+      required: [command, exit_code, started_at, completed_at]
