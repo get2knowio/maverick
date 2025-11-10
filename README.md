@@ -185,6 +185,212 @@ Key log events:
 - Data model: `specs/001-pr-ci-automation/data-model.md`
 - Implementation: `src/activities/pr_ci_automation.py`
 
+### Multi-Task Orchestration
+
+Orchestrates sequential processing of multiple task files through all phases (initialize, implement, review/fix, PR/CI/merge) with optional interactive approval gates and resume capability after worker restarts.
+
+**What it does:**
+- ✓ Processes multiple task files sequentially through all phases
+- ✓ Calls AutomatePhaseTasksWorkflow as child workflow for each task
+- ✓ Implements fail-fast behavior (stops on first task failure)
+- ✓ Supports interactive mode with pause/resume between tasks
+- ✓ Maintains progress state for resumability after worker restarts
+- ✓ Returns aggregated results with success/failure statistics
+
+**Key capabilities:**
+- **Sequential processing**: Processes tasks one by one to avoid branch conflicts
+- **Fail-fast error handling**: Stops immediately on task failure, returns partial results
+- **Interactive approval gates**: Optional pause after each task for manual review
+- **Resume from interruption**: Automatically resumes from correct task after worker restart
+- **Progress tracking**: Query handlers provide real-time workflow state
+- **Signal control**: Skip current task or continue to next task via signals
+
+**Quick start:**
+
+```bash
+# Start Temporal server (separate terminal)
+temporal server start-dev
+
+# Start the worker (separate terminal)
+uv run maverick-worker
+
+# Run orchestration for multiple task files (batch mode)
+uv run maverick-orchestrate run \
+  task1.md task2.md task3.md \
+  --repo-path /path/to/repo \
+  --branch feature-001
+
+# Run with interactive mode (pause after each task)
+uv run maverick-orchestrate run \
+  task1.md task2.md \
+  --repo-path /path/to/repo \
+  --branch feature-001 \
+  --interactive
+
+# Query progress of running workflow
+uv run maverick-orchestrate query --workflow-id orchestrate-abc123
+
+# Send continue signal to resume paused workflow
+uv run maverick-orchestrate continue --workflow-id orchestrate-abc123
+
+# Skip current task in paused workflow
+uv run maverick-orchestrate skip --workflow-id orchestrate-abc123
+```
+
+**Usage patterns:**
+
+Automated batch processing:
+```bash
+# Process 5 task files without interaction
+uv run maverick-orchestrate run \
+  tasks/feature-1.md tasks/feature-2.md tasks/feature-3.md \
+  tasks/feature-4.md tasks/feature-5.md \
+  --repo-path /workspace/myrepo \
+  --branch feature-batch-001 \
+  --retry-limit 3
+```
+
+Interactive workflow with manual approval:
+```bash
+# Start workflow in interactive mode
+uv run maverick-orchestrate run \
+  tasks/critical-feature.md \
+  --repo-path /workspace/myrepo \
+  --branch feature-critical-001 \
+  --interactive \
+  --workflow-id critical-task-001
+
+# In separate terminal, monitor progress
+uv run maverick-orchestrate query --workflow-id critical-task-001
+
+# After reviewing task 1 results, continue to task 2
+uv run maverick-orchestrate continue --workflow-id critical-task-001
+
+# Or skip task 2 if needed
+uv run maverick-orchestrate skip --workflow-id critical-task-001
+```
+
+Resume after worker restart:
+```bash
+# Start workflow
+uv run maverick-orchestrate run \
+  tasks/t1.md tasks/t2.md tasks/t3.md \
+  --repo-path /workspace/myrepo \
+  --branch feature-resume-test \
+  --workflow-id resume-test-001
+
+# Worker crashes or restarts during task 2
+# Temporal automatically resumes workflow from correct state
+# Task 1 results preserved, task 2 continues from where it left off
+```
+
+**Configuration:**
+- `--retry-limit`: Maximum retry attempts for phase execution (1-10, default: 3)
+- `--interactive`: Enable interactive mode with pause/resume between tasks
+- `--default-model`: Override AI model for all phases
+- `--default-agent-profile`: Override agent profile for all phases
+- `--workflow-id`: Reuse same ID to resume from checkpoint
+
+**Output format:**
+
+```text
+============================================================
+Multi-Task Orchestration
+============================================================
+
+Total Tasks:       5
+Successful Tasks:  3
+Failed Tasks:      1
+Skipped Tasks:     0
+Unprocessed Tasks: 1
+
+⚠️  Workflow terminated early due to task failure
+
+------------------------------------------------------------
+Task Results:
+
+✓ Task 1: SUCCESS
+  File: /workspace/tasks/feature-001.md
+  Duration: 1234s
+  Phases: 4
+    ✓ initialize: success (120s)
+    ✓ implement: success (800s)
+    ✓ review_fix: success (200s)
+    ✓ pr_ci_merge: success (114s)
+
+✗ Task 2: FAILED
+  File: /workspace/tasks/feature-002.md
+  Duration: 456s
+  Phases: 2
+    ✓ initialize: success (100s)
+    ✗ implement: failed (356s)
+  Failure: Phase 'implement' failed after 3 retries: Compilation error
+
+------------------------------------------------------------
+Unprocessed Tasks (not attempted):
+  - /workspace/tasks/feature-003.md
+
+------------------------------------------------------------
+✗ Workflow stopped early due to task failure
+
+Total Duration: 1690s
+============================================================
+```
+
+**Integration:**
+
+Used programmatically within applications:
+
+```python
+from temporalio.client import Client
+from src.models.orchestration import OrchestrationInput, OrchestrationResult
+
+# Connect to Temporal
+client = await Client.connect("localhost:7233")
+
+# Build input
+orchestration_input = OrchestrationInput(
+    task_file_paths=("tasks/feature-001.md", "tasks/feature-002.md"),
+    interactive_mode=False,
+    retry_limit=3,
+    repo_path="/workspace/myrepo",
+    branch="feature-batch-001",
+)
+
+# Execute workflow
+result: OrchestrationResult = await client.execute_workflow(
+    "MultiTaskOrchestrationWorkflow",
+    orchestration_input,
+    id="orchestrate-batch-001",
+    task_queue="maverick-task-queue",
+)
+
+# Check results
+if result.failed_tasks > 0:
+    print(f"❌ {result.failed_tasks} tasks failed")
+    for task_result in result.task_results:
+        if task_result.overall_status == "failed":
+            print(f"  - {task_result.task_file_path}: {task_result.failure_reason}")
+else:
+    print(f"✅ All {result.successful_tasks} tasks completed successfully!")
+```
+
+**Error handling:**
+
+The workflow implements fail-fast behavior:
+- Task failure → Workflow stops immediately, returns partial results
+- Child workflow exception → Captured and converted to failed TaskResult
+- Empty phase list → Treated as task failure with synthetic PhaseResult
+- Validation errors → Caught during OrchestrationInput construction
+
+Unprocessed tasks are listed in `OrchestrationResult.unprocessed_task_paths` for visibility.
+
+**See Also:**
+- Full specification: `specs/001-multi-task-orchestration/spec.md`
+- Data model: `specs/001-multi-task-orchestration/data-model.md`
+- Quick start guide: `specs/001-multi-task-orchestration/quickstart.md`
+- Implementation: `src/workflows/multi_task_orchestration.py`
+
 ## Requirements
 
 - **Python**: 3.11 or later
@@ -285,6 +491,7 @@ Maverick uses a **unified worker architecture**:
 Available workflows:
 - **ReadinessWorkflow**: Checks CLI tool prerequisites and verifies GitHub repository access
 - **AutomatePhaseTasksWorkflow**: Orchestrates sequential execution of Speckit `tasks.md` phases with checkpoint management
+- **MultiTaskOrchestrationWorkflow**: Processes multiple task files sequentially through all phases with fail-fast behavior and interactive approval gates
 - **PR CI Automation**: Creates/monitors/merges pull requests with deterministic CI status handling (used as activity within workflows)
 
 Key principles:

@@ -8,6 +8,8 @@ Auto-generated from all feature plans. Last updated: 2025-10-28
 - Python 3.11 + Temporal Python SDK; uv for dependency management; pytest (tests) (001-cli-prereq-check)
 - Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain (001-pr-ci-automation)
 - N/A (stateful data returned via Temporal workflow payloads) (001-pr-ci-automation)
+- Python 3.11 (existing project standard) + Temporal Python SDK (existing), uv for dependency management (existing) (001-multi-task-orchestration)
+- N/A (all state stored in Temporal workflow state as per FR-017, FR-019) (001-multi-task-orchestration)
 
 ## Project Structure
 
@@ -274,9 +276,9 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 - **Benefits** - Simplified operations, better resource utilization, easier deployment
 
 ## Recent Changes
+- 001-multi-task-orchestration: Added Python 3.11 (existing project standard) + Temporal Python SDK (existing), uv for dependency management (existing)
 - 001-pr-ci-automation: Added Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain
 - 001-pr-ci-automation: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
-- 001-automate-review-fix: Added Python 3.11 (Temporal activity implementation), Rust toolchain for validation (cargo) + Temporal Python SDK, uv tooling, CodeRabbit CLI, OpenCode CLI, cargo
 
 
 ## Documentation Standards

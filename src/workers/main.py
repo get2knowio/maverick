@@ -20,6 +20,7 @@ from src.activities.pr_ci_automation import pr_ci_automation
 from src.activities.repo_verification import verify_repository
 from src.activities.review_fix import run_review_fix_loop
 from src.utils.logging import get_structured_logger
+from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 from src.workflows.phase_automation import AutomatePhaseTasksWorkflow
 from src.workflows.readiness import ReadinessWorkflow
 
@@ -41,7 +42,7 @@ async def main() -> None:
 
     logger.info(
         "worker_starting",
-        workflows=["ReadinessWorkflow", "AutomatePhaseTasksWorkflow"],
+        workflows=["ReadinessWorkflow", "AutomatePhaseTasksWorkflow", "MultiTaskOrchestrationWorkflow"],
         activities=[
             "check_gh_status",
             "check_copilot_help",
@@ -102,7 +103,7 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue="maverick-task-queue",
-        workflows=[ReadinessWorkflow, AutomatePhaseTasksWorkflow],
+        workflows=[ReadinessWorkflow, AutomatePhaseTasksWorkflow, MultiTaskOrchestrationWorkflow],
         activities=[
             check_gh_status,
             check_copilot_help,
@@ -116,7 +117,7 @@ async def main() -> None:
         ],
     )
 
-    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=2, activities_count=9)
+    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=3, activities_count=9)
 
     # Set up graceful shutdown
     loop = asyncio.get_event_loop()
