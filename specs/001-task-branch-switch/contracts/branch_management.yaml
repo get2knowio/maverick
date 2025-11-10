@@ -1,0 +1,178 @@
+openapi: 3.1.0
+info:
+  title: Branch Management Service
+  version: 0.1.0
+  description: >-
+    Internal contract describing the Temporal activities that manage git branch
+    state for Speckit-driven automation tasks.
+servers:
+  - url: temporal-activities://branch-management
+paths:
+  /tasks/{taskId}/branch/derive:
+    post:
+      summary: Resolve the git branch for a Speckit task descriptor
+      operationId: deriveTaskBranch
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskDescriptor'
+      responses:
+        '200':
+          description: Branch successfully resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSelection'
+        '422':
+          description: Descriptor missing branch context or invalid slug
+  /branches/checkout:
+    post:
+      summary: Ensure repository is on the requested branch before phase execution
+      operationId: checkoutTaskBranch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - branchName
+              properties:
+                branchName:
+                  type: string
+      responses:
+        '200':
+          description: Checkout succeeded or branch already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResult'
+        '409':
+          description: Working tree dirty or branch missing
+  /branches/main/checkout:
+    post:
+      summary: Return repository to main and fast-forward from origin
+      operationId: checkoutMain
+      requestBody:
+        required: false
+      responses:
+        '200':
+          description: Main branch ready for next task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MainCheckoutResult'
+        '409':
+          description: Fast-forward pull failed (divergent history)
+  /branches/{branchName}:
+    delete:
+      summary: Delete the task branch locally after main checkout
+      operationId: deleteTaskBranch
+      parameters:
+        - name: branchName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Branch deleted or absent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResult'
+components:
+  schemas:
+    TaskDescriptor:
+      type: object
+      required:
+        - taskId
+        - specPath
+      properties:
+        taskId:
+          type: string
+        specPath:
+          type: string
+          format: path
+        explicitBranch:
+          type: string
+          nullable: true
+        phases:
+          type: array
+          items:
+            type: string
+    BranchSelection:
+      type: object
+      required:
+        - branchName
+        - source
+      properties:
+        branchName:
+          type: string
+        source:
+          type: string
+          enum: [explicit, spec-slug]
+        logMessage:
+          type: string
+    CheckoutResult:
+      type: object
+      required:
+        - branchName
+        - status
+        - changed
+        - gitHead
+      properties:
+        branchName:
+          type: string
+        status:
+          type: string
+          enum: [success, already-active]
+        changed:
+          type: boolean
+        gitHead:
+          type: string
+        logs:
+          type: array
+          items:
+            type: string
+    MainCheckoutResult:
+      type: object
+      required:
+        - status
+        - gitHead
+        - pullFastForwarded
+      properties:
+        status:
+          type: string
+          enum: [success, already-on-main]
+        gitHead:
+          type: string
+        pullFastForwarded:
+          type: boolean
+        logs:
+          type: array
+          items:
+            type: string
+    DeletionResult:
+      type: object
+      required:
+        - status
+        - reason
+      properties:
+        status:
+          type: string
+          enum: [deleted, missing]
+        reason:
+          type: string
+        logs:
+          type: array
+          items:
+            type: string
