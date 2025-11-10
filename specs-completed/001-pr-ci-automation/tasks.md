@@ -123,7 +123,7 @@
 **Purpose**: Final documentation and quality gates
 
 - [X] T025 Document success, failure, and resume flows in `specs/001-pr-ci-automation/quickstart.md`
-- [X] T026 Run full validation (`uv run pytest` + `uv run ruff check .`) from repository root `/workspaces/maverick`
+- [X] T026 Run full validation (`timeout 15 uv run pytest` + `uv run ruff check .`) from repository root `/workspaces/maverick`
 - [X] T027 Add PR automation overview to maintenance documentation in `README.md`
 
 ---

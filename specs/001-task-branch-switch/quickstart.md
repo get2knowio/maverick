@@ -25,7 +25,7 @@
    - Integration test adjustments in `tests/integration/test_multi_task_orchestration.py` covering the new branch orchestration path.
 6. **Run Quality Gates**
    ```bash
-   uv run pytest
+   timeout 15 uv run pytest
    uv run ruff check .
    ```
 7. **Document Outcomes**

@@ -164,29 +164,29 @@ tail -f /tmp/maverick-worker.log | jq 'select(.event == "phase_activity_succeede
 
 ```bash
 # Test parsing logic
-uv run pytest tests/unit/test_phase_tasks_parser.py
+timeout 15 uv run pytest tests/unit/test_phase_tasks_parser.py
 
 # Test phase automation models
-uv run pytest tests/unit/test_phase_automation_models.py
+timeout 15 uv run pytest tests/unit/test_phase_automation_models.py
 
 # Test markdown utilities
-uv run pytest tests/unit/test_tasks_markdown_utils.py
+timeout 15 uv run pytest tests/unit/test_tasks_markdown_utils.py
 
 # Test phase results storage
-uv run pytest tests/unit/test_phase_results_store.py
+timeout 15 uv run pytest tests/unit/test_phase_results_store.py
 
 # Test resume logic
-uv run pytest tests/unit/test_phase_resume.py
+timeout 15 uv run pytest tests/unit/test_phase_resume.py
 ```
 
 ### Integration Tests
 
 ```bash
 # Test full phase automation workflow
-uv run pytest tests/integration/test_phase_automation_workflow.py
+timeout 15 uv run pytest tests/integration/test_phase_automation_workflow.py
 
 # Run all tests with coverage
-uv run pytest --cov=src --cov-report=term-missing
+timeout 15 uv run pytest --cov=src --cov-report=term-missing
 ```
 
 ## Troubleshooting

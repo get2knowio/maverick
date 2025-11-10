@@ -8,9 +8,11 @@ of multiple task files through all phases (initialize, implement, review/fix, PR
 import asyncio
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 
 # Mark models as passthrough to avoid path validation issues in workflow context
 with workflow.unsafe.imports_passed_through():
+    from src.models.branch_management import BranchExecutionContext
     from src.models.orchestration import (
         OrchestrationInput,
         OrchestrationResult,
@@ -110,6 +112,7 @@ class MultiTaskOrchestrationWorkflow:
             _current_task_index: Zero-based index of currently processing task
             _total_tasks: Total number of tasks in workflow input (for progress tracking)
             _current_task_file: Path of currently processing task file
+            _branch_contexts: Dict mapping task_index to BranchExecutionContext
             _continue_event: asyncio.Event for pause/resume control in interactive mode
             _skip_current: Flag indicating whether to skip the upcoming/current task
             _is_paused: Flag indicating whether workflow is currently paused
@@ -122,10 +125,43 @@ class MultiTaskOrchestrationWorkflow:
         self._current_task_index: int = 0
         self._total_tasks: int = 0
         self._current_task_file: str | None = None
+        # Branch management state
+        self._branch_contexts: dict[int, "BranchExecutionContext"] = {}
         # Interactive mode state
         self._continue_event: asyncio.Event = asyncio.Event()
         self._skip_current: bool = False
         self._is_paused: bool = False
+
+    def _format_child_failure(self, exc: Exception) -> str:
+        """Build descriptive failure message for child workflow errors."""
+        base_message = f"Child workflow failed: {type(exc).__name__}: {exc}"
+        if not isinstance(exc, ChildWorkflowError):
+            return base_message
+
+        # Unwrap nested child workflow errors to expose root cause message
+        current: BaseException | None = exc.cause
+        while isinstance(current, ChildWorkflowError):
+            current = current.cause
+
+        if current is None:
+            return base_message
+
+        return f"Child workflow failed: {type(current).__name__}: {current}"
+
+    def _format_activity_failure(self, prefix: str, exc: Exception) -> str:
+        """Build descriptive failure message for activity errors."""
+        base_message = f"{prefix}: {type(exc).__name__}: {exc}"
+        if not isinstance(exc, ActivityError):
+            return base_message
+
+        current: BaseException | None = exc.cause
+        while isinstance(current, ActivityError):
+            current = current.cause
+
+        if current is None:
+            return base_message
+
+        return f"{prefix}: {type(current).__name__}: {current}"
 
     @workflow.signal
     async def continue_to_next_phase(self) -> None:
@@ -259,26 +295,143 @@ class MultiTaskOrchestrationWorkflow:
         Raises:
             ValueError: If input validation fails (caught and returned in result)
         """
+        from datetime import timedelta
+
+        # Import within workflow function to avoid module-level imports
+        from src.models.branch_management import BranchSelection, CheckoutResult
+
         workflow_start_time = workflow.now()
         
+        # Validate and extract task_descriptors (should always be set after __post_init__)
+        assert params.task_descriptors is not None, "task_descriptors must be set"
+        task_descriptors = params.task_descriptors
+        
         # Store total tasks for progress queries
-        self._total_tasks = len(params.task_file_paths)
+        self._total_tasks = len(task_descriptors)
 
         workflow.logger.info(
             "orchestration_workflow_started",
             extra={
                 "workflow_id": workflow.info().workflow_id,
                 "run_id": workflow.info().run_id,
-                "total_tasks": len(params.task_file_paths),
+                "total_tasks": len(task_descriptors),
                 "interactive_mode": params.interactive_mode,
                 "retry_limit": params.retry_limit,
             }
         )
 
         # Process each task sequentially
-        for task_index, task_file_path in enumerate(params.task_file_paths):
+        for task_index, task_descriptor in enumerate(task_descriptors):
             self._current_task_index = task_index
+            task_file_path = str(task_descriptor.spec_path)
             self._current_task_file = task_file_path
+
+            # ===== PHASE 0: Branch checkout (US1) =====
+            # Derive and checkout branch before any phase execution
+            workflow.logger.info(
+                "branch_checkout_starting",
+                extra={
+                    "task_index": task_index,
+                    "task_id": task_descriptor.task_id,
+                    "workflow_id": workflow.info().workflow_id,
+                }
+            )
+
+            try:
+                # Step 1: Derive branch name from descriptor
+                branch_selection = await workflow.execute_activity(
+                    "derive_task_branch",
+                    {
+                        "task_id": task_descriptor.task_id,
+                        "spec_path": str(task_descriptor.spec_path),
+                        "explicit_branch": task_descriptor.explicit_branch,
+                        "phases": task_descriptor.phases,
+                    },
+                    start_to_close_timeout=timedelta(seconds=30),
+                    result_type=BranchSelection,  # Use proper type for deserialization
+                )
+
+                branch_name = branch_selection.branch_name
+                
+                workflow.logger.info(
+                    "branch_derived",
+                    extra={
+                        "task_index": task_index,
+                        "branch_name": branch_name,
+                        "source": branch_selection.source,
+                        "workflow_id": workflow.info().workflow_id,
+                    }
+                )
+
+                # Step 2: Checkout the branch (enforces clean worktree)
+                checkout_start = workflow.now()
+                checkout_result: CheckoutResult = await workflow.execute_activity(
+                    "checkout_task_branch",
+                    branch_name,
+                    start_to_close_timeout=timedelta(seconds=120),
+                    result_type=CheckoutResult,
+                )
+
+                # Step 3: Persist BranchExecutionContext
+                branch_context = BranchExecutionContext(
+                    resolved_branch=branch_name,
+                    checkout_status="complete",
+                    checkout_message=f"Checked out {branch_name} ({checkout_result.status})",
+                    last_checkout_at=checkout_start,
+                    cleanup_status="pending",
+                    cleanup_message=None,
+                )
+                self._branch_contexts[task_index] = branch_context
+
+                workflow.logger.info(
+                    "branch_checkout_succeeded",
+                    extra={
+                        "task_index": task_index,
+                        "branch_name": branch_name,
+                        "git_head": checkout_result.git_head,
+                        "changed": checkout_result.changed,
+                        "workflow_id": workflow.info().workflow_id,
+                    }
+                )
+
+            except Exception as e:
+                # Branch checkout failed - do not proceed with phases
+                error_message = self._format_activity_failure("Branch checkout failed", e)
+                
+                workflow.logger.error(
+                    "branch_checkout_failed",
+                    extra={
+                        "task_index": task_index,
+                        "task_id": task_descriptor.task_id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "workflow_id": workflow.info().workflow_id,
+                    }
+                )
+
+                # Create failed task result
+                synthetic_phase_result = PhaseResult(
+                    phase_name="branch_checkout",
+                    status="failed",
+                    duration_seconds=0,
+                    error_message=error_message,
+                    retry_count=0,
+                )
+
+                task_result = TaskResult(
+                    task_file_path=task_file_path,
+                    overall_status="failed",
+                    phase_results=(synthetic_phase_result,),
+                    total_duration_seconds=0,
+                    failure_reason=error_message,
+                )
+
+                self._task_results.append(task_result)
+
+                # Fail-fast: Stop on branch checkout failure
+                break
+
+            # ===== Continue with existing task logic =====
 
             # Check if this task should be skipped
             if self._skip_current:
@@ -335,7 +488,7 @@ class MultiTaskOrchestrationWorkflow:
                 # Invoke AutomatePhaseTasksWorkflow as child workflow
                 phase_params = AutomatePhaseTasksParams(
                     repo_path=params.repo_path,
-                    branch=params.branch,
+                    branch=branch_name,  # Use the checked-out branch
                     tasks_md_path=task_file_path,
                     tasks_md_content=None,
                     default_model=params.default_model,
@@ -508,7 +661,7 @@ class MultiTaskOrchestrationWorkflow:
                         workflow.logger.info(
                             "skip_requested_during_pause",
                             extra={
-                                "next_task_index": task_index + 1 if task_index + 1 < len(params.task_file_paths) else task_index,
+                                "next_task_index": task_index + 1 if task_index + 1 < len(task_descriptors) else task_index,
                                 "workflow_id": workflow.info().workflow_id,
                             }
                         )
@@ -531,7 +684,7 @@ class MultiTaskOrchestrationWorkflow:
                 task_end_time = workflow.now()
                 task_duration_seconds = int((task_end_time - task_start_time).total_seconds())
 
-                error_message = f"Child workflow failed: {type(e).__name__}: {str(e)}"
+                error_message = self._format_child_failure(e)
 
                 workflow.logger.error(
                     "task_child_workflow_error",
@@ -571,7 +724,7 @@ class MultiTaskOrchestrationWorkflow:
         workflow_end_time = workflow.now()
         total_duration_seconds = int((workflow_end_time - workflow_start_time).total_seconds())
 
-        total_tasks = len(params.task_file_paths)
+        total_tasks = len(task_descriptors)
         processed_tasks = len(self._task_results)
         unprocessed_count = total_tasks - processed_tasks
 
@@ -582,7 +735,7 @@ class MultiTaskOrchestrationWorkflow:
 
         # Build list of unprocessed task paths
         unprocessed_paths = tuple(
-            params.task_file_paths[i]
+            str(task_descriptors[i].spec_path)
             for i in range(processed_tasks, total_tasks)
         )
 

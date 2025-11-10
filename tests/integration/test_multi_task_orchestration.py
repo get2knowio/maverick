@@ -1,10 +1,12 @@
 """Integration tests for multi-task orchestration workflow."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Sequence
 
 import pytest
-from temporalio import workflow
+from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -14,11 +16,79 @@ from src.models.orchestration import (
     PhaseResult,
     TaskResult,
 )
+from src.models.branch_management import BranchSelection, CheckoutResult
 from src.models.phase_automation import (
     AutomatePhaseTasksParams,
     PhaseAutomationSummary,
     PhaseResult as PhaseAutomationResult,
 )
+
+
+# =============================================================================
+# Test State Management - Encapsulate mutable state to prevent contamination
+# =============================================================================
+
+class ModuleTestState:
+    """Encapsulates test state to prevent global contamination between tests."""
+    
+    def __init__(self):
+        self.call_order: list[str] = []
+        self.task_counter: int = 0
+        self.checkout_should_fail: bool = False
+    
+    def reset(self):
+        """Reset all state for next test."""
+        self.call_order = []
+        self.task_counter = 0
+        self.checkout_should_fail = False
+
+
+# Create singleton instance for this test module
+_test_state = ModuleTestState()
+
+
+def _build_phase_result(
+    *,
+    phase_id: str,
+    status: str,
+    duration_ms: int,
+    completed_task_ids: Sequence[str],
+    start_time: datetime,
+    tasks_md_hash: str,
+    summary: Sequence[str] = (),
+    error: str | None = None,
+    stdout_path: str | None = None,
+    stderr_path: str | None = None,
+    artifact_paths: Sequence[str] = (),
+) -> tuple[PhaseAutomationResult, datetime]:
+    """Create PhaseAutomationResult with consistent timing metadata."""
+    finish_time = start_time + timedelta(milliseconds=duration_ms)
+    return (
+        PhaseAutomationResult(
+            phase_id=phase_id,
+            status=status,
+            completed_task_ids=tuple(completed_task_ids),
+            started_at=start_time,
+            finished_at=finish_time,
+            duration_ms=duration_ms,
+            tasks_md_hash=tasks_md_hash,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            artifact_paths=tuple(artifact_paths),
+            summary=tuple(summary),
+            error=error,
+        ),
+        finish_time,
+    )
+
+
+@pytest.fixture(autouse=True)
+def reset_test_state():
+    """Automatically reset state before each test."""
+    _test_state.reset()
+    yield
+    # Additional cleanup after test if needed
+    _test_state.reset()
 
 
 # Fixture for absolute paths
@@ -35,10 +105,6 @@ def repo_root() -> str:
     return "/workspaces/maverick"
 
 
-# Counter for tracking mock behavior across tests
-_task_counter = 0
-
-
 # Edge case mock workflows (T058a-e)
 
 
@@ -48,7 +114,10 @@ class MockPhaseWorkflowInvalidPath:
     
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
-        raise FileNotFoundError(f"Task file not found: {params.tasks_md_path}")
+        raise ApplicationError(
+            f"Task file not found: {params.tasks_md_path}",
+            non_retryable=True,
+        )
 
 
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
@@ -57,7 +126,10 @@ class MockPhaseWorkflowMalformed:
     
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
-        raise ValueError("Failed to parse tasks.md: Invalid markdown structure")
+        raise ApplicationError(
+            "Failed to parse tasks.md: Invalid markdown structure",
+            non_retryable=True,
+        )
 
 
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
@@ -68,7 +140,10 @@ class MockPhaseWorkflowTimeout:
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         # Simulate child workflow timeout by raising generic exception
         # (Temporal's actual TimeoutError is raised by the framework, not user code)
-        raise RuntimeError("Child workflow execution timed out after 3600s")
+        raise ApplicationError(
+            "Child workflow execution timed out after 3600s",
+            non_retryable=True,
+        )
 
 
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
@@ -113,43 +188,33 @@ class MockPhaseWorkflowSuccess:
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary."""
         # Return mock results with 2 phases
-        from datetime import timedelta
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
+        current = start_time
+
+        phase_one, current = _build_phase_result(
+            phase_id="phase-1",
+            status="success",
+            duration_ms=1000,
+            completed_task_ids=("T001", "T002", "T003"),
+            start_time=current,
+            tasks_md_hash="mock_hash_1",
+            summary=("Phase completed successfully",),
+        )
+        phase_two, current = _build_phase_result(
+            phase_id="phase-2",
+            status="success",
+            duration_ms=1500,
+            completed_task_ids=("T004", "T005", "T006"),
+            start_time=current,
+            tasks_md_hash="mock_hash_1",
+            summary=("Phase completed successfully",),
+        )
+
         return PhaseAutomationSummary(
-            results=(
-                PhaseAutomationResult(
-                    phase_id="phase-1",
-                    status="success",
-                    completed_task_ids=("T001", "T002", "T003"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1000,
-                    tasks_md_hash="mock_hash_1",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=("Phase completed successfully",),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="phase-2",
-                    status="success",
-                    completed_task_ids=("T004", "T005", "T006"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1500,
-                    tasks_md_hash="mock_hash_1",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=("Phase completed successfully",),
-                    error=None,
-                ),
-            ),
+            results=(phase_one, phase_two),
             skipped_phase_ids=(),
-            started_at=now,
-            finished_at=later,
+            started_at=start_time,
+            finished_at=current,
             duration_ms=2500,
             tasks_md_hash="mock_hash_1",
         )
@@ -162,73 +227,57 @@ class MockPhaseWorkflowFailure:
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return success for first task, failure for second task."""
-        from datetime import timedelta
-        global _task_counter
-        _task_counter += 1
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
+        current = start_time
+        
+        # Use task file path to determine which task this is
+        task_file = params.tasks_md_path or ""
+        is_second_task = "?task=2" in task_file
 
         # First task succeeds
-        if _task_counter == 1:
+        if not is_second_task:
+            phase_one, current = _build_phase_result(
+                phase_id="phase-1",
+                status="success",
+                duration_ms=1000,
+                completed_task_ids=("T001", "T002"),
+                start_time=current,
+                tasks_md_hash="mock_hash",
+            )
+            phase_two, current = _build_phase_result(
+                phase_id="phase-2",
+                status="success",
+                duration_ms=1000,
+                completed_task_ids=("T003",),
+                start_time=current,
+                tasks_md_hash="mock_hash",
+            )
             return PhaseAutomationSummary(
-                results=(
-                    PhaseAutomationResult(
-                        phase_id="phase-1",
-                        status="success",
-                        completed_task_ids=("T001", "T002"),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=1000,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                    PhaseAutomationResult(
-                        phase_id="phase-2",
-                        status="success",
-                        completed_task_ids=("T003",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=1000,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                ),
+                results=(phase_one, phase_two),
                 skipped_phase_ids=(),
-                started_at=now,
-                finished_at=later,
+                started_at=start_time,
+                finished_at=current,
                 duration_ms=2000,
                 tasks_md_hash="mock_hash",
             )
 
         # Second task fails
+        failed_phase, finish_time = _build_phase_result(
+            phase_id="phase-1",
+            status="failed",
+            duration_ms=500,
+            completed_task_ids=(),
+            start_time=start_time,
+            tasks_md_hash="mock_hash",
+            summary=(),
+            error="Mock failure for testing",
+        )
+
         return PhaseAutomationSummary(
-            results=(
-                PhaseAutomationResult(
-                    phase_id="phase-1",
-                    status="failed",
-                    completed_task_ids=(),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=500,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error="Mock failure for testing",
-                ),
-            ),
+            results=(failed_phase,),
             skipped_phase_ids=(),
-            started_at=now,
-            finished_at=later,
+            started_at=start_time,
+            finished_at=finish_time,
             duration_ms=500,
             tasks_md_hash="mock_hash",
         )
@@ -254,7 +303,7 @@ async def test_orchestration_two_tasks_success(task_file_path: str, repo_root: s
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -294,16 +343,17 @@ async def test_orchestration_failure_stops_processing(task_file_path: str, repo_
     """Test orchestration stops on task failure (fail-fast behavior)."""
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
-    # Reset counter before test
-    global _task_counter
-    _task_counter = 0
-
-    # Create workflow input with 3 task files
+    # Create workflow input with 3 DIFFERENT task file paths to allow differentiation
+    # We use the same physical file but different logical names
+    task_file_1 = task_file_path
+    task_file_2 = task_file_path + "?task=2"  # Add query param to differentiate
+    task_file_3 = task_file_path + "?task=3"
+    
     workflow_input = OrchestrationInput(
         task_file_paths=(
-            task_file_path,
-            task_file_path,
-            task_file_path,
+            task_file_1,
+            task_file_2,
+            task_file_3,
         ),
         interactive_mode=False,
         retry_limit=1,  # No retries for faster test
@@ -317,7 +367,7 @@ async def test_orchestration_failure_stops_processing(task_file_path: str, repo_
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowFailure],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -381,7 +431,7 @@ async def test_orchestration_interactive_mode_pause_resume(task_file_path: str, 
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         # Start workflow (non-blocking)
@@ -437,7 +487,7 @@ async def test_orchestration_interactive_mode_multi_task(task_file_path: str, re
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         # Start workflow
@@ -489,7 +539,7 @@ async def test_orchestration_skip_task_signal(task_file_path: str, repo_root: st
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         handle = await env.client.start_workflow(
@@ -550,7 +600,7 @@ async def test_orchestration_query_progress_while_paused(task_file_path: str, re
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         handle = await env.client.start_workflow(
@@ -600,7 +650,7 @@ async def test_orchestration_duplicate_signals(task_file_path: str, repo_root: s
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         handle = await env.client.start_workflow(
@@ -645,7 +695,7 @@ async def test_orchestration_signal_while_not_paused(task_file_path: str, repo_r
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         handle = await env.client.start_workflow(
@@ -702,7 +752,7 @@ async def test_orchestration_resume_after_worker_restart(task_file_path: str, re
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         # Start workflow
@@ -790,7 +840,7 @@ async def test_orchestration_resume_paused_during_review_iteration(task_file_pat
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         # Start workflow
@@ -873,7 +923,7 @@ async def test_orchestration_state_determinism(task_file_path: str, repo_root: s
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         )
 
         async with worker:
@@ -936,43 +986,31 @@ class MockPhaseWorkflow2Phases:
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 2 phases."""
-        from datetime import timedelta
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
+        current = start_time
+        phase_one, current = _build_phase_result(
+            phase_id="initialize",
+            status="success",
+            duration_ms=1000,
+            completed_task_ids=("T001", "T002", "T003"),
+            start_time=current,
+            tasks_md_hash="mock_hash",
+            summary=("Initialize phase completed",),
+        )
+        phase_two, current = _build_phase_result(
+            phase_id="implement",
+            status="success",
+            duration_ms=1500,
+            completed_task_ids=("T004", "T005", "T006"),
+            start_time=current,
+            tasks_md_hash="mock_hash",
+            summary=("Implement phase completed",),
+        )
         return PhaseAutomationSummary(
-            results=(
-                PhaseAutomationResult(
-                    phase_id="initialize",
-                    status="success",
-                    completed_task_ids=("T001", "T002", "T003"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1000,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=("Initialize phase completed",),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="implement",
-                    status="success",
-                    completed_task_ids=("T004", "T005", "T006"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1500,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=("Implement phase completed",),
-                    error=None,
-                ),
-            ),
+            results=(phase_one, phase_two),
             skipped_phase_ids=(),
-            started_at=now,
-            finished_at=later,
+            started_at=start_time,
+            finished_at=current,
             duration_ms=2500,
             tasks_md_hash="mock_hash",
         )
@@ -985,100 +1023,34 @@ class MockPhaseWorkflow6Phases:
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 6 phases."""
-        from datetime import timedelta
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
+        current = start_time
+        phase_specs = [
+            ("planning", ("T001", "T002"), 500),
+            ("initialize", ("T003", "T004"), 800),
+            ("implement", ("T005", "T006", "T007"), 1200),
+            ("quality_assurance", ("T008", "T009"), 900),
+            ("review_fix", ("T010", "T011"), 1000),
+            ("pr_ci_merge", ("T012", "T013"), 700),
+        ]
+        results: list[PhaseAutomationResult] = []
+        for phase_id, completed_ids, duration in phase_specs:
+            result, current = _build_phase_result(
+                phase_id=phase_id,
+                status="success",
+                duration_ms=duration,
+                completed_task_ids=completed_ids,
+                start_time=current,
+                tasks_md_hash="mock_hash",
+            )
+            results.append(result)
+
         return PhaseAutomationSummary(
-            results=(
-                PhaseAutomationResult(
-                    phase_id="planning",
-                    status="success",
-                    completed_task_ids=("T001", "T002"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=500,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="initialize",
-                    status="success",
-                    completed_task_ids=("T003", "T004"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=800,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="implement",
-                    status="success",
-                    completed_task_ids=("T005", "T006", "T007"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1200,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="quality_assurance",
-                    status="success",
-                    completed_task_ids=("T008", "T009"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=900,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="review_fix",
-                    status="success",
-                    completed_task_ids=("T010", "T011"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1000,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="pr_ci_merge",
-                    status="success",
-                    completed_task_ids=("T012", "T013"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=700,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-            ),
+            results=tuple(results),
             skipped_phase_ids=(),
-            started_at=now,
-            finished_at=later,
-            duration_ms=5100,
+            started_at=start_time,
+            finished_at=current,
+            duration_ms=sum(duration for _, _, duration in phase_specs),
             tasks_md_hash="mock_hash",
         )
 
@@ -1090,72 +1062,32 @@ class MockPhaseWorkflow4Phases:
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 4 phases."""
-        from datetime import timedelta
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
+        current = start_time
+        phase_specs = [
+            ("initialize", ("T001", "T002", "T003", "T004"), 1000),
+            ("implement", ("T005", "T006", "T007", "T008"), 1500),
+            ("review_fix", ("T009", "T010", "T011", "T012"), 1200),
+            ("pr_ci_merge", ("T013", "T014", "T015", "T016"), 800),
+        ]
+        results: list[PhaseAutomationResult] = []
+        for phase_id, completed_ids, duration in phase_specs:
+            result, current = _build_phase_result(
+                phase_id=phase_id,
+                status="success",
+                duration_ms=duration,
+                completed_task_ids=completed_ids,
+                start_time=current,
+                tasks_md_hash="mock_hash",
+            )
+            results.append(result)
+
         return PhaseAutomationSummary(
-            results=(
-                PhaseAutomationResult(
-                    phase_id="initialize",
-                    status="success",
-                    completed_task_ids=("T001", "T002", "T003", "T004"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1000,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="implement",
-                    status="success",
-                    completed_task_ids=("T005", "T006", "T007", "T008"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1500,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="review_fix",
-                    status="success",
-                    completed_task_ids=("T009", "T010", "T011", "T012"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=1200,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-                PhaseAutomationResult(
-                    phase_id="pr_ci_merge",
-                    status="success",
-                    completed_task_ids=("T013", "T014", "T015", "T016"),
-                    started_at=now,
-                    finished_at=later,
-                    duration_ms=800,
-                    tasks_md_hash="mock_hash",
-                    stdout_path=None,
-                    stderr_path=None,
-                    artifact_paths=(),
-                    summary=(),
-                    error=None,
-                ),
-            ),
+            results=tuple(results),
             skipped_phase_ids=(),
-            started_at=now,
-            finished_at=later,
-            duration_ms=4500,
+            started_at=start_time,
+            finished_at=current,
+            duration_ms=sum(duration for _, _, duration in phase_specs),
             tasks_md_hash="mock_hash",
         )
 
@@ -1187,8 +1119,6 @@ class MockPhaseWorkflowMixed:
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return different phase counts based on task file name."""
-        from datetime import timedelta
-        
         # Determine phase count from filename
         task_path = params.tasks_md_path or ""
         if "task_2_phases" in task_path:
@@ -1200,132 +1130,87 @@ class MockPhaseWorkflowMixed:
         else:
             phase_count = 2  # Default
         
-        now = workflow.now()
-        later = now + timedelta(seconds=1)
+        start_time = workflow.now()
         
         # Return based on phase count
         if phase_count == 2:
+            current = start_time
+            specs = [
+                ("initialize", ("T001",), 1000),
+                ("implement", ("T002",), 1000),
+            ]
+            results: list[PhaseAutomationResult] = []
+            for phase_id, completed_ids, duration in specs:
+                result, current = _build_phase_result(
+                    phase_id=phase_id,
+                    status="success",
+                    duration_ms=duration,
+                    completed_task_ids=completed_ids,
+                    start_time=current,
+                    tasks_md_hash="mock_hash",
+                )
+                results.append(result)
+            total_duration = sum(duration for _, _, duration in specs)
             return PhaseAutomationSummary(
-                results=(
-                    PhaseAutomationResult(
-                        phase_id="initialize",
-                        status="success",
-                        completed_task_ids=("T001",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=1000,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                    PhaseAutomationResult(
-                        phase_id="implement",
-                        status="success",
-                        completed_task_ids=("T002",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=1000,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                ),
+                results=tuple(results),
                 skipped_phase_ids=(),
-                started_at=now,
-                finished_at=later,
-                duration_ms=2000,
+                started_at=start_time,
+                finished_at=current,
+                duration_ms=total_duration,
                 tasks_md_hash="mock_hash",
             )
         
         # 4 phases
         elif phase_count == 4:
+            current = start_time
+            specs = [
+                ("init", ("T001",), 500),
+                ("impl", ("T002",), 500),
+                ("review", ("T003",), 500),
+                ("merge", ("T004",), 500),
+            ]
+            results: list[PhaseAutomationResult] = []
+            for phase_id, completed_ids, duration in specs:
+                result, current = _build_phase_result(
+                    phase_id=phase_id,
+                    status="success",
+                    duration_ms=duration,
+                    completed_task_ids=completed_ids,
+                    start_time=current,
+                    tasks_md_hash="mock_hash",
+                )
+                results.append(result)
+            total_duration = sum(duration for _, _, duration in specs)
             return PhaseAutomationSummary(
-                results=(
-                    PhaseAutomationResult(
-                        phase_id="init",
-                        status="success",
-                        completed_task_ids=("T001",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=500,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                    PhaseAutomationResult(
-                        phase_id="impl",
-                        status="success",
-                        completed_task_ids=("T002",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=500,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                    PhaseAutomationResult(
-                        phase_id="review",
-                        status="success",
-                        completed_task_ids=("T003",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=500,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                    PhaseAutomationResult(
-                        phase_id="merge",
-                        status="success",
-                        completed_task_ids=("T004",),
-                        started_at=now,
-                        finished_at=later,
-                        duration_ms=500,
-                        tasks_md_hash="mock_hash",
-                        stdout_path=None,
-                        stderr_path=None,
-                        artifact_paths=(),
-                        summary=(),
-                        error=None,
-                    ),
-                ),
+                results=tuple(results),
                 skipped_phase_ids=(),
-                started_at=now,
-                finished_at=later,
-                duration_ms=2000,
+                started_at=start_time,
+                finished_at=current,
+                duration_ms=total_duration,
                 tasks_md_hash="mock_hash",
             )
         
         # 6 phases (default for unknown)
         else:  # phase_count == 6 or unknown
+            current = start_time
+            results: list[PhaseAutomationResult] = []
+            for i in range(6):
+                result, current = _build_phase_result(
+                    phase_id=f"phase_{i}",
+                    status="success",
+                    duration_ms=500,
+                    completed_task_ids=(f"T{i+1:03d}",),
+                    start_time=current,
+                    tasks_md_hash="mock_hash",
+                )
+                results.append(result)
+            total_duration = 6 * 500
             return PhaseAutomationSummary(
-                results=tuple(
-                    PhaseAutomationResult(phase_id=f"phase_{i}", status="success",
-                                        completed_task_ids=(f"T{i+1:03d}",),
-                                        started_at=now, finished_at=later, duration_ms=500,
-                                        tasks_md_hash="mock_hash", stdout_path=None,
-                                        stderr_path=None, artifact_paths=(), summary=(), error=None)
-                    for i in range(6)
-                ),
+                results=tuple(results),
                 skipped_phase_ids=(),
-                started_at=now,
-                finished_at=later,
-                duration_ms=3000,
+                started_at=start_time,
+                finished_at=current,
+                duration_ms=total_duration,
                 tasks_md_hash="mock_hash",
             )
 
@@ -1351,7 +1236,7 @@ async def test_orchestration_variable_phase_count_2(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflow2Phases],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1403,7 +1288,7 @@ async def test_orchestration_variable_phase_count_6(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflow6Phases],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1456,7 +1341,7 @@ async def test_orchestration_mixed_phase_counts(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowMixed],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1498,7 +1383,7 @@ async def test_orchestration_task_no_phases(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowNoPhases],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1554,7 +1439,7 @@ async def test_orchestration_task_file_modification(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowMixed],  # Reuse MockPhaseWorkflowMixed which determines phases from filename
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1596,7 +1481,7 @@ async def test_orchestration_invalid_task_path(repo_root: str):
     workflow_input = OrchestrationInput(
         task_file_paths=(nonexistent_path,),
         interactive_mode=False,
-        retry_limit=3,
+        retry_limit=1,  # No retries - we want to test error handling, not retry behavior
         repo_path=repo_root,
         branch="test-branch",
     )
@@ -1607,7 +1492,7 @@ async def test_orchestration_invalid_task_path(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowInvalidPath],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1627,9 +1512,9 @@ async def test_orchestration_invalid_task_path(repo_root: str):
         # Verify task result contains error
         task_result = result.task_results[0]
         assert task_result.overall_status == "failed"
-        assert task_result.failure_reason is not None
-        assert "filenotfounderror" in task_result.failure_reason.lower()
-        assert "not found" in task_result.failure_reason.lower()
+    assert task_result.failure_reason is not None
+    error_msg = task_result.failure_reason.lower()
+    assert "task file not found" in error_msg
 
 
 @pytest.mark.asyncio
@@ -1646,7 +1531,7 @@ async def test_orchestration_malformed_task_file(repo_root: str):
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
-        retry_limit=3,
+        retry_limit=1,  # No retries - we want to test error handling, not retry behavior
         repo_path=repo_root,
         branch="test-branch",
     )
@@ -1657,7 +1542,7 @@ async def test_orchestration_malformed_task_file(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowMalformed],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1675,9 +1560,9 @@ async def test_orchestration_malformed_task_file(repo_root: str):
         # Verify task result contains parsing error
         task_result = result.task_results[0]
         assert task_result.overall_status == "failed"
-        assert task_result.failure_reason is not None
-        assert "valueerror" in task_result.failure_reason.lower()
-        assert "parse" in task_result.failure_reason.lower()
+    assert task_result.failure_reason is not None
+    parse_error_msg = task_result.failure_reason.lower()
+    assert "failed to parse" in parse_error_msg
 
 
 @pytest.mark.asyncio
@@ -1707,7 +1592,7 @@ async def test_orchestration_duplicate_branch_names(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowSuccess],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1741,7 +1626,7 @@ async def test_orchestration_child_workflow_timeout(repo_root: str):
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
-        retry_limit=3,
+        retry_limit=1,  # No retries - we want to test timeout handling, not retry behavior
         repo_path=repo_root,
         branch="test-branch",
     )
@@ -1752,7 +1637,7 @@ async def test_orchestration_child_workflow_timeout(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowTimeout],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1770,8 +1655,9 @@ async def test_orchestration_child_workflow_timeout(repo_root: str):
         # Verify task result contains timeout error
         task_result = result.task_results[0]
         assert task_result.overall_status == "failed"
-        assert task_result.failure_reason is not None
-        assert "timeout" in task_result.failure_reason.lower()
+    assert task_result.failure_reason is not None
+    timeout_msg = task_result.failure_reason.lower()
+    assert "timed out" in timeout_msg or "timeout" in timeout_msg
 
 
 @pytest.mark.asyncio
@@ -1810,7 +1696,7 @@ async def test_orchestration_performance_benchmark(repo_root: str):
             env.client,
             task_queue="orchestration-task-queue",
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowFast],
-            activities=[],
+            activities=BRANCH_ACTIVITY_MOCKS,
         ),
     ):
         result = await env.client.execute_workflow(
@@ -1838,3 +1724,254 @@ async def test_orchestration_performance_benchmark(repo_root: str):
         #   - Phase execution (speckit.implement): ~10-15 minutes
         #   - Review/fix iterations: ~5-10 minutes
         #   - PR/CI/merge: ~3-5 minutes
+
+
+# =============================================================================
+# T017: Branch Checkout Integration Tests (US1)
+# =============================================================================
+
+
+@workflow.defn(name="AutomatePhaseTasksWorkflow")
+class MockPhaseWorkflowForBranchTests:
+    """Mock phase workflow that tracks when it's called."""
+    
+    @workflow.run
+    async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
+        """Record that phase execution happened."""
+        from datetime import timedelta
+        
+        _test_state.call_order.append("phase_execution")
+        
+        # Return minimal successful result (use workflow.now() for determinism)
+        now = workflow.now()
+        return PhaseAutomationSummary(
+            results=(
+                PhaseAutomationResult(
+                    phase_id="test-phase",
+                    status="success",
+                    completed_task_ids=["T001"],
+                    started_at=now,
+                    finished_at=now + timedelta(milliseconds=100),
+                    duration_ms=100,
+                    tasks_md_hash="mock-hash",
+                    stdout_path=None,
+                    stderr_path=None,
+                    artifact_paths=[],
+                    summary=["Mock phase completed"],
+                    error=None,
+                ),
+            ),
+            skipped_phase_ids=[],
+            started_at=now,
+            finished_at=now + timedelta(milliseconds=100),
+            duration_ms=100,
+            tasks_md_hash="mock-hash",
+        )
+
+
+@activity.defn(name="derive_task_branch")  # Match actual activity name
+async def mock_derive_task_branch(task_descriptor: dict) -> BranchSelection:
+    """Mock activity that records call order."""
+    _test_state.call_order.append("derive_branch")
+    
+    # Return realistic branch selection
+    return BranchSelection(
+        branch_name="test-branch",
+        source="explicit",
+        log_message="Mock branch derivation",
+    )
+
+
+@activity.defn(name="checkout_task_branch")  # Match actual activity name
+async def mock_checkout_task_branch(branch_name: str) -> CheckoutResult:
+    """Mock activity that records call order and can simulate dirty repo."""
+    if _test_state.checkout_should_fail:
+        _test_state.call_order.append("checkout_branch_failed")
+        # Raise error matching real dirty repo behavior
+        raise ApplicationError(
+            f"Cannot checkout {branch_name}: working tree has uncommitted changes. "
+            "Found 3 modified/untracked files.",
+            non_retryable=True,
+        )
+    else:
+        _test_state.call_order.append("checkout_branch")
+        # Return successful checkout
+        return CheckoutResult(
+            branch_name=branch_name,
+            changed=True,
+            status="success",
+            git_head="abc1234",
+            logs=["Checked out test-branch"],
+        )
+
+
+# Shared branch activity mocks keep orchestrator tests deterministic
+BRANCH_ACTIVITY_MOCKS = (
+    mock_derive_task_branch,
+    mock_checkout_task_branch,
+)
+
+
+@pytest.mark.asyncio
+async def test_branch_checkout_precedes_phase_execution(repo_root: str):
+    """Test that branch checkout happens before any phase execution.
+    
+    User Story 1 (US1): Branch context prepared
+    
+    This test validates:
+    1. derive_task_branch activity is called first
+    2. checkout_task_branch activity is called second
+    3. Phase execution only happens after successful checkout
+    4. Call order is: derive -> checkout -> phase_execution
+    """
+    from pathlib import Path
+
+    from src.models.orchestration import OrchestrationInput, TaskDescriptor
+    from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
+
+    # State is reset by fixture, no need to manually reset
+    
+    # Create TaskDescriptor input (use absolute path as required by AutomatePhaseTasksParams)
+    task_descriptor = TaskDescriptor(
+        task_id="test-001",
+        spec_path=f"{repo_root}/specs/001-task-branch-switch/spec.md",  # Absolute path
+        explicit_branch="test-branch",
+        phases=["phase1"],
+    )
+    
+    workflow_input = OrchestrationInput(
+        task_descriptors=(task_descriptor,),
+        interactive_mode=False,
+        retry_limit=3,
+        repo_path=str(repo_root),  # Convert to string for serialization
+    )
+
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client,
+            task_queue="branch-test-queue",
+            workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowForBranchTests],
+            activities=[mock_derive_task_branch, mock_checkout_task_branch],
+        ),
+    ):
+        result = await env.client.execute_workflow(
+            MultiTaskOrchestrationWorkflow.run,
+            workflow_input,
+            id="test-branch-checkout-order",
+            task_queue="branch-test-queue",
+        )
+
+        # Verify workflow succeeded
+        assert result.total_tasks == 1
+        assert result.successful_tasks == 1, f"Expected 1 successful task, got {result.successful_tasks}"
+        assert result.failed_tasks == 0, f"Expected 0 failed tasks, got {result.failed_tasks}"
+        
+        # CRITICAL: Verify call order for activities (tracked in _test_state.call_order)
+        # Note: Child workflow runs in different context, so we verify it indirectly via result
+        assert len(_test_state.call_order) >= 2, f"Expected at least 2 activity calls, got {len(_test_state.call_order)}: {_test_state.call_order}"
+        assert _test_state.call_order[0] == "derive_branch", "derive_branch must be called first"
+        assert _test_state.call_order[1] == "checkout_branch", "checkout_branch must be called second"
+        
+        # CRITICAL: Verify phase execution happened (proves workflow called child workflow after branch checkout)
+        assert len(result.task_results) == 1
+        task_result = result.task_results[0]
+        assert task_result.overall_status == "success"
+        assert len(task_result.phase_results) == 1, "Should have one phase result from mock workflow"
+        phase_result = task_result.phase_results[0]
+        assert phase_result.phase_name == "test-phase", "Mock workflow should have run"
+        assert phase_result.status == "success"
+        
+        # The fact that we have a phase result proves the call order was:
+        # 1. derive_task_branch activity (confirmed by _call_order[0])
+        # 2. checkout_task_branch activity (confirmed by _call_order[1])
+        # 3. AutomatePhaseTasksWorkflow child workflow (confirmed by phase_result existence)
+        
+        # Verify task result
+        assert len(result.task_results) == 1
+        task_result = result.task_results[0]
+        assert task_result.overall_status == "success"
+
+
+@pytest.mark.asyncio
+async def test_dirty_repository_prevents_checkout(repo_root: str):
+    """Test that dirty working tree causes checkout to fail and stops workflow.
+    
+    User Story 1 (US1): Branch context prepared
+    
+    This test validates:
+    1. checkout_task_branch failure stops workflow immediately
+    2. Phase execution never happens
+    3. TaskResult shows branch_checkout failure
+    4. Error message is actionable (mentions uncommitted changes)
+    """
+    from pathlib import Path
+
+    from src.models.orchestration import OrchestrationInput, TaskDescriptor
+    from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
+
+    # State is reset by fixture, no need to manually reset
+    
+    # Create TaskDescriptor input (use absolute path)
+    task_descriptor = TaskDescriptor(
+        task_id="test-002",
+        spec_path=f"{repo_root}/specs/001-task-branch-switch/spec.md",  # Absolute path
+        explicit_branch="dirty-test-branch",
+        phases=["phase1"],
+    )
+    
+    workflow_input = OrchestrationInput(
+        task_descriptors=(task_descriptor,),
+        interactive_mode=False,
+        retry_limit=3,
+        repo_path=repo_root,
+    )
+
+    _test_state.checkout_should_fail = True  # Enable dirty repo behavior
+    
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        # Use same mocks but with _checkout_should_fail=True
+        worker = Worker(
+            env.client,
+            task_queue="dirty-repo-test-queue",
+            workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowForBranchTests],
+            activities=[mock_derive_task_branch, mock_checkout_task_branch],
+        )
+        
+        async with worker:
+            result = await env.client.execute_workflow(
+                MultiTaskOrchestrationWorkflow.run,
+                workflow_input,
+                id="test-dirty-repo-fails",
+                task_queue="dirty-repo-test-queue",
+            )
+
+        # Verify workflow handled failure correctly
+        assert result.total_tasks == 1
+        assert result.successful_tasks == 0
+        assert result.failed_tasks == 1
+        
+        # CRITICAL: Verify phase_execution was NEVER called
+        assert "phase_execution" not in _test_state.call_order, \
+            "Phase execution should not happen when checkout fails"
+        
+        # Verify checkout was attempted
+        assert "derive_branch" in _test_state.call_order
+        assert "checkout_branch_failed" in _test_state.call_order
+        
+        # Verify task result shows failure
+        assert len(result.task_results) == 1
+        task_result = result.task_results[0]
+        assert task_result.overall_status == "failed"
+        
+        # Verify error message is actionable
+        assert task_result.failure_reason is not None
+        error_msg = task_result.failure_reason.lower()
+        assert any(word in error_msg for word in ["uncommitted", "dirty", "changes"]), \
+            f"Error message should mention dirty/uncommitted: {task_result.failure_reason}"
+        
+        # Verify phase_result indicates branch_checkout failure
+        assert len(task_result.phase_results) == 1
+        phase_result = task_result.phase_results[0]
+        assert phase_result.phase_name == "branch_checkout"
+        assert phase_result.status == "failed"

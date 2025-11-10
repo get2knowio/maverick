@@ -32,16 +32,16 @@ description: "Task list for per-task branch switching automation"
 
 **Purpose**: Core plumbing that all branch management stories rely on.
 
-- [ ] T004 Add coverage for git helpers in `tests/unit/test_git_cli.py`, exercising success, failure, and invalid branch scenarios.
-- [ ] T003 Implement tolerant git command runner and branch name validator in `src/utils/git_cli.py` using structured logging and `errors='replace'` decoding.
-- [ ] T004A Extend `src/utils/git_cli.py` helpers to emit standardized error codes and retry hints consumed by branch activities.
-- [ ] T005 Scaffold `src/activities/branch_checkout.py` with Temporal activity definitions for branch derive/checkout/reset/delete and structured logging stubs.
-- [ ] T006 Update `src/activities/__init__.py` to export the branch checkout activities for worker registration.
-- [ ] T009 Add unit tests for branch management models in `tests/unit/test_branch_management_models.py`, covering invariant enforcement and default fields.
-- [ ] T007 Create branch management dataclasses (`BranchSelection`, `CheckoutResult`, `MainCheckoutResult`, `DeletionResult`, `BranchExecutionContext`) in `src/models/branch_management.py` enforcing invariants from data-model.md.
-- [ ] T008 Expose new branch management types via `src/models/__init__.py` for workflow imports.
-- [ ] T011 Extend `tests/unit/test_orchestration_models.py` to validate `TaskDescriptor` invariants and error messaging for missing branch context.
-- [ ] T010 Introduce `TaskDescriptor` dataclass with slug/override validation in `src/models/orchestration.py` per data-model.md requirements.
+- [X] T004 Add coverage for git helpers in `tests/unit/test_git_cli.py`, exercising success, failure, and invalid branch scenarios.
+- [X] T003 Implement tolerant git command runner and branch name validator in `src/utils/git_cli.py` using structured logging and `errors='replace'` decoding.
+- [X] T004A Extend `src/utils/git_cli.py` helpers to emit standardized error codes and retry hints consumed by branch activities.
+- [X] T005 Scaffold `src/activities/branch_checkout.py` with Temporal activity definitions for branch derive/checkout/reset/delete and structured logging stubs.
+- [X] T006 Update `src/activities/__init__.py` to export the branch checkout activities for worker registration.
+- [X] T009 Add unit tests for branch management models in `tests/unit/test_branch_management_models.py`, covering invariant enforcement and default fields.
+- [X] T007 Create branch management dataclasses (`BranchSelection`, `CheckoutResult`, `MainCheckoutResult`, `DeletionResult`, `BranchExecutionContext`) in `src/models/branch_management.py` enforcing invariants from data-model.md.
+- [X] T008 Expose new branch management types via `src/models/__init__.py` for workflow imports.
+- [X] T011 Extend `tests/unit/test_orchestration_models.py` to validate `TaskDescriptor` invariants and error messaging for missing branch context.
+- [X] T010 Introduce `TaskDescriptor` dataclass with slug/override validation in `src/models/orchestration.py` per data-model.md requirements.
 
 ---
 
@@ -53,18 +53,18 @@ description: "Task list for per-task branch switching automation"
 
 ### Tests for User Story 1
 
-- [ ] T012 [US1] Add failing unit tests for `derive_task_branch` covering explicit branch overrides and `specs/<slug>/` derivation in `tests/unit/test_branch_checkout_activity.py`.
-- [ ] T013 [US1] Add failing unit tests for `checkout_task_branch` handling clean checkouts, idempotent retries, and dirty worktree failures in `tests/unit/test_branch_checkout_activity.py`.
-- [ ] T013A [US1] Add failing unit tests for `checkout_task_branch` missing-branch scenarios asserting actionable error payloads and retry metadata in `tests/unit/test_branch_checkout_activity.py`.
+- [X] T012 [US1] Add failing unit tests for `derive_task_branch` covering explicit branch overrides and `specs/<slug>/` derivation in `tests/unit/test_branch_checkout_activity.py`.
+- [X] T013 [US1] Add failing unit tests for `checkout_task_branch` handling clean checkouts, idempotent retries, and dirty worktree failures in `tests/unit/test_branch_checkout_activity.py`.
+- [X] T013A [US1] Add failing unit tests for `checkout_task_branch` missing-branch scenarios asserting actionable error payloads and retry metadata in `tests/unit/test_branch_checkout_activity.py`.
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Implement `derive_task_branch` in `src/activities/branch_checkout.py` returning `BranchSelection` with audit log messaging.
-- [ ] T015 [US1] Implement `checkout_task_branch` in `src/activities/branch_checkout.py` enforcing clean worktree, `git fetch`, `git switch`, and branch verification.
-- [ ] T015A [US1] Extend `checkout_task_branch` in `src/activities/branch_checkout.py` to raise structured missing-branch errors with retry-safe details and logging.
-- [ ] T016 [US1] Update `src/workflows/multi_task_orchestration.py` to build `TaskDescriptor` per task, gate phase execution on successful branch checkout, and persist the initial `BranchExecutionContext` snapshot before invoking any phases.
+- [X] T014 [US1] Implement `derive_task_branch` in `src/activities/branch_checkout.py` returning `BranchSelection` with audit log messaging.
+- [X] T015 [US1] Implement `checkout_task_branch` in `src/activities/branch_checkout.py` enforcing clean worktree, `git fetch`, `git switch`, and branch verification.
+- [X] T015A [US1] Extend `checkout_task_branch` in `src/activities/branch_checkout.py` to raise structured missing-branch errors with retry-safe details and logging.
+- [X] T016 [US1] Update `src/workflows/multi_task_orchestration.py` to build `TaskDescriptor` per task, gate phase execution on successful branch checkout, and persist the initial `BranchExecutionContext` snapshot before invoking any phases.
 - [ ] T017 [US1] Extend `tests/integration/test_multi_task_orchestration.py` to assert branch checkout precedes phase execution and errors on dirty repositories.
-- [ ] T018 [US1] Register derive and checkout activities in `src/workers/main.py` so workers can execute the new branch operations.
+- [X] T018 [US1] Register derive and checkout activities in `src/workers/main.py` so workers can execute the new branch operations.
 
 **Checkpoint**: Workflow blocks phases until branch checkout succeeds and records branch context.
 
@@ -126,7 +126,7 @@ description: "Task list for per-task branch switching automation"
 - [ ] T032B Build automated branch deletion success aggregation covering SC-003 and persist reason codes for non-deletions.
 - [ ] T032C Establish operator incident review loop for wrong-branch executions, capturing SC-004 feedback in monitoring channels.
 - [ ] T032D Implement SC-001 audit pipeline that samples at least 10 completed tasks, compares recorded branch logs with git history, and reports discrepancies for remediation.
-- [ ] T033 Run `uv run pytest` and `uv run ruff check .` to confirm green tests and lint after feature completion.
+- [ ] T033 Run `timeout 15 uv run pytest` and `uv run ruff check .` to confirm green tests and lint after feature completion.
 
 ---
 

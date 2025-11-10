@@ -109,23 +109,23 @@ Check completed in 189ms
 ### Run All Tests
 
 ```bash
-uv run pytest
+timeout 15 uv run pytest
 ```
 
 ### Run Specific Test Categories
 
 ```bash
 # Unit tests only
-uv run pytest tests/unit/
+timeout 15 uv run pytest tests/unit/
 
 # Integration tests only
-uv run pytest tests/integration/
+timeout 15 uv run pytest tests/integration/
 
 # Verbose output
-uv run pytest -v
+timeout 15 uv run pytest -v
 
 # Quick mode (less output)
-uv run pytest -q
+timeout 15 uv run pytest -q
 ```
 
 ### Run Linting

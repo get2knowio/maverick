@@ -1,16 +1,16 @@
 <!--
 Sync Impact Report:
-- Version change: 1.2.0 → 1.3.0
-- Modified principles: None (new guidance added under Technology Standards)
-- Added sections: 
-  - "Speckit Workflow Integration" subsection under Technology Standards
+- Version change: 1.3.0 → 1.4.0
+- Modified principles: Testing Standards (enforce timeout for pytest commands)
+- Added sections: None
 - Removed sections: None
 - Templates requiring updates:
-  ✅ .specify/templates/plan-template.md (Constitution Check language still accurate)
-  ✅ .specify/templates/spec-template.md (no changes required)
-  ✅ .specify/templates/tasks-template.md (no changes required)
-- Follow-up TODOs: ⚠ Verify absence of `.specify/templates/commands/*.md` is intentional for command prompts
-- Rationale: MINOR version bump (1.3.0) to codify Speckit automation rules without altering existing principles.
+  ✅ .specify/templates/plan-template.md (no pytest guidance; remains aligned)
+  ✅ .specify/templates/spec-template.md (no pytest guidance; remains aligned)
+  ✅ .specify/templates/tasks-template.md (no pytest guidance; remains aligned)
+  ✅ AGENTS.md (timeout guidance added)
+  ✅ README.md (timeout guidance added)
+- Follow-up TODOs: None
 -->
 
 # Maverick Constitution
@@ -233,6 +233,9 @@ When integrating with external CLI tools (gh, git, etc.):
 - Integration tests for Workflow execution paths
 - Contract tests for external service interactions called from Activities
 - Minimum 90% code coverage for workflow-critical paths
+- All `uv run pytest` executions MUST be wrapped in a `timeout` command (e.g., `timeout 15 uv run pytest tests/...`) to mitigate hanging test processes; select durations that balance reliability and runaway termination.
+
+**Rationale**: Enforcing timeouts prevents CI and local runs from hanging indefinitely when pytest fixtures stall, ensuring faster feedback loops and predictable automation pipelines.
 
 ## Development Workflow
 
@@ -264,4 +267,4 @@ This constitution supersedes all other development practices. Changes require ex
 
 **Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness, operational patterns (worker shutdown, connection management, error handling), and test coverage.
 
-**Version**: 1.3.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-11-08
+**Version**: 1.4.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-11-10

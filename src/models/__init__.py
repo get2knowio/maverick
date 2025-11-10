@@ -1,8 +1,16 @@
 """Data models for maverick."""
 
+from src.models.branch_management import (
+    BranchExecutionContext,
+    BranchSelection,
+    CheckoutResult,
+    DeletionResult,
+    MainCheckoutResult,
+)
 from src.models.orchestration import (
     OrchestrationInput,
     OrchestrationResult,
+    TaskDescriptor,
     TaskProgress,
     TaskProgressStatus,
     TaskResult,
@@ -44,6 +52,11 @@ from src.models.workflow_state import WorkflowState, WorkflowStateType
 
 
 __all__ = [
+    "BranchExecutionContext",
+    "BranchSelection",
+    "CheckoutResult",
+    "DeletionResult",
+    "MainCheckoutResult",
     "Parameters",
     "PhaseDefinition",
     "PhaseExecutionContext",
@@ -72,6 +85,7 @@ __all__ = [
     "OrchestrationResult",
     "OrchestrationPhaseResult",
     "OrchestrationPhaseResultStatus",
+    "TaskDescriptor",
     "TaskProgress",
     "TaskProgressStatus",
     "TaskResult",

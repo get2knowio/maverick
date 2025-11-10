@@ -461,7 +461,7 @@ Test with real Temporal server:
 temporal server start-dev &
 
 # Run integration tests
-uv run pytest tests/integration/test_multi_task_orchestration.py
+timeout 15 uv run pytest tests/integration/test_multi_task_orchestration.py
 ```
 
 ## Next Steps

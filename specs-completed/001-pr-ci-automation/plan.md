@@ -91,7 +91,7 @@ tests/
 5. Wire activity into `src/workflows/phase_automation.py` and ensure workers register it.
 6. Add unit tests for command parsing, retry behavior, base-branch mismatch handling, SLA metrics, and payload shaping.
 7. Add integration tests that stub `gh` CLI responses (success, failure, timeout, base-branch mismatch) and validate workflow outputs.
-8. Run `uv run pytest` and `uv run ruff check .`; address findings.
+8. Run `timeout 15 uv run pytest` and `uv run ruff check .`; address findings.
 
 ## Constitution Check (Post-Design)
 

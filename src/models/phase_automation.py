@@ -113,11 +113,10 @@ class PhaseResult:
         _ensure_timezone(self.finished_at, "finished_at")
         if self.finished_at <= self.started_at:
             raise ValueError("finished_at must be after started_at")
-        # NOTE: Commented out strict duration_ms validation - problematic for workflow deserialization
-        # in test environments where time-skipping may introduce precision issues.
-        # expected_duration = int((self.finished_at - self.started_at).total_seconds() * 1000)
-        # if self.duration_ms != expected_duration:
-        #     raise ValueError("duration_ms must equal elapsed time in milliseconds")
+        expected_duration = int((self.finished_at - self.started_at).total_seconds() * 1000)
+        # Allow small tolerance for timing and time-skipping imprecision in tests
+        if abs(self.duration_ms - expected_duration) > 50:
+            raise ValueError("duration_ms must equal elapsed time in milliseconds")
         if self.status == "failed" and not self.error:
             raise ValueError("error must be provided when status='failed'")
         if self.status != "failed" and self.error:

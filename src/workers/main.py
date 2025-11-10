@@ -10,6 +10,12 @@ import sys
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from src.activities.branch_checkout import (
+    checkout_main,
+    checkout_task_branch,
+    delete_task_branch,
+    derive_task_branch,
+)
 from src.activities.copilot_help import check_copilot_help
 from src.activities.gh_status import check_gh_status
 from src.activities.param_echo import echo_parameters
@@ -53,6 +59,10 @@ async def main() -> None:
             "persist_phase_result",
             "run_review_fix_loop",
             "pr_ci_automation",
+            "derive_task_branch",
+            "checkout_task_branch",
+            "checkout_main",
+            "delete_task_branch",
         ],
     )
 
@@ -114,10 +124,14 @@ async def main() -> None:
             persist_phase_result,
             run_review_fix_loop,
             pr_ci_automation,
+            derive_task_branch,
+            checkout_task_branch,
+            checkout_main,
+            delete_task_branch,
         ],
     )
 
-    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=3, activities_count=9)
+    logger.info("worker_created", task_queue="maverick-task-queue", workflows_count=3, activities_count=13)
 
     # Set up graceful shutdown
     loop = asyncio.get_event_loop()
