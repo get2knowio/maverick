@@ -26,11 +26,11 @@ tests/
 All commands MUST be run via uv (per Constitution III. UV-Based Development):
 
 ```bash
-# Run tests
-uv run pytest
+# Run tests (wrap with timeout to prevent hangs)
+timeout 15 uv run pytest
 
 # Run tests with coverage
-uv run pytest --cov
+timeout 15 uv run pytest --cov
 
 # Run linter
 uv run ruff check .
@@ -39,11 +39,13 @@ uv run ruff check .
 uv run ruff format .
 
 # Run specific test file
-uv run pytest tests/unit/test_example.py
+timeout 15 uv run pytest tests/unit/test_example.py
 
 # Run Temporal worker (when implemented)
 uv run python -m src.workers.main
 ```
+
+Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper while the hanging-test issue remains open.
 
 ## Code Style
 

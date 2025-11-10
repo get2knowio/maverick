@@ -4,9 +4,12 @@ Provides common test fixtures and Temporal test environment setup
 for unit and integration tests.
 """
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.git_repo import GitRepoFactory
 
 
 @pytest.fixture
@@ -125,3 +128,27 @@ def gh_cli_stub():
     from tests.fixtures.pr_ci_automation.gh_cli_stub import GhCliStubHelper
 
     return GhCliStubHelper()
+
+
+@pytest.fixture
+def git_repo_factory(tmp_path: Path) -> Generator[GitRepoFactory, None, None]:
+    """Provide factory for creating temporary git repositories in tests.
+
+    Creates isolated git repositories with commits and branches for testing
+    branch management activities. Automatically cleans up after tests.
+
+    Args:
+        tmp_path: Pytest's tmp_path fixture providing temporary directory
+
+    Yields:
+        GitRepoFactory instance for creating test repositories
+
+    Example:
+        def test_branch_checkout(git_repo_factory):
+            repo = git_repo_factory.create_repo(name="test", commits=2)
+            git_repo_factory.create_branch(repo, "feature-branch", switch=True)
+            assert git_repo_factory.get_current_branch(repo) == "feature-branch"
+    """
+    factory = GitRepoFactory(tmp_path)
+    yield factory
+    factory.cleanup()

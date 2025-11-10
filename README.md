@@ -441,17 +441,19 @@ specs/                # Feature specifications and documentation
 
 ```bash
 # All tests
-uv run pytest
+timeout 15 uv run pytest
 
 # Unit tests only
-uv run pytest tests/unit/
+timeout 15 uv run pytest tests/unit/
 
 # Integration tests only
-uv run pytest tests/integration/
+timeout 15 uv run pytest tests/integration/
 
 # With coverage
-uv run pytest --cov=src
+timeout 15 uv run pytest --cov=src
 ```
+
+Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper to catch hanging tests.
 
 ### Code Quality
 
@@ -468,7 +470,7 @@ uv run ruff check --fix .
 1. Start Temporal server: `temporal server start-dev`
 2. Start the worker: `uv run maverick-worker`
 3. Make your changes
-4. Run tests: `uv run pytest`
+4. Run tests: `timeout 15 uv run pytest`
 5. Run linting: `uv run ruff check .`
 6. Execute CLI: `uv run readiness-check https://github.com/owner/repo`
 

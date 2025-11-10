@@ -10,6 +10,8 @@ Auto-generated from all feature plans. Last updated: 2025-10-28
 - N/A (stateful data returned via Temporal workflow payloads) (001-pr-ci-automation)
 - Python 3.11 (existing project standard) + Temporal Python SDK (existing), uv for dependency management (existing) (001-multi-task-orchestration)
 - N/A (all state stored in Temporal workflow state as per FR-017, FR-019) (001-multi-task-orchestration)
+- Python 3.11 + Temporal Python SDK, git CLI (via subprocess), uv toolchain, structured logging utilities (001-task-branch-switch)
+- N/A (Temporal workflow state only) (001-task-branch-switch)
 
 ## Project Structure
 
@@ -20,7 +22,26 @@ tests/
 
 ## Commands
 
-cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+All test commands MUST include a timeout wrapper while we investigate hanging pytest runs.
+
+```bash
+# Run tests (wrap with timeout to prevent hangs)
+timeout 15 uv run pytest
+
+# Run tests with coverage
+timeout 15 uv run pytest --cov
+
+# Run linter
+uv run ruff check .
+
+# Format code
+uv run ruff format .
+
+# Run specific test file
+timeout 15 uv run pytest tests/unit/test_example.py
+```
+
+Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper until the hanging test issue is resolved.
 
 ## Code Style
 
@@ -276,9 +297,9 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 - **Benefits** - Simplified operations, better resource utilization, easier deployment
 
 ## Recent Changes
+- 001-task-branch-switch: Added Python 3.11 + Temporal Python SDK, git CLI (via subprocess), uv toolchain, structured logging utilities
 - 001-multi-task-orchestration: Added Python 3.11 (existing project standard) + Temporal Python SDK (existing), uv for dependency management (existing)
 - 001-pr-ci-automation: Added Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain
-- 001-pr-ci-automation: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
 
 ## Documentation Standards

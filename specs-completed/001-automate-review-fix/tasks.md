@@ -122,7 +122,7 @@
 
 - [X] T022 [P] Update manual execution guidance in `specs/001-automate-review-fix/quickstart.md`
 - [X] T023 Validate worker integration and logging fields in `src/workflows/phase_automation.py` and `src/activities/phase_runner.py`
-- [X] T024 Run `uv run ruff check .` and `uv run pytest` to confirm feature readiness
+- [X] T024 Run `uv run ruff check .` and `timeout 15 uv run pytest` to confirm feature readiness
 - [X] T027 Add timing instrumentation metrics to surface SC-001/SC-002 performance data in `src/activities/review_fix.py`
 - [X] T028 Validate recorded durations and first-pass fix metrics via new assertions in `tests/integration/test_review_fix_loop.py`
 

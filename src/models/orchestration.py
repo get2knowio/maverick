@@ -5,7 +5,11 @@ orchestration workflow for processing multiple task files sequentially.
 """
 
 from dataclasses import dataclass
+from functools import cached_property
+from pathlib import Path
 from typing import Literal
+
+from src.utils.git_cli import validate_branch_name
 
 
 # Type definitions for status fields
@@ -15,37 +19,152 @@ TaskResultStatus = Literal["success", "failed", "skipped", "unprocessed"]
 
 
 @dataclass(frozen=True)
+class TaskDescriptor:
+    """Descriptor for a task with branch context.
+
+    Attributes:
+        task_id: Unique identifier for the task
+        spec_path: Path to task specification file as string (must be under specs/)
+        explicit_branch: Optional explicit branch override
+        phases: List of phases to execute for this task
+
+    Invariants:
+        - task_id must be non-empty
+        - phases must contain at least one phase
+        - explicit_branch, if provided, must be git-safe (validated)
+        - If explicit_branch is None, spec_path must be under specs/ directory
+        - Either explicit_branch is set OR spec_path.parent.name supplies a slug
+    """
+
+    task_id: str
+    spec_path: str  # Store as string for JSON serialization
+    explicit_branch: str | None
+    phases: list[str]
+
+    def __post_init__(self) -> None:
+        """Validate task descriptor."""
+        if not self.task_id or not self.task_id.strip():
+            raise ValueError("task_id must be non-empty")
+
+        if not self.phases:
+            raise ValueError("phases must contain at least one phase")
+
+        # Normalize spec_path (convert Path to str if needed)
+        if isinstance(self.spec_path, Path):
+            object.__setattr__(self, "spec_path", str(self.spec_path))
+
+        # Validate explicit_branch if provided
+        if self.explicit_branch is not None:
+            validate_branch_name(self.explicit_branch)
+
+        # If no explicit branch, ensure spec_path is under specs/
+        if self.explicit_branch is None:
+            # Check if spec_path starts with "specs/"
+            path_obj = Path(self.spec_path)
+            parts = path_obj.parts
+            if not parts or parts[0] != "specs":
+                raise ValueError(
+                    "spec_path must be under specs/ directory when explicit_branch is None"
+                )
+
+    @cached_property
+    def resolved_branch(self) -> str:
+        """Get the resolved branch name for this task.
+
+        Returns explicit_branch if set, otherwise derives from spec_path parent directory.
+
+        Returns:
+            Resolved branch name
+        """
+        if self.explicit_branch is not None:
+            return self.explicit_branch
+
+        # Derive from spec_path: specs/<slug>/... -> use <slug>
+        # Find the directory name under specs/
+        path_obj = Path(self.spec_path)
+        parts = path_obj.parts
+        if len(parts) >= 2 and parts[0] == "specs":
+            return parts[1]
+
+        # This should not happen due to __post_init__ validation
+        # but provide fallback for safety
+        return str(path_obj.parent.name)
+
+
+@dataclass(frozen=True)
 class OrchestrationInput:
     """Input parameters for multi-task orchestration workflow.
 
     Attributes:
-        task_file_paths: List of task file paths to process sequentially
+        task_descriptors: List of TaskDescriptor objects to process sequentially
         interactive_mode: If True, pause after each phase for approval
         retry_limit: Maximum retry attempts for phase execution (1-10)
         repo_path: Repository root path for task execution
-        branch: Git branch name for all tasks (must be consistent)
         default_model: Default AI model for phase execution (optional)
         default_agent_profile: Default agent profile (optional)
+        task_file_paths: DEPRECATED - use task_descriptors instead (for backward compatibility)
+        branch: DEPRECATED - each task has its own branch via TaskDescriptor
 
     Invariants:
-        - task_file_paths must be non-empty
+        - Either task_descriptors OR task_file_paths must be provided (not both)
         - retry_limit must be between 1 and 10 inclusive
         - repo_path must be non-empty
-        - branch must be non-empty
     """
 
-    task_file_paths: tuple[str, ...]
-    interactive_mode: bool
-    retry_limit: int
-    repo_path: str
-    branch: str
+    # New preferred fields
+    task_descriptors: tuple[TaskDescriptor, ...] | None = None
+    interactive_mode: bool = False
+    retry_limit: int = 3
+    repo_path: str = ""
     default_model: str | None = None
     default_agent_profile: str | None = None
+    
+    # Deprecated backward compatibility fields
+    task_file_paths: tuple[str, ...] | None = None
+    branch: str | None = None
 
     def __post_init__(self) -> None:
         """Validate input parameters."""
-        if not self.task_file_paths:
-            raise ValueError("task_file_paths must contain at least one path")
+        # Handle backward compatibility: convert task_file_paths to task_descriptors
+        if self.task_file_paths is not None and self.task_descriptors is None:
+            # Backward compatibility shim
+            normalized_paths: list[str] = []
+            for raw_path in self.task_file_paths:
+                stripped_path = raw_path.strip()
+                if not stripped_path:
+                    raise ValueError("task_file_paths cannot contain empty paths")
+                normalized_paths.append(stripped_path)
+
+            if not normalized_paths:
+                raise ValueError("task_file_paths must contain at least one path")
+
+            branch_value = (self.branch or "").strip()
+            if not branch_value:
+                raise ValueError("branch must be non-empty")
+
+            object.__setattr__(self, "branch", branch_value)
+            object.__setattr__(self, "task_file_paths", tuple(normalized_paths))
+
+            # Convert file paths to TaskDescriptors
+            descriptors = []
+            for idx, file_path in enumerate(normalized_paths):
+                descriptor = TaskDescriptor(
+                    task_id=f"task-{idx}",
+                    spec_path=file_path,
+                    explicit_branch=branch_value,
+                    phases=["phase1"],  # Default phases - will be discovered
+                )
+                descriptors.append(descriptor)
+
+            object.__setattr__(self, "task_descriptors", tuple(descriptors))
+        elif self.task_descriptors is None and self.task_file_paths is None:
+            raise ValueError("Either task_descriptors or task_file_paths must be provided")
+        elif self.task_descriptors is not None and self.task_file_paths is not None:
+            self._validate_legacy_consistency()
+
+        # Validate task_descriptors
+        if not self.task_descriptors:
+            raise ValueError("task_descriptors must contain at least one descriptor")
 
         if self.retry_limit < 1 or self.retry_limit > 10:
             raise ValueError("retry_limit must be between 1 and 10")
@@ -53,18 +172,25 @@ class OrchestrationInput:
         if not self.repo_path or not self.repo_path.strip():
             raise ValueError("repo_path must be non-empty")
 
-        if not self.branch or not self.branch.strip():
-            raise ValueError("branch must be non-empty")
-
-        # Normalize paths
-        normalized_paths = tuple(path.strip() for path in self.task_file_paths)
-        if any(not path for path in normalized_paths):
-            raise ValueError("task_file_paths cannot contain empty paths")
-        object.__setattr__(self, "task_file_paths", normalized_paths)
-
         # Normalize strings
         object.__setattr__(self, "repo_path", self.repo_path.strip())
-        object.__setattr__(self, "branch", self.branch.strip())
+
+    def _validate_legacy_consistency(self) -> None:
+        """Ensure deprecated task_file_paths stay consistent with descriptors."""
+        if self.task_descriptors is None or self.task_file_paths is None:
+            return
+
+        if len(self.task_descriptors) != len(self.task_file_paths):
+            raise ValueError("task_descriptors and task_file_paths length mismatch")
+
+        for descriptor, file_path in zip(self.task_descriptors, self.task_file_paths):
+            if descriptor.spec_path != file_path:
+                raise ValueError("task_descriptors and task_file_paths must reference the same paths")
+
+        if self.branch is not None:
+            for descriptor in self.task_descriptors:
+                if descriptor.explicit_branch != self.branch:
+                    raise ValueError("task_descriptors branch must match legacy branch value")
 
 
 @dataclass

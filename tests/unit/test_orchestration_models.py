@@ -4,12 +4,15 @@ Tests validate all dataclass invariants, edge cases, and error conditions
 following TDD principles from the Constitution.
 """
 
+from pathlib import Path
+
 import pytest
 
 from src.models.orchestration import (
     OrchestrationInput,
     OrchestrationResult,
     PhaseResult,
+    TaskDescriptor,
     TaskProgress,
     TaskResult,
 )
@@ -710,3 +713,118 @@ class TestTaskProgress:
                 completed_phases=["initialize"],
                 status="in_progress",
             )
+
+
+class TestTaskDescriptor:
+    """Test suite for TaskDescriptor validation and branch resolution."""
+
+    def test_valid_descriptor_with_explicit_branch(self) -> None:
+        """Valid descriptor with explicit branch override."""
+        descriptor = TaskDescriptor(
+            task_id="task-001",
+            spec_path=Path("specs/001-feature/tasks.md"),
+            explicit_branch="feature/custom-branch",
+            phases=["initialize", "implement"],
+        )
+        assert descriptor.task_id == "task-001"
+        assert descriptor.explicit_branch == "feature/custom-branch"
+        assert descriptor.resolved_branch == "feature/custom-branch"
+        assert len(descriptor.phases) == 2
+
+    def test_valid_descriptor_with_spec_slug_derivation(self) -> None:
+        """Valid descriptor deriving branch from spec_path slug."""
+        descriptor = TaskDescriptor(
+            task_id="task-002",
+            spec_path=Path("specs/001-task-branch-switch/tasks.md"),
+            explicit_branch=None,
+            phases=["initialize"],
+        )
+        assert descriptor.explicit_branch is None
+        assert descriptor.resolved_branch == "001-task-branch-switch"
+
+    def test_valid_descriptor_with_nested_spec_path(self) -> None:
+        """Valid descriptor with nested spec path derives from parent directory."""
+        descriptor = TaskDescriptor(
+            task_id="task-003",
+            spec_path=Path("specs/002-new-feature/contracts/api.md"),
+            explicit_branch=None,
+            phases=["test"],
+        )
+        # Should derive from parent directory name (002-new-feature)
+        assert descriptor.resolved_branch == "002-new-feature"
+
+    def test_invalid_explicit_branch_with_spaces(self) -> None:
+        """Explicit branch with spaces should fail validation."""
+        with pytest.raises(ValueError, match="Invalid git branch name"):
+            TaskDescriptor(
+                task_id="task-004",
+                spec_path=Path("specs/001-feature/tasks.md"),
+                explicit_branch="feature branch",
+                phases=["initialize"],
+            )
+
+    def test_invalid_explicit_branch_with_special_chars(self) -> None:
+        """Explicit branch with special characters should fail validation."""
+        with pytest.raises(ValueError, match="Invalid git branch name"):
+            TaskDescriptor(
+                task_id="task-005",
+                spec_path=Path("specs/001-feature/tasks.md"),
+                explicit_branch="feature@branch",
+                phases=["initialize"],
+            )
+
+    def test_invalid_spec_path_not_under_specs(self) -> None:
+        """spec_path not under specs/ directory should fail when no explicit branch."""
+        with pytest.raises(ValueError, match="spec_path must be under specs/"):
+            TaskDescriptor(
+                task_id="task-006",
+                spec_path=Path("other/tasks.md"),
+                explicit_branch=None,
+                phases=["initialize"],
+            )
+
+    def test_invalid_empty_task_id(self) -> None:
+        """Empty task_id should fail validation."""
+        with pytest.raises(ValueError, match="task_id must be non-empty"):
+            TaskDescriptor(
+                task_id="",
+                spec_path=Path("specs/001-feature/tasks.md"),
+                explicit_branch=None,
+                phases=["initialize"],
+            )
+
+    def test_invalid_empty_phases(self) -> None:
+        """Empty phases list should fail validation."""
+        with pytest.raises(ValueError, match="phases must contain at least one phase"):
+            TaskDescriptor(
+                task_id="task-007",
+                spec_path=Path("specs/001-feature/tasks.md"),
+                explicit_branch=None,
+                phases=[],
+            )
+
+    def test_explicit_branch_overrides_spec_slug(self) -> None:
+        """Explicit branch should override spec_path slug derivation."""
+        descriptor = TaskDescriptor(
+            task_id="task-008",
+            spec_path=Path("specs/001-feature/tasks.md"),
+            explicit_branch="override-branch",
+            phases=["initialize"],
+        )
+        # Explicit branch should win even though slug would be "001-feature"
+        assert descriptor.resolved_branch == "override-branch"
+
+    def test_resolved_branch_cached(self) -> None:
+        """resolved_branch property should be cached and consistent."""
+        descriptor = TaskDescriptor(
+            task_id="task-009",
+            spec_path=Path("specs/001-feature/tasks.md"),
+            explicit_branch=None,
+            phases=["initialize"],
+        )
+        # Call resolved_branch multiple times
+        branch1 = descriptor.resolved_branch
+        branch2 = descriptor.resolved_branch
+        # Should return same value
+        assert branch1 == branch2
+        assert branch1 == "001-feature"

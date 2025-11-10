@@ -14,8 +14,8 @@
 3. Ensure the Temporal dev server (or target namespace) is running.
 
 ## Running Tests
-- Unit tests: `uv run pytest tests/unit/test_pr_ci_automation_activity.py` (to be added with implementation).
-- Integration tests: `uv run pytest tests/integration/test_pr_ci_automation_workflow.py`.
+- Unit tests: `timeout 15 uv run pytest tests/unit/test_pr_ci_automation_activity.py` (to be added with implementation).
+- Integration tests: `timeout 15 uv run pytest tests/integration/test_pr_ci_automation_workflow.py`.
 - Linting: `uv run ruff check .`.
 
 ## Execution
