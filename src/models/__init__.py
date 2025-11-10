@@ -1,5 +1,17 @@
 """Data models for maverick."""
 
+from src.models.orchestration import (
+    OrchestrationInput,
+    OrchestrationResult,
+    TaskProgress,
+    TaskProgressStatus,
+    TaskResult,
+    TaskResultStatus,
+)
+from src.models.orchestration import PhaseResult as OrchestrationPhaseResult
+from src.models.orchestration import (
+    PhaseResultStatus as OrchestrationPhaseResultStatus,
+)
 from src.models.parameters import Parameters
 from src.models.phase_automation import (
     PhaseDefinition,
@@ -56,4 +68,12 @@ __all__ = [
     "ReviewLoopOutcome",
     "ReviewOutcomeStatus",
     "ValidationResult",
+    "OrchestrationInput",
+    "OrchestrationResult",
+    "OrchestrationPhaseResult",
+    "OrchestrationPhaseResultStatus",
+    "TaskProgress",
+    "TaskProgressStatus",
+    "TaskResult",
+    "TaskResultStatus",
 ]
