@@ -12,6 +12,12 @@ Auto-generated from all feature plans. Last updated: 2025-10-28
 - N/A (all state stored in Temporal workflow state as per FR-017, FR-019) (001-multi-task-orchestration)
 - Python 3.11 + Temporal Python SDK, git CLI (via subprocess), uv toolchain, structured logging utilities (001-task-branch-switch)
 - N/A (Temporal workflow state only) (001-task-branch-switch)
+- Python 3.11 (project standard) + Temporal Python SDK (already), `click` (CLI ergonomics) or built-in `argparse` (DECISION PENDING), existing project logging modules (`src/common/logging.py`). (001-maverick-cli)
+- N/A (read-only repo + Temporal state) (001-maverick-cli)
+- Python 3.11 + Click (CLI), Temporal Python SDK, uv (tooling). Optional: Rich for styled output. Future TUI candidate: Textual (research below). (001-maverick-cli)
+- N/A (no new stores; state remains in Temporal workflow state) (001-maverick-cli)
+- Python 3.11 + Click (CLI), temporalio (Temporal Python SDK client), uv (tooling), Git CLI (runtime), project logging modules (`src/common/logging.py`) (001-maverick-cli)
+- N/A (no new stores; uses Temporal service and repo filesystem) (001-maverick-cli)
 
 ## Project Structure
 
@@ -26,10 +32,10 @@ All test commands MUST include a timeout wrapper while we investigate hanging py
 
 ```bash
 # Run tests (wrap with timeout to prevent hangs)
-timeout 15 uv run pytest
+timeout 600 uv run pytest
 
 # Run tests with coverage
-timeout 15 uv run pytest --cov
+timeout 600 uv run pytest --cov
 
 # Run linter
 uv run ruff check .
@@ -38,10 +44,10 @@ uv run ruff check .
 uv run ruff format .
 
 # Run specific test file
-timeout 15 uv run pytest tests/unit/test_example.py
+timeout 600 uv run pytest tests/unit/test_example.py
 ```
 
-Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper until the hanging test issue is resolved.
+Allocate 10 minutes by default because the current suite averages ~8 minutes. Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper until the hanging test issue is resolved.
 
 ## Code Style
 
@@ -297,9 +303,9 @@ workflow.logger.info("event", extra={"workflow_id": workflow.info().workflow_id}
 - **Benefits** - Simplified operations, better resource utilization, easier deployment
 
 ## Recent Changes
-- 001-task-branch-switch: Added Python 3.11 + Temporal Python SDK, git CLI (via subprocess), uv toolchain, structured logging utilities
-- 001-multi-task-orchestration: Added Python 3.11 (existing project standard) + Temporal Python SDK (existing), uv for dependency management (existing)
-- 001-pr-ci-automation: Added Python 3.11 + Temporal Python SDK, GitHub CLI (`gh`), uv toolchain
+- 001-maverick-cli: Added Python 3.11 + Click (CLI), temporalio (Temporal Python SDK client), uv (tooling), Git CLI (runtime), project logging modules (`src/common/logging.py`)
+- 001-maverick-cli: Added Python 3.11 + Click (CLI), Temporal Python SDK, uv (tooling). Optional: Rich for styled output. Future TUI candidate: Textual (research below).
+- 001-maverick-cli: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
 
 ## Documentation Standards

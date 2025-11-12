@@ -7,9 +7,9 @@ using structured logging and safe error handling.
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Literal
 
 from src.utils.logging import get_structured_logger
+
 
 logger = get_structured_logger(__name__)
 

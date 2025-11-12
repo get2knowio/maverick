@@ -12,6 +12,14 @@ import pytest
 from tests.fixtures.git_repo import GitRepoFactory
 
 
+@pytest.fixture(autouse=True)
+def disable_runtime_bootstrap(monkeypatch):
+    """Prevent tests from launching real Temporal/worker processes."""
+
+    monkeypatch.setenv("MAVERICK_SKIP_TEMPORAL_BOOTSTRAP", "1")
+    monkeypatch.setenv("MAVERICK_SKIP_WORKER_BOOTSTRAP", "1")
+
+
 @pytest.fixture
 def sample_fixture() -> str:
     """Example fixture for testing.

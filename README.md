@@ -8,6 +8,87 @@ Maverick provides Temporal workflows and activities to automate common developme
 
 ## Features
 
+### Maverick CLI
+
+The `maverick` command is now the single interface for orchestrating specs-backed work. Install it once with `uv tool install maverick --from git+https://github.com/get2knowio/maverick.git`, then run `maverick <command>` from any repository that contains `specs/*/tasks.md`.
+
+**Quick start**
+
+```bash
+# Install once (requires uv 0.4+ and the Temporal CLI in PATH)
+uv tool install maverick --from git+https://github.com/get2knowio/maverick.git
+
+# Run from any repo that contains specs/*/tasks.md files
+maverick run
+```
+
+**How it works**
+
+- Bootstraps a local Temporal dev server and the Maverick worker automatically (no extra terminals required). Set `MAVERICK_SKIP_TEMPORAL_BOOTSTRAP=1` if you want to connect to an existing cluster.
+- Validates that you are inside a git repository (and a clean working tree unless `--allow-dirty` is supplied).
+- Discovers `tasks.md` files under `specs/`, skipping `specs-completed/`, and sorts them by numeric directory prefix (001, 002, …).
+- Generates stable task IDs and branch hints, then starts `MultiTaskOrchestrationWorkflow` on the `maverick-task-queue`.
+- Prints the workflow ID (`maverick-run-*`) and run ID so you can monitor or reconnect while the CLI session is active.
+
+**`maverick run`**
+
+Starts the workflow, validates repo state, and streams Temporal progress until completion.
+
+```bash
+# Run everything that was discovered
+maverick run
+
+# Limit execution to one tasks.md file
+maverick run --task specs/042-new-feature/tasks.md
+
+# Pause between phases/tasks
+maverick run --interactive
+
+# Non-blocking preview for CI bots
+maverick run --dry-run --json
+
+# Minimal TTY output (one-line updates)
+maverick run --compact
+```
+
+Options:
+- `--task PATH` – restrict execution to a single tasks file inside the repo root.
+- `--interactive` – instructs the workflow to pause between major phases; resume or skip with Temporal signals (`temporal workflow signal --workflow-id <id> --name continue_to_next_phase` or `skip_current_task`).
+- `--dry-run` – skip Temporal execution and print the descriptors that would run (task ID, file path, derived branch, discovery timing).
+- `--json` – emit JSON payloads for every poll plus the final summary; works with real runs and dry runs.
+- `--allow-dirty` – bypass the clean working tree requirement (default is to block when there are uncommitted files).
+- `--compact` – collapse human-readable streaming output to a single line per poll for cramped terminals.
+
+Runtime notes:
+- Rich-based tables are shown automatically when stdout is a TTY; JSON mode disables styling.
+- Pressing `Ctrl+C` now cancels the workflow because the CLI owns the Temporal server/worker lifecycle. Re-run `maverick run` to restart.
+- Discovery failures (missing specs directory, empty results) surface actionable remediation text. Dry runs exit with `task_count: 0` when nothing is queued.
+- The CLI shells out to the Temporal CLI binary (`temporal`). Install it via https://docs.temporal.io/cli or set `TEMPORAL_CLI_PATH`.
+- Set `MAVERICK_SKIP_TEMPORAL_BOOTSTRAP=1` and/or `MAVERICK_SKIP_WORKER_BOOTSTRAP=1` to connect to an already-running Temporal deployment (for remote clusters or CI).
+
+**`maverick status <workflow-id>`**
+
+Reattach to a running or completed workflow—no need to keep the original `run` session open.
+
+```bash
+maverick status maverick-run-1730941830
+maverick status maverick-run-1730941830 --json
+```
+
+`status` prints workflow/run IDs, current state (`running`, `completed`, or `failed`), the task currently executing, and per-task progress summaries. JSON mode returns a stable schema that is easy to scrape for dashboards.
+
+**Automation-friendly output**
+
+- `run --json` emits a progress document each poll plus p95 poll latency when the workflow finishes.
+- `run --dry-run --json` is ideal for CI pre-checks; it exits 0 with `task_count: 0` when nothing is available.
+- `status --json` returns timestamps, task IDs, and last messages so you can build a lightweight status board or Slack notifier.
+
+**Troubleshooting**
+
+- Connection failures usually indicate the Temporal CLI is missing or blocked. Install `temporal`, or set `MAVERICK_SKIP_TEMPORAL_BOOTSTRAP=1` / `MAVERICK_SKIP_WORKER_BOOTSTRAP=1` to point at an existing cluster and verify `TEMPORAL_HOST=localhost:7233`.
+- Git validation errors show the current directory and how to fix dirty working trees (or rerun with `--allow-dirty`).
+- If discovery returns no work, the CLI raises `NoTasksDiscoveredError`; rerun with `--dry-run` to inspect discovery order without touching Temporal.
+
 ### CLI Readiness Check
 
 Verifies that essential development tools are installed and properly configured, and validates GitHub repository access before starting work.
@@ -26,15 +107,17 @@ Verifies that essential development tools are installed and properly configured,
 
 **Quick start:**
 
+> **Note:** When you run `maverick`, the CLI automatically boots the Temporal dev server and worker. The commands below are only required when invoking the legacy helper directly for debugging.
+
 ```bash
 # Start Temporal server (separate terminal)
 temporal server start-dev
 
 # Start the worker (separate terminal)
-uv run maverick-worker
+maverick-worker
 
 # Run the readiness check with your repository URL
-uv run readiness-check https://github.com/owner/repo
+readiness-check https://github.com/owner/repo
 ```
 
 ### Automated Phase Execution
@@ -59,21 +142,23 @@ Automates the sequential execution of Speckit `tasks.md` phases, enabling AI-bac
 
 **Quick start:**
 
+> **Note:** Normal usage goes through `maverick run`, which handles Temporal/worker bootstrap automatically. Use the legacy commands below only when debugging the underlying workflows in isolation.
+
 ```bash
 # Start Temporal server (separate terminal)
 temporal server start-dev
 
 # Start the worker (separate terminal)
-uv run maverick-worker
+maverick-worker
 
 # Run phase automation on your tasks.md
-uv run python -m src.cli.readiness --workflow automate-phase-tasks \
+python -m src.cli.readiness --workflow automate-phase-tasks \
   --tasks-md-path /path/to/specs/feature/tasks.md \
   --repo-path /path/to/repo \
   --branch feature-branch
 
 # Resume after a failure (automatically skips completed phases)
-uv run python -m src.cli.readiness --workflow automate-phase-tasks \
+python -m src.cli.readiness --workflow automate-phase-tasks \
   --tasks-md-path /path/to/specs/feature/tasks.md \
   --repo-path /path/to/repo \
   --branch feature-branch
@@ -187,11 +272,11 @@ Key log events:
 
 ### Multi-Task Orchestration
 
-Orchestrates sequential processing of multiple task files through all phases (initialize, implement, review/fix, PR/CI/merge) with optional interactive approval gates and resume capability after worker restarts.
+`maverick run` launches `MultiTaskOrchestrationWorkflow`, which processes each discovered `tasks.md` sequentially (initialize → implement → review/fix → PR/CI/merge) with deterministic replay guarantees.
 
 **What it does:**
 - ✓ Processes multiple task files sequentially through all phases
-- ✓ Calls AutomatePhaseTasksWorkflow as child workflow for each task
+- ✓ Calls AutomatePhaseTasksWorkflow as a child workflow for each task
 - ✓ Implements fail-fast behavior (stops on first task failure)
 - ✓ Supports interactive mode with pause/resume between tasks
 - ✓ Maintains progress state for resumability after worker restarts
@@ -208,88 +293,45 @@ Orchestrates sequential processing of multiple task files through all phases (in
 **Quick start:**
 
 ```bash
-# Start Temporal server (separate terminal)
-temporal server start-dev
-
-# Start the worker (separate terminal)
-uv run maverick-worker
-
-# Run orchestration for multiple task files (batch mode)
-uv run maverick-orchestrate run \
-  task1.md task2.md task3.md \
-  --repo-path /path/to/repo \
-  --branch feature-001
-
-# Run with interactive mode (pause after each task)
-uv run maverick-orchestrate run \
-  task1.md task2.md \
-  --repo-path /path/to/repo \
-  --branch feature-001 \
-  --interactive
-
-# Query progress of running workflow
-uv run maverick-orchestrate query --workflow-id orchestrate-abc123
-
-# Send continue signal to resume paused workflow
-uv run maverick-orchestrate continue --workflow-id orchestrate-abc123
-
-# Skip current task in paused workflow
-uv run maverick-orchestrate skip --workflow-id orchestrate-abc123
+# Install once if needed, then run workflows
+maverick run
 ```
 
-**Usage patterns:**
+**Common flows:**
 
-Automated batch processing:
 ```bash
-# Process 5 task files without interaction
-uv run maverick-orchestrate run \
-  tasks/feature-1.md tasks/feature-2.md tasks/feature-3.md \
-  tasks/feature-4.md tasks/feature-5.md \
-  --repo-path /workspace/myrepo \
-  --branch feature-batch-001 \
-  --retry-limit 3
+# Target a single spec/tasks file
+maverick run --task specs/feature-alpha/tasks.md
+
+# Dry run to inspect discovery order (no workflow started)
+maverick run --dry-run
+
+# JSON streaming for dashboards
+maverick run --json --compact
+
+# Check on a workflow later
+maverick status maverick-run-1730941830
+
+# Interactive mode waiting for approval? Send Temporal signals:
+temporal workflow signal \
+  --workflow-id maverick-run-1730941830 \
+  --name continue_to_next_phase
+
+temporal workflow signal \
+  --workflow-id maverick-run-1730941830 \
+  --name skip_current_task
 ```
 
-Interactive workflow with manual approval:
-```bash
-# Start workflow in interactive mode
-uv run maverick-orchestrate run \
-  tasks/critical-feature.md \
-  --repo-path /workspace/myrepo \
-  --branch feature-critical-001 \
-  --interactive \
-  --workflow-id critical-task-001
-
-# In separate terminal, monitor progress
-uv run maverick-orchestrate query --workflow-id critical-task-001
-
-# After reviewing task 1 results, continue to task 2
-uv run maverick-orchestrate continue --workflow-id critical-task-001
-
-# Or skip task 2 if needed
-uv run maverick-orchestrate skip --workflow-id critical-task-001
-```
-
-Resume after worker restart:
-```bash
-# Start workflow
-uv run maverick-orchestrate run \
-  tasks/t1.md tasks/t2.md tasks/t3.md \
-  --repo-path /workspace/myrepo \
-  --branch feature-resume-test \
-  --workflow-id resume-test-001
-
-# Worker crashes or restarts during task 2
-# Temporal automatically resumes workflow from correct state
-# Task 1 results preserved, task 2 continues from where it left off
-```
+**Monitoring & control:**
+- `maverick run` streams the workflow’s query handlers (`get_progress`, `get_task_results`); use `maverick status` for ad-hoc checks from new terminals.
+- When `--interactive` is set, the workflow pauses until you send a `continue_to_next_phase` or `skip_current_task` signal (use the Temporal CLI commands above).
+- The standalone CLI manages worker lifecycle; rerun `maverick run` if you need to restart a session.
 
 **Configuration:**
-- `--retry-limit`: Maximum retry attempts for phase execution (1-10, default: 3)
-- `--interactive`: Enable interactive mode with pause/resume between tasks
-- `--default-model`: Override AI model for all phases
-- `--default-agent-profile`: Override agent profile for all phases
-- `--workflow-id`: Reuse same ID to resume from checkpoint
+- `retry_limit` defaults to 3 (configurable via `OrchestrationInput` when called programmatically).
+- `interactive_mode` is toggled by the CLI flag.
+- `default_model` / `default_agent_profile` can be overridden when invoking the workflow directly in Python.
+- Workflow IDs are generated with the `maverick-run-*` prefix for predictable lookups.
 
 **Output format:**
 
@@ -386,10 +428,9 @@ The workflow implements fail-fast behavior:
 Unprocessed tasks are listed in `OrchestrationResult.unprocessed_task_paths` for visibility.
 
 **See Also:**
-- Full specification: `specs/001-multi-task-orchestration/spec.md`
-- Data model: `specs/001-multi-task-orchestration/data-model.md`
-- Quick start guide: `specs/001-multi-task-orchestration/quickstart.md`
-- Implementation: `src/workflows/multi_task_orchestration.py`
+- `src/workflows/multi_task_orchestration.py` – workflow implementation
+- `src/models/orchestration.py` – orchestration input/output contracts
+- `src/models/phase_automation.py` – phase automation parameters
 
 ## Requirements
 
@@ -440,20 +481,20 @@ specs/                # Feature specifications and documentation
 ### Running Tests
 
 ```bash
-# All tests
-timeout 15 uv run pytest
+# All tests (10-minute timeout by default)
+timeout 600 uv run pytest
 
 # Unit tests only
-timeout 15 uv run pytest tests/unit/
+timeout 600 uv run pytest tests/unit/
 
 # Integration tests only
-timeout 15 uv run pytest tests/integration/
+timeout 600 uv run pytest tests/integration/
 
 # With coverage
-timeout 15 uv run pytest --cov=src
+timeout 600 uv run pytest --cov=src
 ```
 
-Adjust the timeout window when suites need longer to finish, but every pytest invocation MUST include a `timeout` wrapper to catch hanging tests.
+Allocate 10 minutes by default because suites currently take ~8 minutes to run. Adjust higher only if needed, but every pytest invocation MUST include a `timeout` wrapper to catch hanging tests.
 
 ### Code Quality
 
@@ -467,12 +508,12 @@ uv run ruff check --fix .
 
 ### Development Workflow
 
-1. Start Temporal server: `temporal server start-dev`
-2. Start the worker: `uv run maverick-worker`
+1. Install project dependencies: `uv sync`
+2. Ensure the Temporal CLI (`temporal`) is installed and in your PATH (the `maverick` CLI shells out to it).
 3. Make your changes
-4. Run tests: `timeout 15 uv run pytest`
+4. Run tests: `timeout 600 uv run pytest`
 5. Run linting: `uv run ruff check .`
-6. Execute CLI: `uv run readiness-check https://github.com/owner/repo`
+6. Execute CLI: `maverick run` (optionally run `maverick status <workflow-id>` or `readiness-check https://github.com/owner/repo` for legacy debugging)
 
 ## Architecture
 

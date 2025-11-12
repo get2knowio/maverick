@@ -12,6 +12,10 @@ dependencies = [
     "temporalio>=1.7.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0.0",
+    "jsonschema>=4.22.0",
 ]
 
 [dependency-groups]
@@ -31,9 +35,15 @@ ignore = []
 packages = ["src"]
 
 [project.scripts]
+maverick = "src.cli.maverick:cli"
 maverick-worker = "src.workers.main:run_worker"
 readiness-check = "src.cli.readiness:main"
 review-fix-activity = "src.cli.review_fix:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "perf: marks performance tests that measure CLI throughput",
+]
 
 [build-system]
 requires = ["hatchling"]

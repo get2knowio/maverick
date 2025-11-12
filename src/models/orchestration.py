@@ -118,7 +118,7 @@ class OrchestrationInput:
     repo_path: str = ""
     default_model: str | None = None
     default_agent_profile: str | None = None
-    
+
     # Deprecated backward compatibility fields
     task_file_paths: tuple[str, ...] | None = None
     branch: str | None = None

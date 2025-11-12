@@ -269,7 +269,7 @@ class AutomatePhaseTasksParams:
         # because this dataclass is used as a parameter for child workflow calls.
         # When deserializing in workflow context, filesystem operations are restricted.
         # Validation should be done in activity code instead.
-        
+
         normalized_branch = self.branch.strip()
         if not normalized_branch:
             raise ValueError("branch must be non-empty")

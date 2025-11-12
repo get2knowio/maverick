@@ -10,6 +10,7 @@ import asyncio
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ChildWorkflowError
 
+
 # Mark models as passthrough to avoid path validation issues in workflow context
 with workflow.unsafe.imports_passed_through():
     from src.models.branch_management import BranchExecutionContext
@@ -126,7 +127,7 @@ class MultiTaskOrchestrationWorkflow:
         self._total_tasks: int = 0
         self._current_task_file: str | None = None
         # Branch management state
-        self._branch_contexts: dict[int, "BranchExecutionContext"] = {}
+        self._branch_contexts: dict[int, BranchExecutionContext] = {}
         # Interactive mode state
         self._continue_event: asyncio.Event = asyncio.Event()
         self._skip_current: bool = False
@@ -301,11 +302,11 @@ class MultiTaskOrchestrationWorkflow:
         from src.models.branch_management import BranchSelection, CheckoutResult
 
         workflow_start_time = workflow.now()
-        
+
         # Validate and extract task_descriptors (should always be set after __post_init__)
         assert params.task_descriptors is not None, "task_descriptors must be set"
         task_descriptors = params.task_descriptors
-        
+
         # Store total tasks for progress queries
         self._total_tasks = len(task_descriptors)
 
@@ -352,7 +353,7 @@ class MultiTaskOrchestrationWorkflow:
                 )
 
                 branch_name = branch_selection.branch_name
-                
+
                 workflow.logger.info(
                     "branch_derived",
                     extra={
@@ -397,7 +398,7 @@ class MultiTaskOrchestrationWorkflow:
             except Exception as e:
                 # Branch checkout failed - do not proceed with phases
                 error_message = self._format_activity_failure("Branch checkout failed", e)
-                
+
                 workflow.logger.error(
                     "branch_checkout_failed",
                     extra={
@@ -443,7 +444,7 @@ class MultiTaskOrchestrationWorkflow:
                         "workflow_id": workflow.info().workflow_id,
                     }
                 )
-                
+
                 # Create skipped task result
                 skipped_result = TaskResult(
                     task_file_path=task_file_path,
@@ -454,12 +455,12 @@ class MultiTaskOrchestrationWorkflow:
                 )
                 self._task_results.append(skipped_result)
                 self._skip_current = False
-                
+
                 # If in interactive mode, pause after skip
                 if params.interactive_mode:
                     self._is_paused = True
                     self._continue_event.clear()
-                    
+
                     workflow.logger.info(
                         "workflow_paused_after_skip",
                         extra={
@@ -467,10 +468,10 @@ class MultiTaskOrchestrationWorkflow:
                             "workflow_id": workflow.info().workflow_id,
                         }
                     )
-                    
+
                     await self._continue_event.wait()
                     self._is_paused = False
-                
+
                 continue  # Skip to next task
 
             workflow.logger.info(
@@ -539,7 +540,7 @@ class MultiTaskOrchestrationWorkflow:
                             "workflow_id": workflow.info().workflow_id,
                         }
                     )
-                    
+
                     # Create failed task result with synthetic phase result
                     synthetic_phase_result = PhaseResult(
                         phase_name="phase_discovery",
@@ -548,7 +549,7 @@ class MultiTaskOrchestrationWorkflow:
                         error_message=error_message,
                         retry_count=0,
                     )
-                    
+
                     task_result = TaskResult(
                         task_file_path=task_file_path,
                         overall_status="failed",
@@ -556,9 +557,9 @@ class MultiTaskOrchestrationWorkflow:
                         total_duration_seconds=task_duration_seconds,
                         failure_reason=error_message,
                     )
-                    
+
                     self._task_results.append(task_result)
-                    
+
                     # Fail-fast: Stop on empty phase list
                     workflow.logger.warning(
                         "task_failed_stopping_orchestration",
@@ -631,7 +632,7 @@ class MultiTaskOrchestrationWorkflow:
                     # Pause and wait for continue signal
                     self._is_paused = True
                     self._continue_event.clear()
-                    
+
                     workflow.logger.info(
                         "workflow_paused",
                         extra={
@@ -640,12 +641,12 @@ class MultiTaskOrchestrationWorkflow:
                             "workflow_id": workflow.info().workflow_id,
                         }
                     )
-                    
+
                     # Wait for signal
                     await self._continue_event.wait()
-                    
+
                     self._is_paused = False
-                    
+
                     workflow.logger.info(
                         "workflow_resumed",
                         extra={
@@ -653,7 +654,7 @@ class MultiTaskOrchestrationWorkflow:
                             "workflow_id": workflow.info().workflow_id,
                         }
                     )
-                    
+
                     # Check if skip was requested during pause
                     # Note: We DON'T reset _skip_current here - it will be handled
                     # at the start of the next task iteration (line ~155)

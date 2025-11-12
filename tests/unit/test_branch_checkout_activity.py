@@ -7,7 +7,6 @@ Tests cover:
 - delete_task_branch: Deletion success and missing-branch no-ops
 """
 
-from pathlib import Path
 
 import pytest
 

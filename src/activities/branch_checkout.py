@@ -14,6 +14,7 @@ from src.models.branch_management import (
 )
 from src.utils.logging import get_structured_logger
 
+
 logger = get_structured_logger(__name__)
 
 

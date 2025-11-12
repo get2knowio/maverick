@@ -32,6 +32,8 @@ unfixable = []
 [lint.per-file-ignores]
 # Allow print in CLI scripts
 "src/cli/*.py" = ["T201"]
+# Allow print in performance tests for metrics output
+"tests/perf/*.py" = ["T201"]
 # Ignore import order in __init__.py files
 "**/__init__.py" = ["F401"]
 

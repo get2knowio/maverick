@@ -1,15 +1,16 @@
 <!--
 Sync Impact Report:
-- Version change: 1.3.0 → 1.4.0
-- Modified principles: Testing Standards (enforce timeout for pytest commands)
+- Version change: 1.4.0 → 1.4.1
+- Modified principles: Testing Standards (increase pytest timeout wrapper to 10 minutes)
 - Added sections: None
 - Removed sections: None
 - Templates requiring updates:
-  ✅ .specify/templates/plan-template.md (no pytest guidance; remains aligned)
-  ✅ .specify/templates/spec-template.md (no pytest guidance; remains aligned)
-  ✅ .specify/templates/tasks-template.md (no pytest guidance; remains aligned)
-  ✅ AGENTS.md (timeout guidance added)
-  ✅ README.md (timeout guidance added)
+    ✅ .specify/templates/plan-template.md (no pytest guidance; remains aligned)
+    ✅ .specify/templates/spec-template.md (no pytest guidance; remains aligned)
+    ✅ .specify/templates/tasks-template.md (no pytest guidance; remains aligned)
+    ✅ AGENTS.md (updated default timeout to 10 minutes)
+    ✅ README.md (updated default timeout to 10 minutes)
+    ✅ .github/copilot-instructions.md (updated default timeout to 10 minutes)
 - Follow-up TODOs: None
 -->
 
@@ -233,7 +234,7 @@ When integrating with external CLI tools (gh, git, etc.):
 - Integration tests for Workflow execution paths
 - Contract tests for external service interactions called from Activities
 - Minimum 90% code coverage for workflow-critical paths
-- All `uv run pytest` executions MUST be wrapped in a `timeout` command (e.g., `timeout 15 uv run pytest tests/...`) to mitigate hanging test processes; select durations that balance reliability and runaway termination.
+- All `uv run pytest` executions MUST be wrapped in a `timeout` command (default: `timeout 600 uv run pytest tests/...`) to mitigate hanging test processes. Allocate 10 minutes by default as current suites take ~8 minutes; adjust higher only when necessary, but the `timeout` wrapper remains mandatory.
 
 **Rationale**: Enforcing timeouts prevents CI and local runs from hanging indefinitely when pytest fixtures stall, ensuring faster feedback loops and predictable automation pipelines.
 
@@ -267,4 +268,4 @@ This constitution supersedes all other development practices. Changes require ex
 
 **Compliance**: All pull requests and code reviews MUST verify adherence to these principles, with particular attention to temporal workflow correctness, operational patterns (worker shutdown, connection management, error handling), and test coverage.
 
-**Version**: 1.4.0 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-11-10
+**Version**: 1.4.1 | **Ratified**: 2025-10-28 | **Last Amended**: 2025-11-10

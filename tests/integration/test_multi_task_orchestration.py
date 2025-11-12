@@ -1,8 +1,8 @@
 """Integration tests for multi-task orchestration workflow."""
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Sequence
 
 import pytest
 from temporalio import activity, workflow
@@ -10,16 +10,18 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from src.models.branch_management import BranchSelection, CheckoutResult
 from src.models.orchestration import (
     OrchestrationInput,
     OrchestrationResult,
     PhaseResult,
     TaskResult,
 )
-from src.models.branch_management import BranchSelection, CheckoutResult
 from src.models.phase_automation import (
     AutomatePhaseTasksParams,
     PhaseAutomationSummary,
+)
+from src.models.phase_automation import (
     PhaseResult as PhaseAutomationResult,
 )
 
@@ -30,12 +32,12 @@ from src.models.phase_automation import (
 
 class ModuleTestState:
     """Encapsulates test state to prevent global contamination between tests."""
-    
+
     def __init__(self):
         self.call_order: list[str] = []
         self.task_counter: int = 0
         self.checkout_should_fail: bool = False
-    
+
     def reset(self):
         """Reset all state for next test."""
         self.call_order = []
@@ -111,7 +113,7 @@ def repo_root() -> str:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowInvalidPath:
     """Mock that raises FileNotFoundError for invalid paths (T058a)."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         raise ApplicationError(
@@ -123,7 +125,7 @@ class MockPhaseWorkflowInvalidPath:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowMalformed:
     """Mock that raises ValueError for malformed content (T058b)."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         raise ApplicationError(
@@ -135,7 +137,7 @@ class MockPhaseWorkflowMalformed:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowTimeout:
     """Mock that simulates timeout (T058d)."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         # Simulate child workflow timeout by raising generic exception
@@ -149,7 +151,7 @@ class MockPhaseWorkflowTimeout:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowFast:
     """Mock with fast execution for performance testing (T058e)."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         from datetime import timedelta
@@ -183,7 +185,7 @@ class MockPhaseWorkflowFast:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowSuccess:
     """Mock AutomatePhaseTasksWorkflow that returns successful results."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary."""
@@ -223,13 +225,13 @@ class MockPhaseWorkflowSuccess:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowFailure:
     """Mock that succeeds on first task, fails on second task."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return success for first task, failure for second task."""
         start_time = workflow.now()
         current = start_time
-        
+
         # Use task file path to determine which task this is
         task_file = params.tasks_md_path or ""
         is_second_task = "?task=2" in task_file
@@ -348,7 +350,7 @@ async def test_orchestration_failure_stops_processing(task_file_path: str, repo_
     task_file_1 = task_file_path
     task_file_2 = task_file_path + "?task=2"  # Add query param to differentiate
     task_file_3 = task_file_path + "?task=3"
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(
             task_file_1,
@@ -448,7 +450,7 @@ async def test_orchestration_interactive_mode_pause_resume(task_file_path: str, 
         progress = await handle.query("get_progress")
         assert progress["is_paused"] is True
         assert progress["current_task_index"] == 0
-        
+
         # Send continue signal to complete workflow (only 1 task total)
         await handle.signal("continue_to_next_phase")
 
@@ -551,17 +553,17 @@ async def test_orchestration_skip_task_signal(task_file_path: str, repo_root: st
 
         # Wait for first task to complete and pause
         await env.sleep(2)
-        
+
         # Complete first task normally
         await handle.signal("continue_to_next_phase")
-        
+
         # Wait for workflow to start processing task 2, then pause after completion
         await env.sleep(2)
 
         # Skip third task (send skip while paused after task 2)
         # Note: skip_current_task also resumes the workflow
         await handle.signal("skip_current_task")
-        
+
         # Wait for skip to process and pause
         await env.sleep(1)
 
@@ -620,7 +622,7 @@ async def test_orchestration_query_progress_while_paused(task_file_path: str, re
         assert progress["total_tasks"] == 2
         assert progress["current_task_file"] == task_file_path
         assert "completed_tasks" in progress
-        
+
         # Continue and complete workflow
         for _ in range(2):  # 2 tasks
             await handle.signal("continue_to_next_phase")
@@ -662,7 +664,7 @@ async def test_orchestration_duplicate_signals(task_file_path: str, repo_root: s
 
         # Wait for pause after task completes
         await env.sleep(2)
-        
+
         # Send multiple continue signals (should be idempotent)
         await handle.signal("continue_to_next_phase")
         await handle.signal("continue_to_next_phase")
@@ -784,20 +786,20 @@ async def test_orchestration_resume_after_worker_restart(task_file_path: str, re
         assert result.successful_tasks == 3
         assert result.failed_tasks == 0
         assert result.early_termination is False
-        
+
         # Verify all task results are present
         assert len(result.task_results) == 3
         assert all(tr.overall_status == "success" for tr in result.task_results)
-        
+
         # Verify state never regressed during execution (deterministic)
         for i in range(1, len(progress_snapshots)):
             prev = progress_snapshots[i - 1]
             curr = progress_snapshots[i]
-            
+
             # Result count should never decrease
             assert curr["result_count"] >= prev["result_count"], \
                 f"State regression detected: result count decreased from {prev['result_count']} to {curr['result_count']}"
-            
+
             # Completed tasks should accumulate, never disappear
             for task_idx in prev["completed_tasks"]:
                 assert task_idx in curr["completed_tasks"], \
@@ -853,39 +855,39 @@ async def test_orchestration_resume_paused_during_review_iteration(task_file_pat
 
         # Wait for first task to complete and pause
         await env.sleep(2)
-        
+
         # Verify workflow is paused after first task
         progress1 = await handle.query("get_progress")
         assert progress1["is_paused"] is True
         assert progress1["current_task_index"] == 0
         completed_after_first = list(progress1["completed_tasks"])
-        
+
         # Send continue signal to proceed to second task
         await handle.signal("continue_to_next_phase")
-        
+
         # Wait for second task to process and pause
         await env.sleep(2)
-        
+
         # Verify workflow paused again after second task
         progress2 = await handle.query("get_progress")
         assert progress2["is_paused"] is True
         assert progress2["current_task_index"] == 1
-        
+
         # Verify first task still in completed list (state preserved)
         for task_idx in completed_after_first:
             assert task_idx in progress2["completed_tasks"], \
                 "Completed task disappeared from state - resume would fail"
-        
+
         # Send final continue signal
         await handle.signal("continue_to_next_phase")
-        
+
         result = await handle.result()
 
         # Verify successful completion
         assert result.total_tasks == 2
         assert result.successful_tasks == 2
         assert result.failed_tasks == 0
-        
+
         # Verify both tasks completed (no re-execution during "resume")
         assert len(result.task_results) == 2
         assert all(tr.overall_status == "success" for tr in result.task_results)
@@ -942,7 +944,7 @@ async def test_orchestration_state_determinism(task_file_path: str, repo_root: s
                 await env.sleep(0.5)
                 progress = await handle.query("get_progress")
                 task_results = await handle.query("get_task_results")
-                
+
                 state_snapshots.append({
                     "iteration": i,
                     "current_task_index": progress["current_task_index"],
@@ -956,19 +958,19 @@ async def test_orchestration_state_determinism(task_file_path: str, repo_root: s
             # Verify final state is correct
             assert result.total_tasks == 2
             assert result.successful_tasks == 2
-            
+
             # Verify state snapshots show deterministic progression
             # (no tasks should disappear from completed list, counts should only increase)
             for i in range(1, len(state_snapshots)):
                 prev = state_snapshots[i - 1]
                 curr = state_snapshots[i]
-                
+
                 # Completed task count should never decrease
                 assert len(curr["completed_tasks"]) >= len(prev["completed_tasks"])
-                
+
                 # Task result count should never decrease
                 assert curr["task_result_count"] >= prev["task_result_count"]
-                
+
                 # Previously completed tasks should remain in completed list
                 for completed_idx in prev["completed_tasks"]:
                     assert completed_idx in curr["completed_tasks"]
@@ -982,7 +984,7 @@ async def test_orchestration_state_determinism(task_file_path: str, repo_root: s
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflow2Phases:
     """Mock AutomatePhaseTasksWorkflow that returns exactly 2 phases."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 2 phases."""
@@ -1019,7 +1021,7 @@ class MockPhaseWorkflow2Phases:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflow6Phases:
     """Mock AutomatePhaseTasksWorkflow that returns 6 phases."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 6 phases."""
@@ -1058,7 +1060,7 @@ class MockPhaseWorkflow6Phases:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflow4Phases:
     """Mock AutomatePhaseTasksWorkflow that returns 4 phases."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return successful phase automation summary with 4 phases."""
@@ -1095,7 +1097,7 @@ class MockPhaseWorkflow4Phases:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowNoPhases:
     """Mock AutomatePhaseTasksWorkflow that returns no phases (empty results)."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return phase automation summary with empty results."""
@@ -1115,7 +1117,7 @@ class MockPhaseWorkflowNoPhases:
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowMixed:
     """Mock that returns different phase counts based on task file name."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Return different phase counts based on task file name."""
@@ -1129,9 +1131,9 @@ class MockPhaseWorkflowMixed:
             phase_count = 6
         else:
             phase_count = 2  # Default
-        
+
         start_time = workflow.now()
-        
+
         # Return based on phase count
         if phase_count == 2:
             current = start_time
@@ -1159,7 +1161,7 @@ class MockPhaseWorkflowMixed:
                 duration_ms=total_duration,
                 tasks_md_hash="mock_hash",
             )
-        
+
         # 4 phases
         elif phase_count == 4:
             current = start_time
@@ -1189,7 +1191,7 @@ class MockPhaseWorkflowMixed:
                 duration_ms=total_duration,
                 tasks_md_hash="mock_hash",
             )
-        
+
         # 6 phases (default for unknown)
         else:  # phase_count == 6 or unknown
             current = start_time
@@ -1221,7 +1223,7 @@ async def test_orchestration_variable_phase_count_2(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     task_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
@@ -1257,12 +1259,12 @@ async def test_orchestration_variable_phase_count_2(repo_root: str):
         task_result = result.task_results[0]
         assert task_result.overall_status == "success"
         assert len(task_result.phase_results) == 2
-        
+
         # Verify phase names
         phase_names = [pr.phase_name for pr in task_result.phase_results]
         assert "initialize" in phase_names
         assert "implement" in phase_names
-        
+
         # Verify all phases succeeded
         assert all(pr.status == "success" for pr in task_result.phase_results)
 
@@ -1273,7 +1275,7 @@ async def test_orchestration_variable_phase_count_6(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     task_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_6_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
@@ -1308,12 +1310,12 @@ async def test_orchestration_variable_phase_count_6(repo_root: str):
         task_result = result.task_results[0]
         assert task_result.overall_status == "success"
         assert len(task_result.phase_results) == 6
-        
+
         # Verify phase names (6 unique phases)
         phase_names = [pr.phase_name for pr in task_result.phase_results]
         expected_phases = ["planning", "initialize", "implement", "quality_assurance", "review_fix", "pr_ci_merge"]
         assert phase_names == expected_phases
-        
+
         # Verify all phases succeeded
         assert all(pr.status == "success" for pr in task_result.phase_results)
 
@@ -1326,7 +1328,7 @@ async def test_orchestration_mixed_phase_counts(repo_root: str):
     task_path_2 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
     task_path_4 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_4_phases.md")
     task_path_6 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_6_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path_2, task_path_4, task_path_6),
         interactive_mode=False,
@@ -1368,7 +1370,7 @@ async def test_orchestration_task_no_phases(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     task_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
@@ -1395,11 +1397,11 @@ async def test_orchestration_task_no_phases(repo_root: str):
 
         # Verify workflow handles empty phase list gracefully
         assert result.total_tasks == 1
-        
+
         # Task should be marked as failed due to no phases
         assert result.failed_tasks == 1
         assert result.successful_tasks == 0
-        
+
         # Verify task result reflects the failure
         task_result = result.task_results[0]
         assert task_result.overall_status == "failed"
@@ -1424,7 +1426,7 @@ async def test_orchestration_task_file_modification(repo_root: str):
 
     task_path_2 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
     task_path_4 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_4_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path_2, task_path_4),  # Different files to trigger different phase counts
         interactive_mode=False,
@@ -1453,13 +1455,13 @@ async def test_orchestration_task_file_modification(repo_root: str):
         assert result.total_tasks == 2
         assert result.successful_tasks == 2
         assert result.failed_tasks == 0
-        
+
         # Verify first task has 2 phases (from task_2_phases.md)
         assert len(result.task_results[0].phase_results) == 2
-        
+
         # Verify second task has 4 phases (from task_4_phases.md)
         assert len(result.task_results[1].phase_results) == 4
-        
+
         # Both tasks should succeed - workflow handles variable phase counts gracefully
         assert all(tr.overall_status == "success" for tr in result.task_results)
 
@@ -1477,7 +1479,7 @@ async def test_orchestration_invalid_task_path(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     nonexistent_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/nonexistent.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(nonexistent_path,),
         interactive_mode=False,
@@ -1527,7 +1529,7 @@ async def test_orchestration_malformed_task_file(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     task_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
@@ -1577,7 +1579,7 @@ async def test_orchestration_duplicate_branch_names(repo_root: str):
 
     task_path_1 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
     task_path_2 = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_4_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path_1, task_path_2),
         interactive_mode=False,
@@ -1607,7 +1609,7 @@ async def test_orchestration_duplicate_branch_names(repo_root: str):
         assert result.total_tasks == 2
         assert result.successful_tasks == 2
         assert result.failed_tasks == 0
-        
+
         # All tasks should succeed since they use the same branch
         assert all(tr.overall_status == "success" for tr in result.task_results)
 
@@ -1622,7 +1624,7 @@ async def test_orchestration_child_workflow_timeout(repo_root: str):
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     task_path = str(Path(repo_root) / "tests/fixtures/multi_task_orchestration/task_2_phases.md")
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=(task_path,),
         interactive_mode=False,
@@ -1681,7 +1683,7 @@ async def test_orchestration_performance_benchmark(repo_root: str):
         str(Path(repo_root) / f"tests/fixtures/multi_task_orchestration/task_{i}.md")
         for i in range(10)
     )
-    
+
     workflow_input = OrchestrationInput(
         task_file_paths=task_paths,
         interactive_mode=False,
@@ -1710,13 +1712,13 @@ async def test_orchestration_performance_benchmark(repo_root: str):
         assert result.total_tasks == 10
         assert result.successful_tasks == 10
         assert result.failed_tasks == 0
-        
+
         # Verify orchestration overhead is minimal
         # With time-skipping, workflow time should be ~10 seconds (10 tasks * 1 second each)
         # Allow some overhead for workflow logic (< 5 seconds)
         assert result.total_duration_seconds < 15, \
             f"Orchestration overhead too high: {result.total_duration_seconds}s for 10 tasks"
-        
+
         # Real-world validation note:
         # SC-005 requires 10 tasks in < 4 hours (14400 seconds)
         # Average time per task: 14400 / 10 = 1440 seconds = 24 minutes
@@ -1734,14 +1736,14 @@ async def test_orchestration_performance_benchmark(repo_root: str):
 @workflow.defn(name="AutomatePhaseTasksWorkflow")
 class MockPhaseWorkflowForBranchTests:
     """Mock phase workflow that tracks when it's called."""
-    
+
     @workflow.run
     async def run(self, params: AutomatePhaseTasksParams) -> PhaseAutomationSummary:
         """Record that phase execution happened."""
         from datetime import timedelta
-        
+
         _test_state.call_order.append("phase_execution")
-        
+
         # Return minimal successful result (use workflow.now() for determinism)
         now = workflow.now()
         return PhaseAutomationSummary(
@@ -1773,7 +1775,7 @@ class MockPhaseWorkflowForBranchTests:
 async def mock_derive_task_branch(task_descriptor: dict) -> BranchSelection:
     """Mock activity that records call order."""
     _test_state.call_order.append("derive_branch")
-    
+
     # Return realistic branch selection
     return BranchSelection(
         branch_name="test-branch",
@@ -1824,13 +1826,12 @@ async def test_branch_checkout_precedes_phase_execution(repo_root: str):
     3. Phase execution only happens after successful checkout
     4. Call order is: derive -> checkout -> phase_execution
     """
-    from pathlib import Path
 
     from src.models.orchestration import OrchestrationInput, TaskDescriptor
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     # State is reset by fixture, no need to manually reset
-    
+
     # Create TaskDescriptor input (use absolute path as required by AutomatePhaseTasksParams)
     task_descriptor = TaskDescriptor(
         task_id="test-001",
@@ -1838,7 +1839,7 @@ async def test_branch_checkout_precedes_phase_execution(repo_root: str):
         explicit_branch="test-branch",
         phases=["phase1"],
     )
-    
+
     workflow_input = OrchestrationInput(
         task_descriptors=(task_descriptor,),
         interactive_mode=False,
@@ -1866,13 +1867,13 @@ async def test_branch_checkout_precedes_phase_execution(repo_root: str):
         assert result.total_tasks == 1
         assert result.successful_tasks == 1, f"Expected 1 successful task, got {result.successful_tasks}"
         assert result.failed_tasks == 0, f"Expected 0 failed tasks, got {result.failed_tasks}"
-        
+
         # CRITICAL: Verify call order for activities (tracked in _test_state.call_order)
         # Note: Child workflow runs in different context, so we verify it indirectly via result
         assert len(_test_state.call_order) >= 2, f"Expected at least 2 activity calls, got {len(_test_state.call_order)}: {_test_state.call_order}"
         assert _test_state.call_order[0] == "derive_branch", "derive_branch must be called first"
         assert _test_state.call_order[1] == "checkout_branch", "checkout_branch must be called second"
-        
+
         # CRITICAL: Verify phase execution happened (proves workflow called child workflow after branch checkout)
         assert len(result.task_results) == 1
         task_result = result.task_results[0]
@@ -1881,12 +1882,12 @@ async def test_branch_checkout_precedes_phase_execution(repo_root: str):
         phase_result = task_result.phase_results[0]
         assert phase_result.phase_name == "test-phase", "Mock workflow should have run"
         assert phase_result.status == "success"
-        
+
         # The fact that we have a phase result proves the call order was:
         # 1. derive_task_branch activity (confirmed by _call_order[0])
         # 2. checkout_task_branch activity (confirmed by _call_order[1])
         # 3. AutomatePhaseTasksWorkflow child workflow (confirmed by phase_result existence)
-        
+
         # Verify task result
         assert len(result.task_results) == 1
         task_result = result.task_results[0]
@@ -1905,13 +1906,12 @@ async def test_dirty_repository_prevents_checkout(repo_root: str):
     3. TaskResult shows branch_checkout failure
     4. Error message is actionable (mentions uncommitted changes)
     """
-    from pathlib import Path
 
     from src.models.orchestration import OrchestrationInput, TaskDescriptor
     from src.workflows.multi_task_orchestration import MultiTaskOrchestrationWorkflow
 
     # State is reset by fixture, no need to manually reset
-    
+
     # Create TaskDescriptor input (use absolute path)
     task_descriptor = TaskDescriptor(
         task_id="test-002",
@@ -1919,7 +1919,7 @@ async def test_dirty_repository_prevents_checkout(repo_root: str):
         explicit_branch="dirty-test-branch",
         phases=["phase1"],
     )
-    
+
     workflow_input = OrchestrationInput(
         task_descriptors=(task_descriptor,),
         interactive_mode=False,
@@ -1928,7 +1928,7 @@ async def test_dirty_repository_prevents_checkout(repo_root: str):
     )
 
     _test_state.checkout_should_fail = True  # Enable dirty repo behavior
-    
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Use same mocks but with _checkout_should_fail=True
         worker = Worker(
@@ -1937,7 +1937,7 @@ async def test_dirty_repository_prevents_checkout(repo_root: str):
             workflows=[MultiTaskOrchestrationWorkflow, MockPhaseWorkflowForBranchTests],
             activities=[mock_derive_task_branch, mock_checkout_task_branch],
         )
-        
+
         async with worker:
             result = await env.client.execute_workflow(
                 MultiTaskOrchestrationWorkflow.run,
@@ -1950,26 +1950,26 @@ async def test_dirty_repository_prevents_checkout(repo_root: str):
         assert result.total_tasks == 1
         assert result.successful_tasks == 0
         assert result.failed_tasks == 1
-        
+
         # CRITICAL: Verify phase_execution was NEVER called
         assert "phase_execution" not in _test_state.call_order, \
             "Phase execution should not happen when checkout fails"
-        
+
         # Verify checkout was attempted
         assert "derive_branch" in _test_state.call_order
         assert "checkout_branch_failed" in _test_state.call_order
-        
+
         # Verify task result shows failure
         assert len(result.task_results) == 1
         task_result = result.task_results[0]
         assert task_result.overall_status == "failed"
-        
+
         # Verify error message is actionable
         assert task_result.failure_reason is not None
         error_msg = task_result.failure_reason.lower()
         assert any(word in error_msg for word in ["uncommitted", "dirty", "changes"]), \
             f"Error message should mention dirty/uncommitted: {task_result.failure_reason}"
-        
+
         # Verify phase_result indicates branch_checkout failure
         assert len(task_result.phase_results) == 1
         phase_result = task_result.phase_results[0]

@@ -18,6 +18,7 @@ from temporalio.client import Client
 from src.common.logging import get_logger
 from src.models.orchestration import OrchestrationInput, OrchestrationResult
 
+
 logger = get_logger(__name__)
 
 # Configuration
