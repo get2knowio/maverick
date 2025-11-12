@@ -1,0 +1,121 @@
+openapi: 3.0.3
+info:
+  title: Maverick CLI Conceptual API
+  version: 0.1.0
+  description: |
+    Conceptual contract for CLI interactions with the Temporal workflow.
+    Though the CLI does not expose HTTP endpoints, these schemas define
+    the JSON payloads for `--json` outputs and internal contracts.
+servers: []
+paths:
+  /runs:
+    post:
+      summary: Start multi-task workflow run
+      description: Mirrors `maverick run` behavior when starting a workflow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunStartRequest'
+      responses:
+        '200':
+          description: Workflow started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunStartResponse'
+  /runs/{workflow_id}/status:
+    get:
+      summary: Get workflow status
+      parameters:
+        - in: path
+          name: workflow_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current workflow status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowStatus'
+        '404':
+          description: Not found
+
+components:
+  schemas:
+    TaskDescriptor:
+      description: Reused workflow model with CLI transient context passed separately.
+      type: object
+      required: [task_id, task_file, spec_root]
+      properties:
+        task_id: { type: string }
+        task_file: { type: string }
+        spec_root: { type: string }
+        branch_name: { type: string, nullable: true }
+    CLITaskContext:
+      description: Transient per-task context not persisted in workflow model.
+      type: object
+      required: [return_to_branch, repo_root, interactive]
+      properties:
+        return_to_branch: { type: string }
+        repo_root: { type: string }
+        interactive: { type: boolean }
+        model_prefs:
+          type: object
+          nullable: true
+          properties:
+            provider: { type: string }
+            model: { type: string }
+            max_tokens: { type: integer }
+    RunStartRequest:
+      type: object
+      required: [tasks, interactive]
+      properties:
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [descriptor, context]
+            properties:
+              descriptor:
+                $ref: '#/components/schemas/TaskDescriptor'
+              context:
+                $ref: '#/components/schemas/CLITaskContext'
+        interactive: { type: boolean }
+        dry_run: { type: boolean, default: false }
+    RunStartResponse:
+      type: object
+      required: [workflow_id, run_id, task_count]
+      properties:
+        workflow_id: { type: string }
+        run_id: { type: string }
+        task_count: { type: integer }
+        discovery_ms: { type: integer }
+        workflow_start_ms: { type: integer }
+    WorkflowStatus:
+      type: object
+      required: [state, tasks]
+      properties:
+        state:
+          type: string
+          enum: [running, completed, failed, paused]
+        current_task_id: { type: string, nullable: true }
+        current_phase: { type: string, nullable: true }
+        last_activity: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time }
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskProgress'
+    TaskProgress:
+      type: object
+      required: [task_id, status]
+      properties:
+        task_id: { type: string }
+        status:
+          type: string
+          enum: [pending, running, success, failed, skipped]
+        last_message: { type: string, nullable: true }
