@@ -1,1 +1,0 @@
-"""Temporal workers for maverick."""
