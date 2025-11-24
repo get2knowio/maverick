@@ -1,5 +1,9 @@
 # Maverick
 
+[![CI](https://github.com/get2knowio/maverick/actions/workflows/ci.yml/badge.svg)](https://github.com/get2knowio/maverick/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@get2knowio/maverick)](https://www.npmjs.com/package/@get2knowio/maverick)
+[![license: MIT](https://img.shields.io/npm/l/@get2knowio/maverick)](LICENSE)
+
 **Maverick** is an AI-powered workflow automation toolkit that orchestrates multi-phase development tasks using AI agents like OpenAI Codex and CodeRabbit. It reads structured task specifications, executes implementation phases, performs code reviews, and applies fixes—all while maintaining progress tracking and deterministic execution.
 
 ## Features
