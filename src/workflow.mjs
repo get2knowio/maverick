@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename)
 
 async function main() {
   const cli = meow(
-    `\n  Usage\n    $ maverick [branch] [options]\n\n  Positional Args\n    branch     Branch name to work on (default: build-parity-opencode)\n\n  Default Tasks Path\n    specs/<branch>/tasks.md (override with --tasks)\n\n  Options\n    --branch, -b         Override branch name\n    --tasks, -t          Override tasks file path\n    --build-model        Model to use for build/implementation phases (default: github-copilot/claude-sonnet-4.5)\n    --review-model       Model to use for review phase (default: github-copilot/claude-sonnet-4.5)\n    --fix-model          Model to use for fix phase (default: github-copilot/claude-sonnet-4.5)\n    --pause-major-steps  Pause for Enter between major steps (phases, review, constitution, fix, tests, finalize)\n    --verbose, -v        Enable verbose internal logging (phase summaries, workflow steps)\n    --help               Show this help\n\n  Examples\n    $ maverick 006-build-subcommand --verbose\n    $ maverick -b 006-build-subcommand\n    $ maverick 006-build-subcommand -t custom-tasks.md\n    $ maverick 006-build-subcommand --build-model github-copilot/gpt-4o --review-model github-copilot/claude-sonnet-4.5\n`,
+    `\n  Usage\n    $ maverick <branch> [options]\n\n  Positional Args\n    branch     Branch name to work on (required)\n\n  Default Tasks Path\n    specs/<branch>/tasks.md (override with --tasks)\n\n  Options\n    --branch, -b         Override branch name\n    --tasks, -t          Override tasks file path\n    --build-model        Model to use for build/implementation phases (default: github-copilot/claude-sonnet-4.5)\n    --review-model       Model to use for review phase (default: github-copilot/claude-sonnet-4.5)\n    --fix-model          Model to use for fix phase (default: github-copilot/claude-sonnet-4.5)\n    --pause-major-steps  Pause for Enter between major steps (phases, review, constitution, fix, tests, finalize)\n    --verbose, -v        Enable verbose internal logging (phase summaries, workflow steps)\n    --help               Show this help\n\n  Examples\n    $ maverick 006-build-subcommand --verbose\n    $ maverick -b 006-build-subcommand\n    $ maverick 006-build-subcommand -t custom-tasks.md\n    $ maverick 006-build-subcommand --build-model github-copilot/gpt-4o --review-model github-copilot/claude-sonnet-4.5\n`,
     {
       importMeta: import.meta,
       flags: {
@@ -26,8 +26,12 @@ async function main() {
     }
   )
 
-  // Determine branch (positional overrides default, or --branch flag)
-  let branch = cli.flags.branch || cli.input[0] || 'build-parity-opencode'
+  // Determine branch (required: positional or --branch flag)
+  const branch = cli.flags.branch || cli.input[0]
+  if (!branch) {
+    console.error('Error: branch is required. Provide as positional arg or with --branch/-b.')
+    cli.showHelp(1)
+  }
   const repoRoot = path.resolve(__dirname, '..')
   let cleanupWorktree = null
   let cleanupPerformed = false

@@ -57,7 +57,7 @@ maverick 006-build-subcommand \
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--branch` | `-b` | Override branch name | First positional arg or `build-parity-opencode` |
+| `--branch` | `-b` | Override branch name | Required (positional arg or `--branch`) |
 | `--tasks` | `-t` | Override tasks file path | `specs/<branch>/tasks.md` |
 | `--build-model` | | Model for implementation phases | `github-copilot/claude-sonnet-4.5` |
 | `--review-model` | | Model for review phase | `github-copilot/claude-sonnet-4.5` |
