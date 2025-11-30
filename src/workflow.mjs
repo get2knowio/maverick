@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename)
 
 async function main() {
   const cli = meow(
-    `\n  Usage\n    $ maverick <branch> [options]\n\n  Positional Args\n    branch     Branch name to work on (required)\n\n  Default Tasks Path\n    specs/<branch>/tasks.md (override with --tasks)\n\n  Options\n    --branch, -b         Override branch name\n    --tasks, -t          Override tasks file path\n    --build-model        Model to use for build/implementation phases (default: github-copilot/claude-sonnet-4.5)\n    --review-model       Model to use for review phase (default: github-copilot/claude-sonnet-4.5)\n    --fix-model          Model to use for fix phase (default: github-copilot/claude-sonnet-4.5)\n    --pause-major-steps  Pause for Enter between major steps (phases, review, constitution, fix, tests, finalize)\n    --verbose, -v        Enable verbose internal logging (phase summaries, workflow steps)\n    --help               Show this help\n\n  Examples\n    $ maverick 006-build-subcommand --verbose\n    $ maverick -b 006-build-subcommand\n    $ maverick 006-build-subcommand -t custom-tasks.md\n    $ maverick 006-build-subcommand --build-model github-copilot/gpt-4o --review-model github-copilot/claude-sonnet-4.5\n`,
+    `\n  Usage\n    $ maverick <branch> [options]\n\n  Positional Args\n    branch     Branch name to work on (required)\n\n  Default Tasks Path\n    specs/<branch>/tasks.md (override with --tasks)\n\n  Options\n    --branch, -b         Override branch name\n    --tasks, -t          Override tasks file path\n    --build-model        Model to use for build/implementation phases (default: github-copilot/claude-sonnet-4.5)\n    --review-model       Model to use for review phase (default: github-copilot/claude-sonnet-4.5)\n    --fix-model          Model to use for fix phase (default: github-copilot/claude-sonnet-4.5)\n    --pause-major-steps  Pause for Enter between major steps (phases, review, constitution, fix, tests, finalize)\n    --keep-worktree      Keep the temp worktree after successful runs (always preserved on failure)\n    --reuse-worktree     Reuse existing worktree if one exists (default: remove and create fresh)\n    --verbose, -v        Enable verbose internal logging (phase summaries, workflow steps)\n    --help               Show this help\n\n  Examples\n     $ maverick 006-build-subcommand --verbose\n     $ maverick -b 006-build-subcommand\n     $ maverick 006-build-subcommand -t custom-tasks.md\n     $ maverick 006-build-subcommand --build-model github-copilot/gpt-4o --review-model github-copilot/claude-sonnet-4.5\n     $ maverick 006-build-subcommand --reuse-worktree\n`,
     {
       importMeta: import.meta,
       flags: {
@@ -21,6 +21,8 @@ async function main() {
         reviewModel: { type: 'string', default: 'github-copilot/claude-sonnet-4.5' },
         fixModel: { type: 'string', default: 'github-copilot/claude-sonnet-4.5' },
         pauseMajorSteps: { type: 'boolean', default: false },
+        keepWorktree: { type: 'boolean', default: false },
+        reuseWorktree: { type: 'boolean', default: false },
         verbose: { type: 'boolean', shortFlag: 'v', default: false }
       }
     }
@@ -32,8 +34,9 @@ async function main() {
     console.error('Error: branch is required. Provide as positional arg or with --branch/-b.')
     cli.showHelp(1)
   }
-  const repoRoot = path.resolve(__dirname, '..')
+  const repoRoot = process.cwd()
   let cleanupWorktree = null
+  let worktreePath = null
   let cleanupPerformed = false
 
   const tasks = new Listr([
@@ -42,14 +45,16 @@ async function main() {
       task: async (ctx, task) => {
         const verbose = cli.flags.verbose
         const verboseLogger = m => { if (verbose) { task.output = m } }
-        const { worktreePath, cleanup } = await prepareWorktree({
+        const { worktreePath: createdWorktreePath, cleanup } = await prepareWorktree({
           repoRoot,
           branch,
           logger: verboseLogger,
-          verbose
+          verbose,
+          reuseExistingWorktree: cli.flags.reuseWorktree
         })
         cleanupWorktree = cleanup
-        ctx.worktreePath = worktreePath
+        ctx.worktreePath = createdWorktreePath
+        worktreePath = ctx.worktreePath
         ctx.cleanupWorktree = cleanup
         task.output = `Worktree ready at ${worktreePath}`
       },
@@ -101,16 +106,29 @@ async function main() {
     }
   ], { renderer: 'verbose', rendererOptions: { showSubtasks: true, collapseErrors: false } })
 
+  let workflowSucceeded = false
   try {
     const ctx = await tasks.run({})
     cleanupPerformed = ctx.cleanupPerformed || false
+    workflowSucceeded = true
+  } catch (error) {
+    // On failure, always preserve the worktree for debugging
+    console.error(`\nWorkflow failed. Worktree preserved at ${worktreePath} for debugging.`)
+    console.error(`To reuse this worktree, run: maverick ${branch} --reuse-worktree\n`)
+    throw error
   } finally {
-    if (cleanupWorktree && !cleanupPerformed) {
+    // Only cleanup if workflow succeeded AND cleanupPerformed is false AND keepWorktree is not set
+    if (cleanupWorktree && !cleanupPerformed && !cli.flags.keepWorktree && workflowSucceeded) {
       try {
         await cleanupWorktree()
       } catch (cleanupError) {
         console.error('Failed to clean up worktree:', cleanupError)
       }
+    }
+
+    if (cleanupWorktree && (cli.flags.keepWorktree || !workflowSucceeded)) {
+      const reason = cli.flags.keepWorktree ? 'keep-worktree enabled' : 'workflow failed'
+      console.log(`Worktree preserved at ${worktreePath || 'temp path'} (${reason})`)
     }
   }
 }

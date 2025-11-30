@@ -1,5 +1,13 @@
 // steps/opencode.mjs
 import { makeStep } from './core.mjs'
+import { fileURLToPath } from 'url'
+import path from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Path to Maverick's bundled OpenCode config with full permissions
+const MAVERICK_OPENCODE_CONFIG = path.join(__dirname, '..', '..', 'config', 'opencode-maverick.json')
 
 /**
  * Create an opencode command step descriptor.
@@ -18,12 +26,20 @@ export function makeOpencodeStep(id, prompt, opts = {}) {
   }
   args.push(prompt)
 
+  // Set OPENCODE_CONFIG to use Maverick's bundled config with full permissions
+  // This will be merged with any existing project config without overriding model settings
+  const env = {
+    ...process.env,
+    OPENCODE_CONFIG: MAVERICK_OPENCODE_CONFIG,
+  }
+
   return makeStep({
     id,
     kind: 'opencode',
     cmd: 'opencode',
     args,
     cwd: opts.cwd,
+    env,
     label: opts.label,
     captureTo: opts.captureTo,
   })

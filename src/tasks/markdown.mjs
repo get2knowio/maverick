@@ -13,6 +13,16 @@ export async function parsePhases(tasksFile, baseDir) {
     ? tasksFile
     : path.join(baseDir, tasksFile)
 
+  if (!(await fileExists(fullPath))) {
+    const error = new Error(
+      `Tasks file not found at ${fullPath}.\n` +
+      `The worktree has been preserved for debugging.\n` +
+      `You can create the file there, or pass --tasks to point to a different file.`
+    )
+    error.code = 'TASKS_FILE_NOT_FOUND'
+    throw error
+  }
+
   const raw = await fs.readFile(fullPath, 'utf8')
   const lines = raw.split(/\r?\n/)
 

@@ -35,6 +35,8 @@ npx @get2knowio/maverick --help
 maverick <branch> [options]
 ```
 
+The CLI creates a temporary git worktree based on your branch (`origin/<branch>` if available, otherwise a local `<branch>`, otherwise `main`) and looks for `specs/<branch>/tasks.md` by default.
+
 ### Examples
 
 ```bash
@@ -62,6 +64,8 @@ maverick 006-build-subcommand \
 | `--build-model` | | Model for implementation phases | `github-copilot/claude-sonnet-4.5` |
 | `--review-model` | | Model for review phase | `github-copilot/claude-sonnet-4.5` |
 | `--fix-model` | | Model for fix phase | `github-copilot/claude-sonnet-4.5` |
+| `--keep-worktree` | | Keep the temporary worktree after successful runs (worktrees are always preserved on failure) | `false` |
+| `--reuse-worktree` | | Reuse existing worktree if one exists (default: automatically removes and creates fresh) | `false` |
 | `--verbose` | `-v` | Enable verbose internal logging | `false` |
 | `--help` | | Show help message | |
 
@@ -129,6 +133,20 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed architecture documentation
 - `opencode` CLI (for AI implementation)
 - `coderabbit` CLI (for code review)
 - Git repository context
+
+## OpenCode Configuration
+
+Maverick automatically configures OpenCode with full permissions to avoid repeated prompts during workflow execution. This is done by:
+
+1. Bundling a Maverick-specific config file at `config/opencode-maverick.json` with all permissions set to `"allow"`
+2. Passing this config via the `OPENCODE_CONFIG` environment variable when invoking OpenCode
+
+The config uses OpenCode's deep merge strategy, which means:
+- **Maverick's permission settings are applied** to prevent workflow interruptions
+- **Your project's existing OpenCode config is preserved** (models, themes, agents, etc.)
+- **Non-conflicting settings from both configs are combined**
+
+If your project has an existing `opencode.json` or `.opencode/opencode.json`, Maverick's permissions will be merged with your settings without overriding your model configurations or other preferences.
 
 ## Development
 

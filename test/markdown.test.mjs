@@ -35,3 +35,17 @@ test('fileExists returns true when the file is present and false otherwise', asy
   assert.equal(await fileExists(filePath), true)
   assert.equal(await fileExists(path.join(dir, 'missing.txt')), false)
 })
+
+test('parsePhases throws a helpful error when the tasks file is missing', async () => {
+  const missingPath = path.join(fixturesDir, 'missing-tasks.md')
+
+  await assert.rejects(
+    () => parsePhases(missingPath, fixturesDir),
+    err => {
+      assert.equal(err.code, 'TASKS_FILE_NOT_FOUND')
+      assert.ok(err.message.includes(missingPath))
+      assert.match(err.message, /Tasks file not found/)
+      return true
+    }
+  )
+})

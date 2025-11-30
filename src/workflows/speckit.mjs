@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { execa } from 'execa'
 import { parsePhases } from '../tasks/markdown.mjs'
-import { executeStep, run } from '../steps/core.mjs'
+import { executeStep, run, runAndCapture } from '../steps/core.mjs'
 import { makeOpencodeStep } from '../steps/opencode.mjs'
 import {
   opencodeImplementPhase,
@@ -18,20 +18,89 @@ import {
 export const PHASE_SLEEP_SECONDS = 5
 
 /**
+ * Parse `git worktree list --porcelain` output to find an existing worktree for a branch.
+ */
+async function findExistingWorktree(repoRoot, branch) {
+  try {
+    const { stdout } = await runAndCapture('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot })
+    const blocks = stdout.split('\n\n').map(block => block.trim()).filter(Boolean)
+    for (const block of blocks) {
+      const lines = block.split('\n')
+      const worktreeLine = lines.find(l => l.startsWith('worktree '))
+      const branchLine = lines.find(l => l.startsWith('branch '))
+      if (!worktreeLine || !branchLine) continue
+      const worktreePath = worktreeLine.replace('worktree ', '').trim()
+      const branchRef = branchLine.replace('branch ', '').trim()
+      if (branchRef === `refs/heads/${branch}`) {
+        return { path: worktreePath, branch: branchRef }
+      }
+    }
+  } catch {
+    // Ignore errors and behave as if no existing worktree is present.
+  }
+  return null
+}
+
+/**
+ * Check whether a ref exists in the repo.
+ */
+async function refExists(repoRoot, ref) {
+  try {
+    await run('git', ['show-ref', '--verify', '--quiet', ref], { cwd: repoRoot })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Prepare a temporary worktree rooted outside the current working directory.
  */
-export async function prepareWorktree({ repoRoot, branch, logger = m => console.log(m), verbose = false }) {
+export async function prepareWorktree({
+  repoRoot,
+  branch,
+  logger = m => console.log(m),
+  verbose = false,
+  reuseExistingWorktree = false,
+  cleanExistingWorktree = false
+}) {
+  const existing = await findExistingWorktree(repoRoot, branch)
+
+  if (existing) {
+    if (reuseExistingWorktree) {
+      if (verbose) logger(`Reusing existing worktree for ${branch} at ${existing.path}`)
+      return { worktreePath: existing.path, cleanup: async () => {} }
+    } else {
+      // Default behavior: clean the existing worktree and create a fresh one
+      if (verbose) logger(`Removing existing worktree for ${branch} at ${existing.path}...`)
+      await run('git', ['worktree', 'remove', '-f', existing.path], { cwd: repoRoot })
+    }
+  }
+
   const worktreeBase = await fs.mkdtemp(path.join(os.tmpdir(), 'maverick-worktree-'))
   const worktreePath = path.join(worktreeBase, branch.replace(/[\\/]/g, '_') || 'branch')
 
-  if (verbose) logger(`Checking out main in ${repoRoot}...`)
-  await run('git', ['checkout', 'main'], { cwd: repoRoot })
+  const remoteBranch = `origin/${branch}`
+  let baseRef = 'main'
 
-  if (verbose) logger('Syncing main with origin...')
-  await run('git', ['pull', '--ff-only', 'origin', 'main'], { cwd: repoRoot })
+  // Prefer the remote branch if it exists, otherwise fall back to local branch, then main.
+  try {
+    await run('git', ['fetch', 'origin', branch], { cwd: repoRoot })
+    if (await refExists(repoRoot, `refs/remotes/${remoteBranch}`) || await refExists(repoRoot, remoteBranch)) {
+      baseRef = remoteBranch
+    }
+  } catch (error) {
+    if (verbose) logger(`Could not fetch ${remoteBranch}: ${error.message}`)
+  }
+
+  if (baseRef === 'main' && await refExists(repoRoot, `refs/heads/${branch}`)) {
+    baseRef = branch
+  }
+
+  if (verbose) logger(`Using ${baseRef} as base ref for worktree`)
 
   if (verbose) logger(`Creating worktree for ${branch} at ${worktreePath}...`)
-  await run('git', ['worktree', 'add', '-B', branch, worktreePath, 'main'], { cwd: repoRoot })
+  await run('git', ['worktree', 'add', '-B', branch, worktreePath, baseRef], { cwd: repoRoot })
 
   const cleanup = async ({ deleteBranch = false } = {}) => {
     if (verbose) logger(`Removing worktree at ${worktreePath}...`)
@@ -203,7 +272,26 @@ export async function runDefaultWorkflow({
         phaseTitle: currentPhase.title,
       })
 
-      await executeStep(phaseStep, { logger, verbose })
+      try {
+        await executeStep(phaseStep, { logger, verbose })
+      } catch (error) {
+        logger(`ERROR: Phase ${currentPhase.identifier} execution failed: ${error.message}`)
+        if (verbose && error.stack) {
+          logger(`Stack trace: ${error.stack}`)
+        }
+        
+        // If we've exhausted retries, fail the entire workflow
+        if (retryCount >= maxRetriesPerPhase) {
+          throw new Error(
+            `Phase ${currentPhase.identifier} failed after ${maxRetriesPerPhase} attempts. ` +
+            `Last error: ${error.message}`
+          )
+        }
+        
+        // Otherwise, log and retry
+        logger(`Retrying phase ${currentPhase.identifier} (attempt ${retryCount + 1}/${maxRetriesPerPhase})...`)
+        continue
+      }
 
       // Commit the work for this phase attempt
       try {
@@ -228,8 +316,11 @@ export async function runDefaultWorkflow({
         if (verbose) logger(`Phase ${currentPhase.identifier} completed after ${retryCount} attempt(s)!`)
         phaseComplete = true
       } else if (retryCount >= maxRetriesPerPhase) {
-        if (verbose) logger(`Phase ${currentPhase.identifier} reached max retries (${maxRetriesPerPhase}). Moving to next phase.`)
-        phaseComplete = true
+        // Phase still has outstanding tasks after max retries - fail the workflow
+        throw new Error(
+          `Phase ${currentPhase.identifier} incomplete after ${maxRetriesPerPhase} attempts. ` +
+          `${updatedPhase.outstandingTasks}/${updatedPhase.totalTasks} tasks still outstanding.`
+        )
       }
     }
   }
