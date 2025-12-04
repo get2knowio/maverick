@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "src/scripts/notify.sh permission \"Permission granted\""
+            "command": "${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh permission \"Permission granted\""
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'read input; exit_code=$(echo \"$input\" | jq -r \".tool_result.exit_code // 0\"); if [ \"$exit_code\" != \"0\" ] && [ \"$exit_code\" != \"null\" ]; then src/scripts/notify.sh error \"Bash command failed with exit code $exit_code\"; fi'"
+            "command": "bash -c 'read input; exit_code=$(echo \"$input\" | jq -r \".tool_result.exit_code // 0\"); if [ \"$exit_code\" != \"0\" ] && [ \"$exit_code\" != \"null\" ]; then ${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh error \"Bash command failed with exit code $exit_code\"; fi'"
           }
         ]
       }

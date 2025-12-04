@@ -15,7 +15,26 @@ It follows a spec-driven development model where each feature branch has a corre
 
 ## Installation
 
-### Option 1: Copy files (recommended for most users)
+### Option 1: Plugin (recommended)
+
+Install Maverick as a Claude Code plugin from GitHub:
+
+```
+/plugin marketplace add get2knowio/maverick
+/plugin install maverick
+```
+
+This installs the slash command, scripts, and optional hooks automatically.
+
+Or use the one-liner via npx:
+
+```bash
+npx claude-plugins install @get2knowio/maverick
+```
+
+### Option 2: Manual Installation
+
+For development or customization, copy the files directly:
 
 ```bash
 # From your target project root
@@ -29,7 +48,7 @@ cp path/to/maverick/src/scripts/*.sh .claude/scripts/
 chmod +x .claude/scripts/*.sh
 ```
 
-### Option 2: Symlink (recommended for Maverick development)
+### Option 3: Symlink (for Maverick development)
 
 ```bash
 # From your target project root
@@ -40,9 +59,9 @@ ln -s /absolute/path/to/maverick/src/commands/fly.md .claude/commands/project:fl
 ln -s /absolute/path/to/maverick/src/scripts .claude/scripts
 ```
 
-### Option 3: Configure permissions
+### Optional: Configure Permissions
 
-Optionally merge Maverick's permission settings with your project's Claude Code configuration:
+Merge Maverick's permission settings with your project's Claude Code configuration:
 
 ```bash
 # View the recommended permissions
@@ -160,6 +179,9 @@ Events notified:
 ## Project Structure
 
 ```
+.claude-plugin/
+├── marketplace.json        # Marketplace catalog (for /plugin marketplace add)
+└── plugin.json             # Plugin manifest
 src/
 ├── commands/
 │   └── fly.md              # Main workflow slash command
@@ -169,6 +191,7 @@ src/
 │   ├── run-validation.sh   # Project validation runner
 │   ├── manage-pr.sh        # GitHub PR management
 │   └── notify.sh           # Push notifications
+├── hooks.json              # Optional hooks configuration
 └── settings.json           # Claude Code permissions config
 ```
 

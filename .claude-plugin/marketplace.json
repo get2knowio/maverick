@@ -1,0 +1,21 @@
+{
+  "name": "maverick",
+  "owner": {
+    "name": "get2knowio"
+  },
+  "metadata": {
+    "description": "AI-powered development workflow automation for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "maverick",
+      "description": "Orchestrates multi-phase workflows: feature implementation, code review, convention updates, and PR management",
+      "version": "1.0.0",
+      "source": ".",
+      "category": "Workflow Orchestration",
+      "tags": ["workflow", "automation", "code-review", "pull-request", "subagents"],
+      "strict": true
+    }
+  ]
+}
