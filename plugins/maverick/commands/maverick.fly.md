@@ -2,7 +2,7 @@
 
 Implement features from the task list, perform code review and cleanup, update project conventions, and manage the PR.
 
-**Usage:** `/project:fly [branch-name]`
+**Usage:** `/maverick.fly [branch-name]`
 - If `branch-name` is provided, switch to that branch before starting
 - If not provided, work on the current branch
 
@@ -10,24 +10,24 @@ Implement features from the task list, perform code review and cleanup, update p
 
 ## Part 0: Setup and Sync
 
-Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/sync-branch.sh $ARGUMENTS` and parse the JSON output.
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/sync-branch.sh $ARGUMENTS` and parse the JSON output.
 
 The `$ARGUMENTS` variable contains the optional branch name passed to this command. If empty, the script uses the current branch.
 
 **If status is "conflicts":**
-- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh error "Merge conflicts detected in: $branch"`
+- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh error "Merge conflicts detected in: $branch"`
 - Report the conflicting files to the user
 - Pause and wait for human intervention
 - After conflicts are resolved, user should run `git rebase --continue`
 
 **If status is "error":**
-- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh error "Setup error: [error message]"`
+- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh error "Setup error: [error message]"`
 - Report the error (missing spec directory or tasks file)
 - Halt execution
 
 **If status is "ok":**
 - Store `branch`, `spec_dir`, and `tasks_file` for use in subsequent steps
-- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh spec_start "Starting spec: $branch"`
+- **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh spec_start "Starting spec: $branch"`
 - Proceed to Part 1
 
 ---
@@ -96,7 +96,7 @@ Do not summarize - return everything.
 ```
 Review all changes in this branch against clean code principles, clean architecture, and spec compliance.
 
-First, run `${CLAUDE_PLUGIN_ROOT}/src/scripts/get-changed-files.sh` to identify changed files.
+First, run `${CLAUDE_PLUGIN_ROOT}/scripts/get-changed-files.sh` to identify changed files.
 
 Review criteria:
 
@@ -152,14 +152,14 @@ After each batch: review changes, resolve conflicts, update TODO, proceed.
 
 ### Phase 2.4: Validation
 
-**Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh testing "Entering testing phase for: $branch"`
+**Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh testing "Entering testing phase for: $branch"`
 
-Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/run-validation.sh` and parse results.
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/run-validation.sh` and parse results.
 
 **If `all_passed` is true:** Proceed to Part 3
 
 **If any check failed:**
-1. **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh error "Validation failed for: $branch"`
+1. **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh error "Validation failed for: $branch"`
 2. Parse error output from failed checks
 3. Create TODO list of failures
 4. Fix ALL failures (even if unrelated to our changes)
@@ -292,12 +292,12 @@ Create the report (this becomes the PR description):
 
 3. **Run PR script:**
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/src/scripts/manage-pr.sh "feat(scope): description" /tmp/pr-body.md
+   ${CLAUDE_PLUGIN_ROOT}/scripts/manage-pr.sh "feat(scope): description" /tmp/pr-body.md
    ```
 
 4. **Report the PR URL to the user**
 
-5. **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/src/scripts/notify.sh complete "Spec complete: $branch - PR created"`
+5. **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh complete "Spec complete: $branch - PR created"`
 
 ---
 
