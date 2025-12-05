@@ -23,13 +23,27 @@ Your project must have:
 ### Running the Workflow
 
 ```
-/maverick.fly
+/fly
 ```
 
 Or specify a branch:
 
 ```
-/maverick.fly feature-branch
+/fly feature-branch
+```
+
+### Tech Debt Refuel
+
+Pick up and fix tech-debt issues automatically:
+
+```
+/refuel
+```
+
+Or specify a custom label:
+
+```
+/refuel bugs
 ```
 
 ### Task File Format
@@ -90,6 +104,14 @@ Adjacent tasks marked with "P" execute in parallel:
 | `rust-code-reviewer` | Senior Rust code reviewer with expertise in safety, idioms, and architecture |
 | `speckit-rust-implementer` | Implements speckit specifications systematically with full test coverage |
 | `spec-compliance-reviewer` | Validates implementations against specifications and standards |
+| `issue-implementer` | Implements fixes for GitHub issues (tech-debt) with full completion |
+
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `code-review-workflow` | Parallel CodeRabbit + architecture review, consolidates findings, executes fixes |
+| `validation-workflow` | Runs format/lint/build/tests, iteratively fixes failures |
 
 ## Scripts
 
@@ -111,7 +133,7 @@ export NTFY_TOPIC=my-dev-notifications
 export NTFY_SERVER=ntfy.example.com
 ```
 
-Events: `spec_start`, `testing`, `complete`, `error`
+Events: `spec_start`, `review`, `testing`, `complete`, `error`
 
 ## Dependencies
 

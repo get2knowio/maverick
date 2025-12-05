@@ -2,7 +2,7 @@
 
 Implement features from the task list, perform code review and cleanup, update project conventions, and manage the PR.
 
-**Usage:** `/maverick.fly [branch-name]`
+**Usage:** `/fly [branch-name]`
 - If `branch-name` is provided, switch to that branch before starting
 - If not provided, work on the current branch
 
@@ -82,99 +82,32 @@ The first three (marked "P", adjacent) run in parallel, then the fourth runs aft
 
 ## Part 2: Code Review and Improvement
 
-### Phase 2.1: Parallel Reviews
+Use the **code-review-workflow** skill to review and improve the implementation.
 
-Launch two subagents simultaneously:
+The skill will:
+1. Run parallel CodeRabbit and architecture reviews
+2. Consolidate and deduplicate findings
+3. Execute improvements via subagents
+4. Commit review fixes
 
-**Subagent 1: CodeRabbit Review**
-```
-Run `coderabbit review --prompt-only` and return the complete output.
-Do not summarize - return everything.
-```
+**Additional context for this workflow:** Include specification compliance by reviewing against `{spec_dir}/` to verify implementation matches requirements.
 
-**Subagent 2: Architecture & Specification Review**
-```
-Review all changes in this branch against clean code principles, clean architecture, and spec compliance.
+After the code review skill completes, proceed to validation.
 
-First, run `${CLAUDE_PLUGIN_ROOT}/scripts/get-changed-files.sh` to identify changed files.
+### Validation
 
-Review criteria:
+Use the **validation-workflow** skill to verify all checks pass.
 
-1. **Clean Code**: Single responsibility, DRY, naming, function size, comments, error handling
+**Send notification before starting:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh testing "Entering testing phase for: $branch"`
 
-2. **Clean Architecture**: Dependency direction, layer separation, abstraction boundaries, coupling, testability
+The skill will:
+1. Run format, lint, build, and test checks
+2. Fix any failures (max 5 iterations)
+3. Commit validation fixes
 
-3. **Specification Compliance**: Read all files in {spec_dir}/, verify implementation matches requirements
+**If validation passes:** Proceed to Part 3
 
-Return structured report with:
-- File-by-file findings
-- Severity (critical/major/minor/suggestion)
-- Line numbers where applicable
-- Concrete recommendations
-```
-
-### Phase 2.2: Consolidate Findings
-
-Synthesize both reviews:
-
-1. **Deduplicate** overlapping findings
-
-2. **Categorize** each unique issue:
-   - `[CRITICAL]` - Bugs, security issues, spec violations
-   - `[MAJOR]` - Architecture/design problems
-   - `[MINOR]` - Code quality improvements
-   - `[STYLE]` - Formatting, naming
-
-3. **Create prioritized TODO list**
-
-4. **Analyze parallelization:**
-   - Issues in different files → can parallelize
-   - Same file or dependencies → must serialize
-   - Max 3-4 parallel subagents
-
-### Phase 2.3: Execute Improvements
-
-For each batch of parallelizable issues, spawn subagents:
-```
-Task: Fix ISSUE-XXX
-
-Issue: [description]
-File(s): [files to modify]
-
-Requirements:
-- Minimal change for this specific issue
-- Do NOT refactor unrelated code
-- Run build/check commands before completing
-- Note (don't fix) any new issues discovered
-```
-
-After each batch: review changes, resolve conflicts, update TODO, proceed.
-
-### Phase 2.4: Validation
-
-**Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh testing "Entering testing phase for: $branch"`
-
-Run `${CLAUDE_PLUGIN_ROOT}/scripts/run-validation.sh` and parse results.
-
-**If `all_passed` is true:** Proceed to Part 3
-
-**If any check failed:**
-1. **Send notification:** Run `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh error "Validation failed for: $branch"`
-2. Parse error output from failed checks
-3. Create TODO list of failures
-4. Fix ALL failures (even if unrelated to our changes)
-5. Priority: compilation → linting → tests → formatting
-6. Iterate (max 5 times, then report blockers)
-
-For test failures, spawn subagents:
-```
-Fix failing test: [test name]
-Error: [error output]
-File: [location]
-
-Investigate whether it's a test bug or implementation bug.
-Fix the actual issue - do NOT weaken assertions.
-```
+**If validation fails after max iterations:** Report blockers to user
 
 ---
 
@@ -184,7 +117,7 @@ Before creating/updating the PR, feed learnings back into project conventions.
 
 ### Synthesize Learnings
 
-Review all issues found during code review (Phase 2.1-2.3) and identify:
+Review all issues found during code review and identify:
 
 1. **Recurring patterns** - Issues that appeared multiple times
 2. **Architectural anti-patterns** - Structural problems that could be prevented
@@ -304,7 +237,7 @@ Create the report (this becomes the PR description):
 ## Execution Notes
 
 - Commit after Part 1 (feature implementation)
-- Commit after Part 2 (code review fixes)
+- Commit after Part 2 (code review fixes) - handled by skills
 - Commit after Part 3 (convention updates) if changes were made
 - Subagent timeout: 5 minutes, then proceed
 - Prefer many small subagents over few large ones

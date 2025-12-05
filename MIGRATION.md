@@ -1,45 +1,45 @@
-# Migration Guide: Marketplace Structure
+# Migration Guide
 
 ## What Changed (v2.0)
 
-Maverick has been restructured from a single plugin to a **plugin marketplace** containing multiple plugins. This follows the idiomatic Claude Code plugin marketplace pattern.
+Maverick has been restructured to a cleaner plugin architecture with consolidated commands.
 
-## New Structure
+## Current Structure
 
 ```
 .claude-plugin/
 ├── marketplace.json        # Marketplace catalog
 └── plugin.json             # Marketplace manifest
 plugins/
-├── maverick/               # Workflow automation plugin
-│   ├── .claude-plugin/
-│   │   └── plugin.json
-│   ├── commands/
-│   │   └── maverick.fly.md
-│   ├── agents/
-│   │   ├── rust-code-reviewer.md
-│   │   ├── speckit-rust-implementer.md
-│   │   └── spec-compliance-reviewer.md
-│   └── scripts/
-│       ├── sync-branch.sh
-│       ├── get-changed-files.sh
-│       ├── run-validation.sh
-│       ├── manage-pr.sh
-│       └── notify.sh
-└── tech-debt/              # Tech debt delegation plugin
+└── maverick/               # Workflow automation plugin
     ├── .claude-plugin/
     │   └── plugin.json
     ├── commands/
-    │   └── techdebt.delegate.md
-    └── agents/
-        └── tech-debt-delegator.md
+    │   ├── fly.md          # Spec-based workflow
+    │   └── refuel.md       # Tech-debt resolution
+    ├── agents/
+    │   ├── rust-code-reviewer.md
+    │   ├── speckit-rust-implementer.md
+    │   ├── spec-compliance-reviewer.md
+    │   └── issue-implementer.md
+    ├── skills/
+    │   ├── code-review/
+    │   │   └── SKILL.md
+    │   └── validation/
+    │       └── SKILL.md
+    └── scripts/
+        ├── sync-branch.sh
+        ├── get-changed-files.sh
+        ├── run-validation.sh
+        ├── manage-pr.sh
+        └── notify.sh
 ```
 
 ## Migration Path
 
-### From Single Plugin Installation
+### From Previous Versions
 
-If you previously installed maverick as a single plugin:
+If you previously installed maverick:
 
 ```
 # Remove old installation
@@ -52,47 +52,26 @@ If you previously installed maverick as a single plugin:
 
 ### Command Changes
 
-| Old Command | New Command |
-|-------------|-------------|
-| `/project:fly` | `/maverick.fly` |
-| `/maverick.delegate` | `/techdebt.delegate` |
+| Old Command | New Command | Description |
+|-------------|-------------|-------------|
+| `/project:fly` | `/fly` | Spec-based development workflow |
+| `/maverick.fly` | `/fly` | Spec-based development workflow |
+| `/techdebt.delegate` | `/refuel` | Tech-debt resolution (now built-in) |
 
-### Installing Both Plugins
+## Key Changes
 
-To get both plugins:
+1. **Simplified command names** - Commands no longer have plugin prefix (plugin namespace is automatic)
+2. **Tech debt is built-in** - The `/refuel` command replaces the separate tech-debt plugin
+3. **Added Skills** - Reusable workflow skills for code review and validation
+4. **New agent** - `issue-implementer` for GitHub issue resolution
 
-```
-/plugin marketplace add get2knowio/maverick
-/plugin install maverick tech-debt
-```
+## Benefits
 
-### Installing Just One Plugin
+1. **Single plugin** - Everything in one place
+2. **Shared workflows** - Skills reduce duplication between commands
+3. **Cleaner names** - `/fly` and `/refuel` are shorter and clearer
+4. **Consistent approach** - Same review and validation for all workflows
 
-You can install plugins individually:
+## Documentation
 
-```
-# Just workflow automation
-/plugin install maverick
-
-# Just tech debt delegation
-/plugin install tech-debt
-```
-
-## Breaking Changes
-
-1. **Command namespaces changed** - Commands now use plugin-specific prefixes
-2. **Tech debt is a separate plugin** - Must be installed separately if needed
-3. **Script paths changed** - Internal script references updated (no user action needed)
-
-## Benefits of Marketplace Structure
-
-1. **Modular installation** - Install only what you need
-2. **Independent versioning** - Plugins can be versioned separately
-3. **Clearer organization** - Each plugin is self-contained
-4. **Standard pattern** - Follows Claude Code plugin marketplace conventions
-
-## Questions?
-
-See individual plugin READMEs for detailed documentation:
-- [plugins/maverick/README.md](plugins/maverick/README.md)
-- [plugins/tech-debt/README.md](plugins/tech-debt/README.md)
+See [plugins/maverick/README.md](plugins/maverick/README.md) for full documentation.

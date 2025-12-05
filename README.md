@@ -1,13 +1,6 @@
-# Maverick Plugins
+# Maverick
 
-A Claude Code plugin marketplace for AI-powered development workflow automation.
-
-## Available Plugins
-
-| Plugin | Description |
-|--------|-------------|
-| **[maverick](plugins/maverick/)** | Orchestrates multi-phase workflows: feature implementation, code review, convention updates, and PR management |
-| **[tech-debt](plugins/tech-debt/)** | Analyzes and delegates technical debt issues for parallel resolution via Copilot |
+A Claude Code plugin for AI-powered development workflow automation.
 
 ## Installation
 
@@ -17,75 +10,58 @@ A Claude Code plugin marketplace for AI-powered development workflow automation.
 /plugin marketplace add get2knowio/maverick
 ```
 
-### Install Individual Plugins
+### Install the Plugin
 
 ```
 /plugin install maverick
-/plugin install tech-debt
 ```
 
-Or install both:
+## Overview
 
-```
-/plugin install maverick tech-debt
-```
-
-## Plugins
-
-### Maverick
-
-AI-powered development workflow automation that orchestrates the full development cycle:
+Maverick orchestrates the full development cycle with AI-powered automation:
 
 1. **Feature Implementation** - Execute tasks from a structured task list using parallel subagents
-2. **Code Review** - Run automated reviews (CodeRabbit + architecture analysis) and fix issues
-3. **Convention Learning** - Update project conventions based on review findings
-4. **PR Management** - Create or update pull requests with comprehensive summaries
+2. **Tech Debt Resolution** - Pick up and fix GitHub issues in parallel
+3. **Code Review** - Run automated reviews (CodeRabbit + architecture analysis) and fix issues
+4. **Convention Learning** - Update project conventions based on review findings
+5. **PR Management** - Create or update pull requests with comprehensive summaries
 
-**Commands:**
-- `/maverick.fly [branch-name]` - Run the full workflow
+## Commands
 
-**Agents:**
-- `rust-code-reviewer` - Senior Rust code reviewer
-- `speckit-rust-implementer` - Speckit specification implementer
-- `spec-compliance-reviewer` - Specification compliance validator
+| Command | Description |
+|---------|-------------|
+| `/fly [branch-name]` | Run the full spec-based workflow |
+| `/refuel [label]` | Pick up and fix tech-debt issues (default label: `tech-debt`) |
+
+## Agents
+
+| Agent | Purpose |
+|-------|---------|
+| `rust-code-reviewer` | Senior Rust code reviewer |
+| `speckit-rust-implementer` | Speckit specification implementer |
+| `spec-compliance-reviewer` | Specification compliance validator |
+| `issue-implementer` | GitHub issue fixer for tech-debt |
+
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `code-review-workflow` | Parallel CodeRabbit + architecture review with fix execution |
+| `validation-workflow` | Format/lint/build/test validation with iterative fixes |
 
 [Full documentation](plugins/maverick/README.md)
 
-### Tech Debt
-
-Technical debt analysis and delegation for parallel issue resolution:
-
-1. **Issue Discovery** - Retrieves open tech debt issues from GitHub
-2. **Impact Analysis** - Analyzes file/module impact and conflict potential
-3. **Delegation** - Assigns non-conflicting issues to Copilot for parallel work
-4. **Reporting** - Generates structured summary reports
-
-**Commands:**
-- `/techdebt.delegate` - Analyze and delegate tech debt issues
-
-**Agents:**
-- `tech-debt-delegator` - Technical debt analyst for parallel assignment
-
-[Full documentation](plugins/tech-debt/README.md)
-
-## Marketplace Structure
+## Plugin Structure
 
 ```
-.claude-plugin/
-├── marketplace.json        # Marketplace catalog
-└── plugin.json             # Marketplace manifest
 plugins/
-├── maverick/
-│   ├── .claude-plugin/
-│   │   └── plugin.json     # Plugin manifest
-│   ├── commands/           # Slash commands
-│   ├── agents/             # Agent definitions
-│   └── scripts/            # Shell scripts
-└── tech-debt/
+└── maverick/
     ├── .claude-plugin/
     │   └── plugin.json     # Plugin manifest
     ├── commands/           # Slash commands
-    └── agents/             # Agent definitions
+    ├── agents/             # Agent definitions
+    ├── skills/             # Reusable workflow skills
+    └── scripts/            # Shell scripts
 ```
 
 ## Requirements

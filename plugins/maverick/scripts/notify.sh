@@ -10,6 +10,7 @@
 # Event types:
 #   permission    - A permission was allowed
 #   spec_start    - Started working on a spec
+#   review        - Started code review phase
 #   testing       - Entered testing phase
 #   complete      - Spec completed (all tasks done)
 #   error         - An error occurred
@@ -39,6 +40,12 @@ case "$EVENT_TYPE" in
         PRIORITY="default"
         TAGS="rocket"
         MESSAGE="${MESSAGE:-Started working on specification}"
+        ;;
+    review)
+        TITLE="Code Review"
+        PRIORITY="default"
+        TAGS="mag"
+        MESSAGE="${MESSAGE:-Starting code review phase}"
         ;;
     testing)
         TITLE="Testing Phase"
