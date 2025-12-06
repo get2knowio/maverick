@@ -11,7 +11,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl:*)",
       "Bash(cp:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": [],
     "ask": []
