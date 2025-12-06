@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(chmod:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nrefactor!: rewrite as pure Claude Code plugin\n\nReplace the Node.js CLI implementation with a native Claude Code plugin\nusing slash commands and shell scripts. This simplifies the architecture\nand removes external dependencies.\n\nChanges:\n- Add `/project:fly` slash command for workflow orchestration\n- Add shell scripts for git sync, validation, PR management, and notifications\n- Add settings.json with pre-approved permissions and hooks\n- Update README with comprehensive installation and usage docs\n- Improve sync-branch.sh with auto-stash, timeouts, and better error handling\n\nRemoved:\n- Node.js CLI (bin/maverick.mjs)\n- Workflow engine (src/workflow.mjs, src/workflows/)\n- Step implementations (src/steps/)\n- Task parser (src/tasks/)\n- Tests and fixtures\n- package.json and dependencies\n\nBREAKING CHANGE: No longer a standalone CLI. Now installs as files in\nyour project''s .claude/ directory and runs via Claude Code slash commands.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.claude.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)",
+      "Bash(cp:*)",
+      "Bash(git add:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run view:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

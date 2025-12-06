@@ -1,5 +1,4 @@
 {
-
   "name": "get2know.io devcontainer",
   "image": "ghcr.io/get2knowio/devcontainer:latest",
   "remoteUser": "vscode",
@@ -8,8 +7,6 @@
     "GH_PAGER": "",
     "NODE_ENV": "development"
   },
-  
-  // Configure tool-specific properties
   "customizations": {
     "vscode": {
       "extensions": [
@@ -31,19 +28,13 @@
       }
     }
   },
-
-  // Use 'forwardPorts' to make a list of ports inside the container available locally
   "forwardPorts": [],
-
-  // Use 'postCreateCommand' to run commands after the container is created
-  "postCreateCommand": "npm install",
-
-  // Mount points for better performance and persistence
   "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/git,target=/home/vscode/.config/git,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.coderabbit,target=/home/vscode/.coderabbit,type=bind,consistency=cached"
   ]
-
 }

@@ -7,15 +7,31 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Validate plugin structure
+        run: |
+          echo "Checking plugin structure..."
+          test -f .claude-plugin/plugin.json || (echo "Missing .claude-plugin/plugin.json" && exit 1)
+          test -f .claude-plugin/marketplace.json || (echo "Missing .claude-plugin/marketplace.json" && exit 1)
+          test -d plugins/maverick || (echo "Missing plugins/maverick directory" && exit 1)
+          test -f plugins/maverick/.claude-plugin/plugin.json || (echo "Missing maverick plugin.json" && exit 1)
+          echo "Plugin structure valid"
+
+      - name: Validate JSON files
+        run: |
+          echo "Validating JSON files..."
+          for f in $(find . -name "*.json" -type f); do
+            echo "Checking $f"
+            python3 -m json.tool "$f" > /dev/null || (echo "Invalid JSON: $f" && exit 1)
+          done
+          echo "All JSON files valid"
+
+      - name: Lint shell scripts
+        uses: ludeeus/action-shellcheck@master
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm test
-        env:
-          CI: true
+          scandir: './plugins/maverick/scripts'
+          severity: warning
