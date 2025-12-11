@@ -16,6 +16,17 @@
     "subagents",
     "speckit"
   ],
-  "commands": "../commands",
-  "agents": "../agents"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/maverick/plugins/maverick/scripts/auto-approve-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
