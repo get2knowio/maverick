@@ -14,7 +14,7 @@
       "name": "maverick",
       "description": "Orchestrates multi-phase workflows: feature implementation, tech-debt resolution, code review, convention updates, and PR management",
       "version": "1.0.0",
-      "source": "./maverick",
+      "source": "./plugins/maverick",
       "category": "Workflow Orchestration",
       "tags": ["workflow", "automation", "code-review", "pull-request", "subagents", "tech-debt"],
       "strict": true
