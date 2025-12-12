@@ -44,8 +44,9 @@ if [ -n "$(git status --porcelain)" ]; then
     STASHED=true
 fi
 
-# If a branch argument is provided, switch to it first
-if [ -n "$1" ]; then
+# If a branch argument is provided and matches the expected pattern (3 digits + hyphen), switch to it
+# This prevents accidental branch switches when extra context is passed to the command
+if [ -n "$1" ] && [[ "$1" =~ ^[0-9]{3}- ]]; then
     TARGET_BRANCH="$1"
 
     # Fetch to ensure we have latest refs (with timeout)
