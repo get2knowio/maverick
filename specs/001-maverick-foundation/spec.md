@@ -87,7 +87,7 @@ A developer troubleshooting an issue wants to increase logging verbosity to unde
 
 - **FR-001**: System MUST use `pyproject.toml` as the sole build configuration file (no setup.py)
 - **FR-002**: System MUST use the `src/maverick/` package layout structure
-- **FR-003**: System MUST declare dependencies on: claude-agent-sdk, textual, click, pyyaml, pydantic
+- **FR-003**: System MUST declare dependencies on: claude-agent-sdk, textual, click, pyyaml, pydantic (using minimum version pins, e.g., `click>=8.1`)
 - **FR-004**: System MUST expose a `maverick` CLI entry point when installed
 - **FR-005**: System MUST provide `--version` and `--help` options at the root command level
 - **FR-006**: System MUST load configuration from YAML files in this priority order (highest to lowest): project (`maverick.yaml` in current directory), user (`~/.config/maverick/config.yaml`), built-in defaults
@@ -96,13 +96,15 @@ A developer troubleshooting an issue wants to increase logging verbosity to unde
 - **FR-009**: System MUST define a `MaverickConfig` model as the central configuration object
 - **FR-010**: Configuration MUST include a `github` section with settings for: repository owner, repository name, default branch
 - **FR-011**: Configuration MUST include a `notifications` section with settings for: ntfy server URL, ntfy topic name, enable/disable flag
-- **FR-012**: Configuration MUST include a `model` section with settings for: model identifier, maximum tokens, temperature
+- **FR-012**: Configuration MUST include a `model` section with settings for: model identifier (e.g., `claude-sonnet-4-20250514`, `claude-opus-4-20250514`; default: `claude-sonnet-4-20250514`), maximum tokens (default: 8192), temperature (default: 0.7)
 - **FR-013**: Configuration MUST include a `parallel` section with settings for: maximum concurrent agents, maximum concurrent tasks
 - **FR-014**: Configuration MUST include an `agents` section allowing agent-specific configuration overrides
 - **FR-015**: System MUST configure Python logging with configurable verbosity levels (error, warning, info, debug)
 - **FR-016**: System MUST support verbosity configuration via CLI flags (`-v`, `-vv`) and configuration file
 - **FR-017**: System MUST display clear, actionable error messages when configuration validation fails
 - **FR-018**: System MUST merge configurations from multiple sources, with more specific sources overriding more general ones
+- **FR-019**: System MUST NOT support sensitive values (API keys, tokens) in YAML configuration files; secrets MUST be provided exclusively via environment variables
+- **FR-020**: System MUST define a `MaverickError` base exception class and a `ConfigError` subclass for configuration-related errors
 
 ### Key Entities
 
@@ -111,7 +113,21 @@ A developer troubleshooting an issue wants to increase logging verbosity to unde
 - **NotificationConfig**: Settings for ntfy-based push notifications including server URL, topic, and enable flag.
 - **ModelConfig**: Settings for Claude model selection including model ID, max tokens, and temperature.
 - **ParallelConfig**: Settings for concurrency limits including max agents and max tasks.
-- **AgentConfig**: Generic container for agent-specific configuration overrides, keyed by agent name.
+- **AgentConfig**: Flat key-value configuration for a single agent, supporting overrides for model, max_tokens, and temperature. Accessed via `agents.<agent_name>.<setting>` (e.g., `agents.code_reviewer.model`).
+- **MaverickError**: Base exception class for all Maverick-specific errors. Enables consistent error handling at CLI boundaries.
+- **ConfigError**: Subclass of MaverickError for configuration loading, parsing, and validation errors.
+
+## Out of Scope
+
+The following are explicitly excluded from this foundation spec and will be addressed in separate features:
+
+- **Workflow logic**: FlyWorkflow, RefuelWorkflow, and any orchestration logic
+- **Agent implementations**: CodeReviewerAgent, and other concrete agent classes
+- **TUI application**: Textual screens, widgets, and interactive UI components
+- **MCP tool definitions**: Custom tools for GitHub, notifications, or other integrations
+- **Hooks**: Safety and logging hook implementations
+
+This spec focuses solely on project skeleton, CLI entry point, and configuration system.
 
 ## Success Criteria *(mandatory)*
 
@@ -123,6 +139,16 @@ A developer troubleshooting an issue wants to increase logging verbosity to unde
 - **SC-004**: Environment variable overrides work for all configuration fields using consistent `MAVERICK_SECTION_KEY` naming
 - **SC-005**: Configuration loading from all three sources (project, user, defaults) completes in under 100 milliseconds
 - **SC-006**: All configuration models have complete type hints and validate input data on load
+
+## Clarifications
+
+### Session 2025-12-12
+
+- Q: How should Maverick handle sensitive values (API keys, tokens) in configuration files? → A: Environment variables only for secrets (no file storage)
+- Q: What structure should the `agents` configuration section use for agent-specific overrides? → A: Flat key-value pairs per agent name (e.g., `agents.code_reviewer.model`)
+- Q: What should be explicitly out of scope for this foundation spec? → A: Workflow logic, agent implementations, and TUI all excluded
+- Q: How should dependency versions be specified in `pyproject.toml`? → A: Minimum version pins (e.g., `click>=8.1`) for flexibility
+- Q: Should this foundation define a base exception hierarchy for Maverick? → A: Yes, define `MaverickError` base + `ConfigError` subclass now
 
 ## Assumptions
 
