@@ -10,7 +10,7 @@ import logging
 import click
 
 from maverick import __version__
-from maverick.config import MaverickConfig, load_config
+from maverick.config import load_config
 from maverick.exceptions import ConfigError
 
 
@@ -35,11 +35,12 @@ def cli(ctx: click.Context, verbose: int) -> None:
         ctx.obj["config"] = config
     except ConfigError as e:
         # Can't use logging yet, just output error
-        error_msg = f"Error: {e.message}"
+        error_parts = [f"Error: {e.message}"]
         if e.field:
-            error_msg += f"\n  Field: {e.field}"
+            error_parts.append(f"  Field: {e.field}")
         if e.value is not None:
-            error_msg += f"\n  Value: {e.value}"
+            error_parts.append(f"  Value: {e.value}")
+        error_msg = "\n".join(error_parts)
         click.echo(error_msg, err=True)
         ctx.exit(1)
 

@@ -5,17 +5,29 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+from typing_extensions import Self
 
 from maverick.exceptions import ConfigError
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    "MaverickConfig",
+    "GitHubConfig",
+    "NotificationConfig",
+    "ModelConfig",
+    "ParallelConfig",
+    "AgentConfig",
+    "load_config",
+    "get_user_config_path",
+]
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class GitHubConfig(BaseModel):
@@ -32,6 +44,15 @@ class NotificationConfig(BaseModel):
     enabled: bool = False
     server: str = "https://ntfy.sh"
     topic: str | None = None
+
+    @model_validator(mode='after')
+    def check_topic_when_enabled(self) -> Self:
+        if self.enabled and self.topic is None:
+            logger.warning(
+                "Notifications enabled but no topic specified. "
+                "Notifications will not be sent."
+            )
+        return self
 
 
 class ModelConfig(BaseModel):
@@ -126,24 +147,25 @@ class MaverickConfig(BaseSettings):
         """Customize the order of settings sources.
 
         Priority (highest to lowest):
-        1. Environment variables
-        2. Project YAML config
-        3. User YAML config
+        1. Environment variables (MAVERICK_*)
+        2. Project YAML config (./maverick.yaml)
+        3. User YAML config (~/.config/maverick/config.yaml)
         4. Init settings (defaults)
 
-        Note: pydantic-settings reads sources from right to left,
-        so highest priority sources come last in the tuple.
+        Note: pydantic-settings processes sources from left to right,
+        with earlier sources having higher priority. The first source
+        to provide a value for a field wins.
         """
         # Get user and project config paths
         user_config_path = get_user_config_path()
         project_config_path = Path.cwd() / "maverick.yaml"
 
         # Return sources from highest to lowest priority
-        # (later sources override earlier ones)
+        # (earlier sources override later ones)
         return (
             env_settings,  # Environment variables (highest priority)
             YamlConfigSource(settings_cls, project_config_path),  # Project config
-            YamlConfigSource(settings_cls, user_config_path),  # User config
+            YamlConfigSource(settings_cls, user_config_path),  # User config (lowest)
         )
 
 
@@ -154,25 +176,6 @@ def get_user_config_path() -> Path:
         Path to ~/.config/maverick/config.yaml
     """
     return Path.home() / ".config" / "maverick" / "config.yaml"
-
-
-def _deep_merge(base: dict, override: dict) -> dict:
-    """Deep merge two dictionaries.
-
-    Args:
-        base: Base dictionary
-        override: Dictionary to merge into base
-
-    Returns:
-        Merged dictionary where nested dicts are merged recursively
-    """
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
 
 
 def load_config(config_path: Path | None = None) -> MaverickConfig:

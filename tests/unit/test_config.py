@@ -324,3 +324,99 @@ def test_missing_user_config_directory_works(
     config = load_config()
     # Should use defaults without error
     assert config.model.model_id == "claude-sonnet-4-20250514"
+
+
+def test_notification_enabled_without_topic_logs_warning(
+    clean_env: None, temp_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that enabling notifications without a topic logs a warning."""
+    import logging
+    import os
+    os.chdir(temp_dir)
+
+    # Create config with notifications enabled but no topic
+    config_path = temp_dir / "maverick.yaml"
+    config_path.write_text("""
+notifications:
+  enabled: true
+""")
+
+    from maverick.config import load_config
+
+    with caplog.at_level(logging.WARNING):
+        config = load_config()
+
+    # Config should load successfully
+    assert config.notifications.enabled is True
+    assert config.notifications.topic is None
+
+    # Should log a warning
+    assert any("topic" in record.message.lower() for record in caplog.records)
+    assert any("enabled" in record.message.lower() for record in caplog.records)
+
+
+def test_notification_enabled_with_topic_no_warning(
+    clean_env: None, temp_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that enabling notifications with a topic does not log a warning."""
+    import logging
+    import os
+    os.chdir(temp_dir)
+
+    # Create config with notifications enabled with a topic
+    config_path = temp_dir / "maverick.yaml"
+    config_path.write_text("""
+notifications:
+  enabled: true
+  topic: "my-notifications"
+""")
+
+    from maverick.config import load_config
+
+    with caplog.at_level(logging.WARNING):
+        config = load_config()
+
+    # Config should load successfully
+    assert config.notifications.enabled is True
+    assert config.notifications.topic == "my-notifications"
+
+    # Should not log a warning about notifications
+    notification_warnings = [
+        record for record in caplog.records
+        if "notifications" in record.message.lower()
+        and "topic" in record.message.lower()
+    ]
+    assert len(notification_warnings) == 0
+
+
+def test_notification_disabled_without_topic_no_warning(
+    clean_env: None, temp_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that disabled notifications without a topic does not log a warning."""
+    import logging
+    import os
+    os.chdir(temp_dir)
+
+    # Create config with notifications disabled (default)
+    config_path = temp_dir / "maverick.yaml"
+    config_path.write_text("""
+notifications:
+  enabled: false
+""")
+
+    from maverick.config import load_config
+
+    with caplog.at_level(logging.WARNING):
+        config = load_config()
+
+    # Config should load successfully
+    assert config.notifications.enabled is False
+    assert config.notifications.topic is None
+
+    # Should not log a warning about notifications
+    notification_warnings = [
+        record for record in caplog.records
+        if "notifications" in record.message.lower()
+        and "topic" in record.message.lower()
+    ]
+    assert len(notification_warnings) == 0
