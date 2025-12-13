@@ -90,13 +90,13 @@ A developer wants to quickly fix identified issues. Each finding includes not ju
 
 ### Edge Cases
 
-- What happens when the branch has no changes compared to base?
-- How does the system handle binary files in the diff?
-- What happens when CLAUDE.md doesn't exist in the repository?
-- How are very large diffs handled (hundreds of files or thousands of lines)?
-- What happens when the git diff command fails (invalid branch name)?
-- How are merge conflicts in the diff handled?
-- What happens when the agent reaches token limits during review?
+- No changes compared to base: return empty ReviewResult with success=True and summary "No changes to review".
+- Binary files in the diff are skipped silently (excluded from review, not mentioned in findings).
+- CLAUDE.md not found: proceed without convention checking and note this in the summary (per FR-015).
+- Large diffs are truncated: review files in git diff order (typically alphabetical by path) up to the threshold, and note truncation in the summary including count of skipped files.
+- Git failures (invalid branch, command errors) raise AgentError with diagnostic details for caller handling.
+- Merge conflicts in diff raise AgentError; caller should resolve conflicts before review.
+- Token limits during review: automatically chunk remaining work and merge all findings.
 
 ## Requirements *(mandatory)*
 
@@ -118,6 +118,11 @@ A developer wants to quickly fix identified issues. Each finding includes not ju
 - **FR-014**: If a file list is provided in context, `execute()` MUST limit review to only those files.
 - **FR-015**: If CLAUDE.md is not found, the review MUST proceed without convention checking and note this in the summary.
 - **FR-016**: The agent MUST produce machine-parseable output (JSON-structured) that can be deserialized into `ReviewResult`.
+- **FR-017**: If the diff exceeds a configurable threshold (default: 2000 lines or 50 files), the agent MUST truncate to the threshold and include a truncation notice in the summary.
+- **FR-018**: If git operations fail (invalid branch, merge conflicts, command errors), the agent MUST raise an `AgentError` with diagnostic details.
+- **FR-019**: If no changes exist between the feature branch and base branch, the agent MUST return an empty ReviewResult with success=True and a summary indicating no changes to review.
+- **FR-020**: Binary files in the diff MUST be silently excluded from review (not counted in files_reviewed, no findings generated).
+- **FR-021**: If token limits are approached during review, the agent MUST automatically chunk remaining files into separate review passes and merge all findings into a single ReviewResult.
 
 ### Key Entities
 
@@ -132,12 +137,22 @@ A developer wants to quickly fix identified issues. Each finding includes not ju
 ### Measurable Outcomes
 
 - **SC-001**: Developers can invoke a code review on any branch with a single method call and receive structured feedback.
-- **SC-002**: Review findings are categorized with 90%+ accuracy for severity levels based on industry-standard definitions.
+- **SC-002**: Review findings are categorized using severity definitions that align with industry standards (CRITICAL for security/data-loss, MAJOR for logic errors, MINOR for style, SUGGESTION for improvements).
 - **SC-003**: All findings include actionable suggestions that developers can implement without further clarification.
 - **SC-004**: Reviews complete within 2 minutes for typical PRs (under 500 lines changed across 10 files).
 - **SC-005**: The ReviewResult structure can be serialized to JSON and deserialized without data loss.
 - **SC-006**: Convention violations reference the specific CLAUDE.md section being violated.
 - **SC-007**: Security-related findings (injection, XSS, secrets exposure) are always categorized as critical.
+
+## Clarifications
+
+### Session 2025-12-13
+
+- Q: How should large diffs (hundreds of files or thousands of lines) be handled? → A: Truncate with summary (review first N lines/files, note truncation in summary)
+- Q: When git operations fail (invalid branch, merge conflicts, command errors), what should the agent do? → A: Raise exception (throw AgentError with details, let caller handle)
+- Q: When the branch has no changes compared to base, what should the agent return? → A: Return empty ReviewResult with success=True and summary noting "No changes to review"
+- Q: How should binary files in the diff be handled? → A: Skip silently (exclude from review, don't mention in findings)
+- Q: When the agent reaches token limits during review, what should happen? → A: Automatic chunking (internally split remaining work, merge all findings)
 
 ## Assumptions
 
