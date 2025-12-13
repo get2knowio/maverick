@@ -118,3 +118,10 @@ Tech-debt resolution workflow:
 The `plugins/maverick/` directory contains the legacy Claude Code plugin implementation being migrated. Reference for workflow logic:
 - `plugins/maverick/commands/` - Slash command definitions
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
+
+## Active Technologies
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (002-base-agent)
+- N/A (stateless abstraction layer) (002-base-agent)
+
+## Recent Changes
+- 002-base-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic
