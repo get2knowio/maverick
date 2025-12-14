@@ -39,3 +39,4 @@ Thumbs.db
 *.tmp
 .claude/settings.local.json
 .codex/auth.json
+*.jsonl
