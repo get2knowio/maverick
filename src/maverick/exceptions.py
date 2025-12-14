@@ -353,3 +353,117 @@ class ConfigError(MaverickError):
         self.field = field
         self.value = value
         super().__init__(message)
+
+
+class TaskParseError(AgentError):
+    """Exception for task file parsing failures.
+
+    Raised when a task file cannot be parsed, such as invalid syntax or missing
+    required fields.
+
+    Attributes:
+        message: Human-readable error message.
+        line_number: Line where error occurred (if known).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        line_number: int | None = None,
+    ) -> None:
+        """Initialize the TaskParseError.
+
+        Args:
+            message: Human-readable error message.
+            line_number: Line where error occurred.
+        """
+        self.line_number = line_number
+        super().__init__(message)
+
+
+class GitError(AgentError):
+    """Exception for git operation failures.
+
+    Raised when a git command fails, such as commit, stash, or branch operations.
+
+    Attributes:
+        message: Human-readable error message.
+        operation: Git operation that failed (e.g., "commit", "stash").
+        recoverable: True if error might be recoverable.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        operation: str | None = None,
+        recoverable: bool = False,
+    ) -> None:
+        """Initialize the GitError.
+
+        Args:
+            message: Human-readable error message.
+            operation: Git operation that failed.
+            recoverable: True if error might be recoverable.
+        """
+        self.operation = operation
+        self.recoverable = recoverable
+        super().__init__(message)
+
+
+class GitHubError(AgentError):
+    """Exception for GitHub API/CLI failures.
+
+    Raised when GitHub operations fail, such as creating issues, PRs, or fetching data.
+
+    Attributes:
+        message: Human-readable error message.
+        issue_number: Issue number (if applicable).
+        retry_after: Seconds to wait for rate limit (if applicable).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        issue_number: int | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        """Initialize the GitHubError.
+
+        Args:
+            message: Human-readable error message.
+            issue_number: Issue number (if applicable).
+            retry_after: Seconds to wait for rate limit (if applicable).
+        """
+        self.issue_number = issue_number
+        self.retry_after = retry_after
+        super().__init__(message)
+
+
+class MaverickValidationError(AgentError):
+    """Exception for validation failures (format, lint, test).
+
+    Named MaverickValidationError to avoid conflict with Pydantic's ValidationError.
+    Raised when code validation steps fail, such as formatting, linting, or testing.
+
+    Attributes:
+        message: Human-readable error message.
+        step: Validation step that failed (e.g., "lint", "test").
+        output: Command output.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        step: str | None = None,
+        output: str | None = None,
+    ) -> None:
+        """Initialize the MaverickValidationError.
+
+        Args:
+            message: Human-readable error message.
+            step: Validation step that failed.
+            output: Command output.
+        """
+        self.step = step
+        self.output = output
+        super().__init__(message)

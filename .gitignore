@@ -37,4 +37,6 @@ Thumbs.db
 # Project-specific
 *.log
 *.tmp
+.claude/settings.local.json
 .codex/auth.json
+*.jsonl
