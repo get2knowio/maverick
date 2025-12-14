@@ -126,6 +126,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI (003-code-reviewer-agent)
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, GitHub CLI (`gh`) (004-implementer-issue-fixer-agents)
 - N/A (file system for task files, Git for commits) (004-implementer-issue-fixer-agents)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), GitHub CLI (`gh`) (005-github-mcp-tools)
+- N/A (tools interact with GitHub API via CLI) (005-github-mcp-tools)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
