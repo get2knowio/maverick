@@ -32,7 +32,7 @@ from maverick.agents.utils import extract_all_text, extract_text
 try:
     from maverick.agents.code_reviewer import CodeReviewerAgent
 except ImportError:
-    CodeReviewerAgent = None  # type: ignore[assignment,misc]  # Not yet implemented
+    CodeReviewerAgent = None  # type: ignore[assignment]  # Not yet implemented
 
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.

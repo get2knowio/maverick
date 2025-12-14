@@ -117,7 +117,7 @@ class ProcessError(AgentError):
         super().__init__(message)
 
 
-class TimeoutError(AgentError):
+class MaverickTimeoutError(AgentError):
     """Exception raised when an operation times out.
 
     Attributes:
@@ -130,7 +130,7 @@ class TimeoutError(AgentError):
         message: str = "Operation timed out",
         timeout_seconds: float | None = None,
     ) -> None:
-        """Initialize the TimeoutError.
+        """Initialize the MaverickTimeoutError.
 
         Args:
             message: Human-readable error message.

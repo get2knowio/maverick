@@ -7,13 +7,13 @@ style/conventions, performance, and testability issues.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import json
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.utils import extract_all_text
@@ -21,7 +21,8 @@ from maverick.exceptions import AgentError
 
 if TYPE_CHECKING:
     from maverick.agents.context import AgentContext
-    from maverick.agents.result import AgentResult
+    from maverick.agents.result import AgentResult, AgentUsage
+    from maverick.models.review import UsageStats
 
 # Try to import review models (handle gracefully if not ready yet)
 try:
@@ -372,6 +373,7 @@ class CodeReviewerAgent(MaverickAgent):
             # 8. Check if chunking is needed (FR-021, T043)
             estimated_tokens = self._estimate_tokens(diff_content)
             chunks_used = False
+            response_text = ""  # Initialize before branching
 
             if estimated_tokens > MAX_TOKENS_PER_CHUNK:
                 # Need to chunk the review
@@ -484,9 +486,9 @@ class CodeReviewerAgent(MaverickAgent):
             if truncation_notice:
                 metadata["truncation_notice"] = truncation_notice
 
-            # T043: Add chunking information to metadata if chunks were used
+            # T043: Add chunking information to metadata
+            metadata["chunks_used"] = len(file_chunks) if chunks_used else 0
             if chunks_used:
-                metadata["chunks_used"] = len(file_chunks)
                 metadata["chunking_reason"] = "diff_size_exceeds_token_limit"
 
             # T045: Extract usage stats from messages and convert to UsageStats
@@ -980,9 +982,9 @@ class CodeReviewerAgent(MaverickAgent):
 
     def _convert_to_usage_stats(
         self,
-        agent_usage: Any,
+        agent_usage: AgentUsage,
         duration_ms: int,
-    ) -> Any:
+    ) -> UsageStats:
         """Convert AgentUsage to UsageStats model (T045).
 
         This method bridges the gap between the base MaverickAgent's AgentUsage

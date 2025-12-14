@@ -1,9 +1,12 @@
-from __future__ import annotations
-
 """Maverick Models Module.
 
 Exports review-related data models for the CodeReviewerAgent.
 """
+from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 __all__: list[str] = []
 
@@ -23,4 +26,4 @@ try:
         "UsageStats",
     ])
 except ImportError:
-    pass  # Models not yet implemented
+    logger.debug("Review models not yet available")
