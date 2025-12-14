@@ -210,9 +210,9 @@ class MaverickAgent(ABC):
             AgentError,
             CLINotFoundError,
             MalformedResponseError,
+            MaverickTimeoutError,
             NetworkError,
             ProcessError,
-            TimeoutError,
         )
 
         error_type = type(error).__name__
@@ -228,7 +228,7 @@ class MaverickAgent(ABC):
                 stderr=getattr(error, "stderr", None),
             )
         elif error_type == "TimeoutError":
-            return TimeoutError(
+            return MaverickTimeoutError(
                 message=str(error),
                 timeout_seconds=getattr(error, "timeout_seconds", None),
             )
