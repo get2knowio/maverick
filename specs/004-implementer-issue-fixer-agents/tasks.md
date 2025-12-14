@@ -23,10 +23,10 @@
 
 **Purpose**: Project structure and new module initialization
 
-- [ ] T001 Create directory `src/maverick/utils/` if it doesn't exist
-- [ ] T002 [P] Create `src/maverick/utils/__init__.py` with public exports for git, github, validation, task_parser
-- [ ] T003 [P] Create `tests/unit/utils/` directory structure with `__init__.py`
-- [ ] T004 [P] Create `tests/integration/` directory structure with `__init__.py`
+- [x] T001 Create directory `src/maverick/utils/` if it doesn't exist
+- [x] T002 [P] Create `src/maverick/utils/__init__.py` with public exports for git, github, validation, task_parser
+- [x] T003 [P] Create `tests/unit/utils/` directory structure with `__init__.py`
+- [x] T004 [P] Create `tests/integration/` directory structure with `__init__.py`
 
 ---
 
@@ -38,36 +38,36 @@
 
 ### Exception Types (required by all agents)
 
-- [ ] T005 [P] Add `TaskParseError` exception class to `src/maverick/exceptions.py`
-- [ ] T006 [P] Add `GitError` exception class to `src/maverick/exceptions.py`
-- [ ] T007 [P] Add `GitHubError` exception class to `src/maverick/exceptions.py`
-- [ ] T008 [P] Add `ValidationError` exception class to `src/maverick/exceptions.py`
+- [x] T005 [P] Add `TaskParseError` exception class to `src/maverick/exceptions.py`
+- [x] T006 [P] Add `GitError` exception class to `src/maverick/exceptions.py`
+- [x] T007 [P] Add `GitHubError` exception class to `src/maverick/exceptions.py`
+- [x] T008 [P] Add `ValidationError` exception class to `src/maverick/exceptions.py`
 
 ### Enums and Value Objects (shared by both agents)
 
-- [ ] T009 [P] Create `TaskStatus`, `ChangeType`, `ValidationStep` enums in `src/maverick/models/implementation.py`
-- [ ] T010 [P] Create `Task` model (id, description, status, parallel, user_story, phase, dependencies) in `src/maverick/models/implementation.py`
-- [ ] T011 [P] Create `FileChange` model (file_path, change_type, lines_added, lines_removed, old_path) in `src/maverick/models/implementation.py`
-- [ ] T012 [P] Create `ValidationResult` model (step, success, output, duration_ms, auto_fixed) in `src/maverick/models/implementation.py`
+- [x] T009 [P] Create `TaskStatus`, `ChangeType`, `ValidationStep` enums in `src/maverick/models/implementation.py`
+- [x] T010 [P] Create `Task` model (id, description, status, parallel, user_story, phase, dependencies) in `src/maverick/models/implementation.py`
+- [x] T011 [P] Create `FileChange` model (file_path, change_type, lines_added, lines_removed, old_path) in `src/maverick/models/implementation.py`
+- [x] T012 [P] Create `ValidationResult` model (step, success, output, duration_ms, auto_fixed) in `src/maverick/models/implementation.py`
 
 ### Shared Utilities (required by both agents)
 
-- [ ] T013 Implement `TaskFile` model with `parse()`, `pending_tasks`, `get_parallel_batch()`, `get_next_sequential()` in `src/maverick/models/implementation.py`
-- [ ] T014 [P] Create `src/maverick/utils/git.py` with async git helper functions (commit, stash, unstash, recovery)
-- [ ] T015 [P] Create `src/maverick/utils/github.py` with async GitHub CLI wrapper (fetch_issue with retry/backoff)
-- [ ] T016 Create `src/maverick/utils/validation.py` with validation pipeline runner (format, lint, typecheck, test)
-- [ ] T017 Implement `task_parser.py` with regex-based parsing for .specify tasks.md format in `src/maverick/utils/task_parser.py`
+- [x] T013 Implement `TaskFile` model with `parse()`, `pending_tasks`, `get_parallel_batch()`, `get_next_sequential()` in `src/maverick/models/implementation.py`
+- [x] T014 [P] Create `src/maverick/utils/git.py` with async git helper functions (commit, stash, unstash, recovery)
+- [x] T015 [P] Create `src/maverick/utils/github.py` with async GitHub CLI wrapper (fetch_issue with retry/backoff)
+- [x] T016 Create `src/maverick/utils/validation.py` with validation pipeline runner (format, lint, typecheck, test)
+- [x] T017 Implement `task_parser.py` with regex-based parsing for .specify tasks.md format in `src/maverick/utils/task_parser.py`
 
 ### Unit Tests for Foundational Components
 
-- [ ] T018 [P] Create unit tests for exception classes in `tests/unit/test_exceptions.py`
-- [ ] T019 [P] Create unit tests for enums in `tests/unit/models/test_implementation_enums.py`
-- [ ] T020 [P] Create unit tests for `Task`, `FileChange`, `ValidationResult` models in `tests/unit/models/test_implementation_models.py`
-- [ ] T021 Create unit tests for `TaskFile` model and parsing in `tests/unit/models/test_task_file.py`
-- [ ] T022 [P] Create unit tests for git utilities in `tests/unit/utils/test_git.py`
-- [ ] T023 [P] Create unit tests for GitHub utilities in `tests/unit/utils/test_github.py`
-- [ ] T024 Create unit tests for validation runner in `tests/unit/utils/test_validation.py`
-- [ ] T025 Create unit tests for task parser in `tests/unit/utils/test_task_parser.py`
+- [x] T018 [P] Create unit tests for exception classes in `tests/unit/test_exceptions.py`
+- [x] T019 [P] Create unit tests for enums in `tests/unit/models/test_implementation_enums.py`
+- [x] T020 [P] Create unit tests for `Task`, `FileChange`, `ValidationResult` models in `tests/unit/models/test_implementation_models.py`
+- [x] T021 Create unit tests for `TaskFile` model and parsing in `tests/unit/models/test_task_file.py`
+- [x] T022 [P] Create unit tests for git utilities in `tests/unit/utils/test_git.py`
+- [x] T023 [P] Create unit tests for GitHub utilities in `tests/unit/utils/test_github.py`
+- [x] T024 Create unit tests for validation runner in `tests/unit/utils/test_validation.py`
+- [x] T025 Create unit tests for task parser in `tests/unit/utils/test_task_parser.py`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -83,20 +83,20 @@
 
 ### Context and Result Models for User Story 1
 
-- [ ] T026 [P] [US1] Create `TaskResult` model (task_id, status, files_changed, tests_added, commit_sha, error, duration_ms, validation) in `src/maverick/models/implementation.py`
-- [ ] T027 [P] [US1] Create `ImplementationResult` model (success, tasks_completed/failed/skipped, task_results, files_changed, commits, validation_passed, output, metadata, errors) in `src/maverick/models/implementation.py`
-- [ ] T028 [US1] Create `ImplementerContext` model with validation (task_file XOR task_description, branch, cwd, skip_validation, dry_run) in `src/maverick/models/implementation.py`
+- [x] T026 [P] [US1] Create `TaskResult` model (task_id, status, files_changed, tests_added, commit_sha, error, duration_ms, validation) in `src/maverick/models/implementation.py`
+- [x] T027 [P] [US1] Create `ImplementationResult` model (success, tasks_completed/failed/skipped, task_results, files_changed, commits, validation_passed, output, metadata, errors) in `src/maverick/models/implementation.py`
+- [x] T028 [US1] Create `ImplementerContext` model with validation (task_file XOR task_description, branch, cwd, skip_validation, dry_run) in `src/maverick/models/implementation.py`
 
 ### ImplementerAgent Core Implementation
 
-- [ ] T029 [US1] Create `ImplementerAgent` class extending `MaverickAgent` with name="implementer" in `src/maverick/agents/implementer.py`
-- [ ] T030 [US1] Implement `IMPLEMENTER_SYSTEM_PROMPT` constant with TDD guidance and conventional commits instructions in `src/maverick/agents/implementer.py`
-- [ ] T031 [US1] Implement `allowed_tools` property returning ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] in `src/maverick/agents/implementer.py`
-- [ ] T032 [US1] Implement `execute()` method skeleton with context validation and task file parsing in `src/maverick/agents/implementer.py`
-- [ ] T033 [US1] Implement `_execute_single_task()` private method for task execution with Claude SDK in `src/maverick/agents/implementer.py`
-- [ ] T034 [US1] Implement `_create_commit()` private method with conventional commit format and git recovery in `src/maverick/agents/implementer.py`
-- [ ] T035 [US1] Implement `_run_validation()` private method calling validation pipeline in `src/maverick/agents/implementer.py`
-- [ ] T036 [US1] Integrate task file parsing, sequential execution, validation, and commit flow in `execute()` in `src/maverick/agents/implementer.py`
+- [x] T029 [US1] Create `ImplementerAgent` class extending `MaverickAgent` with name="implementer" in `src/maverick/agents/implementer.py`
+- [x] T030 [US1] Implement `IMPLEMENTER_SYSTEM_PROMPT` constant with TDD guidance and conventional commits instructions in `src/maverick/agents/implementer.py`
+- [x] T031 [US1] Implement `allowed_tools` property returning ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] in `src/maverick/agents/implementer.py`
+- [x] T032 [US1] Implement `execute()` method skeleton with context validation and task file parsing in `src/maverick/agents/implementer.py`
+- [x] T033 [US1] Implement `_execute_single_task()` private method for task execution with Claude SDK in `src/maverick/agents/implementer.py`
+- [x] T034 [US1] Implement `_create_commit()` private method with conventional commit format and git recovery in `src/maverick/agents/implementer.py`
+- [x] T035 [US1] Implement `_run_validation()` private method calling validation pipeline in `src/maverick/agents/implementer.py`
+- [x] T036 [US1] Integrate task file parsing, sequential execution, validation, and commit flow in `execute()` in `src/maverick/agents/implementer.py`
 
 ### Unit Tests for User Story 1
 
@@ -109,8 +109,8 @@
 
 ### Module Exports for User Story 1
 
-- [ ] T043 [US1] Update `src/maverick/agents/__init__.py` to export `ImplementerAgent`
-- [ ] T044 [US1] Update `src/maverick/models/__init__.py` to export implementation models
+- [x] T043 [US1] Update `src/maverick/agents/__init__.py` to export `ImplementerAgent`
+- [x] T044 [US1] Update `src/maverick/models/__init__.py` to export implementation models
 
 **Checkpoint**: User Story 1 complete - ImplementerAgent can execute sequential tasks from task files
 
@@ -126,20 +126,20 @@
 
 ### Context and Result Models for User Story 2
 
-- [ ] T045 [P] [US2] Create `FixResult` model (success, issue_number/title/url, root_cause, fix_description, files_changed, commit_sha, verification_passed, validation_passed, output, metadata, errors) in `src/maverick/models/issue_fix.py`
-- [ ] T046 [US2] Create `IssueFixerContext` model with validation (issue_number XOR issue_data, cwd, skip_validation, dry_run) in `src/maverick/models/issue_fix.py`
+- [x] T045 [P] [US2] Create `FixResult` model (success, issue_number/title/url, root_cause, fix_description, files_changed, commit_sha, verification_passed, validation_passed, output, metadata, errors) in `src/maverick/models/issue_fix.py`
+- [x] T046 [US2] Create `IssueFixerContext` model with validation (issue_number XOR issue_data, cwd, skip_validation, dry_run) in `src/maverick/models/issue_fix.py`
 
 ### IssueFixerAgent Core Implementation
 
-- [ ] T047 [US2] Create `IssueFixerAgent` class extending `MaverickAgent` with name="issue-fixer" in `src/maverick/agents/issue_fixer.py`
-- [ ] T048 [US2] Implement `ISSUE_FIXER_SYSTEM_PROMPT` constant emphasizing minimal changes and verification in `src/maverick/agents/issue_fixer.py`
-- [ ] T049 [US2] Implement `allowed_tools` property returning ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] in `src/maverick/agents/issue_fixer.py`
-- [ ] T050 [US2] Implement `execute()` method skeleton with context validation in `src/maverick/agents/issue_fixer.py`
-- [ ] T051 [US2] Implement `_fetch_issue()` private method using GitHub CLI with retry/backoff in `src/maverick/agents/issue_fixer.py`
-- [ ] T052 [US2] Implement `_analyze_and_fix()` private method for issue analysis and fix with Claude SDK in `src/maverick/agents/issue_fixer.py`
-- [ ] T053 [US2] Implement `_verify_fix()` private method for fix verification in `src/maverick/agents/issue_fixer.py`
-- [ ] T054 [US2] Implement `_create_commit()` private method with issue reference in commit message in `src/maverick/agents/issue_fixer.py`
-- [ ] T055 [US2] Integrate issue fetch, analysis, fix, verification, validation, and commit flow in `execute()` in `src/maverick/agents/issue_fixer.py`
+- [x] T047 [US2] Create `IssueFixerAgent` class extending `MaverickAgent` with name="issue-fixer" in `src/maverick/agents/issue_fixer.py`
+- [x] T048 [US2] Implement `ISSUE_FIXER_SYSTEM_PROMPT` constant emphasizing minimal changes and verification in `src/maverick/agents/issue_fixer.py`
+- [x] T049 [US2] Implement `allowed_tools` property returning ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] in `src/maverick/agents/issue_fixer.py`
+- [x] T050 [US2] Implement `execute()` method skeleton with context validation in `src/maverick/agents/issue_fixer.py`
+- [x] T051 [US2] Implement `_fetch_issue()` private method using GitHub CLI with retry/backoff in `src/maverick/agents/issue_fixer.py`
+- [x] T052 [US2] Implement `_analyze_and_fix()` private method for issue analysis and fix with Claude SDK in `src/maverick/agents/issue_fixer.py`
+- [x] T053 [US2] Implement `_verify_fix()` private method for fix verification in `src/maverick/agents/issue_fixer.py`
+- [x] T054 [US2] Implement `_create_commit()` private method with issue reference in commit message in `src/maverick/agents/issue_fixer.py`
+- [x] T055 [US2] Integrate issue fetch, analysis, fix, verification, validation, and commit flow in `execute()` in `src/maverick/agents/issue_fixer.py`
 
 ### Unit Tests for User Story 2
 
@@ -152,8 +152,8 @@
 
 ### Module Exports for User Story 2
 
-- [ ] T062 [US2] Update `src/maverick/agents/__init__.py` to export `IssueFixerAgent`
-- [ ] T063 [US2] Update `src/maverick/models/__init__.py` to export issue_fix models
+- [x] T062 [US2] Update `src/maverick/agents/__init__.py` to export `IssueFixerAgent`
+- [x] T063 [US2] Update `src/maverick/models/__init__.py` to export issue_fix models
 
 **Checkpoint**: User Story 2 complete - IssueFixerAgent can fetch and fix GitHub issues
 

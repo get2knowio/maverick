@@ -359,25 +359,25 @@ class TestEnumSerialization:
     """Tests for enum serialization."""
 
     def test_task_status_str(self) -> None:
-        """Test TaskStatus string representation."""
-        assert str(TaskStatus.PENDING) == "pending"
-        assert str(TaskStatus.COMPLETED) == "completed"
+        """Test TaskStatus string representation via .value."""
+        assert TaskStatus.PENDING.value == "pending"
+        assert TaskStatus.COMPLETED.value == "completed"
 
     def test_change_type_str(self) -> None:
-        """Test ChangeType string representation."""
-        assert str(ChangeType.ADDED) == "added"
-        assert str(ChangeType.MODIFIED) == "modified"
+        """Test ChangeType string representation via .value."""
+        assert ChangeType.ADDED.value == "added"
+        assert ChangeType.MODIFIED.value == "modified"
 
     def test_validation_step_str(self) -> None:
-        """Test ValidationStep string representation."""
-        assert str(ValidationStep.FORMAT) == "format"
-        assert str(ValidationStep.LINT) == "lint"
+        """Test ValidationStep string representation via .value."""
+        assert ValidationStep.FORMAT.value == "format"
+        assert ValidationStep.LINT.value == "lint"
 
     def test_enum_format_with_f_string(self) -> None:
-        """Test enum can be used in f-strings."""
+        """Test enum value can be used in f-strings."""
         status = TaskStatus.PENDING
 
-        result = f"Status: {status}"
+        result = f"Status: {status.value}"
 
         assert result == "Status: pending"
 

@@ -108,8 +108,8 @@ class TestParseTaskLine:
 
     def test_parse_task_line_raises_on_invalid_format(self) -> None:
         """Test parse_task_line raises TaskParseError on invalid format."""
-        # Looks like a task but has invalid format
-        line = "- [ ] T001/INVALID description"
+        # Task ID with only 2 digits is invalid (requires 3+)
+        line = "- [ ] T01 description"
 
         with pytest.raises(TaskParseError) as exc_info:
             parse_task_line(line, 5)
@@ -117,14 +117,14 @@ class TestParseTaskLine:
         assert exc_info.value.line_number == 5
 
     def test_parse_task_line_multiple_digit_task_id(self) -> None:
-        """Test parsing task with various ID formats."""
-        valid_ids = ["T001", "T01", "T100", "T9999"]
+        """Test parsing task with various ID formats (3+ digits required)."""
+        valid_ids = ["T001", "T100", "T9999"]
 
         for task_id in valid_ids:
             line = f"- [ ] {task_id} Test task"
             task = parse_task_line(line, 1)
             assert task is not None
-            assert task.id == task_id
+            assert task.id == task_id.upper()
 
     def test_parse_task_line_long_description(self) -> None:
         """Test parsing task with long description."""
@@ -264,8 +264,9 @@ class TestParseTasksMd:
 
     def test_parse_tasks_md_invalid_task_raises_error(self) -> None:
         """Test parsing invalid task format raises TaskParseError."""
+        # T01 has only 2 digits, which is invalid (requires 3+)
         content = """- [ ] T001 Valid task
-- [ ] INVALID_ID Bad task
+- [ ] T01 Bad task with 2-digit ID
 """
         with pytest.raises(TaskParseError):
             parse_tasks_md(content)

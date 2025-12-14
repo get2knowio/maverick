@@ -205,18 +205,24 @@ class TestRunValidationPipeline:
         mock_format_process.communicate = AsyncMock(return_value=(b"", b""))
         mock_format_process.returncode = 0
 
-        # Lint fails
+        # Lint fails (returns 3 times for retries)
         mock_lint_process = AsyncMock()
         mock_lint_process.communicate = AsyncMock(
             return_value=(b"", b"Lint errors found")
         )
         mock_lint_process.returncode = 1
 
-        processes = [mock_format_process, mock_lint_process]
+        # Format passes, then lint fails 3 times (retries)
+        processes = [
+            mock_format_process,
+            mock_lint_process,
+            mock_lint_process,
+            mock_lint_process,
+        ]
         call_count = [0]
 
         def mock_exec(*args, **kwargs):
-            process = processes[call_count[0]]
+            process = processes[min(call_count[0], len(processes) - 1)]
             call_count[0] += 1
             return process
 
@@ -225,7 +231,7 @@ class TestRunValidationPipeline:
                 Path("/repo"), stop_on_failure=True
             )
 
-        # Should stop after lint failure
+        # Should stop after lint failure (after retries)
         assert len(results) == 2
         assert results[0].success is True
         assert results[1].success is False
