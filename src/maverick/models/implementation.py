@@ -318,11 +318,40 @@ class TaskFile(BaseModel):
         Raises:
             TaskParseError: If file format is invalid.
             FileNotFoundError: If path doesn't exist and content not provided.
+
+        Note:
+            For async contexts, use `parse_async()` instead to avoid blocking I/O.
         """
         from maverick.utils.task_parser import parse_tasks_md
 
         if content is None:
             content = path.read_text()
+
+        tasks, phases = parse_tasks_md(content)
+        return cls(path=path, tasks=tasks, phases=phases)
+
+    @classmethod
+    async def parse_async(cls, path: Path, content: str | None = None) -> "TaskFile":
+        """Parse a tasks.md file asynchronously.
+
+        Args:
+            path: Path to the tasks.md file.
+            content: Optional content string. If not provided, reads from path.
+
+        Returns:
+            TaskFile with parsed tasks and phases.
+
+        Raises:
+            TaskParseError: If file format is invalid.
+            FileNotFoundError: If path doesn't exist and content not provided.
+        """
+        import aiofiles
+
+        from maverick.utils.task_parser import parse_tasks_md
+
+        if content is None:
+            async with aiofiles.open(path, encoding="utf-8") as f:
+                content = await f.read()
 
         tasks, phases = parse_tasks_md(content)
         return cls(path=path, tasks=tasks, phases=phases)

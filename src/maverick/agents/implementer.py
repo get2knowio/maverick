@@ -5,6 +5,7 @@ files or direct descriptions using TDD approach and conventional commits.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -164,18 +165,45 @@ class ImplementerAgent(MaverickAgent):
                 task_file.path,
             )
 
-            # Execute tasks sequentially (parallel execution in Phase 9)
-            for task in task_file.pending_tasks:
-                task_result = await self._execute_single_task(task, context)
-                task_results.append(task_result)
+            # Execute tasks - parallel batches where marked, sequential otherwise
+            remaining_tasks = list(task_file.pending_tasks)
+            while remaining_tasks:
+                # Check if next batch is parallelizable
+                parallel_batch = self._get_parallel_batch(remaining_tasks)
 
-                if task_result.succeeded:
-                    all_files_changed.extend(task_result.files_changed)
-                    if task_result.commit_sha:
-                        commits.append(task_result.commit_sha)
+                if parallel_batch:
+                    # Execute parallel batch concurrently
+                    batch_results = await self._execute_parallel_batch(
+                        parallel_batch, context
+                    )
+                    task_results.extend(batch_results)
+
+                    for task_result in batch_results:
+                        if task_result.succeeded:
+                            all_files_changed.extend(task_result.files_changed)
+                            if task_result.commit_sha:
+                                commits.append(task_result.commit_sha)
+                        else:
+                            errors.append(
+                                task_result.error or f"Task {task_result.task_id} failed"
+                            )
+
+                    # Remove executed tasks from remaining
+                    executed_ids = {t.id for t in parallel_batch}
+                    remaining_tasks = [t for t in remaining_tasks if t.id not in executed_ids]
                 else:
-                    errors.append(task_result.error or f"Task {task.id} failed")
-                    # Continue with next task per Constitution IV
+                    # Execute single sequential task
+                    task = remaining_tasks.pop(0)
+                    task_result = await self._execute_single_task(task, context)
+                    task_results.append(task_result)
+
+                    if task_result.succeeded:
+                        all_files_changed.extend(task_result.files_changed)
+                        if task_result.commit_sha:
+                            commits.append(task_result.commit_sha)
+                    else:
+                        errors.append(task_result.error or f"Task {task.id} failed")
+                        # Continue with next task per Constitution IV
 
             # Compute summary
             tasks_completed = sum(1 for r in task_results if r.succeeded)
@@ -344,3 +372,68 @@ After completion, provide a summary of changes made.
         except Exception as e:
             logger.warning("Could not create commit: %s", e)
             return None
+
+    def _get_parallel_batch(self, tasks: list[Task]) -> list[Task]:
+        """Get consecutive parallelizable tasks from the front of the list.
+
+        Args:
+            tasks: List of tasks to check.
+
+        Returns:
+            List of tasks that can be executed in parallel, or empty list
+            if the first task is not parallelizable.
+        """
+        batch: list[Task] = []
+        for task in tasks:
+            if task.parallel and not task.dependencies:
+                batch.append(task)
+            elif batch:
+                # Stop at first non-parallel task after collecting some parallel tasks
+                break
+            else:
+                # First task is not parallel, return empty batch
+                break
+        return batch
+
+    async def _execute_parallel_batch(
+        self,
+        tasks: list[Task],
+        context: ImplementerContext,
+    ) -> list[TaskResult]:
+        """Execute a batch of tasks in parallel.
+
+        Args:
+            tasks: List of tasks to execute concurrently.
+            context: Execution context.
+
+        Returns:
+            List of TaskResults in the same order as input tasks.
+        """
+        logger.info(
+            "Executing %d tasks in parallel: %s",
+            len(tasks),
+            [t.id for t in tasks],
+        )
+
+        # Create coroutines for all tasks
+        coros = [self._execute_single_task(task, context) for task in tasks]
+
+        # Execute concurrently with gather
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        # Convert any exceptions to failed TaskResults
+        task_results: list[TaskResult] = []
+        for task, result in zip(tasks, results):
+            if isinstance(result, Exception):
+                logger.error("Parallel task %s failed with exception: %s", task.id, result)
+                task_results.append(
+                    TaskResult(
+                        task_id=task.id,
+                        status=TaskStatus.FAILED,
+                        error=str(result),
+                    )
+                )
+            else:
+                task_results.append(result)
+
+        return task_results

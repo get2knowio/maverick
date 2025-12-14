@@ -6,7 +6,7 @@ fix results, and agent context.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -100,7 +100,7 @@ class IssueFixerContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode='after')
-    def validate_issue_source(self) -> Self:
+    def validate_issue_source(self) -> "IssueFixerContext":
         """Ensure exactly one issue source is provided."""
         if self.issue_number and self.issue_data:
             raise ValueError("Provide issue_number OR issue_data, not both")
