@@ -23,9 +23,9 @@
 
 **Purpose**: Project initialization and error hierarchy
 
-- [ ] T001 Create agents module directory structure at src/maverick/agents/
-- [ ] T002 Create agents package __init__.py with public API exports in src/maverick/agents/__init__.py
-- [ ] T003 [P] Add AgentError exception hierarchy to src/maverick/exceptions.py (CLINotFoundError, ProcessError, TimeoutError, NetworkError, StreamingError, MalformedResponseError, InvalidToolError, DuplicateAgentError, AgentNotFoundError)
+- [x] T001 Create agents module directory structure at src/maverick/agents/
+- [x] T002 Create agents package __init__.py with public API exports in src/maverick/agents/__init__.py
+- [x] T003 [P] Add AgentError exception hierarchy to src/maverick/exceptions.py (CLINotFoundError, ProcessError, TimeoutError, NetworkError, StreamingError, MalformedResponseError, InvalidToolError, DuplicateAgentError, AgentNotFoundError)
 
 ---
 
@@ -35,10 +35,10 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 [P] Create AgentUsage dataclass (frozen, slots) in src/maverick/agents/result.py with input_tokens, output_tokens, total_cost_usd, duration_ms fields and total_tokens computed property
-- [ ] T005 [P] Create AgentResult dataclass (frozen, slots) in src/maverick/agents/result.py with success, output, metadata, errors, usage fields and success_result/failure_result factory methods
-- [ ] T006 [P] Create AgentContext dataclass (frozen, slots) in src/maverick/agents/context.py with cwd, branch, config, extra fields and from_cwd factory method
-- [ ] T007 [P] Create BUILTIN_TOOLS constant (frozenset), DEFAULT_MODEL constant, and DEFAULT_PERMISSION_MODE constant in src/maverick/agents/base.py
+- [x] T004 [P] Create AgentUsage dataclass (frozen, slots) in src/maverick/agents/result.py with input_tokens, output_tokens, total_cost_usd, duration_ms fields and total_tokens computed property
+- [x] T005 [P] Create AgentResult dataclass (frozen, slots) in src/maverick/agents/result.py with success, output, metadata, errors, usage fields and success_result/failure_result factory methods
+- [x] T006 [P] Create AgentContext dataclass (frozen, slots) in src/maverick/agents/context.py with cwd, branch, config, extra fields and from_cwd factory method
+- [x] T007 [P] Create BUILTIN_TOOLS constant (frozenset), DEFAULT_MODEL constant, and DEFAULT_PERMISSION_MODE constant in src/maverick/agents/base.py
 
 **Checkpoint**: Foundation ready - unit tests can now be written
 
@@ -48,11 +48,11 @@
 
 **Purpose**: Tests written before implementation per TDD Red-Green-Refactor
 
-- [ ] T008 [P] Create tests/unit/agents/test_result.py with tests for AgentUsage and AgentResult dataclasses (frozen, computed properties, factory methods, error requirement for failure)
-- [ ] T009 [P] Create tests/unit/agents/test_context.py with tests for AgentContext dataclass (frozen, from_cwd factory)
-- [ ] T010 [P] Create tests/unit/agents/test_registry.py with tests for AgentRegistry (register, get, list_agents, create, DuplicateAgentError, AgentNotFoundError)
-- [ ] T011 [P] Create tests/unit/agents/test_utils.py with tests for extract_text and extract_all_text functions
-- [ ] T012 Create tests/unit/agents/test_base.py with tests for MaverickAgent (_validate_tools, _build_options, _wrap_sdk_error, query)
+- [x] T008 [P] Create tests/unit/agents/test_result.py with tests for AgentUsage and AgentResult dataclasses (frozen, computed properties, factory methods, error requirement for failure)
+- [x] T009 [P] Create tests/unit/agents/test_context.py with tests for AgentContext dataclass (frozen, from_cwd factory)
+- [x] T010 [P] Create tests/unit/agents/test_registry.py with tests for AgentRegistry (register, get, list_agents, create, DuplicateAgentError, AgentNotFoundError)
+- [x] T011 [P] Create tests/unit/agents/test_utils.py with tests for extract_text and extract_all_text functions
+- [x] T012 Create tests/unit/agents/test_base.py with tests for MaverickAgent (_validate_tools, _build_options, _wrap_sdk_error, query)
 
 **Checkpoint**: All tests written and failing (Red phase) - implementation can begin
 
@@ -66,12 +66,12 @@
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Create MaverickAgent abstract base class in src/maverick/agents/base.py with name, system_prompt, allowed_tools, model properties and __init__ accepting mcp_servers parameter
-- [ ] T014 [US1] Implement _validate_tools() method in src/maverick/agents/base.py to validate allowed_tools against BUILTIN_TOOLS and MCP tool patterns (mcp__<server>__<tool>), raising InvalidToolError for unknown tools
-- [ ] T015 [US1] Implement _build_options() method in src/maverick/agents/base.py to create ClaudeAgentOptions with sensible defaults (permission_mode, model, system_prompt, allowed_tools, mcp_servers)
-- [ ] T016 [US1] Add abstract async execute(context: AgentContext) -> AgentResult method to MaverickAgent in src/maverick/agents/base.py
-- [ ] T017 [US1] Implement _wrap_sdk_error() method in src/maverick/agents/base.py to map Claude SDK errors (CLINotFoundError, ProcessError, CLIConnectionError, CLIJSONDecodeError) to Maverick error hierarchy
-- [ ] T018 [US1] Implement _extract_usage() helper method in src/maverick/agents/base.py to extract AgentUsage from ResultMessage
+- [x] T013 [US1] Create MaverickAgent abstract base class in src/maverick/agents/base.py with name, system_prompt, allowed_tools, model properties and __init__ accepting mcp_servers parameter
+- [x] T014 [US1] Implement _validate_tools() method in src/maverick/agents/base.py to validate allowed_tools against BUILTIN_TOOLS and MCP tool patterns (mcp__<server>__<tool>), raising InvalidToolError for unknown tools
+- [x] T015 [US1] Implement _build_options() method in src/maverick/agents/base.py to create ClaudeAgentOptions with sensible defaults (permission_mode, model, system_prompt, allowed_tools, mcp_servers)
+- [x] T016 [US1] Add abstract async execute(context: AgentContext) -> AgentResult method to MaverickAgent in src/maverick/agents/base.py
+- [x] T017 [US1] Implement _wrap_sdk_error() method in src/maverick/agents/base.py to map Claude SDK errors (CLINotFoundError, ProcessError, CLIConnectionError, CLIJSONDecodeError) to Maverick error hierarchy
+- [x] T018 [US1] Implement _extract_usage() helper method in src/maverick/agents/base.py to extract AgentUsage from ResultMessage
 
 **Checkpoint**: User Story 1 complete - developers can create agents by subclassing MaverickAgent
 
@@ -85,8 +85,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Implement async query(prompt, cwd) -> AsyncIterator[Message] method in src/maverick/agents/base.py using ClaudeSDKClient with receive_response() for streaming
-- [ ] T020 [US2] Add mid-stream failure handling in query() to yield partial content before raising StreamingError in src/maverick/agents/base.py
+- [x] T019 [US2] Implement async query(prompt, cwd) -> AsyncIterator[Message] method in src/maverick/agents/base.py using ClaudeSDKClient with receive_response() for streaming
+- [x] T020 [US2] Add mid-stream failure handling in query() to yield partial content before raising StreamingError in src/maverick/agents/base.py
 
 **Checkpoint**: User Story 2 complete - streaming responses work for TUI integration
 
@@ -100,12 +100,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Create AgentRegistry class in src/maverick/agents/registry.py with _agents dict and register(name, cls) method raising DuplicateAgentError on duplicates
-- [ ] T022 [US3] Add get(name) method to AgentRegistry in src/maverick/agents/registry.py raising AgentNotFoundError for unknown names
-- [ ] T023 [US3] Add list_agents() method returning list[str] to AgentRegistry in src/maverick/agents/registry.py
-- [ ] T024 [US3] Add create(name, **kwargs) method to AgentRegistry in src/maverick/agents/registry.py to lookup and instantiate agents
-- [ ] T025 [US3] Add @register decorator support to AgentRegistry in src/maverick/agents/registry.py for class-level registration
-- [ ] T026 [US3] Create module-level registry singleton instance in src/maverick/agents/registry.py
+- [x] T021 [US3] Create AgentRegistry class in src/maverick/agents/registry.py with _agents dict and register(name, cls) method raising DuplicateAgentError on duplicates
+- [x] T022 [US3] Add get(name) method to AgentRegistry in src/maverick/agents/registry.py raising AgentNotFoundError for unknown names
+- [x] T023 [US3] Add list_agents() method returning list[str] to AgentRegistry in src/maverick/agents/registry.py
+- [x] T024 [US3] Add create(name, **kwargs) method to AgentRegistry in src/maverick/agents/registry.py to lookup and instantiate agents
+- [x] T025 [US3] Add @register decorator support to AgentRegistry in src/maverick/agents/registry.py for class-level registration
+- [x] T026 [US3] Create module-level registry singleton instance in src/maverick/agents/registry.py
 
 **Checkpoint**: User Story 3 complete - workflows can discover and create agents dynamically
 
@@ -119,8 +119,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T027 [P] [US4] Create extract_text(message) function in src/maverick/agents/utils.py to extract text content from a single AssistantMessage (FR-006)
-- [ ] T028 [P] [US4] Create extract_all_text(messages) function in src/maverick/agents/utils.py to extract and concatenate text from multiple messages (FR-006)
+- [x] T027 [P] [US4] Create extract_text(message) function in src/maverick/agents/utils.py to extract text content from a single AssistantMessage (FR-006)
+- [x] T028 [P] [US4] Create extract_all_text(messages) function in src/maverick/agents/utils.py to extract and concatenate text from multiple messages (FR-006)
 
 **Checkpoint**: User Story 4 complete - text extraction utilities available
 
@@ -134,8 +134,8 @@
 
 ### Implementation for User Story 5
 
-- [ ] T029 [US5] Add try/except in query() method to catch SDK exceptions and wrap them via _wrap_sdk_error() in src/maverick/agents/base.py
-- [ ] T030 [US5] Update failure_result() factory to require at least one error when success=False per FR-008 in src/maverick/agents/result.py
+- [x] T029 [US5] Add try/except in query() method to catch SDK exceptions and wrap them via _wrap_sdk_error() in src/maverick/agents/base.py
+- [x] T030 [US5] Update failure_result() factory to require at least one error when success=False per FR-008 in src/maverick/agents/result.py
 
 **Checkpoint**: User Story 5 complete - all agent errors are gracefully handled and wrapped
 
@@ -145,10 +145,10 @@
 
 **Purpose**: Final integration, exports, and validation
 
-- [ ] T031 Update src/maverick/agents/__init__.py to export MaverickAgent, AgentResult, AgentUsage, AgentContext, AgentRegistry, registry, extract_text, extract_all_text
-- [ ] T032 Add type alias AgentMessage = Message to src/maverick/agents/__init__.py
-- [ ] T033 Run quickstart.md validation - verify code examples work with implemented classes
-- [ ] T034 Create tests/integration/agents/test_performance.py with timing assertions for SC-002 (<100ms overhead) and SC-003 (<500ms to first yield) using mocked Claude responses
+- [x] T031 Update src/maverick/agents/__init__.py to export MaverickAgent, AgentResult, AgentUsage, AgentContext, AgentRegistry, registry, extract_text, extract_all_text
+- [x] T032 Add type alias AgentMessage = Message to src/maverick/agents/__init__.py
+- [x] T033 Run quickstart.md validation - verify code examples work with implemented classes
+- [x] T034 Create tests/integration/agents/test_performance.py with timing assertions for SC-002 (<100ms overhead) and SC-003 (<500ms to first yield) using mocked Claude responses
 
 ---
 

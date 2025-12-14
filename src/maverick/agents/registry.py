@@ -7,7 +7,8 @@ registration patterns.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Type
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from maverick.exceptions import AgentNotFoundError, DuplicateAgentError
 
@@ -47,13 +48,13 @@ class AgentRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty registry."""
-        self._agents: dict[str, Type[MaverickAgent]] = {}
+        self._agents: dict[str, type[MaverickAgent]] = {}
 
     def register(
         self,
         name: str,
-        cls: Type[MaverickAgent] | None = None,
-    ) -> Type[MaverickAgent] | Callable[[Type[MaverickAgent]], Type[MaverickAgent]]:
+        cls: type[MaverickAgent] | None = None,
+    ) -> type[MaverickAgent] | Callable[[type[MaverickAgent]], type[MaverickAgent]]:
         """Register an agent class (FR-011).
 
         Can be used as a decorator or called directly. When used as a decorator,
@@ -84,7 +85,7 @@ class AgentRegistry:
         """
         if cls is None:
             # Used as a decorator: @registry.register("name")
-            def decorator(agent_cls: Type[MaverickAgent]) -> Type[MaverickAgent]:
+            def decorator(agent_cls: type[MaverickAgent]) -> type[MaverickAgent]:
                 self._register_impl(name, agent_cls)
                 return agent_cls
 
@@ -94,7 +95,7 @@ class AgentRegistry:
             self._register_impl(name, cls)
             return cls
 
-    def _register_impl(self, name: str, cls: Type[MaverickAgent]) -> None:
+    def _register_impl(self, name: str, cls: type[MaverickAgent]) -> None:
         """Internal implementation of registration logic.
 
         Args:
@@ -108,7 +109,7 @@ class AgentRegistry:
             raise DuplicateAgentError(name)
         self._agents[name] = cls
 
-    def get(self, name: str) -> Type[MaverickAgent]:
+    def get(self, name: str) -> type[MaverickAgent]:
         """Look up an agent class by name (FR-012).
 
         Args:
@@ -179,8 +180,8 @@ registry = AgentRegistry()
 
 def register(
     name: str,
-    registry: AgentRegistry | None = None,
-) -> Callable[[Type[MaverickAgent]], Type[MaverickAgent]]:
+    registry: AgentRegistry | None = None,  # noqa: A002  # intentionally shadows global
+) -> Callable[[type[MaverickAgent]], type[MaverickAgent]]:
     """Decorator for registering agent classes.
 
     Args:
@@ -197,10 +198,11 @@ def register(
             ...
         ```
     """
-    target_registry = registry if registry is not None else globals()["registry"]
+    # Use module-level registry if not provided (via globals to avoid shadowing)
+    reg = registry if registry is not None else globals()["registry"]
 
-    def decorator(cls: Type[MaverickAgent]) -> Type[MaverickAgent]:
-        target_registry._register_impl(name, cls)
+    def decorator(cls: type[MaverickAgent]) -> type[MaverickAgent]:
+        reg._register_impl(name, cls)
         return cls
 
     return decorator

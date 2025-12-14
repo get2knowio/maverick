@@ -212,6 +212,7 @@ class MaverickAgent(ABC):
             MalformedResponseError,
             NetworkError,
             ProcessError,
+            TimeoutError,
         )
 
         error_type = type(error).__name__
@@ -225,6 +226,11 @@ class MaverickAgent(ABC):
                 message=str(error),
                 exit_code=getattr(error, "exit_code", None),
                 stderr=getattr(error, "stderr", None),
+            )
+        elif error_type == "TimeoutError":
+            return TimeoutError(
+                message=str(error),
+                timeout_seconds=getattr(error, "timeout_seconds", None),
             )
         elif error_type == "CLIConnectionError":
             return NetworkError(
