@@ -46,16 +46,24 @@ class AgentError(MaverickError):
     Attributes:
         message: Human-readable error message.
         agent_name: Name of the agent that raised the error (if known).
+        error_code: Optional error code for categorizing errors (e.g., INVALID_BRANCH, GIT_ERROR).
     """
 
-    def __init__(self, message: str, agent_name: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        agent_name: str | None = None,
+        error_code: str | None = None,
+    ) -> None:
         """Initialize the AgentError.
 
         Args:
             message: Human-readable error message.
             agent_name: Optional name of the agent that raised the error.
+            error_code: Optional error code for categorizing errors.
         """
         self.agent_name = agent_name
+        self.error_code = error_code
         super().__init__(message)
 
 

@@ -15,6 +15,7 @@ Public API:
     AgentMessage: Type alias for SDK Message type
     BUILTIN_TOOLS: Set of built-in tools available to agents
     DEFAULT_MODEL: Default Claude model for agents
+    CodeReviewerAgent: Concrete agent for code review (if available)
 """
 from __future__ import annotations
 
@@ -26,6 +27,12 @@ from maverick.agents.context import AgentContext
 from maverick.agents.registry import AgentRegistry, register, registry
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.agents.utils import extract_all_text, extract_text
+
+# Conditional import for concrete agent implementations
+try:
+    from maverick.agents.code_reviewer import CodeReviewerAgent
+except ImportError:
+    CodeReviewerAgent = None  # type: ignore[assignment,misc]  # Not yet implemented
 
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.
@@ -52,3 +59,7 @@ __all__: list[str] = [
     # Type alias
     "AgentMessage",
 ]
+
+# Conditionally add concrete agents to __all__ if they were successfully imported
+if CodeReviewerAgent is not None:
+    __all__.append("CodeReviewerAgent")

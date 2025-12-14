@@ -19,10 +19,10 @@
 
 **Purpose**: Project initialization and directory structure
 
-- [ ] T001 Create directory structure: src/maverick/agents/, src/maverick/models/, tests/unit/agents/, tests/unit/models/, tests/integration/agents/
-- [ ] T002 [P] Create src/maverick/agents/__init__.py with agent exports
-- [ ] T003 [P] Create src/maverick/models/__init__.py with model exports
-- [ ] T004 [P] Create src/maverick/exceptions.py with MaverickError and AgentError exception classes
+- [X] T001 Create directory structure: src/maverick/agents/, src/maverick/models/, tests/unit/agents/, tests/unit/models/, tests/integration/agents/
+- [X] T002 [P] Create src/maverick/agents/__init__.py with agent exports
+- [X] T003 [P] Create src/maverick/models/__init__.py with model exports
+- [X] T004 [P] Create src/maverick/exceptions.py with MaverickError and AgentError exception classes
 
 ---
 
@@ -36,20 +36,20 @@
 
 ### Data Models (from data-model.md)
 
-- [ ] T005 [P] Create ReviewSeverity enum in src/maverick/models/review.py (CRITICAL, MAJOR, MINOR, SUGGESTION)
-- [ ] T006 [P] Create UsageStats Pydantic model in src/maverick/models/review.py (input_tokens, output_tokens, total_cost, duration_ms)
-- [ ] T007 Create ReviewFinding Pydantic model in src/maverick/models/review.py (severity, file, line, message, suggestion, convention_ref)
-- [ ] T008 Create ReviewResult Pydantic model in src/maverick/models/review.py (success, findings, files_reviewed, summary, truncated, output, metadata, errors, usage)
-- [ ] T009 Create ReviewContext Pydantic model in src/maverick/models/review.py (branch, base_branch, file_list, cwd)
-- [ ] T010 Add ReviewResult helper properties in src/maverick/models/review.py (has_critical_findings, findings_by_severity, findings_by_file)
-- [ ] T011 Update src/maverick/models/__init__.py to export all review models
+- [X] T005 [P] Create ReviewSeverity enum in src/maverick/models/review.py (CRITICAL, MAJOR, MINOR, SUGGESTION)
+- [X] T006 [P] Create UsageStats Pydantic model in src/maverick/models/review.py (input_tokens, output_tokens, total_cost, duration_ms)
+- [X] T007 Create ReviewFinding Pydantic model in src/maverick/models/review.py (severity, file, line, message, suggestion, convention_ref)
+- [X] T008 Create ReviewResult Pydantic model in src/maverick/models/review.py (success, findings, files_reviewed, summary, truncated, output, metadata, errors, usage)
+- [X] T009 Create ReviewContext Pydantic model in src/maverick/models/review.py (branch, base_branch, file_list, cwd)
+- [X] T010 Add ReviewResult helper properties in src/maverick/models/review.py (has_critical_findings, findings_by_severity, findings_by_file)
+- [X] T011 Update src/maverick/models/__init__.py to export all review models
 
 ### Agent Base (from plan.md - depends on 002-base-agent)
 
-- [ ] T012 Create CodeReviewerAgent skeleton class in src/maverick/agents/code_reviewer.py extending MaverickAgent
-- [ ] T013 Add CodeReviewerAgent constants in src/maverick/agents/code_reviewer.py (MAX_DIFF_LINES=2000, MAX_DIFF_FILES=50, ALLOWED_TOOLS)
-- [ ] T014 Define CodeReviewerAgent system prompt in src/maverick/agents/code_reviewer.py (review dimensions, severity guidelines, JSON output format)
-- [ ] T015 Update src/maverick/agents/__init__.py to export CodeReviewerAgent
+- [X] T012 Create CodeReviewerAgent skeleton class in src/maverick/agents/code_reviewer.py extending MaverickAgent
+- [X] T013 Add CodeReviewerAgent constants in src/maverick/agents/code_reviewer.py (MAX_DIFF_LINES=2000, MAX_DIFF_FILES=50, ALLOWED_TOOLS)
+- [X] T014 Define CodeReviewerAgent system prompt in src/maverick/agents/code_reviewer.py (review dimensions, severity guidelines, JSON output format)
+- [X] T015 Update src/maverick/agents/__init__.py to export CodeReviewerAgent
 
 **Checkpoint**: Foundation ready - all data models and agent skeleton in place. User story implementation can now begin.
 
@@ -63,21 +63,21 @@
 
 ### Git Integration (from research.md)
 
-- [ ] T016 [US1] Implement _get_diff_stats() method in src/maverick/agents/code_reviewer.py (two-phase: git diff --numstat for metadata)
-- [ ] T017 [US1] Implement _get_diff_content() method in src/maverick/agents/code_reviewer.py (git diff --patch for selected files)
-- [ ] T018 [US1] Implement _check_merge_conflicts() method in src/maverick/agents/code_reviewer.py (git diff --diff-filter=U)
-- [ ] T019 [US1] Implement _read_conventions() method in src/maverick/agents/code_reviewer.py (read CLAUDE.md if exists, return None otherwise)
+- [X] T016 [US1] Implement _get_diff_stats() method in src/maverick/agents/code_reviewer.py (two-phase: git diff --numstat for metadata)
+- [X] T017 [US1] Implement _get_diff_content() method in src/maverick/agents/code_reviewer.py (git diff --patch for selected files)
+- [X] T018 [US1] Implement _check_merge_conflicts() method in src/maverick/agents/code_reviewer.py (git diff --diff-filter=U)
+- [X] T019 [US1] Implement _read_conventions() method in src/maverick/agents/code_reviewer.py (read CLAUDE.md if exists, return None otherwise)
 
 ### Core Review Logic
 
-- [ ] T020 [US1] Implement _build_review_prompt() method in src/maverick/agents/code_reviewer.py (diff + conventions + JSON schema instruction)
-- [ ] T021 [US1] Implement _parse_findings() method in src/maverick/agents/code_reviewer.py (parse Claude response to list[ReviewFinding])
-- [ ] T022 [US1] Implement execute() method in src/maverick/agents/code_reviewer.py (orchestrate diff retrieval, Claude interaction, result parsing)
+- [X] T020 [US1] Implement _build_review_prompt() method in src/maverick/agents/code_reviewer.py (diff + conventions + JSON schema instruction)
+- [X] T021 [US1] Implement _parse_findings() method in src/maverick/agents/code_reviewer.py (parse Claude response to list[ReviewFinding])
+- [X] T022 [US1] Implement execute() method in src/maverick/agents/code_reviewer.py (orchestrate diff retrieval, Claude interaction, result parsing)
 
 ### Error Handling (FR-018, FR-019)
 
-- [ ] T023 [US1] Add AgentError handling in execute() for INVALID_BRANCH, GIT_ERROR, MERGE_CONFLICTS, TIMEOUT in src/maverick/agents/code_reviewer.py
-- [ ] T024 [US1] Handle empty diff case in execute() returning ReviewResult with "No changes to review" in src/maverick/agents/code_reviewer.py
+- [X] T023 [US1] Add AgentError handling in execute() for INVALID_BRANCH, GIT_ERROR, MERGE_CONFLICTS, TIMEOUT in src/maverick/agents/code_reviewer.py
+- [X] T024 [US1] Handle empty diff case in execute() returning ReviewResult with "No changes to review" in src/maverick/agents/code_reviewer.py
 
 **Checkpoint**: User Story 1 complete - can review any branch and return structured findings
 
@@ -91,9 +91,9 @@
 
 ### File Filtering
 
-- [ ] T025 [US2] Modify _get_diff_content() in src/maverick/agents/code_reviewer.py to accept file_list parameter and filter to specified files
-- [ ] T026 [US2] Add file existence validation in execute() to skip non-existent/unchanged files silently in src/maverick/agents/code_reviewer.py
-- [ ] T027 [US2] Update execute() to pass context.file_list to diff methods in src/maverick/agents/code_reviewer.py
+- [X] T025 [US2] Modify _get_diff_content() in src/maverick/agents/code_reviewer.py to accept file_list parameter and filter to specified files
+- [X] T026 [US2] Add file existence validation in execute() to skip non-existent/unchanged files silently in src/maverick/agents/code_reviewer.py
+- [X] T027 [US2] Update execute() to pass context.file_list to diff methods in src/maverick/agents/code_reviewer.py
 
 **Checkpoint**: User Story 2 complete - can filter reviews to specific files
 
@@ -107,9 +107,9 @@
 
 ### Severity Implementation
 
-- [ ] T028 [US3] Enhance system prompt in src/maverick/agents/code_reviewer.py with detailed severity guidelines from data-model.md
-- [ ] T029 [US3] Add severity validation in _parse_findings() ensuring all findings have valid ReviewSeverity in src/maverick/agents/code_reviewer.py
-- [ ] T030 [US3] Update summary generation to include severity counts (e.g., "found 3 issues: 1 critical, 2 minor") in src/maverick/agents/code_reviewer.py
+- [X] T028 [US3] Enhance system prompt in src/maverick/agents/code_reviewer.py with detailed severity guidelines from data-model.md
+- [X] T029 [US3] Add severity validation in _parse_findings() ensuring all findings have valid ReviewSeverity in src/maverick/agents/code_reviewer.py
+- [X] T030 [US3] Update summary generation to include severity counts (e.g., "found 3 issues: 1 critical, 2 minor") in src/maverick/agents/code_reviewer.py
 
 **Checkpoint**: User Story 3 complete - findings are properly categorized by severity
 
@@ -123,9 +123,9 @@
 
 ### TUI Support
 
-- [ ] T031 [US4] Verify ReviewResult.findings_by_file property returns dict[str, list[ReviewFinding]] suitable for file navigation in src/maverick/models/review.py
-- [ ] T032 [US4] Verify ReviewResult.findings_by_severity property returns dict[ReviewSeverity, list[ReviewFinding]] suitable for filtering in src/maverick/models/review.py
-- [ ] T033 [US4] Add model_dump_json() compatibility verification for ReviewResult serialization in src/maverick/models/review.py
+- [X] T031 [US4] Verify ReviewResult.findings_by_file property returns dict[str, list[ReviewFinding]] suitable for file navigation in src/maverick/models/review.py
+- [X] T032 [US4] Verify ReviewResult.findings_by_severity property returns dict[ReviewSeverity, list[ReviewFinding]] suitable for filtering in src/maverick/models/review.py
+- [X] T033 [US4] Add model_dump_json() compatibility verification for ReviewResult serialization in src/maverick/models/review.py
 
 **Checkpoint**: User Story 4 complete - ReviewResult fully supports TUI consumption
 
@@ -139,9 +139,9 @@
 
 ### Suggestion Enhancement
 
-- [ ] T034 [US5] Enhance system prompt in src/maverick/agents/code_reviewer.py to require code examples in suggestions
-- [ ] T035 [US5] Add suggestion validation in _parse_findings() ensuring suggestions are present and meaningful in src/maverick/agents/code_reviewer.py
-- [ ] T036 [US5] Add convention_ref population when findings relate to CLAUDE.md violations in src/maverick/agents/code_reviewer.py
+- [X] T034 [US5] Enhance system prompt in src/maverick/agents/code_reviewer.py to require code examples in suggestions
+- [X] T035 [US5] Add suggestion validation in _parse_findings() ensuring suggestions are present and meaningful in src/maverick/agents/code_reviewer.py
+- [X] T036 [US5] Add convention_ref population when findings relate to CLAUDE.md violations in src/maverick/agents/code_reviewer.py
 
 **Checkpoint**: User Story 5 complete - all findings include actionable suggestions
 
@@ -153,22 +153,22 @@
 
 ### Large Diff Handling (FR-017, FR-020)
 
-- [ ] T037 [P] Implement should_truncate() helper in src/maverick/agents/code_reviewer.py (check against MAX_DIFF_LINES, MAX_DIFF_FILES)
-- [ ] T038 [P] Implement _truncate_files() method in src/maverick/agents/code_reviewer.py (return truncated list + truncation notice)
-- [ ] T039 Implement binary file filtering in _get_diff_stats() using numstat detection in src/maverick/agents/code_reviewer.py
-- [ ] T040 Add truncated=True flag and notice in ReviewResult summary when truncation occurs in src/maverick/agents/code_reviewer.py
+- [X] T037 [P] Implement should_truncate() helper in src/maverick/agents/code_reviewer.py (check against MAX_DIFF_LINES, MAX_DIFF_FILES)
+- [X] T038 [P] Implement _truncate_files() method in src/maverick/agents/code_reviewer.py (return truncated list + truncation notice)
+- [X] T039 Implement binary file filtering in _get_diff_stats() using numstat detection in src/maverick/agents/code_reviewer.py
+- [X] T040 Add truncated=True flag and notice in ReviewResult summary when truncation occurs in src/maverick/agents/code_reviewer.py
 
 ### Token Limit Handling (FR-021)
 
-- [ ] T041 Implement _estimate_tokens() helper in src/maverick/agents/code_reviewer.py (rough estimate: len(content) // 4)
-- [ ] T042 Implement _chunk_files() method in src/maverick/agents/code_reviewer.py (split files respecting MAX_TOKENS_PER_CHUNK)
-- [ ] T043 Implement chunked review logic in execute() with findings merge in src/maverick/agents/code_reviewer.py
+- [X] T041 Implement _estimate_tokens() helper in src/maverick/agents/code_reviewer.py (rough estimate: len(content) // 4)
+- [X] T042 Implement _chunk_files() method in src/maverick/agents/code_reviewer.py (split files respecting MAX_TOKENS_PER_CHUNK)
+- [X] T043 Implement chunked review logic in execute() with findings merge in src/maverick/agents/code_reviewer.py
 
 ### Final Integration
 
-- [ ] T044 Add metadata population in execute() (branch names, timestamps, duration_ms) in src/maverick/agents/code_reviewer.py
-- [ ] T045 Add usage stats tracking (input_tokens, output_tokens from Claude response) in src/maverick/agents/code_reviewer.py
-- [ ] T046 Run quickstart.md validation scenarios manually to verify implementation
+- [X] T044 Add metadata population in execute() (branch names, timestamps, duration_ms) in src/maverick/agents/code_reviewer.py
+- [X] T045 Add usage stats tracking (input_tokens, output_tokens from Claude response) in src/maverick/agents/code_reviewer.py
+- [X] T046 Run quickstart.md validation scenarios manually to verify implementation
 
 ---
 
