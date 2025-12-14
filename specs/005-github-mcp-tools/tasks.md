@@ -23,9 +23,9 @@
 
 **Purpose**: Project initialization and module structure
 
-- [ ] T001 Create tools module structure with `src/maverick/tools/__init__.py` exporting `create_github_tools_server`
-- [ ] T002 Add `GitHubToolsError` exception to `src/maverick/exceptions.py`
-- [ ] T003 [P] Create test directory structure `tests/unit/tools/__init__.py` and `tests/integration/tools/__init__.py`
+- [X] T001 Create tools module structure with `src/maverick/tools/__init__.py` exporting `create_github_tools_server`
+- [X] T002 Add `GitHubToolsError` exception to `src/maverick/exceptions.py`
+- [X] T003 [P] Create test directory structure `tests/unit/tools/__init__.py` and `tests/integration/tools/__init__.py`
 
 ---
 
@@ -35,13 +35,13 @@
 
 **:warning: CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement prerequisite verification (gh CLI, auth, git repo) in `src/maverick/tools/github.py`
-- [ ] T005 Implement `_run_gh_command()` async subprocess helper in `src/maverick/tools/github.py` (or import from `utils/github.py` if exists)
-- [ ] T006 [P] Implement `_parse_rate_limit_wait()` helper for extracting retry-after from errors in `src/maverick/tools/github.py`
-- [ ] T007 [P] Implement MCP response formatting helpers (`_success_response()`, `_error_response()`) in `src/maverick/tools/github.py`
-- [ ] T008 Implement `create_github_tools_server()` factory function skeleton in `src/maverick/tools/github.py`
-- [ ] T009 [P] Add unit tests for prerequisite verification in `tests/unit/tools/test_github.py`
-- [ ] T010 [P] Add unit tests for helper functions in `tests/unit/tools/test_github.py`
+- [X] T004 Implement prerequisite verification (gh CLI, auth, git repo) in `src/maverick/tools/github.py`
+- [X] T005 Implement `_run_gh_command()` async subprocess helper in `src/maverick/tools/github.py` (or import from `utils/github.py` if exists)
+- [X] T006 [P] Implement `_parse_rate_limit_wait()` helper for extracting retry-after from errors in `src/maverick/tools/github.py`
+- [X] T007 [P] Implement MCP response formatting helpers (`_success_response()`, `_error_response()`) in `src/maverick/tools/github.py`
+- [X] T008 Implement `create_github_tools_server()` factory function skeleton in `src/maverick/tools/github.py`
+- [X] T009 [P] Add unit tests for prerequisite verification in `tests/unit/tools/test_github.py`
+- [X] T010 [P] Add unit tests for helper functions in `tests/unit/tools/test_github.py`
 
 **Checkpoint**: Foundation ready - MCP server factory exists, helpers work, user story implementation can begin
 
@@ -55,15 +55,15 @@
 
 ### Unit Tests for User Story 1
 
-- [ ] T011 [P] [US1] Add unit test for `github_create_pr` success case in `tests/unit/tools/test_github.py`
-- [ ] T012 [P] [US1] Add unit test for `github_create_pr` draft PR case in `tests/unit/tools/test_github.py`
-- [ ] T013 [P] [US1] Add unit test for `github_create_pr` branch not found error in `tests/unit/tools/test_github.py`
+- [X] T011 [P] [US1] Add unit test for `github_create_pr` success case in `tests/unit/tools/test_github.py`
+- [X] T012 [P] [US1] Add unit test for `github_create_pr` draft PR case in `tests/unit/tools/test_github.py`
+- [X] T013 [P] [US1] Add unit test for `github_create_pr` branch not found error in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Implement `github_create_pr` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T015 [US1] Register `github_create_pr` in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T016 [US1] Add logging for PR creation operations in `src/maverick/tools/github.py`
+- [X] T014 [US1] Implement `github_create_pr` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T015 [US1] Register `github_create_pr` in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T016 [US1] Add logging for PR creation operations in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 1 complete - agents can create PRs
 
@@ -77,17 +77,17 @@
 
 ### Unit Tests for User Story 2
 
-- [ ] T017 [P] [US2] Add unit test for `github_list_issues` with label filter in `tests/unit/tools/test_github.py`
-- [ ] T018 [P] [US2] Add unit test for `github_list_issues` with state and limit in `tests/unit/tools/test_github.py`
-- [ ] T019 [P] [US2] Add unit test for `github_get_issue` success case in `tests/unit/tools/test_github.py`
-- [ ] T020 [P] [US2] Add unit test for `github_get_issue` not found error in `tests/unit/tools/test_github.py`
+- [X] T017 [P] [US2] Add unit test for `github_list_issues` with label filter in `tests/unit/tools/test_github.py`
+- [X] T018 [P] [US2] Add unit test for `github_list_issues` with state and limit in `tests/unit/tools/test_github.py`
+- [X] T019 [P] [US2] Add unit test for `github_get_issue` success case in `tests/unit/tools/test_github.py`
+- [X] T020 [P] [US2] Add unit test for `github_get_issue` not found error in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Implement `github_list_issues` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T022 [US2] Implement `github_get_issue` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T023 [US2] Register both tools in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T024 [US2] Add logging for issue operations in `src/maverick/tools/github.py`
+- [X] T021 [US2] Implement `github_list_issues` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T022 [US2] Implement `github_get_issue` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T023 [US2] Register both tools in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T024 [US2] Add logging for issue operations in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 2 complete - agents can discover and retrieve issues
 
@@ -101,15 +101,15 @@
 
 ### Unit Tests for User Story 3
 
-- [ ] T025 [P] [US3] Add unit test for `github_pr_status` ready-to-merge case in `tests/unit/tools/test_github.py`
-- [ ] T026 [P] [US3] Add unit test for `github_pr_status` failing checks case in `tests/unit/tools/test_github.py`
-- [ ] T027 [P] [US3] Add unit test for `github_pr_status` merge conflicts case in `tests/unit/tools/test_github.py`
+- [X] T025 [P] [US3] Add unit test for `github_pr_status` ready-to-merge case in `tests/unit/tools/test_github.py`
+- [X] T026 [P] [US3] Add unit test for `github_pr_status` failing checks case in `tests/unit/tools/test_github.py`
+- [X] T027 [P] [US3] Add unit test for `github_pr_status` merge conflicts case in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Implement `github_pr_status` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T029 [US3] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T030 [US3] Add logging for PR status checks in `src/maverick/tools/github.py`
+- [X] T028 [US3] Implement `github_pr_status` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T029 [US3] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T030 [US3] Add logging for PR status checks in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 3 complete - agents can check PR merge readiness
 
@@ -123,15 +123,15 @@
 
 ### Unit Tests for User Story 4
 
-- [ ] T031 [P] [US4] Add unit test for `github_get_pr_diff` normal diff in `tests/unit/tools/test_github.py`
-- [ ] T032 [P] [US4] Add unit test for `github_get_pr_diff` truncated diff case in `tests/unit/tools/test_github.py`
-- [ ] T033 [P] [US4] Add unit test for `github_get_pr_diff` not found error in `tests/unit/tools/test_github.py`
+- [X] T031 [P] [US4] Add unit test for `github_get_pr_diff` normal diff in `tests/unit/tools/test_github.py`
+- [X] T032 [P] [US4] Add unit test for `github_get_pr_diff` truncated diff case in `tests/unit/tools/test_github.py`
+- [X] T033 [P] [US4] Add unit test for `github_get_pr_diff` not found error in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 4
 
-- [ ] T034 [US4] Implement `github_get_pr_diff` tool with truncation logic in `src/maverick/tools/github.py`
-- [ ] T035 [US4] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T036 [US4] Add logging for diff retrieval in `src/maverick/tools/github.py`
+- [X] T034 [US4] Implement `github_get_pr_diff` tool with truncation logic in `src/maverick/tools/github.py`
+- [X] T035 [US4] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T036 [US4] Add logging for diff retrieval in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 4 complete - agents can retrieve PR diffs for review
 
@@ -145,14 +145,14 @@
 
 ### Unit Tests for User Story 5
 
-- [ ] T037 [P] [US5] Add unit test for `github_add_labels` success case in `tests/unit/tools/test_github.py`
-- [ ] T038 [P] [US5] Add unit test for `github_add_labels` with new label creation in `tests/unit/tools/test_github.py`
+- [X] T037 [P] [US5] Add unit test for `github_add_labels` success case in `tests/unit/tools/test_github.py`
+- [X] T038 [P] [US5] Add unit test for `github_add_labels` with new label creation in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 5
 
-- [ ] T039 [US5] Implement `github_add_labels` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T040 [US5] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T041 [US5] Add logging for label operations in `src/maverick/tools/github.py`
+- [X] T039 [US5] Implement `github_add_labels` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T040 [US5] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T041 [US5] Add logging for label operations in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 5 complete - agents can add labels
 
@@ -166,15 +166,15 @@
 
 ### Unit Tests for User Story 6
 
-- [ ] T042 [P] [US6] Add unit test for `github_close_issue` with comment in `tests/unit/tools/test_github.py`
-- [ ] T043 [P] [US6] Add unit test for `github_close_issue` without comment in `tests/unit/tools/test_github.py`
-- [ ] T044 [P] [US6] Add unit test for `github_close_issue` idempotent (already closed) in `tests/unit/tools/test_github.py`
+- [X] T042 [P] [US6] Add unit test for `github_close_issue` with comment in `tests/unit/tools/test_github.py`
+- [X] T043 [P] [US6] Add unit test for `github_close_issue` without comment in `tests/unit/tools/test_github.py`
+- [X] T044 [P] [US6] Add unit test for `github_close_issue` idempotent (already closed) in `tests/unit/tools/test_github.py`
 
 ### Implementation for User Story 6
 
-- [ ] T045 [US6] Implement `github_close_issue` tool with `@tool` decorator in `src/maverick/tools/github.py`
-- [ ] T046 [US6] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
-- [ ] T047 [US6] Add logging for issue close operations in `src/maverick/tools/github.py`
+- [X] T045 [US6] Implement `github_close_issue` tool with `@tool` decorator in `src/maverick/tools/github.py`
+- [X] T046 [US6] Register tool in `create_github_tools_server()` in `src/maverick/tools/github.py`
+- [X] T047 [US6] Add logging for issue close operations in `src/maverick/tools/github.py`
 
 **Checkpoint**: User Story 6 complete - agents can close issues
 
@@ -184,14 +184,14 @@
 
 **Purpose**: Error handling, rate limiting, type safety, performance, integration tests
 
-- [ ] T048 [P] Add unit tests for rate limit error handling across all tools in `tests/unit/tools/test_github.py`
-- [ ] T049 [P] Add unit tests for network error handling in `tests/unit/tools/test_github.py`
-- [ ] T050 [P] Add unit tests for auth error handling in `tests/unit/tools/test_github.py`
-- [ ] T051 [P] Run mypy type checking on `src/maverick/tools/github.py` and fix any errors (FR-014)
-- [ ] T052 Add integration test for full tool workflow in `tests/integration/tools/test_github.py`
-- [ ] T053 [P] Add performance benchmark test asserting tool execution <5s in `tests/integration/tools/test_github.py` (SC-002)
-- [ ] T054 Run quickstart.md validation to verify all examples work
-- [ ] T055 Update `src/maverick/tools/__init__.py` exports and verify import from `maverick.tools.github`
+- [X] T048 [P] Add unit tests for rate limit error handling across all tools in `tests/unit/tools/test_github.py`
+- [X] T049 [P] Add unit tests for network error handling in `tests/unit/tools/test_github.py`
+- [X] T050 [P] Add unit tests for auth error handling in `tests/unit/tools/test_github.py`
+- [X] T051 [P] Run mypy type checking on `src/maverick/tools/github.py` and fix any errors (FR-014)
+- [X] T052 Add integration test for full tool workflow in `tests/integration/tools/test_github.py`
+- [X] T053 [P] Add performance benchmark test asserting tool execution <5s in `tests/integration/tools/test_github.py` (SC-002)
+- [X] T054 Run quickstart.md validation to verify all examples work
+- [X] T055 Update `src/maverick/tools/__init__.py` exports and verify import from `maverick.tools.github`
 
 ---
 
