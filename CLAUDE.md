@@ -130,6 +130,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A (tools interact with GitHub API via CLI) (005-github-mcp-tools)
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, ntfy.sh (HTTP API) (006-utility-mcp-tools)
 - N/A (tools interact with external systems: git, ntfy.sh, validation commands) (006-utility-mcp-tools)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (for configuration models) (007-safety-hooks)
+- N/A (metrics in-memory with rolling window; logs via standard Python logging) (007-safety-hooks)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
