@@ -310,6 +310,12 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
     head = args["head"]
     draft = args.get("draft", False)
 
+    # Validate inputs
+    if not title or not title.strip():
+        return _error_response("PR title cannot be empty", "INVALID_INPUT")
+    if not body or not body.strip():
+        return _error_response("PR body cannot be empty", "INVALID_INPUT")
+
     logger.info("Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft)
 
     cmd_args = ["pr", "create", "--title", title, "--body", body, "--base", base, "--head", head]
@@ -516,8 +522,9 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
         truncated = original_size > max_size
 
         if truncated:
-            # Truncate at byte boundary (approximate)
-            diff = diff[:max_size]
+            # Truncate at byte boundary to avoid breaking multibyte UTF-8 characters
+            diff_bytes = diff.encode("utf-8")[:max_size]
+            diff = diff_bytes.decode("utf-8", errors="ignore")
             logger.info("Diff truncated from %d to %d bytes", original_size, max_size)
             return _success_response({
                 "diff": diff,
@@ -776,12 +783,17 @@ def create_github_tools_server(
     """
     # Verify prerequisites (fail fast)
     if not skip_verification:
-        import asyncio
-
         try:
-            asyncio.get_event_loop().run_until_complete(_verify_prerequisites(cwd))
+            # Try to get the running event loop
+            asyncio.get_running_loop()
+            # If we're here, we're in an async context - cannot use asyncio.run()
+            msg = (
+                "create_github_tools_server() cannot be called from async context. "
+                "Use skip_verification=True or call from synchronous code."
+            )
+            raise GitHubToolsError(msg, check_failed="async_context")
         except RuntimeError:
-            # No event loop running - create one
+            # No running event loop - safe to create a new one with asyncio.run()
             asyncio.run(_verify_prerequisites(cwd))
 
     logger.info("Creating GitHub tools MCP server (version %s)", SERVER_VERSION)

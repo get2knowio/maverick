@@ -328,6 +328,346 @@ class TestGitHubPrStatus:
         assert response_data["checks"] == []
         assert response_data["has_conflicts"] is False
 
+    @pytest.mark.asyncio
+    async def test_github_pr_status_mergeable_unknown(self) -> None:
+        """Test github_pr_status when mergeable status is UNKNOWN (line 611)."""
+        pr_number = 200
+
+        # Mock response: PR with UNKNOWN mergeable status
+        mock_pr_data = {
+            "number": pr_number,
+            "state": "OPEN",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "headRefName": "feature/unknown",
+            "baseRefName": "main",
+            "reviews": [],
+            "statusCheckRollup": [],
+        }
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
+
+            result = await github_pr_status.handler({"pr_number": pr_number})
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify mergeable is None for UNKNOWN
+        assert response_data["mergeable"] is None
+        assert response_data["merge_state_status"] == "unknown"
+        assert response_data["has_conflicts"] is False
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_mergeable_null(self) -> None:
+        """Test github_pr_status when mergeable is null (line 611)."""
+        pr_number = 300
+
+        # Mock response: PR with null mergeable status
+        mock_pr_data = {
+            "number": pr_number,
+            "state": "OPEN",
+            "mergeable": None,
+            "mergeStateStatus": "PENDING",
+            "headRefName": "feature/null",
+            "baseRefName": "main",
+            "reviews": [],
+            "statusCheckRollup": [],
+        }
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
+
+            result = await github_pr_status.handler({"pr_number": pr_number})
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify mergeable is None for null
+        assert response_data["mergeable"] is None
+        assert response_data["merge_state_status"] == "pending"
+        assert response_data["has_conflicts"] is False
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_mergeable_true_boolean(self) -> None:
+        """Test github_pr_status when mergeable is True boolean (line 606)."""
+        pr_number = 400
+
+        # Mock response: PR with True mergeable status
+        mock_pr_data = {
+            "number": pr_number,
+            "state": "OPEN",
+            "mergeable": True,
+            "mergeStateStatus": "CLEAN",
+            "headRefName": "feature/bool-true",
+            "baseRefName": "main",
+            "reviews": [],
+            "statusCheckRollup": [],
+        }
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
+
+            result = await github_pr_status.handler({"pr_number": pr_number})
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify mergeable is True
+        assert response_data["mergeable"] is True
+        assert response_data["has_conflicts"] is False
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_mergeable_false_boolean(self) -> None:
+        """Test github_pr_status when mergeable is False boolean (line 608)."""
+        pr_number = 500
+
+        # Mock response: PR with False mergeable status
+        mock_pr_data = {
+            "number": pr_number,
+            "state": "OPEN",
+            "mergeable": False,
+            "mergeStateStatus": "DIRTY",
+            "headRefName": "feature/bool-false",
+            "baseRefName": "main",
+            "reviews": [],
+            "statusCheckRollup": [],
+        }
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
+
+            result = await github_pr_status.handler({"pr_number": pr_number})
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify mergeable is False
+        assert response_data["mergeable"] is False
+        assert response_data["has_conflicts"] is True
+
+
+class TestGitHubCreatePR:
+    """Tests for github_create_pr MCP tool (T011-T013)."""
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_success(self) -> None:
+        """Test creating a PR successfully (T011)."""
+        # Mock successful PR creation
+        pr_url = "https://github.com/owner/repo/pull/123"
+        stdout = pr_url
+        stderr = ""
+        return_code = 0
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = (stdout, stderr, return_code)
+
+            result = await github_create_pr.handler({
+                "title": "Add new feature",
+                "body": "This PR implements the new feature",
+                "base": "main",
+                "head": "feature/new-feature",
+                "draft": False,
+            })
+
+        # Verify gh command called with correct arguments
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0]
+        assert "pr" in call_args
+        assert "create" in call_args
+        assert "--title" in call_args
+        assert "Add new feature" in call_args
+        assert "--body" in call_args
+        assert "This PR implements the new feature" in call_args
+        assert "--base" in call_args
+        assert "main" in call_args
+        assert "--head" in call_args
+        assert "feature/new-feature" in call_args
+        assert "--draft" not in call_args
+
+        # Verify response structure
+        assert "content" in result
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+        # Parse response text
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["pr_number"] == 123
+        assert response_data["url"] == pr_url
+        assert response_data["state"] == "open"
+        assert response_data["title"] == "Add new feature"
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_draft(self) -> None:
+        """Test creating a draft PR (T012)."""
+        # Mock successful draft PR creation
+        pr_url = "https://github.com/owner/repo/pull/456"
+        stdout = pr_url
+        stderr = ""
+        return_code = 0
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = (stdout, stderr, return_code)
+
+            result = await github_create_pr.handler({
+                "title": "WIP: Draft feature",
+                "body": "Work in progress PR",
+                "base": "main",
+                "head": "feature/draft",
+                "draft": True,
+            })
+
+        # Verify gh command includes --draft flag
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0]
+        assert "pr" in call_args
+        assert "create" in call_args
+        assert "--draft" in call_args
+        assert "--title" in call_args
+        assert "WIP: Draft feature" in call_args
+        assert "--base" in call_args
+        assert "main" in call_args
+        assert "--head" in call_args
+        assert "feature/draft" in call_args
+
+        # Verify response indicates draft state
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["pr_number"] == 456
+        assert response_data["state"] == "draft"
+        assert response_data["title"] == "WIP: Draft feature"
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_branch_not_found(self) -> None:
+        """Test error when branch doesn't exist (T013)."""
+        # Mock branch not found error
+        stdout = ""
+        stderr = "error: head branch 'feature/nonexistent' not found"
+        return_code = 1
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = (stdout, stderr, return_code)
+
+            result = await github_create_pr.handler({
+                "title": "Test PR",
+                "body": "Test body",
+                "base": "main",
+                "head": "feature/nonexistent",
+                "draft": False,
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "BRANCH_NOT_FOUND"
+        assert "feature/nonexistent" in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_base_branch_not_found(self) -> None:
+        """Test error when base branch doesn't exist."""
+        # Mock base branch not found error
+        stdout = ""
+        stderr = "error: base branch 'nonexistent' not found"
+        return_code = 1
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = (stdout, stderr, return_code)
+
+            result = await github_create_pr.handler({
+                "title": "Test PR",
+                "body": "Test body",
+                "base": "nonexistent",
+                "head": "feature/test",
+                "draft": False,
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "BRANCH_NOT_FOUND"
+        assert "nonexistent" in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_empty_title(self) -> None:
+        """Test validation error for empty title."""
+        result = await github_create_pr.handler({
+            "title": "",
+            "body": "Valid body",
+            "base": "main",
+            "head": "feature/test",
+            "draft": False,
+        })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "title" in response_data["message"].lower()
+        assert "empty" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_empty_body(self) -> None:
+        """Test validation error for empty body."""
+        result = await github_create_pr.handler({
+            "title": "Valid title",
+            "body": "",
+            "base": "main",
+            "head": "feature/test",
+            "draft": False,
+        })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "body" in response_data["message"].lower()
+        assert "empty" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_whitespace_title(self) -> None:
+        """Test validation error for whitespace-only title."""
+        result = await github_create_pr.handler({
+            "title": "   ",
+            "body": "Valid body",
+            "base": "main",
+            "head": "feature/test",
+            "draft": False,
+        })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "title" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_whitespace_body(self) -> None:
+        """Test validation error for whitespace-only body."""
+        result = await github_create_pr.handler({
+            "title": "Valid title",
+            "body": "   ",
+            "base": "main",
+            "head": "feature/test",
+            "draft": False,
+        })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "body" in response_data["message"].lower()
+
 
 class TestGithubListIssues:
     """Tests for github_list_issues MCP tool."""
@@ -508,6 +848,228 @@ class TestGithubListIssues:
         assert "error_code" in response_data
 
 
+class TestGitHubAddLabels:
+    """Tests for github_add_labels tool (T037-T038)."""
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_success(self) -> None:
+        """Test adding labels to an issue successfully (T037).
+
+        Verifies:
+        - Labels are added to the issue
+        - gh CLI command is called with correct arguments
+        - Success response includes issue_number and labels_added
+        """
+        issue_number = 123
+        labels = ["bug", "priority-high"]
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # gh issue edit 123 --add-label bug --add-label priority-high
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": labels,
+            })
+
+        # Verify gh command called with correct arguments
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0]
+        assert "issue" in call_args
+        assert "edit" in call_args
+        assert str(issue_number) in call_args
+        assert "--add-label" in call_args
+        # Verify both labels are in the command
+        assert "bug" in call_args
+        assert "priority-high" in call_args
+
+        # Verify success response
+        assert "content" in result
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["issue_number"] == issue_number
+        assert response_data["labels_added"] == labels
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_new_label_creation(self) -> None:
+        """Test that new labels are created if they don't exist (T038).
+
+        The gh CLI automatically creates labels that don't exist,
+        so this test verifies that the operation succeeds even when
+        adding labels that may not exist in the repository.
+        """
+        issue_number = 456
+        labels = ["new-label", "another-new-label"]
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # gh CLI creates new labels automatically
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": labels,
+            })
+
+        # Verify command was called
+        mock_run.assert_called_once()
+
+        # Verify success response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["issue_number"] == issue_number
+        assert response_data["labels_added"] == labels
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_multiple_labels(self) -> None:
+        """Test adding multiple labels at once."""
+        issue_number = 789
+        labels = ["bug", "urgent", "needs-triage", "backend"]
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": labels,
+            })
+
+        # Verify all labels are in the command
+        call_args = mock_run.call_args[0]
+        for label in labels:
+            assert label in call_args
+
+        # Verify success response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["labels_added"] == labels
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_empty_list_error(self) -> None:
+        """Test empty labels list returns INVALID_INPUT error."""
+        result = await github_add_labels.handler({
+            "issue_number": 100,
+            "labels": [],
+        })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "empty" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_invalid_issue_number(self) -> None:
+        """Test invalid issue_number (<=0) returns INVALID_INPUT error."""
+        # Test with 0
+        result = await github_add_labels.handler({
+            "issue_number": 0,
+            "labels": ["bug"],
+        })
+
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+        # Test with negative number
+        result = await github_add_labels.handler({
+            "issue_number": -5,
+            "labels": ["bug"],
+        })
+
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_issue_not_found(self) -> None:
+        """Test issue not found (404) returns NOT_FOUND error."""
+        issue_number = 999
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "could not find issue 999", 1)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": ["bug"],
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "NOT_FOUND"
+        assert str(issue_number) in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_not_found_specific_message(self) -> None:
+        """Test github_add_labels with specific 'not found' message (lines 674-675)."""
+        issue_number = 888
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "issue not found", 1)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": ["bug"],
+            })
+
+        # Verify error response with specific message
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "NOT_FOUND"
+        assert f"Issue #{issue_number} not found" in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_single_label(self) -> None:
+        """Test adding a single label."""
+        issue_number = 200
+        labels = ["documentation"]
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_add_labels.handler({
+                "issue_number": issue_number,
+                "labels": labels,
+            })
+
+        # Verify command structure
+        call_args = mock_run.call_args[0]
+        assert "issue" in call_args
+        assert "edit" in call_args
+        assert str(issue_number) in call_args
+        assert "--add-label" in call_args
+        assert "documentation" in call_args
+
+        # Verify success response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["labels_added"] == labels
+
+
 class TestGithubGetIssue:
     """Tests for github_get_issue MCP tool."""
 
@@ -608,6 +1170,27 @@ class TestGithubGetIssue:
         # Message contains either "not found" or "could not find" depending on stderr
         msg_lower = response_data["message"].lower()
         assert "not found" in msg_lower or "could not find" in msg_lower
+
+    @pytest.mark.asyncio
+    async def test_github_get_issue_not_found_specific_message(self) -> None:
+        """Test github_get_issue with specific 'not found' message (lines 455-456)."""
+        stdout = ""
+        stderr = "issue not found"
+        return_code = 1
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = (stdout, stderr, return_code)
+
+            result = await github_get_issue.handler({"issue_number": 777})
+
+        # Verify error response with specific message
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "NOT_FOUND"
+        assert "Issue #777 not found" in response_data["message"]
 
     @pytest.mark.asyncio
     async def test_github_get_issue_minimal_data(self) -> None:
@@ -1135,6 +1718,190 @@ class TestAuthErrorHandling:
 
 
 # =============================================================================
+# T031-T033: github_get_pr_diff Tests
+# =============================================================================
+
+
+class TestGitHubGetPRDiff:
+    """Tests for github_get_pr_diff tool (T031-T033)."""
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_normal_retrieval(self) -> None:
+        """Test getting a PR diff successfully with mocked gh CLI (T031).
+
+        Verifies:
+        - Successful diff retrieval
+        - Correct command execution
+        - Proper response structure
+        - truncated=false for small diffs
+        """
+        pr_number = 123
+        mock_diff = """diff --git a/file.py b/file.py
+index 1234567..abcdefg 100644
+--- a/file.py
++++ b/file.py
+@@ -1,3 +1,4 @@
++# New comment
+ def hello():
+     print("Hello, World!")
+"""
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (mock_diff, "", 0)
+
+            result = await github_get_pr_diff.handler({"pr_number": pr_number})
+
+            # Verify command execution
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0]
+            assert call_args[0] == "pr"
+            assert call_args[1] == "diff"
+            assert call_args[2] == str(pr_number)
+
+        # Verify success response structure
+        assert "content" in result
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify response fields
+        assert "diff" in response_data
+        assert response_data["diff"] == mock_diff
+        assert response_data["truncated"] is False
+        assert "warning" not in response_data
+        assert "original_size_bytes" not in response_data
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_truncated_case(self) -> None:
+        """Test that large diffs are truncated properly with truncated flag (T032).
+
+        Verifies:
+        - Diff truncated at max_size boundary
+        - truncated=true flag set
+        - Warning message included
+        - original_size_bytes included
+        """
+        pr_number = 456
+        # Create a large diff (larger than default 100KB)
+        large_diff = "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 150  # ~150KB
+        max_size = 50000  # 50KB limit
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (large_diff, "", 0)
+
+            result = await github_get_pr_diff.handler({"pr_number": pr_number, "max_size": max_size})
+
+            # Verify command execution
+            mock_run.assert_called_once()
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify truncation
+        assert response_data["truncated"] is True
+        assert "warning" in response_data
+        assert "truncated" in response_data["warning"].lower()
+        assert "original_size_bytes" in response_data
+        assert response_data["original_size_bytes"] == len(large_diff.encode("utf-8"))
+
+        # Verify diff was actually truncated
+        diff_size = len(response_data["diff"].encode("utf-8"))
+        assert diff_size <= max_size
+        original_size = response_data["original_size_bytes"]
+        assert original_size > max_size
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_not_found(self) -> None:
+        """Test error handling when PR doesn't exist (T033).
+
+        Verifies:
+        - NOT_FOUND error code
+        - Proper error message with PR number
+        - Error response structure
+        """
+        pr_number = 999
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "pull request not found", 1)
+
+            result = await github_get_pr_diff.handler({"pr_number": pr_number})
+
+        # Parse error response
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify error response
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "NOT_FOUND"
+        assert f"#{pr_number}" in response_data["message"] or str(pr_number) in response_data["message"]
+        assert "not found" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_utf8_truncation(self) -> None:
+        """Test UTF-8 truncation works correctly with multibyte characters.
+
+        Verifies:
+        - Diff with multibyte UTF-8 characters truncated at byte boundary
+        - No broken characters in truncated output
+        - Proper handling of UTF-8 decoding errors
+        """
+        pr_number = 789
+        # Create diff with multibyte UTF-8 characters (emoji, Chinese, etc.)
+        unicode_diff = "diff --git a/file.py b/file.py\n"
+        unicode_diff += "+# Unicode test: 🚀 火箭 αβγδ " + "x" * 5000 + "\n"
+        unicode_diff += "+# More content: 中文字符 " + "y" * 5000 + "\n"
+
+        # Set max_size to potentially split in the middle of multibyte char
+        max_size = 5100
+
+        with patch("maverick.tools.github._run_gh_command", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (unicode_diff, "", 0)
+
+            result = await github_get_pr_diff.handler({"pr_number": pr_number, "max_size": max_size})
+
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify truncation occurred
+        assert response_data["truncated"] is True
+
+        # Verify the truncated diff is valid UTF-8 (no broken characters)
+        truncated_diff = response_data["diff"]
+        # Should be able to encode back to UTF-8 without errors
+        encoded = truncated_diff.encode("utf-8")
+        assert len(encoded) <= max_size
+
+        # Verify no broken characters by checking we can decode what we encoded
+        assert encoded.decode("utf-8") == truncated_diff
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_invalid_pr_number(self) -> None:
+        """Test invalid pr_number (<=0) returns INVALID_INPUT error.
+
+        Verifies:
+        - Negative PR numbers rejected
+        - Zero PR number rejected
+        - INVALID_INPUT error code
+        - Appropriate error message
+        """
+        # Test with negative number
+        result = await github_get_pr_diff.handler({"pr_number": -1})
+
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+        # Test with zero
+        result = await github_get_pr_diff.handler({"pr_number": 0})
+
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+
+# =============================================================================
 # Cross-Cutting Error Handling Tests
 # =============================================================================
 
@@ -1170,6 +1937,338 @@ class TestErrorHandlingConsistency:
                 # Parse error data - should not raise
                 error_data = json.loads(result["content"][0]["text"])
                 assert "error_code" in error_data or "isError" not in error_data
+
+
+# =============================================================================
+# Timeout and Exception Handling Tests
+# =============================================================================
+
+
+class TestTimeoutAndExceptionHandling:
+    """Tests for timeout and exception handling in _run_gh_command and tools."""
+
+    @pytest.mark.asyncio
+    async def test_run_gh_command_timeout(self) -> None:
+        """Test _run_gh_command handles timeout correctly (lines 65-87)."""
+        import asyncio
+
+        from maverick.tools.github import _run_gh_command
+
+        # Mock process that times out
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.kill = AsyncMock()
+        mock_process.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            with pytest.raises(asyncio.TimeoutError):
+                await _run_gh_command("pr", "list", timeout=0.1)
+
+            # Verify process was killed
+            mock_process.kill.assert_called_once()
+            mock_process.wait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_gh_command_success(self) -> None:
+        """Test _run_gh_command successful execution (lines 83-87)."""
+        from maverick.tools.github import _run_gh_command
+
+        # Mock successful process
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"output data", b""))
+        mock_process.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+
+            # Verify return values
+            assert stdout == "output data"
+            assert stderr == ""
+            assert return_code == 0
+
+    @pytest.mark.asyncio
+    async def test_run_gh_command_error_with_stderr(self) -> None:
+        """Test _run_gh_command with non-zero return code (lines 83-87)."""
+        from maverick.tools.github import _run_gh_command
+
+        # Mock process with error
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
+        mock_process.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+
+            # Verify return values
+            assert stdout == ""
+            assert stderr == "error message"
+            assert return_code == 1
+
+    @pytest.mark.asyncio
+    async def test_run_gh_command_none_returncode(self) -> None:
+        """Test _run_gh_command handles None returncode (lines 85)."""
+        from maverick.tools.github import _run_gh_command
+
+        # Mock process with None returncode
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
+        mock_process.returncode = None
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+
+            # Verify return_code defaults to 0 when None
+            assert return_code == 0
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_timeout(self) -> None:
+        """Test github_create_pr handles timeout error (lines 352-357)."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_create_pr.handler({
+                "title": "Test PR",
+                "body": "Test body",
+                "base": "main",
+                "head": "feature",
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_create_pr_unexpected_exception(self) -> None:
+        """Test github_create_pr handles unexpected exceptions (lines 355-357)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = RuntimeError("Unexpected error")
+
+            result = await github_create_pr.handler({
+                "title": "Test PR",
+                "body": "Test body",
+                "base": "main",
+                "head": "feature",
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+        assert "Unexpected error" in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_list_issues_json_decode_error(self) -> None:
+        """Test github_list_issues handles JSON parse errors (lines 420-422)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # Return invalid JSON
+            mock_run.return_value = ("invalid json {[", "", 0)
+
+            result = await github_list_issues.handler({"state": "open", "limit": 10})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+        assert "parse" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_list_issues_timeout(self) -> None:
+        """Test github_list_issues handles timeout error (lines 423-425)."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_list_issues.handler({"state": "open", "limit": 10})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_list_issues_unexpected_exception(self) -> None:
+        """Test github_list_issues handles unexpected exceptions (lines 426-428)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = ValueError("Unexpected error")
+
+            result = await github_list_issues.handler({"state": "open", "limit": 10})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_github_get_issue_unexpected_exception(self) -> None:
+        """Test github_get_issue handles unexpected exceptions (lines 484-486)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = KeyError("Unexpected error")
+
+            result = await github_get_issue.handler({"issue_number": 42})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_invalid_max_size(self) -> None:
+        """Test github_get_pr_diff validates max_size parameter (line 503)."""
+        result = await github_get_pr_diff.handler({"pr_number": 123, "max_size": 0})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_timeout(self) -> None:
+        """Test github_get_pr_diff handles timeout error (lines 539-541)."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_get_pr_diff.handler({"pr_number": 123})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_get_pr_diff_unexpected_exception(self) -> None:
+        """Test github_get_pr_diff handles unexpected exceptions (lines 542-544)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = IOError("Unexpected error")
+
+            result = await github_get_pr_diff.handler({"pr_number": 123})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_json_decode_error(self) -> None:
+        """Test github_pr_status handles JSON parse errors (lines 635-637)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # Return invalid JSON
+            mock_run.return_value = ("invalid json {[", "", 0)
+
+            result = await github_pr_status.handler({"pr_number": 123})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+        assert "parse" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_timeout(self) -> None:
+        """Test github_pr_status handles timeout error (lines 638-640)."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_pr_status.handler({"pr_number": 123})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_pr_status_unexpected_exception(self) -> None:
+        """Test github_pr_status handles unexpected exceptions (lines 641-643)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = TypeError("Unexpected error")
+
+            result = await github_pr_status.handler({"pr_number": 123})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_timeout(self) -> None:
+        """Test github_add_labels handles timeout error (lines 686-688)."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_add_labels.handler({
+                "issue_number": 100,
+                "labels": ["bug"],
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_add_labels_unexpected_exception(self) -> None:
+        """Test github_add_labels handles unexpected exceptions (lines 689-691)."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = OSError("Unexpected error")
+
+            result = await github_add_labels.handler({
+                "issue_number": 100,
+                "labels": ["bug"],
+            })
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
 
 
 # =============================================================================
@@ -1585,3 +2684,444 @@ class TestVerifyPrerequisites:
 
             assert exc_info.value.check_failed == "gh_installed"
             assert "timed out" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_prerequisites_git_not_installed(self) -> None:
+        """Test git not found (FileNotFoundError)."""
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import _verify_prerequisites
+
+        call_count = 0
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            """Mock subprocess: gh succeeds, git fails with FileNotFoundError."""
+            nonlocal call_count
+            call_count += 1
+
+            mock_process = AsyncMock()
+            command = args[0]
+
+            if command == "gh":
+                # gh --version succeeds
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
+                mock_process.returncode = 0
+                return mock_process
+            elif command == "git":
+                # git not found
+                raise FileNotFoundError("git command not found")
+
+            return mock_process
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_subprocess_exec,
+        ), patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+            return_value=("Logged in as user", "", 0),
+        ):
+            with pytest.raises(GitHubToolsError) as exc_info:
+                await _verify_prerequisites()
+
+            assert exc_info.value.check_failed == "git_installed"
+            assert "git" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_prerequisites_git_timeout(self) -> None:
+        """Test git rev-parse times out."""
+        import asyncio
+
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import _verify_prerequisites
+
+        call_count = 0
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            """Mock subprocess: gh succeeds, git rev-parse times out."""
+            nonlocal call_count
+            call_count += 1
+
+            mock_process = AsyncMock()
+            command = args[0]
+
+            if command == "gh":
+                # gh --version succeeds
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
+                mock_process.returncode = 0
+            elif command == "git" and "rev-parse" in args:
+                # git rev-parse times out
+                mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            else:
+                # Other commands succeed
+                mock_process.communicate = AsyncMock(return_value=(b"", b""))
+                mock_process.returncode = 0
+
+            return mock_process
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_subprocess_exec,
+        ), patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+            return_value=("Logged in as user", "", 0),
+        ):
+            with pytest.raises(GitHubToolsError) as exc_info:
+                await _verify_prerequisites()
+
+            assert exc_info.value.check_failed == "git_repo"
+            assert "timed out" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_prerequisites_git_remote_timeout(self) -> None:
+        """Test git remote get-url times out."""
+        import asyncio
+
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import _verify_prerequisites
+
+        call_count = 0
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            """Mock subprocess: gh and git rev-parse succeed, git remote times out."""
+            nonlocal call_count
+            call_count += 1
+
+            mock_process = AsyncMock()
+            command = args[0]
+
+            if command == "gh":
+                # gh --version succeeds
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
+                mock_process.returncode = 0
+            elif command == "git" and "remote" in args and "get-url" in args:
+                # git remote get-url origin times out
+                mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            else:
+                # Other commands succeed
+                mock_process.communicate = AsyncMock(return_value=(b"", b""))
+                mock_process.returncode = 0
+
+            return mock_process
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_subprocess_exec,
+        ), patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+            return_value=("Logged in as user", "", 0),
+        ):
+            with pytest.raises(GitHubToolsError) as exc_info:
+                await _verify_prerequisites()
+
+            assert exc_info.value.check_failed == "git_remote"
+            assert "timed out" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_prerequisites_gh_returncode_nonzero(self) -> None:
+        """Test gh --version returns non-zero exit code."""
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import _verify_prerequisites
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            """Mock subprocess that returns non-zero for gh --version."""
+            mock_process = AsyncMock()
+            mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
+            mock_process.returncode = 1
+            return mock_process
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_subprocess_exec,
+        ):
+            with pytest.raises(GitHubToolsError) as exc_info:
+                await _verify_prerequisites()
+
+            assert exc_info.value.check_failed == "gh_installed"
+            assert "gh" in str(exc_info.value).lower()
+
+
+# =============================================================================
+# create_github_tools_server Tests (T008)
+# =============================================================================
+
+
+class TestCreateGitHubToolsServer:
+    """Tests for create_github_tools_server factory function (T008)."""
+
+    def test_create_github_tools_server_skip_verification(self) -> None:
+        """Test create_github_tools_server with skip_verification=True."""
+        from maverick.tools.github import create_github_tools_server
+
+        # Should succeed without checking prerequisites
+        server = create_github_tools_server(skip_verification=True)
+
+        # Verify server is created
+        assert server is not None
+
+    def test_create_github_tools_server_async_context_error(self) -> None:
+        """Test create_github_tools_server raises error when called from async context (lines 785-816)."""
+        import asyncio
+
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import create_github_tools_server
+
+        async def async_caller():
+            """Try to call create_github_tools_server from async context."""
+            # Should raise GitHubToolsError because we're in async context
+            with pytest.raises(GitHubToolsError) as exc_info:
+                create_github_tools_server(skip_verification=False)
+
+            # Verify error details
+            assert exc_info.value.check_failed == "async_context"
+            assert "async context" in str(exc_info.value).lower()
+            assert "skip_verification=True" in str(exc_info.value)
+
+        # Run the async test
+        asyncio.run(async_caller())
+
+    def test_create_github_tools_server_with_verification_success(self) -> None:
+        """Test create_github_tools_server runs verification when not skipped."""
+        from maverick.tools.github import create_github_tools_server
+
+        # Mock successful subprocess calls
+        async def mock_subprocess_exec(*args, **kwargs):
+            """Mock successful subprocess execution."""
+            mock_process = AsyncMock()
+            mock_process.communicate = AsyncMock(return_value=(b"", b""))
+            mock_process.returncode = 0
+            return mock_process
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_subprocess_exec,
+        ), patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+            return_value=("Logged in as user", "", 0),
+        ):
+            # Should succeed when prerequisites are met
+            server = create_github_tools_server(skip_verification=False)
+            assert server is not None
+
+    def test_create_github_tools_server_with_verification_failure(self) -> None:
+        """Test create_github_tools_server raises error when prerequisites fail."""
+        from maverick.exceptions import GitHubToolsError
+        from maverick.tools.github import create_github_tools_server
+
+        # Mock failed gh CLI check
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=FileNotFoundError("gh command not found"),
+        ):
+            with pytest.raises(GitHubToolsError) as exc_info:
+                create_github_tools_server(skip_verification=False)
+
+            assert exc_info.value.check_failed == "gh_installed"
+
+
+# =============================================================================
+# github_close_issue Tests (T042-T044)
+# =============================================================================
+
+
+class TestGitHubCloseIssue:
+    """Tests for github_close_issue tool (T042-T044)."""
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_with_comment(self) -> None:
+        """Test closing issue with a comment (T042).
+
+        Verifies:
+        - Issue successfully closed with comment
+        - Success response with correct fields
+        - gh command called with comment argument
+        """
+        issue_number = 123
+        comment = "Fixed in PR #456"
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_close_issue.handler({
+                "issue_number": issue_number,
+                "comment": comment,
+            })
+
+        # Verify gh command called with correct arguments
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0]
+        assert "issue" in call_args
+        assert "close" in call_args
+        assert str(issue_number) in call_args
+        assert "--comment" in call_args
+        assert comment in call_args
+
+        # Verify response structure
+        assert "content" in result
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify success response fields
+        assert response_data["success"] is True
+        assert response_data["issue_number"] == issue_number
+        assert response_data["state"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_without_comment(self) -> None:
+        """Test closing issue without providing a comment (T043).
+
+        Verifies:
+        - Issue successfully closed without comment
+        - gh command called without comment argument
+        - Success response with correct fields
+        """
+        issue_number = 789
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = ("", "", 0)
+
+            result = await github_close_issue.handler({
+                "issue_number": issue_number,
+            })
+
+        # Verify gh command called without comment
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0]
+        assert "issue" in call_args
+        assert "close" in call_args
+        assert str(issue_number) in call_args
+        assert "--comment" not in call_args
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify success response
+        assert response_data["success"] is True
+        assert response_data["issue_number"] == issue_number
+        assert response_data["state"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_already_closed(self) -> None:
+        """Test closing an already-closed issue is idempotent (T044).
+
+        Verifies:
+        - Already-closed issues return success (not error)
+        - Response indicates closed state
+        - Idempotent behavior
+        """
+        issue_number = 456
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # Mock gh CLI response when issue is already closed
+            mock_run.return_value = ("", "issue is already closed", 1)
+
+            result = await github_close_issue.handler({
+                "issue_number": issue_number,
+            })
+
+        # Verify gh command was called
+        mock_run.assert_called_once()
+
+        # Parse response data
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify idempotent success response (not an error)
+        assert response_data["success"] is True
+        assert response_data["issue_number"] == issue_number
+        assert response_data["state"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_invalid_number(self) -> None:
+        """Test closing issue with invalid issue number returns error.
+
+        Verifies:
+        - Invalid issue_number (<=0) returns INVALID_INPUT error
+        - No gh command executed
+        """
+        result = await github_close_issue.handler({"issue_number": 0})
+
+        # Parse error response
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify error response
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INVALID_INPUT"
+        assert "positive" in response_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_not_found(self) -> None:
+        """Test closing non-existent issue returns NOT_FOUND error.
+
+        Verifies:
+        - Issue not found (404) returns NOT_FOUND error
+        - Error message includes issue number
+        """
+        issue_number = 999
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # Mock gh CLI response for non-existent issue
+            mock_run.return_value = ("", "issue not found", 1)
+
+            result = await github_close_issue.handler({
+                "issue_number": issue_number,
+            })
+
+        # Parse error response
+        response_data = json.loads(result["content"][0]["text"])
+
+        # Verify error response
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "NOT_FOUND"
+        assert str(issue_number) in response_data["message"]
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_timeout(self) -> None:
+        """Test github_close_issue handles timeout error."""
+        import asyncio
+
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+
+            result = await github_close_issue.handler({"issue_number": 100})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_github_close_issue_unexpected_exception(self) -> None:
+        """Test github_close_issue handles unexpected exceptions."""
+        with patch(
+            "maverick.tools.github._run_gh_command",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = Exception("Unexpected error")
+
+            result = await github_close_issue.handler({"issue_number": 100})
+
+        # Verify error response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["isError"] is True
+        assert response_data["error_code"] == "INTERNAL_ERROR"
+        assert "Unexpected error" in response_data["message"]

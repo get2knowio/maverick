@@ -439,7 +439,7 @@ class GitHubError(AgentError):
         super().__init__(message)
 
 
-class GitHubToolsError(MaverickError):
+class GitHubToolsError(AgentError):
     """Exception for GitHub MCP tools initialization failures.
 
     Raised when the GitHub tools MCP server cannot be created due to missing
