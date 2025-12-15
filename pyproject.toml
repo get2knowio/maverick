@@ -74,6 +74,9 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports are OK in __init__.py (re-exports)
+
 [tool.mypy]
 strict = true
 python_version = "3.10"

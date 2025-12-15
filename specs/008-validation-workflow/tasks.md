@@ -19,9 +19,9 @@
 
 **Purpose**: Project initialization and test infrastructure
 
-- [ ] T001 Create `src/maverick/models/__init__.py` if not exists and add validation exports
-- [ ] T002 Create `tests/unit/workflows/__init__.py` for workflow unit tests
-- [ ] T003 Create `tests/integration/workflows/__init__.py` for workflow integration tests
+- [X] T001 Create `src/maverick/models/__init__.py` if not exists and add validation exports
+- [X] T002 Create `tests/unit/workflows/__init__.py` for workflow unit tests
+- [X] T003 Create `tests/integration/workflows/__init__.py` for workflow integration tests
 
 ---
 
@@ -31,16 +31,16 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement `StageStatus` enum in `src/maverick/models/validation.py`
-- [ ] T005 Implement `ValidationStage` Pydantic model in `src/maverick/models/validation.py`
-- [ ] T006 Implement `StageResult` Pydantic model with computed properties in `src/maverick/models/validation.py`
-- [ ] T007 Implement `ValidationWorkflowResult` Pydantic model with computed properties in `src/maverick/models/validation.py`
-- [ ] T008 Implement `ValidationWorkflowConfig` Pydantic model in `src/maverick/models/validation.py`
-- [ ] T009 Implement `ProgressUpdate` dataclass in `src/maverick/models/validation.py`
-- [ ] T010 Implement `DEFAULT_PYTHON_STAGES` constant in `src/maverick/models/validation.py`
-- [ ] T011 Export all models from `src/maverick/models/__init__.py`
-- [ ] T012 Create `ValidationWorkflow` class skeleton with constructor in `src/maverick/workflows/validation.py`
-- [ ] T013 Export `ValidationWorkflow` from `src/maverick/workflows/__init__.py`
+- [X] T004 Implement `StageStatus` enum in `src/maverick/models/validation.py`
+- [X] T005 Implement `ValidationStage` Pydantic model in `src/maverick/models/validation.py`
+- [X] T006 Implement `StageResult` Pydantic model with computed properties in `src/maverick/models/validation.py`
+- [X] T007 Implement `ValidationWorkflowResult` Pydantic model with computed properties in `src/maverick/models/validation.py`
+- [X] T008 Implement `ValidationWorkflowConfig` Pydantic model in `src/maverick/models/validation.py`
+- [X] T009 Implement `ProgressUpdate` dataclass in `src/maverick/models/validation.py`
+- [X] T010 Implement `DEFAULT_PYTHON_STAGES` constant in `src/maverick/models/validation.py`
+- [X] T011 Export all models from `src/maverick/models/__init__.py`
+- [X] T012 Create `ValidationWorkflow` class skeleton with constructor in `src/maverick/workflows/validation.py`
+- [X] T013 Export `ValidationWorkflow` from `src/maverick/workflows/__init__.py`
 
 **Checkpoint**: Foundation ready - all models defined and workflow class skeleton exists
 
@@ -56,27 +56,27 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T014 [P] [US1] Unit test: workflow executes stages in configured order in `tests/unit/workflows/test_validation.py`
-- [ ] T015 [P] [US1] Unit test: stage passes on first attempt in `tests/unit/workflows/test_validation.py`
-- [ ] T016 [P] [US1] Unit test: fix agent invoked when fixable stage fails in `tests/unit/workflows/test_validation.py`
-- [ ] T017 [P] [US1] Unit test: stage retried after fix attempt in `tests/unit/workflows/test_validation.py`
-- [ ] T018 [P] [US1] Unit test: stage marked FIXED when passes after fix in `tests/unit/workflows/test_validation.py`
-- [ ] T019 [P] [US1] Unit test: stage marked FAILED after exhausting fix attempts in `tests/unit/workflows/test_validation.py`
-- [ ] T020 [P] [US1] Unit test: non-fixable stage not retried on failure in `tests/unit/workflows/test_validation.py`
-- [ ] T021 [P] [US1] Unit test: workflow continues to next stage after failure in `tests/unit/workflows/test_validation.py`
-- [ ] T022 [P] [US1] Unit test: workflow reports overall success when all stages pass in `tests/unit/workflows/test_validation.py`
-- [ ] T023 [P] [US1] Unit test: command not found fails stage immediately in `tests/unit/workflows/test_validation.py`
-- [ ] T023a [P] [US1] Unit test: command timeout fails stage immediately in `tests/unit/workflows/test_validation.py`
+- [X] T014 [P] [US1] Unit test: workflow executes stages in configured order in `tests/unit/workflows/test_validation.py`
+- [X] T015 [P] [US1] Unit test: stage passes on first attempt in `tests/unit/workflows/test_validation.py`
+- [X] T016 [P] [US1] Unit test: fix agent invoked when fixable stage fails in `tests/unit/workflows/test_validation.py`
+- [X] T017 [P] [US1] Unit test: stage retried after fix attempt in `tests/unit/workflows/test_validation.py`
+- [X] T018 [P] [US1] Unit test: stage marked FIXED when passes after fix in `tests/unit/workflows/test_validation.py`
+- [X] T019 [P] [US1] Unit test: stage marked FAILED after exhausting fix attempts in `tests/unit/workflows/test_validation.py`
+- [X] T020 [P] [US1] Unit test: non-fixable stage not retried on failure in `tests/unit/workflows/test_validation.py`
+- [X] T021 [P] [US1] Unit test: workflow continues to next stage after failure in `tests/unit/workflows/test_validation.py`
+- [X] T022 [P] [US1] Unit test: workflow reports overall success when all stages pass in `tests/unit/workflows/test_validation.py`
+- [X] T023 [P] [US1] Unit test: command not found fails stage immediately in `tests/unit/workflows/test_validation.py`
+- [X] T023a [P] [US1] Unit test: command timeout fails stage immediately in `tests/unit/workflows/test_validation.py`
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement `_execute_command()` async method for subprocess execution in `src/maverick/workflows/validation.py`
-- [ ] T025 [US1] Implement `_run_stage()` method for single stage execution with retry logic in `src/maverick/workflows/validation.py`
-- [ ] T026 [US1] Implement `_invoke_fix_agent()` method for fix agent integration in `src/maverick/workflows/validation.py`
-- [ ] T027 [US1] Implement `run()` async generator method for workflow orchestration in `src/maverick/workflows/validation.py`
-- [ ] T028 [US1] Implement `get_result()` method to return final `ValidationWorkflowResult` in `src/maverick/workflows/validation.py`
-- [ ] T029 [US1] Handle edge case: max_fix_attempts=0 treated as non-fixable in `src/maverick/workflows/validation.py`
-- [ ] T030 [US1] Handle edge case: fix agent produces no changes (count as attempt) in `src/maverick/workflows/validation.py`
+- [X] T024 [US1] Implement `_execute_command()` async method for subprocess execution in `src/maverick/workflows/validation.py`
+- [X] T025 [US1] Implement `_run_stage()` method for single stage execution with retry logic in `src/maverick/workflows/validation.py`
+- [X] T026 [US1] Implement `_invoke_fix_agent()` method for fix agent integration in `src/maverick/workflows/validation.py`
+- [X] T027 [US1] Implement `run()` async generator method for workflow orchestration in `src/maverick/workflows/validation.py`
+- [X] T028 [US1] Implement `get_result()` method to return final `ValidationWorkflowResult` in `src/maverick/workflows/validation.py`
+- [X] T029 [US1] Handle edge case: max_fix_attempts=0 treated as non-fixable in `src/maverick/workflows/validation.py`
+- [X] T030 [US1] Handle edge case: fix agent produces no changes (count as attempt) in `src/maverick/workflows/validation.py`
 
 **Checkpoint**: User Story 1 complete - workflow executes stages with fix agent integration
 
@@ -90,17 +90,17 @@
 
 ### Tests for User Story 2
 
-- [ ] T031 [P] [US2] Unit test: progress update emitted when stage begins in `tests/unit/workflows/test_validation.py`
-- [ ] T032 [P] [US2] Unit test: progress update includes fix attempt number in `tests/unit/workflows/test_validation.py`
-- [ ] T033 [P] [US2] Unit test: progress update emitted on stage completion in `tests/unit/workflows/test_validation.py`
-- [ ] T034 [P] [US2] Unit test: timestamp included in progress updates in `tests/unit/workflows/test_validation.py`
+- [X] T031 [P] [US2] Unit test: progress update emitted when stage begins in `tests/unit/workflows/test_validation.py`
+- [X] T032 [P] [US2] Unit test: progress update includes fix attempt number in `tests/unit/workflows/test_validation.py`
+- [X] T033 [P] [US2] Unit test: progress update emitted on stage completion in `tests/unit/workflows/test_validation.py`
+- [X] T034 [P] [US2] Unit test: timestamp included in progress updates in `tests/unit/workflows/test_validation.py`
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Yield `ProgressUpdate(status=IN_PROGRESS)` at stage start in `src/maverick/workflows/validation.py`
-- [ ] T036 [US2] Yield `ProgressUpdate` with fix_attempt number during fix cycles in `src/maverick/workflows/validation.py`
-- [ ] T037 [US2] Yield `ProgressUpdate` with final status on stage completion in `src/maverick/workflows/validation.py`
-- [ ] T038 [US2] Ensure progress updates emitted within 1 second of status changes (SC-003) in `src/maverick/workflows/validation.py`
+- [X] T035 [US2] Yield `ProgressUpdate(status=IN_PROGRESS)` at stage start in `src/maverick/workflows/validation.py`
+- [X] T036 [US2] Yield `ProgressUpdate` with fix_attempt number during fix cycles in `src/maverick/workflows/validation.py`
+- [X] T037 [US2] Yield `ProgressUpdate` with final status on stage completion in `src/maverick/workflows/validation.py`
+- [X] T038 [US2] Ensure progress updates emitted within 1 second of status changes (SC-003) in `src/maverick/workflows/validation.py`
 
 **Checkpoint**: User Story 2 complete - progress updates stream to TUI consumer
 
@@ -114,18 +114,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T039 [P] [US3] Unit test: custom commands used instead of defaults in `tests/unit/workflows/test_validation.py`
-- [ ] T040 [P] [US3] Unit test: stage marked non-fixable skips fix agent in `tests/unit/workflows/test_validation.py`
-- [ ] T041 [P] [US3] Unit test: max_fix_attempts respected in retry loop in `tests/unit/workflows/test_validation.py`
-- [ ] T042 [P] [US3] Unit test: timeout_seconds enforced per command in `tests/unit/workflows/test_validation.py`
+- [X] T039 [P] [US3] Unit test: custom commands used instead of defaults in `tests/unit/workflows/test_validation.py`
+- [X] T040 [P] [US3] Unit test: stage marked non-fixable skips fix agent in `tests/unit/workflows/test_validation.py`
+- [X] T041 [P] [US3] Unit test: max_fix_attempts respected in retry loop in `tests/unit/workflows/test_validation.py`
+- [X] T042 [P] [US3] Unit test: timeout_seconds enforced per command in `tests/unit/workflows/test_validation.py`
 
 ### Implementation for User Story 3
 
-- [ ] T043 [US3] Use `ValidationStage.command` for subprocess execution in `src/maverick/workflows/validation.py`
-- [ ] T044 [US3] Check `ValidationStage.is_fixable` property before invoking fix agent in `src/maverick/workflows/validation.py`
-- [ ] T045 [US3] Enforce `ValidationStage.timeout_seconds` in command execution in `src/maverick/workflows/validation.py`
-- [ ] T046 [US3] Use `ValidationWorkflowConfig.cwd` as working directory in `src/maverick/workflows/validation.py`
-- [ ] T047 [US3] Support `ValidationWorkflowConfig.stop_on_failure` option in `src/maverick/workflows/validation.py`
+- [X] T043 [US3] Use `ValidationStage.command` for subprocess execution in `src/maverick/workflows/validation.py`
+- [X] T044 [US3] Check `ValidationStage.is_fixable` property before invoking fix agent in `src/maverick/workflows/validation.py`
+- [X] T045 [US3] Enforce `ValidationStage.timeout_seconds` in command execution in `src/maverick/workflows/validation.py`
+- [X] T046 [US3] Use `ValidationWorkflowConfig.cwd` as working directory in `src/maverick/workflows/validation.py`
+- [X] T047 [US3] Support `ValidationWorkflowConfig.stop_on_failure` option in `src/maverick/workflows/validation.py`
 
 **Checkpoint**: User Story 3 complete - custom configuration fully supported
 
@@ -139,15 +139,15 @@
 
 ### Tests for User Story 4
 
-- [ ] T048 [P] [US4] Unit test: dry-run mode does not execute commands in `tests/unit/workflows/test_validation.py`
-- [ ] T049 [P] [US4] Unit test: dry-run reports planned commands in progress updates in `tests/unit/workflows/test_validation.py`
-- [ ] T050 [P] [US4] Unit test: dry-run returns success result in `tests/unit/workflows/test_validation.py`
+- [X] T048 [P] [US4] Unit test: dry-run mode does not execute commands in `tests/unit/workflows/test_validation.py`
+- [X] T049 [P] [US4] Unit test: dry-run reports planned commands in progress updates in `tests/unit/workflows/test_validation.py`
+- [X] T050 [P] [US4] Unit test: dry-run returns success result in `tests/unit/workflows/test_validation.py`
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Check `config.dry_run` flag before command execution in `src/maverick/workflows/validation.py`
-- [ ] T052 [US4] Yield progress updates showing planned commands in dry-run mode in `src/maverick/workflows/validation.py`
-- [ ] T053 [US4] Return successful result with dry_run=True in metadata in `src/maverick/workflows/validation.py`
+- [X] T051 [US4] Check `config.dry_run` flag before command execution in `src/maverick/workflows/validation.py`
+- [X] T052 [US4] Yield progress updates showing planned commands in dry-run mode in `src/maverick/workflows/validation.py`
+- [X] T053 [US4] Return successful result with dry_run=True in metadata in `src/maverick/workflows/validation.py`
 
 **Checkpoint**: User Story 4 complete - dry-run mode previews without execution
 
@@ -161,20 +161,20 @@
 
 ### Tests for User Story 5
 
-- [ ] T054 [P] [US5] Unit test: cancel() sets cancellation flag in `tests/unit/workflows/test_validation.py`
-- [ ] T055 [P] [US5] Unit test: workflow stops at earliest safe point after cancel in `tests/unit/workflows/test_validation.py`
-- [ ] T056 [P] [US5] Unit test: partial results available after cancellation in `tests/unit/workflows/test_validation.py`
-- [ ] T057 [P] [US5] Unit test: remaining stages marked CANCELLED in `tests/unit/workflows/test_validation.py`
-- [ ] T058 [P] [US5] Unit test: cancellation within 5 seconds (SC-005) in `tests/unit/workflows/test_validation.py`
+- [X] T054 [P] [US5] Unit test: cancel() sets cancellation flag in `tests/unit/workflows/test_validation.py`
+- [X] T055 [P] [US5] Unit test: workflow stops at earliest safe point after cancel in `tests/unit/workflows/test_validation.py`
+- [X] T056 [P] [US5] Unit test: partial results available after cancellation in `tests/unit/workflows/test_validation.py`
+- [X] T057 [P] [US5] Unit test: remaining stages marked CANCELLED in `tests/unit/workflows/test_validation.py`
+- [X] T058 [P] [US5] Unit test: cancellation within 5 seconds (SC-005) in `tests/unit/workflows/test_validation.py`
 
 ### Implementation for User Story 5
 
-- [ ] T059 [US5] Initialize `asyncio.Event` for cancellation in constructor in `src/maverick/workflows/validation.py`
-- [ ] T060 [US5] Implement `cancel()` method to set cancellation event in `src/maverick/workflows/validation.py`
-- [ ] T061 [US5] Check cancellation flag between stages in `run()` method in `src/maverick/workflows/validation.py`
-- [ ] T062 [US5] Check cancellation flag between fix attempts in `src/maverick/workflows/validation.py`
-- [ ] T063 [US5] Mark remaining stages as CANCELLED when stopping in `src/maverick/workflows/validation.py`
-- [ ] T064 [US5] Set `cancelled=True` in `ValidationWorkflowResult` in `src/maverick/workflows/validation.py`
+- [X] T059 [US5] Initialize `asyncio.Event` for cancellation in constructor in `src/maverick/workflows/validation.py`
+- [X] T060 [US5] Implement `cancel()` method to set cancellation event in `src/maverick/workflows/validation.py`
+- [X] T061 [US5] Check cancellation flag between stages in `run()` method in `src/maverick/workflows/validation.py`
+- [X] T062 [US5] Check cancellation flag between fix attempts in `src/maverick/workflows/validation.py`
+- [X] T063 [US5] Mark remaining stages as CANCELLED when stopping in `src/maverick/workflows/validation.py`
+- [X] T064 [US5] Set `cancelled=True` in `ValidationWorkflowResult` in `src/maverick/workflows/validation.py`
 
 **Checkpoint**: User Story 5 complete - cancellation works with partial results
 
@@ -184,12 +184,12 @@
 
 **Purpose**: Factory functions, integration tests, and final validation
 
-- [ ] T065 [P] Implement `create_python_workflow()` factory function in `src/maverick/workflows/validation.py`
-- [ ] T066 [P] Integration test: full workflow with real ruff commands in `tests/integration/workflows/test_validation_e2e.py`
-- [ ] T067 [P] Integration test: workflow with mock fix agent in `tests/integration/workflows/test_validation_e2e.py`
-- [ ] T068 Run `quickstart.md` examples to validate API usage
-- [ ] T069 Verify all FR requirements met (FR-001 to FR-018)
-- [ ] T070 Verify all SC success criteria met (SC-001 to SC-007)
+- [X] T065 [P] Implement `create_python_workflow()` factory function in `src/maverick/workflows/validation.py`
+- [X] T066 [P] Integration test: full workflow with real ruff commands in `tests/integration/workflows/test_validation_e2e.py`
+- [X] T067 [P] Integration test: workflow with mock fix agent in `tests/integration/workflows/test_validation_e2e.py`
+- [X] T068 Run `quickstart.md` examples to validate API usage
+- [X] T069 Verify all FR requirements met (FR-001 to FR-018)
+- [X] T070 Verify all SC success criteria met (SC-001 to SC-007)
 
 ---
 
