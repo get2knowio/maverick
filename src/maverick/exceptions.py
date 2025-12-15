@@ -439,6 +439,32 @@ class GitHubError(AgentError):
         super().__init__(message)
 
 
+class GitHubToolsError(AgentError):
+    """Exception for GitHub MCP tools initialization failures.
+
+    Raised when the GitHub tools MCP server cannot be created due to missing
+    prerequisites (gh CLI not installed, not authenticated, not in git repo).
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific prerequisite check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the GitHubToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific prerequisite check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
 class MaverickValidationError(AgentError):
     """Exception for validation failures (format, lint, test).
 
