@@ -25,3 +25,41 @@ except ImportError as e:
         logger.debug("Validation workflow not yet available")
     else:
         raise  # Re-raise unexpected import errors
+
+try:
+    from maverick.workflows.fly import (
+        FlyWorkflow,
+        FlyConfig,
+        FlyInputs,
+        FlyResult,
+        WorkflowStage,
+        WorkflowState,
+        FlyWorkflowStarted,
+        FlyStageStarted,
+        FlyStageCompleted,
+        FlyWorkflowCompleted,
+        FlyWorkflowFailed,
+        FlyProgressEvent,
+    )
+
+    __all__.extend(
+        [
+            "FlyWorkflow",
+            "FlyConfig",
+            "FlyInputs",
+            "FlyResult",
+            "WorkflowStage",
+            "WorkflowState",
+            "FlyWorkflowStarted",
+            "FlyStageStarted",
+            "FlyStageCompleted",
+            "FlyWorkflowCompleted",
+            "FlyWorkflowFailed",
+            "FlyProgressEvent",
+        ]
+    )
+except ImportError as e:
+    if "fly" in str(e).lower():
+        logger.debug("Fly workflow not yet available")
+    else:
+        raise  # Re-raise unexpected import errors
