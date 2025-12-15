@@ -1,19 +1,16 @@
 <!--
 Sync Impact Report
 ==================
-Version change: N/A (initial) → 1.0.0
+Version change: 1.0.0 → 1.1.0
+Modified principles:
+  - IV. Fail Gracefully → Enhanced with forward progress mandate
 Added sections:
-  - Core Principles (7 principles)
-  - Technology Stack
-  - Code Style & Conventions
-  - Claude Agent SDK Patterns
-  - File Organization
-  - Governance
-Removed sections: None (initial creation)
+  - VIII. Relentless Progress (new principle for autonomous operation)
+Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
-  - .specify/templates/tasks-template.md: ✅ Compatible (test-first guidance aligns with principles)
+  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with new resilience principle)
 Follow-up TODOs: None
 -->
 
@@ -60,17 +57,22 @@ Agents and workflows MUST receive configuration and dependencies, not access glo
 **Rationale**: Dependency injection enables testing with mocks and makes dependencies
 explicit rather than hidden.
 
-### IV. Fail Gracefully
+### IV. Fail Gracefully, Recover Aggressively
 
-One agent or issue failing MUST NOT crash the entire workflow.
+One agent or issue failing MUST NOT crash the entire workflow. The system MUST prioritize
+forward progress over early termination.
 
-- Always capture and report errors with context before re-raising or wrapping
-- Provide actionable error messages that help users understand what went wrong
+- Always capture and report errors with context before attempting recovery
+- Retry failed operations with exponential backoff (default: 3 attempts)
+- Provide actionable error messages that help diagnose what went wrong
 - Use structured error types from the exception hierarchy
 - Log errors with sufficient context for debugging
+- Continue processing remaining work items even when some fail
+- Aggregate partial results rather than discarding successful work
 
 **Rationale**: Parallel agent execution means partial success is valuable. Users should
-get results from successful operations even when some fail.
+get results from successful operations even when some fail. Unattended operation requires
+the system to recover from transient failures without human intervention.
 
 ### V. Test-First
 
@@ -112,6 +114,31 @@ Avoid over-engineering. Start simple and add complexity only when justified.
 
 **Rationale**: YAGNI (You Aren't Gonna Need It). Simple code is easier to understand,
 test, and maintain.
+
+### VIII. Relentless Progress
+
+The system MUST make forward progress at all costs during unattended operation. This is
+the paramount principle for autonomous agent orchestration.
+
+- **Never give up silently**: Exhaust all recovery options before failing a task
+- **Checkpoint state**: Persist progress after each significant operation to enable resumption
+- **Degrade gracefully**: When optimal paths fail, fall back to slower but reliable alternatives
+- **Isolate failures**: One task's failure MUST NOT block unrelated tasks from proceeding
+- **Auto-recover external dependencies**: Retry with backoff for GitHub API, git operations,
+  and other external services (default: 3 attempts with exponential backoff)
+- **Preserve partial work**: Commit completed work before attempting risky operations
+- **Log for resumption**: Record sufficient state to allow manual or automatic retry
+
+Recovery hierarchy (in order of preference):
+1. Retry the exact operation with backoff
+2. Try an alternative approach to achieve the same goal
+3. Skip the failing component and continue with remaining work
+4. Checkpoint state and surface actionable error for user intervention
+
+**Rationale**: Maverick operates unattended for extended periods. Human intervention is
+expensive and slow. The system must be resilient to transient failures, network issues,
+API rate limits, and unexpected errors. Forward progress is more valuable than early
+termination with a clean error message.
 
 ## Technology Stack
 
@@ -219,4 +246,4 @@ MUST comply with these principles.
 - Complexity deviations MUST be justified in PR descriptions
 - Use `.specify/memory/constitution.md` as the authoritative reference
 
-**Version**: 1.0.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-12
+**Version**: 1.1.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-14
