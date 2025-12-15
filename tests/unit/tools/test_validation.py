@@ -34,14 +34,26 @@ from maverick.tools.validation import (
     _run_command_with_timeout,
     _success_response,
     create_validation_tools_server,
-    parse_validation_output,
-    run_validation,
 )
 
 
 # =============================================================================
 # Test Fixtures (T073)
 # =============================================================================
+
+
+def _get_tools_from_server(server: dict[str, Any]) -> tuple[Any, Any]:
+    """Extract run_validation and parse_validation_output tools from server.
+
+    Args:
+        server: MCP server dict returned by create_validation_tools_server.
+
+    Returns:
+        Tuple of (run_validation, parse_validation_output) tools.
+    """
+    # Access the tool references stored on the server for testing
+    tools = server["_tools"]
+    return tools["run_validation"], tools["parse_validation_output"]
 
 
 @pytest.fixture
@@ -269,9 +281,12 @@ class TestRunValidation:
             return_value=(b"All checks passed", b"")
         )
 
+        # Create server with config - tools are created via closure
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler({"types": ["format", "lint"]})
+            response = await run_validation.handler({"types": ["format", "lint"]})
 
         # Parse response
         response_data = json.loads(response["content"][0]["text"])
@@ -295,9 +310,11 @@ class TestRunValidation:
             return_value=(b"E501 Line too long", b"")
         )
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler({"types": ["lint"]})
+            response = await run_validation.handler({"types": ["lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -319,9 +336,11 @@ class TestRunValidation:
         ])
         mock_process.kill = Mock()
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler({"types": ["test"]})
+            response = await run_validation.handler({"types": ["test"]})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -332,8 +351,10 @@ class TestRunValidation:
     @pytest.mark.asyncio
     async def test_run_validation_invalid_type(self, validation_config: ValidationConfig) -> None:
         """Test validation with invalid type returns error."""
-        with patch("maverick.tools.validation._config", validation_config):
-            response = await run_validation.handler({"types": ["invalid_type"]})
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
+        response = await run_validation.handler({"types": ["invalid_type"]})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -344,8 +365,10 @@ class TestRunValidation:
     @pytest.mark.asyncio
     async def test_run_validation_empty_types(self, validation_config: ValidationConfig) -> None:
         """Test validation with empty types list returns success."""
-        with patch("maverick.tools.validation._config", validation_config):
-            response = await run_validation.handler({"types": []})
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
+        response = await run_validation.handler({"types": []})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -360,11 +383,13 @@ class TestRunValidation:
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(return_value=(b"success", b""))
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler(
-                    {"types": ["format", "lint", "typecheck", "test"]}
-                )
+            response = await run_validation.handler(
+                {"types": ["format", "lint", "typecheck", "test"]}
+            )
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -376,17 +401,32 @@ class TestRunValidation:
         self, validation_config: ValidationConfig
     ) -> None:
         """Test validation when no command is configured for type."""
-        # Mock the config to have None for format_cmd
-        mock_config = Mock(spec=ValidationConfig)
-        mock_config.format_cmd = None
-        mock_config.lint_cmd = ["ruff", "check", "."]
-        mock_config.typecheck_cmd = ["mypy", "."]
-        mock_config.test_cmd = ["pytest"]
-        mock_config.project_root = validation_config.project_root
-        mock_config.timeout = 300.0
+        # Create a config, then manually set format_cmd to None to test the None check
+        server = create_validation_tools_server(config=validation_config)
 
-        with patch("maverick.tools.validation._config", mock_config):
-            response = await run_validation.handler({"types": ["format"]})
+        # Manually patch the _config inside the closure to have None for format_cmd
+        # This tests the defensive None check in the tool code
+        # We'll do this by creating a new server with modified closure state
+        # Actually, we can't easily modify closure state, so let's test this differently
+        # by testing a validation type that maps to None in type_to_cmd
+
+        # Instead, let's test "build" which is an alias for typecheck
+        # If typecheck_cmd is None, build will also map to None
+        from unittest.mock import patch, PropertyMock
+
+        # Create a custom config where we'll simulate None command
+        class MockConfig:
+            format_cmd = None
+            lint_cmd = ["ruff", "check", "."]
+            typecheck_cmd = ["mypy", "."]
+            test_cmd = ["pytest"]
+            project_root = validation_config.project_root
+            timeout_seconds = 300
+
+        server = create_validation_tools_server(config=MockConfig())
+        run_validation, _ = _get_tools_from_server(server)
+
+        response = await run_validation.handler({"types": ["format"]})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -404,9 +444,11 @@ class TestRunValidation:
             return_value=(b"stdout message", b"stderr message")
         )
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler({"types": ["lint"]})
+            response = await run_validation.handler({"types": ["lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
         output = response_data["results"][0]["output"]
@@ -433,9 +475,11 @@ class TestRunValidation:
         mock_process.communicate = mock_communicate
         type(mock_process).returncode = property(lambda self: get_returncode())
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                response = await run_validation.handler({"types": ["format", "lint"]})
+            response = await run_validation.handler({"types": ["format", "lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -455,8 +499,11 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_ruff(self, sample_ruff_output: str) -> None:
         """Test parsing ruff output (T077)."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         response = await parse_validation_output.handler(
-            {"output": sample_ruff_output, "type": "ruff"}
+            {"output": sample_ruff_output, "type": "lint"}
         )
 
         response_data = json.loads(response["content"][0]["text"])
@@ -477,8 +524,11 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_mypy(self, sample_mypy_output: str) -> None:
         """Test parsing mypy output (T078)."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         response = await parse_validation_output.handler(
-            {"output": sample_mypy_output, "type": "mypy"}
+            {"output": sample_mypy_output, "type": "typecheck"}
         )
 
         response_data = json.loads(response["content"][0]["text"])
@@ -507,13 +557,16 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_truncation(self) -> None:
         """Test error truncation at MAX_ERRORS (T079)."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         # Create output with more than MAX_ERRORS errors
         errors = []
         for i in range(MAX_ERRORS + 10):
             errors.append(f"src/file{i}.py:{i}:1: E501 Error {i}")
         output = "\n".join(errors)
 
-        response = await parse_validation_output.handler({"output": output, "type": "ruff"})
+        response = await parse_validation_output.handler({"output": output, "type": "lint"})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -524,6 +577,9 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_invalid_type(self) -> None:
         """Test parsing with invalid type returns error."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         response = await parse_validation_output.handler(
             {"output": "some output", "type": "invalid"}
         )
@@ -537,7 +593,10 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_empty(self) -> None:
         """Test parsing empty output."""
-        response = await parse_validation_output.handler({"output": "", "type": "ruff"})
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
+        response = await parse_validation_output.handler({"output": "", "type": "lint"})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -548,8 +607,11 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_validation_output_no_matches(self) -> None:
         """Test parsing output with no pattern matches."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         response = await parse_validation_output.handler(
-            {"output": "Some text that doesn't match patterns", "type": "ruff"}
+            {"output": "Some text that doesn't match patterns", "type": "lint"}
         )
 
         response_data = json.loads(response["content"][0]["text"])
@@ -560,12 +622,15 @@ class TestParseValidationOutput:
     @pytest.mark.asyncio
     async def test_parse_ruff_various_codes(self) -> None:
         """Test parsing ruff output with various error codes."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         output = """src/a.py:1:1: E501 Line too long
 src/b.py:2:2: F401 Unused import
 src/c.py:3:3: W291 Trailing whitespace
 src/d.py:4:4: N802 Function name should be lowercase"""
 
-        response = await parse_validation_output.handler({"output": output, "type": "ruff"})
+        response = await parse_validation_output.handler({"output": output, "type": "lint"})
         response_data = json.loads(response["content"][0]["text"])
 
         codes = [e["code"] for e in response_data["errors"]]
@@ -574,9 +639,12 @@ src/d.py:4:4: N802 Function name should be lowercase"""
     @pytest.mark.asyncio
     async def test_parse_mypy_without_code(self) -> None:
         """Test parsing mypy output without error code."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         output = "src/foo.py:10: error: Some error without code"
 
-        response = await parse_validation_output.handler({"output": output, "type": "mypy"})
+        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -585,9 +653,12 @@ src/d.py:4:4: N802 Function name should be lowercase"""
     @pytest.mark.asyncio
     async def test_parse_mypy_with_code(self) -> None:
         """Test parsing mypy output with error code."""
+        server = create_validation_tools_server()
+        _, parse_validation_output = _get_tools_from_server(server)
+
         output = "src/foo.py:10: error: Type error [type-arg]"
 
-        response = await parse_validation_output.handler({"output": output, "type": "mypy"})
+        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -748,7 +819,7 @@ class TestConstants:
 
     def test_validation_types_contains_all_types(self) -> None:
         """Test VALIDATION_TYPES contains expected types."""
-        assert VALIDATION_TYPES == {"format", "lint", "typecheck", "test"}
+        assert VALIDATION_TYPES == {"format", "lint", "build", "typecheck", "test"}
 
     def test_server_name_value(self) -> None:
         """Test SERVER_NAME is set correctly."""
@@ -782,9 +853,11 @@ class TestValidationIntegration:
             return_value=(sample_ruff_output.encode(), b"")
         )
 
+        server = create_validation_tools_server(config=validation_config)
+        run_validation, parse_validation_output = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", validation_config):
-                run_response = await run_validation.handler({"types": ["lint"]})
+            run_response = await run_validation.handler({"types": ["lint"]})
 
         run_data = json.loads(run_response["content"][0]["text"])
         assert run_data["success"] is False
@@ -792,7 +865,7 @@ class TestValidationIntegration:
 
         # Step 2: Parse the output
         parse_response = await parse_validation_output.handler(
-            {"output": output, "type": "ruff"}
+            {"output": output, "type": "lint"}
         )
 
         parse_data = json.loads(parse_response["content"][0]["text"])
@@ -815,9 +888,11 @@ class TestValidationIntegration:
         ])
         mock_process.kill = Mock()
 
+        server = create_validation_tools_server(config=config)
+        run_validation, _ = _get_tools_from_server(server)
+
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
-            with patch("maverick.tools.validation._config", config):
-                response = await run_validation.handler({"types": ["test"]})
+            response = await run_validation.handler({"types": ["test"]})
 
         response_data = json.loads(response["content"][0]["text"])
         assert response_data["results"][0]["status"] == "timeout"

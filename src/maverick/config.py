@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -77,10 +77,16 @@ class ValidationConfig(BaseModel):
     max_errors: int = Field(default=50, ge=1, le=500)
     project_root: Path | None = None
 
-    @property
-    def timeout(self) -> float:
-        """Alias for timeout_seconds as float for compatibility."""
-        return float(self.timeout_seconds)
+    @field_validator('project_root')
+    @classmethod
+    def check_project_root_exists(cls, v: Path | None) -> Path | None:
+        """Warn if project_root path doesn't exist."""
+        if v is not None and not v.exists():
+            logger.warning(
+                f"Configured project_root does not exist: {v}. "
+                "Validation commands may fail."
+            )
+        return v
 
 
 class ModelConfig(BaseModel):

@@ -25,11 +25,6 @@ from maverick.tools.git import (
     _success_response,
     _verify_git_prerequisites,
     create_git_tools_server,
-    git_commit,
-    git_create_branch,
-    git_current_branch,
-    git_diff_stats,
-    git_push,
 )
 
 
@@ -276,8 +271,9 @@ class TestGitCommit:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_commit.handler(
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_commit"].handler(
                 {"message": "add feature", "type": "feat"}
             )
 
@@ -307,8 +303,9 @@ class TestGitCommit:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_commit.handler(
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_commit"].handler(
                 {
                     "message": "breaking change",
                     "type": "fix",
@@ -339,8 +336,9 @@ class TestGitCommit:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_commit.handler({"message": "test commit"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_commit"].handler({"message": "test commit"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -350,7 +348,8 @@ class TestGitCommit:
     @pytest.mark.asyncio
     async def test_git_commit_empty_message(self) -> None:
         """Test git_commit with empty message."""
-        result = await git_commit.handler({"message": ""})
+        server = create_git_tools_server()
+        result = await server["tools"]["git_commit"].handler({"message": ""})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -360,7 +359,10 @@ class TestGitCommit:
     @pytest.mark.asyncio
     async def test_git_commit_invalid_type(self) -> None:
         """Test git_commit with invalid commit type."""
-        result = await git_commit.handler({"message": "test", "type": "invalid"})
+        server = create_git_tools_server()
+        result = await server["tools"]["git_commit"].handler(
+            {"message": "test", "type": "invalid"}
+        )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -380,8 +382,9 @@ class TestGitCommit:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_commit.handler({"message": "test"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_commit"].handler({"message": "test"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -400,8 +403,9 @@ class TestGitCommit:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_commit.handler({"message": "test"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_commit"].handler({"message": "test"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -449,8 +453,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": False})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -483,8 +488,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": False})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -520,8 +526,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": False})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -552,8 +559,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": False})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -578,8 +586,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": False})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -614,8 +623,9 @@ class TestGitPush:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_push.handler({"set_upstream": True})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_push"].handler({"set_upstream": True})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -652,8 +662,9 @@ class TestGitCurrentBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_current_branch.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["branch"] == "feature-branch"
@@ -682,8 +693,9 @@ class TestGitCurrentBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_current_branch.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["branch"] == "(detached)"
@@ -712,8 +724,9 @@ class TestGitCurrentBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_current_branch.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -753,8 +766,9 @@ class TestGitDiffStats:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_diff_stats.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 3
@@ -784,8 +798,9 @@ class TestGitDiffStats:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_diff_stats.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 0
@@ -812,8 +827,9 @@ class TestGitDiffStats:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_diff_stats.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 2
@@ -840,8 +856,9 @@ class TestGitDiffStats:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_diff_stats.handler({})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 1
@@ -882,8 +899,9 @@ class TestGitCreateBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_create_branch.handler({"name": "feature"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_create_branch"].handler({"name": "feature"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -912,8 +930,9 @@ class TestGitCreateBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_create_branch.handler({"name": "feature", "base": "main"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_create_branch"].handler({"name": "feature", "base": "main"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -944,8 +963,9 @@ class TestGitCreateBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_create_branch.handler({"name": "feature"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_create_branch"].handler({"name": "feature"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -954,14 +974,20 @@ class TestGitCreateBranch:
     @pytest.mark.asyncio
     async def test_git_create_branch_invalid_name(self) -> None:
         """Test git_create_branch with invalid branch name."""
+        server = create_git_tools_server()
+
         # Test with spaces
-        result = await git_create_branch.handler({"name": "invalid name"})
+        result = await server["tools"]["git_create_branch"].handler(
+            {"name": "invalid name"}
+        )
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
 
         # Test with special characters
-        result = await git_create_branch.handler({"name": "invalid~branch"})
+        result = await server["tools"]["git_create_branch"].handler(
+            {"name": "invalid~branch"}
+        )
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
@@ -969,7 +995,8 @@ class TestGitCreateBranch:
     @pytest.mark.asyncio
     async def test_git_create_branch_empty_name(self) -> None:
         """Test git_create_branch with empty name."""
-        result = await git_create_branch.handler({"name": ""})
+        server = create_git_tools_server()
+        result = await server["tools"]["git_create_branch"].handler({"name": ""})
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
@@ -994,8 +1021,9 @@ class TestGitCreateBranch:
 
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
-            result = await git_create_branch.handler({"name": "feature", "base": "nonexistent"})
+        ):
+            server = create_git_tools_server()
+            result = await server["tools"]["git_create_branch"].handler({"name": "feature", "base": "nonexistent"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -1022,7 +1050,7 @@ class TestCreateGitToolsServer:
         """
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
+        ):
             server = create_git_tools_server()
 
         # Verify server was created
@@ -1044,7 +1072,7 @@ class TestCreateGitToolsServer:
         """Test create_git_tools_server with custom working directory."""
         with patch(
             "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ), patch("maverick.tools.git._cwd", None):
+        ):
             server = create_git_tools_server(cwd=tmp_path)
 
         assert server is not None

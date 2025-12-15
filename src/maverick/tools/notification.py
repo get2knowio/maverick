@@ -27,8 +27,6 @@ from maverick.config import NotificationConfig
 
 logger = logging.getLogger(__name__)
 
-# Module-level config (set by factory function)
-_config: NotificationConfig = NotificationConfig()
 
 # =============================================================================
 # Constants
@@ -36,6 +34,9 @@ _config: NotificationConfig = NotificationConfig()
 
 #: Default timeout for HTTP requests in seconds
 DEFAULT_TIMEOUT: float = 2.0
+
+#: Base delay for exponential backoff retry in seconds
+RETRY_BASE_DELAY: float = 0.5
 
 #: MCP Server configuration
 SERVER_NAME: str = "notification-tools"
@@ -147,20 +148,22 @@ async def _send_ntfy_request(
     for attempt in range(max_retries + 1):
         try:
             timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, data=message, headers=headers) as response:
-                    if response.status == 200:
-                        response_data = await response.json()
-                        notification_id = response_data.get("id")
-                        logger.info(
-                            f"Notification sent successfully (id: {notification_id})"
-                        )
-                        return (True, "Notification sent", notification_id)
-                    else:
-                        last_error = f"HTTP {response.status}: {await response.text()}"
-                        logger.warning(
-                            f"Notification attempt {attempt + 1} failed: {last_error}"
-                        )
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(url, data=message, headers=headers) as response,
+            ):
+                if response.status == 200:
+                    response_data = await response.json()
+                    notification_id = response_data.get("id")
+                    logger.info(
+                        f"Notification sent successfully (id: {notification_id})"
+                    )
+                    return (True, "Notification sent", notification_id)
+                else:
+                    last_error = f"HTTP {response.status}: {await response.text()}"
+                    logger.warning(
+                        f"Notification attempt {attempt + 1} failed: {last_error}"
+                    )
         except asyncio.TimeoutError:
             last_error = "Request timed out"
             logger.warning(f"Notification attempt {attempt + 1} timed out")
@@ -173,7 +176,7 @@ async def _send_ntfy_request(
 
         # Wait before retry (except on last attempt)
         if attempt < max_retries:
-            await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+            await asyncio.sleep(RETRY_BASE_DELAY * (attempt + 1))  # Exponential backoff
 
     # All retries failed - gracefully degrade
     logger.warning(
@@ -181,232 +184,6 @@ async def _send_ntfy_request(
         f"Last error: {last_error}"
     )
     return (True, "Notification not delivered", None)
-
-
-# =============================================================================
-# MCP Tools
-# =============================================================================
-
-
-@tool(
-    "send_workflow_update",
-    "Send a workflow progress notification with stage-appropriate formatting",
-    {"stage": str, "message": str, "workflow_name": str},
-)
-async def send_workflow_update(args: dict[str, Any]) -> dict[str, Any]:
-    """Send workflow stage notification with automatic priority/tag mapping.
-
-    Automatically applies priority and tags based on workflow stage using STAGE_MAPPING.
-    Title is formatted as "{emoji} {workflow_name} {Stage}" based on stage.
-
-    Args:
-        args: Dictionary containing:
-            - stage: Workflow stage (start, implementation, review, validation, complete, error)
-            - message: Update message body
-            - workflow_name: Optional workflow identifier (default: "Workflow")
-
-    Returns:
-        MCP-formatted success or error response.
-
-    Example:
-        >>> await send_workflow_update({
-        ...     "stage": "complete",
-        ...     "message": "All tasks finished successfully",
-        ...     "workflow_name": "FlyWorkflow"
-        ... })
-        {"content": [{"type": "text", "text": '{"success": true, "message": "Notification sent"}'}]}
-    """
-    stage = args["stage"]
-    message = args["message"]
-    workflow_name = args.get("workflow_name", "Workflow")
-
-    # Validate stage
-    if stage not in STAGE_MAPPING:
-        valid_stages = ", ".join(STAGE_MAPPING.keys())
-        return _error_response(
-            f"Invalid stage '{stage}'. Must be one of: {valid_stages}",
-            "INVALID_INPUT",
-        )
-
-    # Get stage configuration
-    stage_config = STAGE_MAPPING[stage]
-    priority = stage_config["priority"]
-    tags = stage_config["tags"]
-
-    # Format title based on stage
-    # Map emoji tag names to actual emoji
-    emoji_map = {
-        "rocket": "🚀",
-        "hammer": "🔨",
-        "mag": "🔍",
-        "white_check_mark": "✅",
-        "tada": "🎉",
-        "x": "❌",
-    }
-
-    # Get first emoji for title
-    stage_emoji = emoji_map.get(tags[0], "")
-
-    # Format stage name for title
-    stage_names = {
-        "start": "Started",
-        "implementation": "Implementation Update",
-        "review": "Code Review",
-        "validation": "Validation",
-        "complete": "Complete",
-        "error": "Error",
-    }
-    stage_display = stage_names.get(stage, stage.capitalize())
-
-    # Build title
-    if stage in ("start", "complete", "error"):
-        title = f"{stage_emoji} {workflow_name} {stage_display}"
-    else:
-        title = f"{stage_emoji} {stage_display}"
-
-    logger.info(
-        "Sending workflow update: stage=%s, workflow=%s, priority=%s",
-        stage,
-        workflow_name,
-        priority,
-    )
-
-    # Send notification
-    success, status_message, notification_id = await _send_ntfy_request(
-        config=_config,
-        message=message,
-        title=title,
-        priority=priority,
-        tags=tags,
-    )
-
-    # Build response
-    response_data: dict[str, Any] = {
-        "success": True,
-        "message": status_message,
-    }
-
-    if notification_id:
-        response_data["notification_id"] = notification_id
-
-    # Add warning if notification wasn't delivered
-    if status_message == "Notification not delivered":
-        response_data["warning"] = "ntfy.sh server unreachable after retries"
-    elif status_message == "Notifications disabled":
-        response_data["message"] = "Notifications disabled (no topic configured)"
-
-    logger.debug("Workflow update response: %s", response_data)
-
-    return _success_response(response_data)
-
-
-@tool(
-    "send_notification",
-    "Send a custom push notification via ntfy.sh",
-    {"message": str, "title": str, "priority": str, "tags": list},
-)
-async def send_notification(args: dict[str, Any]) -> dict[str, Any]:
-    """Send a custom notification with full control over parameters (T044-T046).
-
-    This tool allows agents to send arbitrary notifications beyond workflow updates.
-    Useful for security alerts, manual intervention requests, or other custom
-    notifications.
-
-    Args via args dict:
-        message: Notification body text (required).
-        title: Optional notification title.
-        priority: Optional priority level - must be one of: min, low, default, high, urgent.
-        tags: Optional list of emoji tag strings for ntfy.sh.
-
-    Returns:
-        MCP success response with:
-        - success: true
-        - message: Status message ("Notification sent", "Notifications disabled", etc.)
-        - notification_id: ntfy response ID if available
-        - warning: Present if retry was needed or server unreachable
-
-    Example:
-        ```python
-        result = await send_notification({
-            "message": "Credential detected in code",
-            "title": "Security Alert",
-            "priority": "urgent",
-            "tags": ["warning", "security"]
-        })
-        # Returns: {"success": true, "message": "Notification sent", "notification_id": "abc123"}
-        ```
-    """
-    # Extract and validate message (required)
-    message = args.get("message", "").strip()
-    if not message:
-        logger.warning("send_notification called with empty message")
-        return _error_response(
-            "Notification message cannot be empty",
-            "INVALID_INPUT",
-        )
-
-    # Extract optional parameters
-    title = args.get("title")
-    if title is not None:
-        title = str(title).strip() if title else None
-
-    priority = args.get("priority", "default")
-    if priority is not None:
-        priority = str(priority).lower()
-
-    tags = args.get("tags")
-    if tags is not None:
-        # Validate tags is a list
-        if not isinstance(tags, list):
-            logger.warning(
-                f"send_notification called with invalid tags type: {type(tags)}"
-            )
-            return _error_response(
-                "Tags must be a list of strings",
-                "INVALID_INPUT",
-            )
-        # Convert all tags to strings
-        tags = [str(tag) for tag in tags]
-
-    # Validate priority (T045)
-    valid_priorities = {"min", "low", "default", "high", "urgent"}
-    if priority not in valid_priorities:
-        logger.warning(f"send_notification called with invalid priority: {priority}")
-        return _error_response(
-            f"Invalid priority '{priority}'. Must be one of: {', '.join(sorted(valid_priorities))}",
-            "INVALID_INPUT",
-        )
-
-    logger.info(
-        f"Sending notification: message='{message[:50]}...', title={title}, "
-        f"priority={priority}, tags={tags}"
-    )
-
-    # Send notification with graceful degradation (T046)
-    success, status_message, notification_id = await _send_ntfy_request(
-        _config,
-        message=message,
-        title=title,
-        priority=priority,
-        tags=tags,
-    )
-
-    # Build response
-    response_data: dict[str, Any] = {
-        "success": True,
-        "message": status_message,
-    }
-
-    if notification_id:
-        response_data["notification_id"] = notification_id
-
-    # Add warning if notification wasn't delivered or was disabled
-    if status_message == "Notification not delivered":
-        response_data["warning"] = "ntfy.sh server unreachable after 2 attempts"
-    elif status_message == "Notifications disabled":
-        response_data["message"] = "Notifications disabled (no topic configured)"
-
-    return _success_response(response_data)
 
 
 # =============================================================================
@@ -442,15 +219,242 @@ def create_notification_tools_server(
         )
         ```
     """
-    global _config
-
-    # Set module-level config
-    if config is not None:
-        _config = config
-    else:
-        _config = NotificationConfig()
+    # Capture config in closure scope
+    _config = config if config is not None else NotificationConfig()
 
     logger.info("Creating notification tools MCP server (version %s)", SERVER_VERSION)
+
+    # =============================================================================
+    # MCP Tools (defined within factory to capture config in closure)
+    # =============================================================================
+
+    @tool(
+        "send_workflow_update",
+        "Send a workflow progress notification with stage-appropriate formatting",
+        {"stage": str, "message": str, "workflow_name": str},
+    )
+    async def send_workflow_update(args: dict[str, Any]) -> dict[str, Any]:
+        """Send workflow stage notification with automatic priority/tag mapping.
+
+        Automatically applies priority and tags based on workflow stage using
+        STAGE_MAPPING. Title is formatted as "{emoji} {workflow_name} {Stage}"
+        based on stage.
+
+        Args:
+            args: Dictionary containing:
+                - stage: Workflow stage (start, implementation, review,
+                  validation, complete, error)
+                - message: Update message body
+                - workflow_name: Optional workflow identifier (default: "Workflow")
+
+        Returns:
+            MCP-formatted success or error response.
+
+        Example:
+            >>> await send_workflow_update({
+            ...     "stage": "complete",
+            ...     "message": "All tasks finished successfully",
+            ...     "workflow_name": "FlyWorkflow"
+            ... })
+            {"content": [{"type": "text",
+                "text": '{"success": true, "message": "Notification sent"}'}]}
+        """
+        stage = args["stage"]
+        message = args["message"]
+        workflow_name = args.get("workflow_name", "Workflow")
+
+        # Validate stage
+        if stage not in STAGE_MAPPING:
+            valid_stages = ", ".join(STAGE_MAPPING.keys())
+            return _error_response(
+                f"Invalid stage '{stage}'. Must be one of: {valid_stages}",
+                "INVALID_INPUT",
+            )
+
+        # Get stage configuration
+        stage_config = STAGE_MAPPING[stage]
+        priority = stage_config["priority"]
+        tags = stage_config["tags"]
+
+        # Format title based on stage
+        # Map emoji tag names to actual emoji
+        emoji_map = {
+            "rocket": "🚀",
+            "hammer": "🔨",
+            "mag": "🔍",
+            "white_check_mark": "✅",
+            "tada": "🎉",
+            "x": "❌",
+        }
+
+        # Get first emoji for title
+        stage_emoji = emoji_map.get(tags[0], "")
+
+        # Format stage name for title
+        stage_names = {
+            "start": "Started",
+            "implementation": "Implementation Update",
+            "review": "Code Review",
+            "validation": "Validation",
+            "complete": "Complete",
+            "error": "Error",
+        }
+        stage_display = stage_names.get(stage, stage.capitalize())
+
+        # Build title
+        if stage in ("start", "complete", "error"):
+            title = f"{stage_emoji} {workflow_name} {stage_display}"
+        else:
+            title = f"{stage_emoji} {stage_display}"
+
+        logger.info(
+            "Sending workflow update: stage=%s, workflow=%s, priority=%s",
+            stage,
+            workflow_name,
+            priority,
+        )
+
+        # Send notification
+        success, status_message, notification_id = await _send_ntfy_request(
+            config=_config,
+            message=message,
+            title=title,
+            priority=priority,
+            tags=tags,
+        )
+
+        # Build response
+        response_data: dict[str, Any] = {
+            "success": True,
+            "message": status_message,
+        }
+
+        if notification_id:
+            response_data["notification_id"] = notification_id
+
+        # Add warning if notification wasn't delivered
+        if status_message == "Notification not delivered":
+            response_data["warning"] = "ntfy.sh server unreachable after retries"
+        elif status_message == "Notifications disabled":
+            response_data["message"] = "Notifications disabled (no topic configured)"
+
+        logger.debug("Workflow update response: %s", response_data)
+
+        return _success_response(response_data)
+
+    @tool(
+        "send_notification",
+        "Send a custom push notification via ntfy.sh",
+        {"message": str, "title": str, "priority": str, "tags": list},
+    )
+    async def send_notification(args: dict[str, Any]) -> dict[str, Any]:
+        """Send a custom notification with full control over parameters (T044-T046).
+
+        This tool allows agents to send arbitrary notifications beyond workflow
+        updates. Useful for security alerts, manual intervention requests, or
+        other custom notifications.
+
+        Args via args dict:
+            message: Notification body text (required).
+            title: Optional notification title.
+            priority: Optional priority level - must be one of: min, low,
+                default, high, urgent.
+            tags: Optional list of emoji tag strings for ntfy.sh.
+
+        Returns:
+            MCP success response with:
+            - success: true
+            - message: Status message ("Notification sent",
+                "Notifications disabled", etc.)
+            - notification_id: ntfy response ID if available
+            - warning: Present if retry was needed or server unreachable
+
+        Example:
+            ```python
+            result = await send_notification({
+                "message": "Credential detected in code",
+                "title": "Security Alert",
+                "priority": "urgent",
+                "tags": ["warning", "security"]
+            })
+            # Returns: {"success": true, "message": "Notification sent",
+            #           "notification_id": "abc123"}
+            ```
+        """
+        # Extract and validate message (required)
+        message = args.get("message", "").strip()
+        if not message:
+            logger.warning("send_notification called with empty message")
+            return _error_response(
+                "Notification message cannot be empty",
+                "INVALID_INPUT",
+            )
+
+        # Extract optional parameters
+        title = args.get("title")
+        if title is not None:
+            title = str(title).strip() if title else None
+
+        priority = args.get("priority", "default")
+        if priority is not None:
+            priority = str(priority).lower()
+
+        tags = args.get("tags")
+        if tags is not None:
+            # Validate tags is a list
+            if not isinstance(tags, list):
+                logger.warning(
+                    f"send_notification called with invalid tags type: {type(tags)}"
+                )
+                return _error_response(
+                    "Tags must be a list of strings",
+                    "INVALID_INPUT",
+                )
+            # Convert all tags to strings
+            tags = [str(tag) for tag in tags]
+
+        # Validate priority (T045)
+        valid_priorities = {"min", "low", "default", "high", "urgent"}
+        if priority not in valid_priorities:
+            logger.warning(
+                f"send_notification called with invalid priority: {priority}"
+            )
+            valid_list = ", ".join(sorted(valid_priorities))
+            return _error_response(
+                f"Invalid priority '{priority}'. Must be one of: {valid_list}",
+                "INVALID_INPUT",
+            )
+
+        logger.info(
+            f"Sending notification: message='{message[:50]}...', title={title}, "
+            f"priority={priority}, tags={tags}"
+        )
+
+        # Send notification with graceful degradation (T046)
+        success, status_message, notification_id = await _send_ntfy_request(
+            _config,
+            message=message,
+            title=title,
+            priority=priority,
+            tags=tags,
+        )
+
+        # Build response
+        response_data: dict[str, Any] = {
+            "success": True,
+            "message": status_message,
+        }
+
+        if notification_id:
+            response_data["notification_id"] = notification_id
+
+        # Add warning if notification wasn't delivered or was disabled
+        if status_message == "Notification not delivered":
+            response_data["warning"] = "ntfy.sh server unreachable after 2 attempts"
+        elif status_message == "Notifications disabled":
+            response_data["message"] = "Notifications disabled (no topic configured)"
+
+        return _success_response(response_data)
 
     # Create and return MCP server with all tools
     server = create_sdk_mcp_server(
@@ -461,5 +465,12 @@ def create_notification_tools_server(
             send_notification,
         ],
     )
+
+    # Store tool functions for test access
+    # This allows tests to call tools directly while keeping config in closure
+    server["_test_tools"] = {
+        "send_workflow_update": send_workflow_update,
+        "send_notification": send_notification,
+    }
 
     return server

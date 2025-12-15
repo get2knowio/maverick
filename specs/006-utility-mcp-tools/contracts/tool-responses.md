@@ -48,7 +48,7 @@ interface SendNotificationSuccess {
   success: true;
   message: string;  // "Notification sent" | "Notifications disabled" | "Notification sent (after retry)"
   notification_id?: string;  // ntfy response ID if available
-  warning?: string;  // Present if retry was needed or server unreachable
+  warning?: string;  // Present when notification delivery is uncertain
 }
 ```
 
@@ -354,7 +354,7 @@ interface ValidationResult {
   success: boolean;
   output: string;       // Raw command output (may be truncated)
   duration_ms: number;
-  status?: "timeout";   // Present if command timed out
+  status: "success" | "failed" | "timeout";  // Always present
 }
 ```
 

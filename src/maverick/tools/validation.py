@@ -1,7 +1,7 @@
 """Validation MCP tools for Maverick agents.
 
-This module provides MCP tools for running validation commands (format, lint, typecheck, test)
-and parsing their output into structured errors.
+This module provides MCP tools for running validation commands
+(format, lint, typecheck, test) and parsing their output into structured errors.
 Tools are async functions decorated with @tool that return MCP-formatted responses.
 
 Usage:
@@ -43,7 +43,7 @@ SERVER_NAME: str = "validation-tools"
 SERVER_VERSION: str = "1.0.0"
 
 #: Valid validation types
-VALIDATION_TYPES: set[str] = {"format", "lint", "typecheck", "test"}
+VALIDATION_TYPES: set[str] = {"format", "lint", "build", "typecheck", "test"}
 
 #: Ruff output pattern: path:line:col: code message
 RUFF_PATTERN: re.Pattern[str] = re.compile(
@@ -57,13 +57,6 @@ MYPY_PATTERN: re.Pattern[str] = re.compile(
 
 #: Default max errors to return (prevent overwhelming output)
 MAX_ERRORS: int = 50
-
-# =============================================================================
-# Module-level Configuration
-# =============================================================================
-
-#: Global validation configuration (can be overridden via create_validation_tools_server)
-_config: ValidationConfig = ValidationConfig()
 
 # =============================================================================
 # Helper Functions
@@ -168,239 +161,6 @@ async def _run_command_with_timeout(
 
 
 # =============================================================================
-# MCP Tool Functions
-# =============================================================================
-
-
-@tool(
-    "run_validation",
-    "Run project validation commands (format, lint, typecheck, test)",
-    {"types": list},
-)
-async def run_validation(args: dict[str, Any]) -> dict[str, Any]:
-    """Run validation commands based on ValidationConfig.
-
-    Args:
-        args: Tool arguments with 'types' list (format/lint/typecheck/test).
-
-    Returns:
-        MCP response with validation results:
-        {
-            "success": bool,
-            "results": [
-                {
-                    "type": str,
-                    "success": bool,
-                    "output": str,
-                    "duration_ms": int,
-                    "status": str  # "success", "failed", or "timeout"
-                }
-            ]
-        }
-
-    Raises:
-        ValidationToolsError: If validation types are invalid.
-    """
-    try:
-        types_to_run: list[str] = args.get("types", [])
-
-        # Validate types
-        invalid_types = set(types_to_run) - VALIDATION_TYPES
-        if invalid_types:
-            logger.error(f"Invalid validation types: {invalid_types}")
-            return _error_response(
-                f"Invalid validation types: {invalid_types}. Valid types: {VALIDATION_TYPES}",
-                "INVALID_VALIDATION_TYPE",
-            )
-
-        if not types_to_run:
-            logger.warning("No validation types specified")
-            return _success_response({"success": True, "results": []})
-
-        logger.info(f"Running validation types: {types_to_run}")
-
-        # Map validation types to commands
-        type_to_cmd: dict[str, list[str] | None] = {
-            "format": _config.format_cmd,
-            "lint": _config.lint_cmd,
-            "typecheck": _config.typecheck_cmd,
-            "test": _config.test_cmd,
-        }
-
-        results: list[dict[str, Any]] = []
-        overall_success = True
-
-        for validation_type in types_to_run:
-            cmd = type_to_cmd.get(validation_type)
-
-            if not cmd:
-                logger.warning(f"No command configured for {validation_type}")
-                results.append(
-                    {
-                        "type": validation_type,
-                        "success": False,
-                        "output": f"No command configured for {validation_type}",
-                        "duration_ms": 0,
-                        "status": "failed",
-                    }
-                )
-                overall_success = False
-                continue
-
-            # Run command with timeout tracking
-            start_time = time.monotonic()
-            stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
-                cmd, cwd=_config.project_root, timeout=_config.timeout
-            )
-            duration_ms = int((time.monotonic() - start_time) * 1000)
-
-            # Combine stdout and stderr
-            output = stdout
-            if stderr:
-                output += f"\n{stderr}"
-
-            # Determine status
-            if timed_out:
-                status = "timeout"
-                success = False
-                logger.warning(
-                    f"Validation '{validation_type}' timed out after {duration_ms}ms"
-                )
-            elif return_code == 0:
-                status = "success"
-                success = True
-                logger.info(
-                    f"Validation '{validation_type}' succeeded in {duration_ms}ms"
-                )
-            else:
-                status = "failed"
-                success = False
-                logger.warning(
-                    f"Validation '{validation_type}' failed with code {return_code} in {duration_ms}ms"
-                )
-
-            results.append(
-                {
-                    "type": validation_type,
-                    "success": success,
-                    "output": output.strip(),
-                    "duration_ms": duration_ms,
-                    "status": status,
-                }
-            )
-
-            if not success:
-                overall_success = False
-
-        logger.info(f"Validation complete: overall_success={overall_success}")
-        return _success_response({"success": overall_success, "results": results})
-
-    except Exception as e:
-        logger.error(f"Validation execution error: {e}")
-        return _error_response(str(e), "VALIDATION_EXECUTION_ERROR")
-
-
-@tool(
-    "parse_validation_output",
-    "Parse validation command output into structured errors",
-    {"output": str, "type": str},
-)
-async def parse_validation_output(args: dict[str, Any]) -> dict[str, Any]:
-    """Parse ruff or mypy output into structured error list.
-
-    Args:
-        args: Tool arguments with 'output' (str) and 'type' (str: 'ruff' or 'mypy').
-
-    Returns:
-        MCP response with parsed errors:
-        {
-            "errors": [
-                {
-                    "file": str,
-                    "line": int,
-                    "column": int | None,
-                    "code": str | None,
-                    "message": str,
-                    "severity": str | None
-                }
-            ],
-            "total_count": int,
-            "truncated": bool
-        }
-
-    Raises:
-        ValidationToolsError: If parsing type is invalid.
-    """
-    try:
-        output: str = args.get("output", "")
-        parse_type: str = args.get("type", "")
-
-        if parse_type not in {"ruff", "mypy"}:
-            logger.error(f"Invalid parse type: {parse_type}")
-            return _error_response(
-                f"Invalid parse type: {parse_type}. Valid types: 'ruff', 'mypy'",
-                "INVALID_PARSE_TYPE",
-            )
-
-        logger.info(f"Parsing {parse_type} output ({len(output)} chars)")
-
-        errors: list[dict[str, Any]] = []
-
-        if parse_type == "ruff":
-            # Parse ruff output: path:line:col: code message
-            for match in RUFF_PATTERN.finditer(output):
-                file_path, line_str, col_str, code, message = match.groups()
-                errors.append(
-                    {
-                        "file": file_path,
-                        "line": int(line_str),
-                        "column": int(col_str),
-                        "code": code,
-                        "message": message.strip(),
-                        "severity": None,
-                    }
-                )
-
-        elif parse_type == "mypy":
-            # Parse mypy output: path:line: severity: message [code]
-            for match in MYPY_PATTERN.finditer(output):
-                file_path, line_str, severity, message, code = match.groups()
-                errors.append(
-                    {
-                        "file": file_path,
-                        "line": int(line_str),
-                        "column": None,
-                        "code": code,
-                        "message": message.strip(),
-                        "severity": severity,
-                    }
-                )
-
-        total_count = len(errors)
-        truncated = total_count > MAX_ERRORS
-
-        if truncated:
-            logger.warning(f"Truncating {total_count} errors to {MAX_ERRORS}")
-            errors = errors[:MAX_ERRORS]
-
-        logger.info(
-            f"Parsed {len(errors)} errors (total: {total_count}, truncated: {truncated})"
-        )
-
-        return _success_response(
-            {
-                "errors": errors,
-                "total_count": total_count,
-                "truncated": truncated,
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Parse validation output error: {e}")
-        return _error_response(str(e), "PARSE_ERROR")
-
-
-# =============================================================================
 # Factory Function
 # =============================================================================
 
@@ -435,13 +195,8 @@ def create_validation_tools_server(
         )
         ```
     """
-    global _config
-
-    # Set module-level config
-    if config is not None:
-        _config = config
-    else:
-        _config = ValidationConfig()
+    # Initialize config without global state
+    _config = config if config is not None else ValidationConfig()
 
     # Set project root on config if provided
     if project_root is not None:
@@ -458,6 +213,248 @@ def create_validation_tools_server(
 
     logger.info("Creating validation tools MCP server (version %s)", SERVER_VERSION)
 
+    # =============================================================================
+    # MCP Tool Functions (using closure to capture _config)
+    # =============================================================================
+
+    @tool(
+        "run_validation",
+        "Run project validation commands (format, lint, typecheck, test)",
+        {"types": list},
+    )
+    async def run_validation(args: dict[str, Any]) -> dict[str, Any]:
+        """Run validation commands based on ValidationConfig.
+
+        Args:
+            args: Tool arguments with 'types' list (format/lint/typecheck/test).
+
+        Returns:
+            MCP response with validation results:
+            {
+                "success": bool,
+                "results": [
+                    {
+                        "type": str,
+                        "success": bool,
+                        "output": str,
+                        "duration_ms": int,
+                        "status": str  # "success", "failed", or "timeout"
+                    }
+                ]
+            }
+
+        Raises:
+            ValidationToolsError: If validation types are invalid.
+        """
+        try:
+            types_to_run: list[str] = args.get("types", [])
+
+            # Validate types
+            invalid_types = set(types_to_run) - VALIDATION_TYPES
+            if invalid_types:
+                logger.error(f"Invalid validation types: {invalid_types}")
+                return _error_response(
+                    f"Invalid validation types: {invalid_types}. "
+                    f"Valid types: {VALIDATION_TYPES}",
+                    "INVALID_VALIDATION_TYPE",
+                )
+
+            if not types_to_run:
+                logger.warning("No validation types specified")
+                return _success_response({"success": True, "results": []})
+
+            logger.info(f"Running validation types: {types_to_run}")
+
+            # Map validation types to commands
+            type_to_cmd: dict[str, list[str] | None] = {
+                "format": _config.format_cmd,
+                "lint": _config.lint_cmd,
+                "build": _config.typecheck_cmd,  # build is an alias for typecheck
+                "typecheck": _config.typecheck_cmd,
+                "test": _config.test_cmd,
+            }
+
+            results: list[dict[str, Any]] = []
+            overall_success = True
+
+            for validation_type in types_to_run:
+                cmd: list[str] | None = type_to_cmd.get(validation_type)
+
+                if cmd is None:
+                    logger.warning(f"No command configured for {validation_type}")
+                    results.append(
+                        {
+                            "type": validation_type,
+                            "success": False,
+                            "output": f"No command configured for {validation_type}",
+                            "duration_ms": 0,
+                            "status": "failed",
+                        }
+                    )
+                    overall_success = False
+                    continue
+
+                # Run command with timeout tracking
+                start_time = time.monotonic()
+                stdout, stderr, return_code, timed_out = (
+                    await _run_command_with_timeout(
+                        cmd,
+                        cwd=_config.project_root,
+                        timeout=float(_config.timeout_seconds),
+                    )
+                )
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+
+                # Combine stdout and stderr
+                output = stdout
+                if stderr:
+                    output += f"\n{stderr}"
+
+                # Determine status
+                if timed_out:
+                    status = "timeout"
+                    success = False
+                    logger.warning(
+                        f"Validation '{validation_type}' timed out "
+                        f"after {duration_ms}ms"
+                    )
+                elif return_code == 0:
+                    status = "success"
+                    success = True
+                    logger.info(
+                        f"Validation '{validation_type}' succeeded in {duration_ms}ms"
+                    )
+                else:
+                    status = "failed"
+                    success = False
+                    logger.warning(
+                        f"Validation '{validation_type}' failed with code "
+                        f"{return_code} in {duration_ms}ms"
+                    )
+
+                results.append(
+                    {
+                        "type": validation_type,
+                        "success": success,
+                        "output": output.strip(),
+                        "duration_ms": duration_ms,
+                        "status": status,
+                    }
+                )
+
+                if not success:
+                    overall_success = False
+
+            logger.info(f"Validation complete: overall_success={overall_success}")
+            return _success_response({"success": overall_success, "results": results})
+
+        except Exception as e:
+            logger.error(f"Validation execution error: {e}")
+            return _error_response(str(e), "VALIDATION_EXECUTION_ERROR")
+
+    @tool(
+        "parse_validation_output",
+        "Parse validation command output into structured errors",
+        {"output": str, "type": str},
+    )
+    async def parse_validation_output(args: dict[str, Any]) -> dict[str, Any]:
+        """Parse lint or typecheck output into structured error list.
+
+        Args:
+            args: Tool arguments with 'output' (str) and
+                'type' (str: 'lint' or 'typecheck').
+
+        Returns:
+            MCP response with parsed errors:
+            {
+                "errors": [
+                    {
+                        "file": str,
+                        "line": int,
+                        "column": int | None,
+                        "code": str | None,
+                        "message": str,
+                        "severity": str | None
+                    }
+                ],
+                "total_count": int,
+                "truncated": bool
+            }
+
+        Raises:
+            ValidationToolsError: If parsing type is invalid.
+        """
+        try:
+            output: str = args.get("output", "")
+            parse_type: str = args.get("type", "")
+
+            if parse_type not in {"lint", "typecheck"}:
+                logger.error(f"Invalid parse type: {parse_type}")
+                return _error_response(
+                    f"Invalid parse type: {parse_type}. "
+                    f"Valid types: 'lint', 'typecheck'",
+                    "INVALID_PARSE_TYPE",
+                )
+
+            logger.info(f"Parsing {parse_type} output ({len(output)} chars)")
+
+            errors: list[dict[str, Any]] = []
+
+            # Map parse_type to the appropriate pattern
+            if parse_type == "lint":
+                # Parse ruff output: path:line:col: code message
+                for match in RUFF_PATTERN.finditer(output):
+                    file_path, line_str, col_str, code, message = match.groups()
+                    errors.append(
+                        {
+                            "file": file_path,
+                            "line": int(line_str),
+                            "column": int(col_str),
+                            "code": code,
+                            "message": message.strip(),
+                            "severity": None,
+                        }
+                    )
+
+            elif parse_type == "typecheck":
+                # Parse mypy output: path:line: severity: message [code]
+                for match in MYPY_PATTERN.finditer(output):
+                    file_path, line_str, severity, message, code = match.groups()
+                    errors.append(
+                        {
+                            "file": file_path,
+                            "line": int(line_str),
+                            "column": None,
+                            "code": code,
+                            "message": message.strip(),
+                            "severity": severity,
+                        }
+                    )
+
+            total_count = len(errors)
+            truncated = total_count > MAX_ERRORS
+
+            if truncated:
+                logger.warning(f"Truncating {total_count} errors to {MAX_ERRORS}")
+                errors = errors[:MAX_ERRORS]
+
+            logger.info(
+                f"Parsed {len(errors)} errors "
+                f"(total: {total_count}, truncated: {truncated})"
+            )
+
+            return _success_response(
+                {
+                    "errors": errors,
+                    "total_count": total_count,
+                    "truncated": truncated,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Parse validation output error: {e}")
+            return _error_response(str(e), "PARSE_ERROR")
+
     # Create and return MCP server with all tools
     server = create_sdk_mcp_server(
         name=SERVER_NAME,
@@ -467,5 +464,11 @@ def create_validation_tools_server(
             parse_validation_output,
         ],
     )
+
+    # Store tool references on server for testing
+    server["_tools"] = {
+        "run_validation": run_validation,
+        "parse_validation_output": parse_validation_output,
+    }
 
     return server

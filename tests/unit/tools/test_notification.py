@@ -27,8 +27,6 @@ from maverick.tools.notification import (
     _send_ntfy_request,
     _success_response,
     create_notification_tools_server,
-    send_notification,
-    send_workflow_update,
 )
 
 
@@ -102,6 +100,23 @@ class MockResponse:
 def mock_aiohttp_session(mock_aiohttp_response: Mock) -> MockClientSession:
     """Create a mock aiohttp session for testing."""
     return MockClientSession(mock_aiohttp_response)
+
+
+@pytest.fixture
+def notification_tools(mock_config: NotificationConfig) -> dict[str, Any]:
+    """Create notification tools with test config."""
+    server_dict = create_notification_tools_server(config=mock_config)
+    # Access tools via _test_tools key added by factory for testing
+    return server_dict["_test_tools"]
+
+
+@pytest.fixture
+def disabled_notification_tools(
+    mock_disabled_config: NotificationConfig,
+) -> dict[str, Any]:
+    """Create notification tools with disabled config."""
+    server_dict = create_notification_tools_server(config=mock_disabled_config)
+    return server_dict["_test_tools"]
 
 
 # =============================================================================
@@ -354,117 +369,123 @@ class TestSendWorkflowUpdate:
     @pytest.mark.asyncio
     async def test_send_workflow_update_success(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test successful workflow update notification with all parameters (T052)."""
-        # Patch module-level config
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
-                # Test each stage mapping
-                for stage, expected_config in STAGE_MAPPING.items():
-                    result = await send_workflow_update.handler(
-                        {
-                            "stage": stage,
-                            "message": f"Testing {stage} stage",
-                            "workflow_name": "TestWorkflow",
-                        }
-                    )
+        send_workflow_update = notification_tools["send_workflow_update"]
 
-                    # Verify MCP response structure
-                    assert "content" in result
-                    assert len(result["content"]) == 1
-                    assert result["content"][0]["type"] == "text"
-
-                    # Parse response data
-                    response_data = json.loads(result["content"][0]["text"])
-                    assert response_data["success"] is True
-                    assert response_data["message"] == "Notification sent"
-                    assert response_data["notification_id"] == "test-notification-id"
-
-                # Verify POST was called for each stage
-                assert len(mock_aiohttp_session.post_calls) == len(STAGE_MAPPING)
-
-    @pytest.mark.asyncio
-    async def test_send_workflow_update_stage_mappings(
-        self,
-        mock_config: NotificationConfig,
-        mock_aiohttp_session: MockClientSession,
-    ) -> None:
-        """Test all stage mappings produce correct priority and tags."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
-
-                # Test start stage
-                await send_workflow_update.handler(
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            # Test each stage mapping
+            for stage, expected_config in STAGE_MAPPING.items():
+                result = await send_workflow_update.handler(
                     {
-                        "stage": "start",
-                        "message": "Workflow starting",
-                        "workflow_name": "FlyWorkflow",
-                    }
-                )
-
-                # Verify headers for start stage
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Priority"] == str(NTFY_PRIORITIES["default"])
-                assert headers["Tags"] == "rocket"
-                assert "🚀 FlyWorkflow Started" in headers["Title"]
-
-                # Test complete stage
-                await send_workflow_update.handler(
-                    {
-                        "stage": "complete",
-                        "message": "All tasks finished",
-                        "workflow_name": "RefuelWorkflow",
-                    }
-                )
-
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Priority"] == str(NTFY_PRIORITIES["high"])
-                assert headers["Tags"] == "tada"
-                assert "🎉 RefuelWorkflow Complete" in headers["Title"]
-
-                # Test error stage
-                await send_workflow_update.handler(
-                    {
-                        "stage": "error",
-                        "message": "Something went wrong",
+                        "stage": stage,
+                        "message": f"Testing {stage} stage",
                         "workflow_name": "TestWorkflow",
                     }
                 )
 
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Priority"] == str(NTFY_PRIORITIES["urgent"])
-                assert headers["Tags"] == "x,warning"
-                assert "❌ TestWorkflow Error" in headers["Title"]
+                # Verify MCP response structure
+                assert "content" in result
+                assert len(result["content"]) == 1
+                assert result["content"][0]["type"] == "text"
+
+                # Parse response data
+                response_data = json.loads(result["content"][0]["text"])
+                assert response_data["success"] is True
+                assert response_data["message"] == "Notification sent"
+                assert response_data["notification_id"] == "test-notification-id"
+
+            # Verify POST was called for each stage
+            assert len(mock_aiohttp_session.post_calls) == len(STAGE_MAPPING)
 
     @pytest.mark.asyncio
-    async def test_send_workflow_update_disabled(
+    async def test_send_workflow_update_stage_mappings(
         self,
-        mock_disabled_config: NotificationConfig,
+        notification_tools: dict[str, Any],
+        mock_aiohttp_session: MockClientSession,
     ) -> None:
-        """Test graceful handling when notifications disabled (T053)."""
-        with patch("maverick.tools.notification._config", mock_disabled_config):
-            result = await send_workflow_update.handler(
+        """Test all stage mappings produce correct priority and tags."""
+        send_workflow_update = notification_tools["send_workflow_update"]
+
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            # Test start stage
+            await send_workflow_update.handler(
                 {
                     "stage": "start",
-                    "message": "This should not be sent",
+                    "message": "Workflow starting",
+                    "workflow_name": "FlyWorkflow",
+                }
+            )
+
+            # Verify headers for start stage
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Priority"] == str(NTFY_PRIORITIES["default"])
+            assert headers["Tags"] == "rocket"
+            assert "🚀 FlyWorkflow Started" in headers["Title"]
+
+            # Test complete stage
+            await send_workflow_update.handler(
+                {
+                    "stage": "complete",
+                    "message": "All tasks finished",
+                    "workflow_name": "RefuelWorkflow",
+                }
+            )
+
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Priority"] == str(NTFY_PRIORITIES["high"])
+            assert headers["Tags"] == "tada"
+            assert "🎉 RefuelWorkflow Complete" in headers["Title"]
+
+            # Test error stage
+            await send_workflow_update.handler(
+                {
+                    "stage": "error",
+                    "message": "Something went wrong",
                     "workflow_name": "TestWorkflow",
                 }
             )
 
-            # Verify response
-            response_data = json.loads(result["content"][0]["text"])
-            assert response_data["success"] is True
-            assert response_data["message"] == "Notifications disabled (no topic configured)"
-            assert "notification_id" not in response_data
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Priority"] == str(NTFY_PRIORITIES["urgent"])
+            assert headers["Tags"] == "x,warning"
+            assert "❌ TestWorkflow Error" in headers["Title"]
 
     @pytest.mark.asyncio
-    async def test_send_workflow_update_invalid_stage(self) -> None:
+    async def test_send_workflow_update_disabled(
+        self,
+        disabled_notification_tools: dict[str, Any],
+    ) -> None:
+        """Test graceful handling when notifications disabled (T053)."""
+        send_workflow_update = disabled_notification_tools["send_workflow_update"]
+
+        result = await send_workflow_update.handler(
+            {
+                "stage": "start",
+                "message": "This should not be sent",
+                "workflow_name": "TestWorkflow",
+            }
+        )
+
+        # Verify response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["message"] == "Notifications disabled (no topic configured)"
+        assert "notification_id" not in response_data
+
+    @pytest.mark.asyncio
+    async def test_send_workflow_update_invalid_stage(
+        self,
+        notification_tools: dict[str, Any],
+    ) -> None:
         """Test error handling for invalid stage."""
+        send_workflow_update = notification_tools["send_workflow_update"]
+
         result = await send_workflow_update.handler(
             {
                 "stage": "invalid_stage",
@@ -483,9 +504,11 @@ class TestSendWorkflowUpdate:
     @pytest.mark.asyncio
     async def test_send_workflow_update_retry(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
     ) -> None:
         """Test retry logic when server temporarily unreachable (T054)."""
+        send_workflow_update = notification_tools["send_workflow_update"]
+
         # Create successful response for third attempt
         success_response = Mock()
         success_response.status = 200
@@ -512,48 +535,47 @@ class TestSendWorkflowUpdate:
                     raise aiohttp.ClientError("Temporary error")
                 return MockResponse(success_response)
 
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession):
-                with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock):
-                    result = await send_workflow_update.handler(
-                        {
-                            "stage": "start",
-                            "message": "Test retry",
-                            "workflow_name": "TestWorkflow",
-                        }
-                    )
+        with patch("maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession):
+            with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock):
+                result = await send_workflow_update.handler(
+                    {
+                        "stage": "start",
+                        "message": "Test retry",
+                        "workflow_name": "TestWorkflow",
+                    }
+                )
 
-                    # Verify successful after retry
-                    response_data = json.loads(result["content"][0]["text"])
-                    assert response_data["success"] is True
-                    assert response_data["notification_id"] == "retry-id"
+                # Verify successful after retry
+                response_data = json.loads(result["content"][0]["text"])
+                assert response_data["success"] is True
+                assert response_data["notification_id"] == "retry-id"
 
     @pytest.mark.asyncio
     async def test_send_workflow_update_default_workflow_name(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test workflow update with default workflow name."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        send_workflow_update = notification_tools["send_workflow_update"]
 
-                # Don't provide workflow_name
-                result = await send_workflow_update.handler(
-                    {
-                        "stage": "start",
-                        "message": "Starting workflow",
-                    }
-                )
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            # Don't provide workflow_name
+            result = await send_workflow_update.handler(
+                {
+                    "stage": "start",
+                    "message": "Starting workflow",
+                }
+            )
 
-                # Verify default name used
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert "Workflow" in headers["Title"]
+            # Verify default name used
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert "Workflow" in headers["Title"]
 
-                # Verify response
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
+            # Verify response
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
 
 
 # =============================================================================
@@ -567,69 +589,74 @@ class TestSendNotification:
     @pytest.mark.asyncio
     async def test_send_notification_success(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test successful custom notification with title, priority, tags (T055)."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        send_notification = notification_tools["send_notification"]
 
-                result = await send_notification.handler(
-                    {
-                        "message": "Custom notification body",
-                        "title": "Security Alert",
-                        "priority": "urgent",
-                        "tags": ["warning", "security"],
-                    }
-                )
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            result = await send_notification.handler(
+                {
+                    "message": "Custom notification body",
+                    "title": "Security Alert",
+                    "priority": "urgent",
+                    "tags": ["warning", "security"],
+                }
+            )
 
-                # Verify MCP response
-                assert "content" in result
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
-                assert response_data["message"] == "Notification sent"
-                assert response_data["notification_id"] == "test-notification-id"
+            # Verify MCP response
+            assert "content" in result
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
+            assert response_data["message"] == "Notification sent"
+            assert response_data["notification_id"] == "test-notification-id"
 
-                # Verify POST request
-                assert len(mock_aiohttp_session.post_calls) == 1
-                call_args, call_kwargs = mock_aiohttp_session.post_calls[0]
+            # Verify POST request
+            assert len(mock_aiohttp_session.post_calls) == 1
+            call_args, call_kwargs = mock_aiohttp_session.post_calls[0]
 
-                # Verify URL and body
-                assert call_args[0] == "https://ntfy.sh/test-topic"
-                assert call_kwargs["data"] == "Custom notification body"
+            # Verify URL and body
+            assert call_args[0] == "https://ntfy.sh/test-topic"
+            assert call_kwargs["data"] == "Custom notification body"
 
-                # Verify headers
-                headers = call_kwargs["headers"]
-                assert headers["Title"] == "Security Alert"
-                assert headers["Priority"] == str(NTFY_PRIORITIES["urgent"])
-                assert headers["Tags"] == "warning,security"
+            # Verify headers
+            headers = call_kwargs["headers"]
+            assert headers["Title"] == "Security Alert"
+            assert headers["Priority"] == str(NTFY_PRIORITIES["urgent"])
+            assert headers["Tags"] == "warning,security"
 
     @pytest.mark.asyncio
     async def test_send_notification_minimal_params(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test notification with only required message parameter."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        send_notification = notification_tools["send_notification"]
 
-                result = await send_notification.handler({"message": "Simple notification"})
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            result = await send_notification.handler({"message": "Simple notification"})
 
-                # Verify response
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
+            # Verify response
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
 
-                # Verify headers use defaults
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Priority"] == str(NTFY_PRIORITIES["default"])
-                assert "Title" not in headers  # No title provided
-                assert "Tags" not in headers  # No tags provided
+            # Verify headers use defaults
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Priority"] == str(NTFY_PRIORITIES["default"])
+            assert "Title" not in headers  # No title provided
+            assert "Tags" not in headers  # No tags provided
 
     @pytest.mark.asyncio
-    async def test_send_notification_empty_message(self) -> None:
+    async def test_send_notification_empty_message(
+        self,
+        notification_tools: dict[str, Any],
+    ) -> None:
         """Test error handling for empty message."""
+        send_notification = notification_tools["send_notification"]
+
         result = await send_notification.handler({"message": ""})
 
         # Verify error response
@@ -639,8 +666,13 @@ class TestSendNotification:
         assert response_data["error_code"] == "INVALID_INPUT"
 
     @pytest.mark.asyncio
-    async def test_send_notification_whitespace_message(self) -> None:
+    async def test_send_notification_whitespace_message(
+        self,
+        notification_tools: dict[str, Any],
+    ) -> None:
         """Test error handling for whitespace-only message."""
+        send_notification = notification_tools["send_notification"]
+
         result = await send_notification.handler({"message": "   \n\t  "})
 
         # Verify error response
@@ -649,8 +681,13 @@ class TestSendNotification:
         assert "cannot be empty" in response_data["message"]
 
     @pytest.mark.asyncio
-    async def test_send_notification_invalid_priority(self) -> None:
+    async def test_send_notification_invalid_priority(
+        self,
+        notification_tools: dict[str, Any],
+    ) -> None:
         """Test error handling for invalid priority value (T055)."""
+        send_notification = notification_tools["send_notification"]
+
         result = await send_notification.handler(
             {
                 "message": "Test message",
@@ -671,8 +708,13 @@ class TestSendNotification:
         assert "urgent" in response_data["message"]
 
     @pytest.mark.asyncio
-    async def test_send_notification_invalid_tags_type(self) -> None:
+    async def test_send_notification_invalid_tags_type(
+        self,
+        notification_tools: dict[str, Any],
+    ) -> None:
         """Test error handling for invalid tags type."""
+        send_notification = notification_tools["send_notification"]
+
         result = await send_notification.handler(
             {
                 "message": "Test message",
@@ -689,99 +731,101 @@ class TestSendNotification:
     @pytest.mark.asyncio
     async def test_send_notification_graceful_degradation(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
     ) -> None:
         """Test graceful degradation when server unreachable (T056)."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("aiohttp.ClientSession") as mock_session_class:
-                # All attempts fail
-                mock_session = AsyncMock()
-                mock_session.post.side_effect = aiohttp.ClientError("Server down")
+        send_notification = notification_tools["send_notification"]
 
-                mock_session_class.return_value.__aenter__ = AsyncMock(
-                    return_value=mock_session
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            # All attempts fail
+            mock_session = AsyncMock()
+            mock_session.post.side_effect = aiohttp.ClientError("Server down")
+
+            mock_session_class.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await send_notification.handler(
+                    {"message": "This will fail", "priority": "high"}
                 )
-                mock_session_class.return_value.__aexit__ = AsyncMock(return_value=None)
 
-                with patch("asyncio.sleep", new_callable=AsyncMock):
-                    result = await send_notification.handler(
-                        {"message": "This will fail", "priority": "high"}
-                    )
-
-                    # Verify graceful degradation
-                    response_data = json.loads(result["content"][0]["text"])
-                    assert response_data["success"] is True  # Still success
-                    assert response_data["message"] == "Notification not delivered"
-                    assert "warning" in response_data
-                    assert "unreachable" in response_data["warning"]
+                # Verify graceful degradation
+                response_data = json.loads(result["content"][0]["text"])
+                assert response_data["success"] is True  # Still success
+                assert response_data["message"] == "Notification not delivered"
+                assert "warning" in response_data
+                assert "unreachable" in response_data["warning"]
 
     @pytest.mark.asyncio
     async def test_send_notification_disabled(
         self,
-        mock_disabled_config: NotificationConfig,
+        disabled_notification_tools: dict[str, Any],
     ) -> None:
         """Test graceful handling when notifications disabled."""
-        with patch("maverick.tools.notification._config", mock_disabled_config):
-            result = await send_notification.handler(
-                {"message": "This should not be sent", "priority": "urgent"}
-            )
+        send_notification = disabled_notification_tools["send_notification"]
 
-            # Verify response
-            response_data = json.loads(result["content"][0]["text"])
-            assert response_data["success"] is True
-            assert response_data["message"] == "Notifications disabled (no topic configured)"
-            assert "notification_id" not in response_data
+        result = await send_notification.handler(
+            {"message": "This should not be sent", "priority": "urgent"}
+        )
+
+        # Verify response
+        response_data = json.loads(result["content"][0]["text"])
+        assert response_data["success"] is True
+        assert response_data["message"] == "Notifications disabled (no topic configured)"
+        assert "notification_id" not in response_data
 
     @pytest.mark.asyncio
     async def test_send_notification_priority_case_insensitive(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test priority parameter is case-insensitive."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        send_notification = notification_tools["send_notification"]
 
-                # Test uppercase priority
-                result = await send_notification.handler(
-                    {"message": "Test", "priority": "HIGH"}
-                )
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            # Test uppercase priority
+            result = await send_notification.handler(
+                {"message": "Test", "priority": "HIGH"}
+            )
 
-                # Verify success
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
+            # Verify success
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
 
-                # Verify priority was converted correctly
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Priority"] == str(NTFY_PRIORITIES["high"])
+            # Verify priority was converted correctly
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Priority"] == str(NTFY_PRIORITIES["high"])
 
     @pytest.mark.asyncio
     async def test_send_notification_tags_conversion(
         self,
-        mock_config: NotificationConfig,
+        notification_tools: dict[str, Any],
         mock_aiohttp_session: MockClientSession,
     ) -> None:
         """Test tags are converted to strings."""
-        with patch("maverick.tools.notification._config", mock_config):
-            with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        send_notification = notification_tools["send_notification"]
 
-                # Test with mixed tag types
-                result = await send_notification.handler(
-                    {
-                        "message": "Test",
-                        "tags": ["string", 123, True],  # Mixed types
-                    }
-                )
+        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+            # Test with mixed tag types
+            result = await send_notification.handler(
+                {
+                    "message": "Test",
+                    "tags": ["string", 123, True],  # Mixed types
+                }
+            )
 
-                # Verify success
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
+            # Verify success
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
 
-                # Verify tags were converted to strings
-                last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
-                headers = last_call_kwargs["headers"]
-                assert headers["Tags"] == "string,123,True"
+            # Verify tags were converted to strings
+            last_call_args, last_call_kwargs = mock_aiohttp_session.post_calls[-1]
+            headers = last_call_kwargs["headers"]
+            assert headers["Tags"] == "string,123,True"
 
 
 # =============================================================================
@@ -817,18 +861,6 @@ class TestCreateNotificationToolsServer:
         assert isinstance(server, dict)
         assert server["name"] == SERVER_NAME
         assert server["type"] == "sdk"
-
-    def test_create_server_updates_module_config(
-        self,
-        mock_config: NotificationConfig,
-    ) -> None:
-        """Test factory updates module-level config."""
-        # Create server with custom config
-        create_notification_tools_server(config=mock_config)
-
-        # Verify module config was updated by testing tool behavior
-        # (we can't directly access _config due to function scope)
-        # This is implicitly tested by other tests that verify notification behavior
 
     def test_create_server_tool_metadata(self) -> None:
         """Test server is properly configured."""
