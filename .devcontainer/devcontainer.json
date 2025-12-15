@@ -5,7 +5,8 @@
   "features": {},
   "remoteEnv": {
     "GH_PAGER": "",
-    "NODE_ENV": "development"
+    "NODE_ENV": "development",
+    "CODEX_HOME":"/workspaces/maverick/.codex"
   },
   "customizations": {
     "vscode": {

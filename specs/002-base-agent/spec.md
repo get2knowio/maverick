@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create a spec for the base agent abstraction layer in Maverick, building on the project foundation."
 
+## Clarifications
+
+### Session 2025-12-12
+
+- Q: When a second agent attempts to register with a name already in use, what should the registry do? → A: Raise exception immediately on duplicate registration (fail fast).
+- Q: When an agent execution times out or encounters a network error, should the base class automatically retry? → A: No retries at base layer; return error immediately and let caller decide retry policy.
+- Q: When a streaming response fails partway through, what should query() do with the partial content? → A: Yield partial content received so far, then raise exception.
+- Q: When should validation of allowed_tools against available MCP servers occur? → A: Validate at agent construction time; raise error if any tool name is invalid.
+- Q: How should malformed or unparseable responses from Claude be handled? → A: Wrap in MalformedResponseError with raw response attached for debugging.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Create a Simple Agent (Priority: P1)
@@ -85,28 +95,28 @@ An agent encounters an error during execution (CLI not found, process error, etc
 
 ### Edge Cases
 
-- What happens when the Claude CLI is not found in PATH?
-- How does the system handle network timeouts during agent execution?
-- What happens when an agent's allowed_tools list references a tool that doesn't exist?
-- How are malformed responses from Claude handled?
-- What happens when the agent registry has duplicate name registrations?
-- How does the system handle partial streaming failures mid-response?
+- What happens when the Claude CLI is not found in PATH? → Raises `CLINotFoundError` with actionable message (covered by User Story 5).
+- How does the system handle network timeouts during agent execution? → Returns error immediately with no automatic retry; caller (workflow) decides retry policy.
+- What happens when an agent's allowed_tools list references a tool that doesn't exist? → Raises `InvalidToolError` at construction time (fail fast).
+- How are malformed responses from Claude handled? → Wraps in `MalformedResponseError` with raw response attached for debugging.
+- What happens when the agent registry has duplicate name registrations? → Raises `DuplicateAgentError` immediately (fail fast).
+- How does the system handle partial streaming failures mid-response? → Yields partial content received, then raises `StreamingError`.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: System MUST provide an abstract base class `MaverickAgent` that wraps Claude Agent SDK interactions.
-- **FR-002**: `MaverickAgent` MUST accept a name, system prompt, allowed tools list, and model configuration at construction.
+- **FR-002**: `MaverickAgent` MUST accept a name, system prompt, allowed tools list, and model configuration at construction; MUST validate allowed tools against available MCP servers and raise `InvalidToolError` for unknown tool names.
 - **FR-003**: `MaverickAgent` MUST build `ClaudeAgentOptions` with sensible defaults for common settings (e.g., timeout, max tokens).
 - **FR-004**: `MaverickAgent` MUST provide an abstract async method `execute(context: AgentContext) -> AgentResult` for subclasses to implement.
-- **FR-005**: `MaverickAgent` MUST provide a helper method `query(prompt: str) -> AsyncIterator[Message]` for streaming responses.
+- **FR-005**: `MaverickAgent` MUST provide a helper method `query(prompt: str) -> AsyncIterator[Message]` for streaming responses; on mid-stream failure, MUST yield partial content before raising `StreamingError`.
 - **FR-006**: System MUST provide utility functions for extracting text content from `AssistantMessage` objects.
-- **FR-007**: System MUST catch and wrap common errors (`CLINotFoundError`, `ProcessError`) with clear, actionable error messages.
-- **FR-008**: System MUST provide an `AgentResult` dataclass containing: success (bool), output (str), metadata (dict), errors (list), and usage statistics (tokens, cost, duration).
+- **FR-007**: System MUST catch and wrap common errors (`CLINotFoundError`, `ProcessError`, `TimeoutError`, `NetworkError`, `StreamingError`, `MalformedResponseError`, `InvalidToolError`, `DuplicateAgentError`) with clear, actionable error messages; no automatic retries at the base layer.
+- **FR-008**: System MUST provide an `AgentResult` dataclass containing: success (bool), output (str), metadata (dict), errors (list), and usage statistics (tokens, cost, duration). When `success` is `False`, the `errors` list MUST contain at least one error with actionable context.
 - **FR-009**: System MUST provide an `AgentContext` dataclass for passing runtime context to agents including working directory, branch name, and configuration.
 - **FR-010**: System MUST provide an agent registry for discovering and instantiating agents by name.
-- **FR-011**: Agent registry MUST support registration of agent classes with unique names.
+- **FR-011**: Agent registry MUST support registration of agent classes with unique names; duplicate registration attempts MUST raise `DuplicateAgentError` immediately.
 - **FR-012**: Agent registry MUST support lookup of agent classes by name.
 - **FR-013**: All agent methods involving I/O MUST be async following the async-first principle.
 - **FR-014**: `AgentResult` MUST include usage statistics: input tokens, output tokens, total cost (if available), and execution duration.
@@ -123,8 +133,8 @@ An agent encounters an error during execution (CLI not found, process error, etc
 ### Measurable Outcomes
 
 - **SC-001**: Developers can create a fully functional agent by implementing only the `execute()` method and defining a system prompt - no additional boilerplate required.
-- **SC-002**: Agent execution returns structured results within 100ms overhead beyond Claude's actual response time.
-- **SC-003**: Streaming responses begin arriving to consumers within 500ms of starting a query.
+- **SC-002**: Agent execution returns structured results within 100ms overhead beyond Claude's actual response time. Measurement: `AgentResult.usage.duration_ms` minus time spent waiting for Claude API responses (logged separately). Validated via integration tests with mocked Claude responses.
+- **SC-003**: Streaming responses begin arriving to consumers within 500ms of calling `query()`. Measurement: Time from `query()` invocation to first `yield` of a Message. Excludes Claude API latency; measures only internal processing overhead. Validated via integration tests with mocked streaming.
 - **SC-004**: All common errors (missing CLI, process failures, network issues) are caught and reported with actionable error messages.
 - **SC-005**: The agent registry can instantiate any registered agent by name without the caller knowing the concrete class.
 - **SC-006**: Usage statistics (tokens, duration) are accurately captured for every agent execution for monitoring and cost tracking.
