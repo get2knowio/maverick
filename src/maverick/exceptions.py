@@ -493,3 +493,79 @@ class MaverickValidationError(AgentError):
         self.step = step
         self.output = output
         super().__init__(message)
+
+
+class NotificationToolsError(AgentError):
+    """Exception for notification MCP tools initialization failures.
+
+    Raised when the notification tools MCP server cannot be created.
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the NotificationToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class GitToolsError(AgentError):
+    """Exception for git MCP tools initialization failures.
+
+    Raised when the git tools MCP server cannot be created due to missing
+    prerequisites (git not installed, not in git repo).
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific prerequisite check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the GitToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific prerequisite check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class ValidationToolsError(AgentError):
+    """Exception for validation MCP tools initialization failures.
+
+    Raised when the validation tools MCP server cannot be created.
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the ValidationToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)

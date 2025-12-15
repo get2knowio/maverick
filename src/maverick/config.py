@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -20,6 +20,7 @@ __all__ = [
     "MaverickConfig",
     "GitHubConfig",
     "NotificationConfig",
+    "ValidationConfig",
     "ModelConfig",
     "ParallelConfig",
     "AgentConfig",
@@ -53,6 +54,39 @@ class NotificationConfig(BaseModel):
                 "Notifications will not be sent."
             )
         return self
+
+
+class ValidationConfig(BaseModel):
+    """Settings for validation commands.
+
+    Attributes:
+        format_cmd: Command to run for formatting (default: ruff format .)
+        lint_cmd: Command to run for linting (default: ruff check --fix .)
+        typecheck_cmd: Command to run for type checking (default: mypy .)
+        test_cmd: Command to run for tests (default: pytest -x --tb=short)
+        timeout_seconds: Maximum time per validation command (default: 300s)
+        max_errors: Maximum errors to return from parse (default: 50)
+        project_root: Project root directory for running commands (default: cwd)
+    """
+
+    format_cmd: list[str] = Field(default_factory=lambda: ["ruff", "format", "."])
+    lint_cmd: list[str] = Field(default_factory=lambda: ["ruff", "check", "--fix", "."])
+    typecheck_cmd: list[str] = Field(default_factory=lambda: ["mypy", "."])
+    test_cmd: list[str] = Field(default_factory=lambda: ["pytest", "-x", "--tb=short"])
+    timeout_seconds: int = Field(default=300, ge=30, le=600)
+    max_errors: int = Field(default=50, ge=1, le=500)
+    project_root: Path | None = None
+
+    @field_validator('project_root')
+    @classmethod
+    def check_project_root_exists(cls, v: Path | None) -> Path | None:
+        """Warn if project_root path doesn't exist."""
+        if v is not None and not v.exists():
+            logger.warning(
+                f"Configured project_root does not exist: {v}. "
+                "Validation commands may fail."
+            )
+        return v
 
 
 class ModelConfig(BaseModel):
@@ -130,6 +164,7 @@ class MaverickConfig(BaseSettings):
 
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)

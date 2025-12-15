@@ -10,9 +10,15 @@ import pytest
 
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:
-    """Create a temporary directory for test files."""
+    """Create a temporary directory for test files.
+
+    Also saves and restores the current working directory to prevent
+    tests that use os.chdir() from affecting other tests.
+    """
+    original_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
+    os.chdir(original_cwd)
 
 
 @pytest.fixture

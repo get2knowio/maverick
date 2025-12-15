@@ -9,6 +9,7 @@ Usage:
     server = create_github_tools_server()  # Raises GitHubToolsError if prerequisites not met
     agent = MaverickAgent(mcp_servers={"github-tools": server})
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -215,16 +216,16 @@ async def _verify_prerequisites(cwd: Path | None = None) -> None:
                 "GitHub CLI (gh) not installed. Install: https://cli.github.com/",
                 check_failed="gh_installed",
             )
-    except FileNotFoundError:
+    except FileNotFoundError as err:
         raise GitHubToolsError(
             "GitHub CLI (gh) not installed. Install: https://cli.github.com/",
             check_failed="gh_installed",
-        )
-    except asyncio.TimeoutError:
+        ) from err
+    except asyncio.TimeoutError as err:
         raise GitHubToolsError(
             "GitHub CLI check timed out",
             check_failed="gh_installed",
-        )
+        ) from err
 
     # Check 2: gh CLI authenticated
     stdout, stderr, return_code = await _run_gh_command(
@@ -255,16 +256,16 @@ async def _verify_prerequisites(cwd: Path | None = None) -> None:
                 "Not inside a git repository",
                 check_failed="git_repo",
             )
-    except FileNotFoundError:
+    except FileNotFoundError as err:
         raise GitHubToolsError(
             "Git not installed",
             check_failed="git_installed",
-        )
-    except asyncio.TimeoutError:
+        ) from err
+    except asyncio.TimeoutError as err:
         raise GitHubToolsError(
             "Git check timed out",
             check_failed="git_repo",
-        )
+        ) from err
 
     # Check 4: Has remote configured
     try:
@@ -283,11 +284,11 @@ async def _verify_prerequisites(cwd: Path | None = None) -> None:
                 "No git remote 'origin' configured",
                 check_failed="git_remote",
             )
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as err:
         raise GitHubToolsError(
             "Git remote check timed out",
             check_failed="git_remote",
-        )
+        ) from err
 
     logger.debug("GitHub tools prerequisites verified successfully")
 
@@ -316,9 +317,22 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
     if not body or not body.strip():
         return _error_response("PR body cannot be empty", "INVALID_INPUT")
 
-    logger.info("Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft)
+    logger.info(
+        "Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft
+    )
 
-    cmd_args = ["pr", "create", "--title", title, "--body", body, "--base", base, "--head", head]
+    cmd_args = [
+        "pr",
+        "create",
+        "--title",
+        title,
+        "--body",
+        body,
+        "--base",
+        base,
+        "--head",
+        head,
+    ]
     if draft:
         cmd_args.append("--draft")
 
@@ -342,12 +356,14 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
         pr_number = int(pr_url.rstrip("/").split("/")[-1])
 
         logger.info("PR #%d created: %s", pr_number, pr_url)
-        return _success_response({
-            "pr_number": pr_number,
-            "url": pr_url,
-            "state": "draft" if draft else "open",
-            "title": title,
-        })
+        return _success_response(
+            {
+                "pr_number": pr_number,
+                "url": pr_url,
+                "state": "draft" if draft else "open",
+                "title": title,
+            }
+        )
 
     except asyncio.TimeoutError:
         logger.error("PR creation timed out")
@@ -406,13 +422,18 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
         # Transform labels from objects to strings
         issues = []
         for issue in issues_data:
-            issues.append({
-                "number": issue["number"],
-                "title": issue["title"],
-                "labels": [lbl["name"] if isinstance(lbl, dict) else lbl for lbl in issue.get("labels", [])],
-                "state": issue["state"],
-                "url": issue["url"],
-            })
+            issues.append(
+                {
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "labels": [
+                        lbl["name"] if isinstance(lbl, dict) else lbl
+                        for lbl in issue.get("labels", [])
+                    ],
+                    "state": issue["state"],
+                    "url": issue["url"],
+                }
+            )
 
         logger.info("Found %d issues", len(issues))
         return _success_response({"issues": issues})
@@ -464,9 +485,17 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
             "body": data.get("body", ""),
             "url": data["url"],
             "state": data["state"],
-            "labels": [lbl["name"] if isinstance(lbl, dict) else lbl for lbl in data.get("labels", [])],
-            "assignees": [a["login"] if isinstance(a, dict) else a for a in data.get("assignees", [])],
-            "author": data.get("author", {}).get("login", "") if isinstance(data.get("author"), dict) else str(data.get("author", "")),
+            "labels": [
+                lbl["name"] if isinstance(lbl, dict) else lbl
+                for lbl in data.get("labels", [])
+            ],
+            "assignees": [
+                a["login"] if isinstance(a, dict) else a
+                for a in data.get("assignees", [])
+            ],
+            "author": data.get("author", {}).get("login", "")
+            if isinstance(data.get("author"), dict)
+            else str(data.get("author", "")),
             "comments_count": len(data.get("comments", [])),
             "created_at": data.get("createdAt", ""),
             "updated_at": data.get("updatedAt", ""),
@@ -526,12 +555,14 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
             diff_bytes = diff.encode("utf-8")[:max_size]
             diff = diff_bytes.decode("utf-8", errors="ignore")
             logger.info("Diff truncated from %d to %d bytes", original_size, max_size)
-            return _success_response({
-                "diff": diff,
-                "truncated": True,
-                "warning": f"Diff truncated at {max_size // 1024}KB",
-                "original_size_bytes": original_size,
-            })
+            return _success_response(
+                {
+                    "diff": diff,
+                    "truncated": True,
+                    "warning": f"Diff truncated at {max_size // 1024}KB",
+                    "original_size_bytes": original_size,
+                }
+            )
 
         logger.info("Retrieved diff for PR #%d (%d bytes)", pr_number, original_size)
         return _success_response({"diff": diff, "truncated": False})
@@ -580,21 +611,27 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
         for review in data.get("reviews", []):
             if isinstance(review, dict):
                 author = review.get("author", {})
-                reviews.append({
-                    "author": author.get("login", "") if isinstance(author, dict) else str(author),
-                    "state": review.get("state", "PENDING"),
-                })
+                reviews.append(
+                    {
+                        "author": author.get("login", "")
+                        if isinstance(author, dict)
+                        else str(author),
+                        "state": review.get("state", "PENDING"),
+                    }
+                )
 
         # Parse checks
         checks = []
         rollup = data.get("statusCheckRollup", []) or []
         for check in rollup:
             if isinstance(check, dict):
-                checks.append({
-                    "name": check.get("name", check.get("context", "unknown")),
-                    "status": check.get("status", "queued").lower(),
-                    "conclusion": check.get("conclusion"),
-                })
+                checks.append(
+                    {
+                        "name": check.get("name", check.get("context", "unknown")),
+                        "status": check.get("status", "queued").lower(),
+                        "conclusion": check.get("conclusion"),
+                    }
+                )
 
         # Determine merge state
         mergeable_raw = data.get("mergeable")
@@ -611,7 +648,9 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
             mergeable = None  # UNKNOWN or null
 
         # Detect conflicts
-        has_conflicts = merge_state in ("dirty", "conflicting") or mergeable_raw == "CONFLICTING"
+        has_conflicts = (
+            merge_state in ("dirty", "conflicting") or mergeable_raw == "CONFLICTING"
+        )
 
         status = {
             "pr_number": pr_number,
@@ -677,11 +716,13 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
             return _error_response(message, error_code, retry_after)
 
         logger.info("Labels added to #%d: %s", issue_number, labels)
-        return _success_response({
-            "success": True,
-            "issue_number": issue_number,
-            "labels_added": labels,
-        })
+        return _success_response(
+            {
+                "success": True,
+                "issue_number": issue_number,
+                "labels_added": labels,
+            }
+        )
 
     except asyncio.TimeoutError:
         logger.error("Add labels timed out")
@@ -722,20 +763,24 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
             # Already closed is not an error (idempotent)
             if "already closed" in (stderr or stdout).lower():
                 logger.info("Issue #%d was already closed", issue_number)
-                return _success_response({
-                    "success": True,
-                    "issue_number": issue_number,
-                    "state": "closed",
-                })
+                return _success_response(
+                    {
+                        "success": True,
+                        "issue_number": issue_number,
+                        "state": "closed",
+                    }
+                )
             logger.warning("Close issue failed: %s", message)
             return _error_response(message, error_code, retry_after)
 
         logger.info("Issue #%d closed", issue_number)
-        return _success_response({
-            "success": True,
-            "issue_number": issue_number,
-            "state": "closed",
-        })
+        return _success_response(
+            {
+                "success": True,
+                "issue_number": issue_number,
+                "state": "closed",
+            }
+        )
 
     except asyncio.TimeoutError:
         logger.error("Close issue timed out")
