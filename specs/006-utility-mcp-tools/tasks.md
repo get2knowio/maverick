@@ -22,12 +22,12 @@
 
 **Purpose**: Project initialization and configuration models
 
-- [ ] T001 Add ValidationConfig model to src/maverick/config.py with format_cmd, lint_cmd, typecheck_cmd, test_cmd, timeout_seconds, max_errors fields
-- [ ] T002 Add validation field to MaverickConfig in src/maverick/config.py referencing ValidationConfig
-- [ ] T003 [P] Add NotificationToolsError, GitToolsError, ValidationToolsError to src/maverick/exceptions.py
-- [ ] T004 [P] Create empty src/maverick/tools/notification.py module with docstring and imports
-- [ ] T005 [P] Create empty src/maverick/tools/git.py module with docstring and imports
-- [ ] T006 [P] Create empty src/maverick/tools/validation.py module with docstring and imports
+- [X] T001 Add ValidationConfig model to src/maverick/config.py with format_cmd, lint_cmd, typecheck_cmd, test_cmd, timeout_seconds, max_errors fields
+- [X] T002 Add validation field to MaverickConfig in src/maverick/config.py referencing ValidationConfig
+- [X] T003 [P] Add NotificationToolsError, GitToolsError, ValidationToolsError to src/maverick/exceptions.py
+- [X] T004 [P] Create empty src/maverick/tools/notification.py module with docstring and imports
+- [X] T005 [P] Create empty src/maverick/tools/git.py module with docstring and imports
+- [X] T006 [P] Create empty src/maverick/tools/validation.py module with docstring and imports
 
 ---
 
@@ -37,14 +37,14 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement _success_response() helper in src/maverick/tools/notification.py following github.py pattern
-- [ ] T008 Implement _error_response() helper in src/maverick/tools/notification.py following github.py pattern
-- [ ] T009 [P] Implement _success_response() and _error_response() helpers in src/maverick/tools/git.py following github.py pattern
-- [ ] T010 [P] Implement _success_response() and _error_response() helpers in src/maverick/tools/validation.py following github.py pattern
-- [ ] T011 Implement async _send_ntfy_request() helper in src/maverick/tools/notification.py using aiohttp with retry logic (1-2 attempts, 2s timeout)
-- [ ] T012 Implement _verify_git_prerequisites() helper in src/maverick/tools/git.py to check git installed and inside repo
-- [ ] T013 [P] Implement async _run_git_command() helper in src/maverick/tools/git.py using asyncio.subprocess
-- [ ] T014 [P] Implement _format_commit_message() helper in src/maverick/tools/git.py for conventional commit format
+- [X] T007 Implement _success_response() helper in src/maverick/tools/notification.py following github.py pattern
+- [X] T008 Implement _error_response() helper in src/maverick/tools/notification.py following github.py pattern
+- [X] T009 [P] Implement _success_response() and _error_response() helpers in src/maverick/tools/git.py following github.py pattern
+- [X] T010 [P] Implement _success_response() and _error_response() helpers in src/maverick/tools/validation.py following github.py pattern
+- [X] T011 Implement async _send_ntfy_request() helper in src/maverick/tools/notification.py using aiohttp with retry logic (1-2 attempts, 2s timeout)
+- [X] T012 Implement _verify_git_prerequisites() helper in src/maverick/tools/git.py to check git installed and inside repo
+- [X] T013 [P] Implement async _run_git_command() helper in src/maverick/tools/git.py using asyncio.subprocess
+- [X] T014 [P] Implement _format_commit_message() helper in src/maverick/tools/git.py for conventional commit format
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -58,10 +58,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T015 [US1] Define STAGE_MAPPING dict in src/maverick/tools/notification.py mapping stages to priority/tags
-- [ ] T016 [US1] Implement send_workflow_update @tool function in src/maverick/tools/notification.py with stage, message, workflow_name parameters
-- [ ] T017 [US1] Add graceful degradation in send_workflow_update when ntfy.sh not configured (return success with "disabled" message)
-- [ ] T018 [US1] Add logging for notification operations in src/maverick/tools/notification.py
+- [X] T015 [US1] Define STAGE_MAPPING dict in src/maverick/tools/notification.py mapping stages to priority/tags
+- [X] T016 [US1] Implement send_workflow_update @tool function in src/maverick/tools/notification.py with stage, message, workflow_name parameters
+- [X] T017 [US1] Add graceful degradation in send_workflow_update when ntfy.sh not configured (return success with "disabled" message)
+- [X] T018 [US1] Add logging for notification operations in src/maverick/tools/notification.py
 
 **Checkpoint**: User Story 1 complete - send_workflow_update functional
 
@@ -75,11 +75,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Define COMMIT_TYPES constant in src/maverick/tools/git.py with valid conventional commit types
-- [ ] T020 [US2] Implement git_commit @tool function in src/maverick/tools/git.py with message, type, scope, breaking parameters
-- [ ] T021 [US2] Add input validation in git_commit for valid commit types and non-empty message
-- [ ] T022 [US2] Add NOTHING_TO_COMMIT error handling when no staged changes exist
-- [ ] T023 [US2] Add logging for git_commit operations in src/maverick/tools/git.py
+- [X] T019 [US2] Define COMMIT_TYPES constant in src/maverick/tools/git.py with valid conventional commit types
+- [X] T020 [US2] Implement git_commit @tool function in src/maverick/tools/git.py with message, type, scope, breaking parameters
+- [X] T021 [US2] Add input validation in git_commit for valid commit types and non-empty message
+- [X] T022 [US2] Add NOTHING_TO_COMMIT error handling when no staged changes exist
+- [X] T023 [US2] Add logging for git_commit operations in src/maverick/tools/git.py
 
 **Checkpoint**: User Story 2 complete - git_commit functional with conventional format
 
@@ -93,13 +93,13 @@
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Define RUFF_PATTERN and MYPY_PATTERN regex constants in src/maverick/tools/validation.py per research.md
-- [ ] T025 [US3] Implement async _run_command_with_timeout() helper in src/maverick/tools/validation.py using asyncio.subprocess
-- [ ] T026 [US3] Implement run_validation @tool function in src/maverick/tools/validation.py with types parameter
-- [ ] T027 [US3] Add timeout handling in run_validation that kills process and returns "timeout" status with partial output
-- [ ] T028 [US3] Implement parse_validation_output @tool function in src/maverick/tools/validation.py with output and type parameters
-- [ ] T029 [US3] Add error truncation in parse_validation_output (default 50 errors, include total_count and truncated flag)
-- [ ] T030 [US3] Add logging for validation operations in src/maverick/tools/validation.py
+- [X] T024 [US3] Define RUFF_PATTERN and MYPY_PATTERN regex constants in src/maverick/tools/validation.py per research.md
+- [X] T025 [US3] Implement async _run_command_with_timeout() helper in src/maverick/tools/validation.py using asyncio.subprocess
+- [X] T026 [US3] Implement run_validation @tool function in src/maverick/tools/validation.py with types parameter
+- [X] T027 [US3] Add timeout handling in run_validation that kills process and returns "timeout" status with partial output
+- [X] T028 [US3] Implement parse_validation_output @tool function in src/maverick/tools/validation.py with output and type parameters
+- [X] T029 [US3] Add error truncation in parse_validation_output (default 50 errors, include total_count and truncated flag)
+- [X] T030 [US3] Add logging for validation operations in src/maverick/tools/validation.py
 
 **Checkpoint**: User Story 3 complete - run_validation and parse_validation_output functional
 
@@ -113,11 +113,11 @@
 
 ### Implementation for User Story 4
 
-- [ ] T031 [US4] Implement git_push @tool function in src/maverick/tools/git.py with set_upstream parameter
-- [ ] T032 [US4] Add DETACHED_HEAD error handling in git_push when in detached HEAD state
-- [ ] T033 [US4] Add AUTHENTICATION_REQUIRED error detection in git_push checking stderr patterns
-- [ ] T034 [US4] Add NETWORK_ERROR handling in git_push for connectivity failures
-- [ ] T035 [US4] Add logging for git_push operations in src/maverick/tools/git.py
+- [X] T031 [US4] Implement git_push @tool function in src/maverick/tools/git.py with set_upstream parameter
+- [X] T032 [US4] Add DETACHED_HEAD error handling in git_push when in detached HEAD state
+- [X] T033 [US4] Add AUTHENTICATION_REQUIRED error detection in git_push checking stderr patterns
+- [X] T034 [US4] Add NETWORK_ERROR handling in git_push for connectivity failures
+- [X] T035 [US4] Add logging for git_push operations in src/maverick/tools/git.py
 
 **Checkpoint**: User Story 4 complete - git_push functional with error handling
 
@@ -131,9 +131,9 @@
 
 ### Implementation for User Story 5
 
-- [ ] T036 [P] [US5] Implement git_current_branch @tool function in src/maverick/tools/git.py returning branch name or "(detached)"
-- [ ] T037 [P] [US5] Implement git_diff_stats @tool function in src/maverick/tools/git.py returning files_changed, insertions, deletions
-- [ ] T038 [US5] Add NOT_A_REPOSITORY error handling to git_current_branch and git_diff_stats
+- [X] T036 [P] [US5] Implement git_current_branch @tool function in src/maverick/tools/git.py returning branch name or "(detached)"
+- [X] T037 [P] [US5] Implement git_diff_stats @tool function in src/maverick/tools/git.py returning files_changed, insertions, deletions
+- [X] T038 [US5] Add NOT_A_REPOSITORY error handling to git_current_branch and git_diff_stats
 
 **Checkpoint**: User Story 5 complete - git_current_branch and git_diff_stats functional
 
@@ -147,10 +147,10 @@
 
 ### Implementation for User Story 6
 
-- [ ] T039 [US6] Implement git_create_branch @tool function in src/maverick/tools/git.py with name and base parameters
-- [ ] T040 [US6] Add BRANCH_EXISTS error handling in git_create_branch
-- [ ] T041 [US6] Add BRANCH_NOT_FOUND error handling in git_create_branch for invalid base
-- [ ] T042 [US6] Add input validation for valid git branch names in git_create_branch
+- [X] T039 [US6] Implement git_create_branch @tool function in src/maverick/tools/git.py with name and base parameters
+- [X] T040 [US6] Add BRANCH_EXISTS error handling in git_create_branch
+- [X] T041 [US6] Add BRANCH_NOT_FOUND error handling in git_create_branch for invalid base
+- [X] T042 [US6] Add input validation for valid git branch names in git_create_branch
 
 **Checkpoint**: User Story 6 complete - git_create_branch functional
 
@@ -164,10 +164,10 @@
 
 ### Implementation for User Story 7
 
-- [ ] T043 [US7] Define NTFY_PRIORITIES mapping in src/maverick/tools/notification.py (min=1, low=2, default=3, high=4, urgent=5)
-- [ ] T044 [US7] Implement send_notification @tool function in src/maverick/tools/notification.py with message, title, priority, tags parameters
-- [ ] T045 [US7] Add input validation in send_notification for valid priority values
-- [ ] T046 [US7] Add graceful degradation in send_notification when ntfy.sh not configured or unreachable
+- [X] T043 [US7] Define NTFY_PRIORITIES mapping in src/maverick/tools/notification.py (min=1, low=2, default=3, high=4, urgent=5)
+- [X] T044 [US7] Implement send_notification @tool function in src/maverick/tools/notification.py with message, title, priority, tags parameters
+- [X] T045 [US7] Add input validation in send_notification for valid priority values
+- [X] T046 [US7] Add graceful degradation in send_notification when ntfy.sh not configured or unreachable
 
 **Checkpoint**: User Story 7 complete - send_notification functional
 
@@ -177,10 +177,10 @@
 
 **Purpose**: Create MCP server factory functions and update module exports
 
-- [ ] T047 Implement create_notification_tools_server() factory function in src/maverick/tools/notification.py using create_sdk_mcp_server()
-- [ ] T048 [P] Implement create_git_tools_server() factory function in src/maverick/tools/git.py using create_sdk_mcp_server()
-- [ ] T049 [P] Implement create_validation_tools_server() factory function in src/maverick/tools/validation.py using create_sdk_mcp_server()
-- [ ] T050 Update src/maverick/tools/__init__.py to export create_notification_tools_server, create_git_tools_server, create_validation_tools_server
+- [X] T047 Implement create_notification_tools_server() factory function in src/maverick/tools/notification.py using create_sdk_mcp_server()
+- [X] T048 [P] Implement create_git_tools_server() factory function in src/maverick/tools/git.py using create_sdk_mcp_server()
+- [X] T049 [P] Implement create_validation_tools_server() factory function in src/maverick/tools/validation.py using create_sdk_mcp_server()
+- [X] T050 Update src/maverick/tools/__init__.py to export create_notification_tools_server, create_git_tools_server, create_validation_tools_server
 
 **Checkpoint**: All factory functions created and exported
 

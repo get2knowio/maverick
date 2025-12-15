@@ -1,0 +1,471 @@
+"""Validation MCP tools for Maverick agents.
+
+This module provides MCP tools for running validation commands (format, lint, typecheck, test)
+and parsing their output into structured errors.
+Tools are async functions decorated with @tool that return MCP-formatted responses.
+
+Usage:
+    from maverick.tools.validation import create_validation_tools_server
+
+    server = create_validation_tools_server()
+    agent = MaverickAgent(mcp_servers={"validation-tools": server})
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from claude_agent_sdk import create_sdk_mcp_server, tool
+
+if TYPE_CHECKING:
+    from mcp import FastMCP
+
+from maverick.config import ValidationConfig
+from maverick.exceptions import ValidationToolsError
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+#: Default timeout for validation operations in seconds
+DEFAULT_TIMEOUT: float = 300.0
+
+#: MCP Server configuration
+SERVER_NAME: str = "validation-tools"
+SERVER_VERSION: str = "1.0.0"
+
+#: Valid validation types
+VALIDATION_TYPES: set[str] = {"format", "lint", "typecheck", "test"}
+
+#: Ruff output pattern: path:line:col: code message
+RUFF_PATTERN: re.Pattern[str] = re.compile(
+    r"^(.+):(\d+):(\d+): (\w+) (.+)$", re.MULTILINE
+)
+
+#: Mypy output pattern: path:line: severity: message [code]
+MYPY_PATTERN: re.Pattern[str] = re.compile(
+    r"^(.+):(\d+): (error|warning|note): (.+?)(?: \[(.+)\])?$", re.MULTILINE
+)
+
+#: Default max errors to return (prevent overwhelming output)
+MAX_ERRORS: int = 50
+
+# =============================================================================
+# Module-level Configuration
+# =============================================================================
+
+#: Global validation configuration (can be overridden via create_validation_tools_server)
+_config: ValidationConfig = ValidationConfig()
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def _success_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Create MCP success response.
+
+    Args:
+        data: Response data to JSON-serialize.
+
+    Returns:
+        MCP-formatted success response.
+    """
+    return {"content": [{"type": "text", "text": json.dumps(data)}]}
+
+
+def _error_response(
+    message: str,
+    error_code: str,
+    retry_after_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Create MCP error response.
+
+    Args:
+        message: Human-readable error message.
+        error_code: Machine-readable error code.
+        retry_after_seconds: Seconds to wait (for rate limits).
+
+    Returns:
+        MCP-formatted error response.
+    """
+    error_data: dict[str, Any] = {
+        "isError": True,
+        "message": message,
+        "error_code": error_code,
+    }
+    if retry_after_seconds is not None:
+        error_data["retry_after_seconds"] = retry_after_seconds
+    return {"content": [{"type": "text", "text": json.dumps(error_data)}]}
+
+
+async def _run_command_with_timeout(
+    cmd: list[str],
+    cwd: Path | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> tuple[str, str, int, bool]:
+    """Run a command with timeout.
+
+    Args:
+        cmd: Command and arguments to execute.
+        cwd: Working directory for command execution.
+        timeout: Maximum execution time in seconds.
+
+    Returns:
+        Tuple of (stdout, stderr, return_code, timed_out).
+
+    Raises:
+        ValidationToolsError: If command execution fails unexpectedly.
+    """
+    try:
+        logger.debug(f"Running command: {' '.join(cmd)}")
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
+            stdout = stdout_bytes.decode("utf-8", errors="replace")
+            stderr = stderr_bytes.decode("utf-8", errors="replace")
+            return_code = process.returncode or 0
+            timed_out = False
+
+            logger.debug(f"Command completed with return code {return_code}")
+            return stdout, stderr, return_code, timed_out
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Command timed out after {timeout}s: {' '.join(cmd)}")
+            # Kill the process
+            try:
+                process.kill()
+                stdout_bytes, stderr_bytes = await process.communicate()
+                stdout = stdout_bytes.decode("utf-8", errors="replace")
+                stderr = stderr_bytes.decode("utf-8", errors="replace")
+            except Exception as e:
+                logger.error(f"Error killing timed-out process: {e}")
+                stdout = ""
+                stderr = f"Process killed due to timeout ({timeout}s)"
+
+            return stdout, stderr, -1, True
+
+    except Exception as e:
+        logger.error(f"Command execution error: {e}")
+        raise ValidationToolsError(f"Failed to execute command: {' '.join(cmd)}") from e
+
+
+# =============================================================================
+# MCP Tool Functions
+# =============================================================================
+
+
+@tool(
+    "run_validation",
+    "Run project validation commands (format, lint, typecheck, test)",
+    {"types": list},
+)
+async def run_validation(args: dict[str, Any]) -> dict[str, Any]:
+    """Run validation commands based on ValidationConfig.
+
+    Args:
+        args: Tool arguments with 'types' list (format/lint/typecheck/test).
+
+    Returns:
+        MCP response with validation results:
+        {
+            "success": bool,
+            "results": [
+                {
+                    "type": str,
+                    "success": bool,
+                    "output": str,
+                    "duration_ms": int,
+                    "status": str  # "success", "failed", or "timeout"
+                }
+            ]
+        }
+
+    Raises:
+        ValidationToolsError: If validation types are invalid.
+    """
+    try:
+        types_to_run: list[str] = args.get("types", [])
+
+        # Validate types
+        invalid_types = set(types_to_run) - VALIDATION_TYPES
+        if invalid_types:
+            logger.error(f"Invalid validation types: {invalid_types}")
+            return _error_response(
+                f"Invalid validation types: {invalid_types}. Valid types: {VALIDATION_TYPES}",
+                "INVALID_VALIDATION_TYPE",
+            )
+
+        if not types_to_run:
+            logger.warning("No validation types specified")
+            return _success_response({"success": True, "results": []})
+
+        logger.info(f"Running validation types: {types_to_run}")
+
+        # Map validation types to commands
+        type_to_cmd: dict[str, list[str] | None] = {
+            "format": _config.format_cmd,
+            "lint": _config.lint_cmd,
+            "typecheck": _config.typecheck_cmd,
+            "test": _config.test_cmd,
+        }
+
+        results: list[dict[str, Any]] = []
+        overall_success = True
+
+        for validation_type in types_to_run:
+            cmd = type_to_cmd.get(validation_type)
+
+            if not cmd:
+                logger.warning(f"No command configured for {validation_type}")
+                results.append(
+                    {
+                        "type": validation_type,
+                        "success": False,
+                        "output": f"No command configured for {validation_type}",
+                        "duration_ms": 0,
+                        "status": "failed",
+                    }
+                )
+                overall_success = False
+                continue
+
+            # Run command with timeout tracking
+            start_time = time.monotonic()
+            stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
+                cmd, cwd=_config.project_root, timeout=_config.timeout
+            )
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+
+            # Combine stdout and stderr
+            output = stdout
+            if stderr:
+                output += f"\n{stderr}"
+
+            # Determine status
+            if timed_out:
+                status = "timeout"
+                success = False
+                logger.warning(
+                    f"Validation '{validation_type}' timed out after {duration_ms}ms"
+                )
+            elif return_code == 0:
+                status = "success"
+                success = True
+                logger.info(
+                    f"Validation '{validation_type}' succeeded in {duration_ms}ms"
+                )
+            else:
+                status = "failed"
+                success = False
+                logger.warning(
+                    f"Validation '{validation_type}' failed with code {return_code} in {duration_ms}ms"
+                )
+
+            results.append(
+                {
+                    "type": validation_type,
+                    "success": success,
+                    "output": output.strip(),
+                    "duration_ms": duration_ms,
+                    "status": status,
+                }
+            )
+
+            if not success:
+                overall_success = False
+
+        logger.info(f"Validation complete: overall_success={overall_success}")
+        return _success_response({"success": overall_success, "results": results})
+
+    except Exception as e:
+        logger.error(f"Validation execution error: {e}")
+        return _error_response(str(e), "VALIDATION_EXECUTION_ERROR")
+
+
+@tool(
+    "parse_validation_output",
+    "Parse validation command output into structured errors",
+    {"output": str, "type": str},
+)
+async def parse_validation_output(args: dict[str, Any]) -> dict[str, Any]:
+    """Parse ruff or mypy output into structured error list.
+
+    Args:
+        args: Tool arguments with 'output' (str) and 'type' (str: 'ruff' or 'mypy').
+
+    Returns:
+        MCP response with parsed errors:
+        {
+            "errors": [
+                {
+                    "file": str,
+                    "line": int,
+                    "column": int | None,
+                    "code": str | None,
+                    "message": str,
+                    "severity": str | None
+                }
+            ],
+            "total_count": int,
+            "truncated": bool
+        }
+
+    Raises:
+        ValidationToolsError: If parsing type is invalid.
+    """
+    try:
+        output: str = args.get("output", "")
+        parse_type: str = args.get("type", "")
+
+        if parse_type not in {"ruff", "mypy"}:
+            logger.error(f"Invalid parse type: {parse_type}")
+            return _error_response(
+                f"Invalid parse type: {parse_type}. Valid types: 'ruff', 'mypy'",
+                "INVALID_PARSE_TYPE",
+            )
+
+        logger.info(f"Parsing {parse_type} output ({len(output)} chars)")
+
+        errors: list[dict[str, Any]] = []
+
+        if parse_type == "ruff":
+            # Parse ruff output: path:line:col: code message
+            for match in RUFF_PATTERN.finditer(output):
+                file_path, line_str, col_str, code, message = match.groups()
+                errors.append(
+                    {
+                        "file": file_path,
+                        "line": int(line_str),
+                        "column": int(col_str),
+                        "code": code,
+                        "message": message.strip(),
+                        "severity": None,
+                    }
+                )
+
+        elif parse_type == "mypy":
+            # Parse mypy output: path:line: severity: message [code]
+            for match in MYPY_PATTERN.finditer(output):
+                file_path, line_str, severity, message, code = match.groups()
+                errors.append(
+                    {
+                        "file": file_path,
+                        "line": int(line_str),
+                        "column": None,
+                        "code": code,
+                        "message": message.strip(),
+                        "severity": severity,
+                    }
+                )
+
+        total_count = len(errors)
+        truncated = total_count > MAX_ERRORS
+
+        if truncated:
+            logger.warning(f"Truncating {total_count} errors to {MAX_ERRORS}")
+            errors = errors[:MAX_ERRORS]
+
+        logger.info(
+            f"Parsed {len(errors)} errors (total: {total_count}, truncated: {truncated})"
+        )
+
+        return _success_response(
+            {
+                "errors": errors,
+                "total_count": total_count,
+                "truncated": truncated,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Parse validation output error: {e}")
+        return _error_response(str(e), "PARSE_ERROR")
+
+
+# =============================================================================
+# Factory Function
+# =============================================================================
+
+
+def create_validation_tools_server(
+    config: ValidationConfig | None = None,
+    project_root: Path | None = None,
+) -> FastMCP:
+    """Create MCP server with all validation tools registered (T049).
+
+    This factory function creates an MCP server instance with all validation
+    tools registered. Configuration is optional - if not provided, uses defaults.
+
+    Args:
+        config: Validation configuration. Defaults to ValidationConfig().
+        project_root: Project root directory for running validation commands.
+            Defaults to current working directory.
+
+    Returns:
+        Configured MCP server instance.
+
+    Example:
+        ```python
+        from maverick.tools.validation import create_validation_tools_server
+        from maverick.config import ValidationConfig
+
+        config = ValidationConfig(timeout_seconds=120)
+        server = create_validation_tools_server(config)
+        agent = MaverickAgent(
+            mcp_servers={"validation-tools": server},
+            allowed_tools=["mcp__validation-tools__run_validation"],
+        )
+        ```
+    """
+    global _config
+
+    # Set module-level config
+    if config is not None:
+        _config = config
+    else:
+        _config = ValidationConfig()
+
+    # Set project root on config if provided
+    if project_root is not None:
+        # Create new config with project_root set
+        _config = ValidationConfig(
+            format_cmd=_config.format_cmd,
+            lint_cmd=_config.lint_cmd,
+            typecheck_cmd=_config.typecheck_cmd,
+            test_cmd=_config.test_cmd,
+            timeout_seconds=_config.timeout_seconds,
+            max_errors=_config.max_errors,
+            project_root=project_root,
+        )
+
+    logger.info("Creating validation tools MCP server (version %s)", SERVER_VERSION)
+
+    # Create and return MCP server with all tools
+    server = create_sdk_mcp_server(
+        name=SERVER_NAME,
+        version=SERVER_VERSION,
+        tools=[
+            run_validation,
+            parse_validation_output,
+        ],
+    )
+
+    return server
