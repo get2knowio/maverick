@@ -15,6 +15,7 @@ from pydantic_settings import (
 from typing_extensions import Self
 
 from maverick.exceptions import ConfigError
+from maverick.workflows.fly import FlyConfig
 
 __all__ = [
     "MaverickConfig",
@@ -24,6 +25,7 @@ __all__ = [
     "ModelConfig",
     "ParallelConfig",
     "AgentConfig",
+    "FlyConfig",
     "load_config",
     "get_user_config_path",
 ]
@@ -46,7 +48,7 @@ class NotificationConfig(BaseModel):
     server: str = "https://ntfy.sh"
     topic: str | None = None
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def check_topic_when_enabled(self) -> Self:
         if self.enabled and self.topic is None:
             logger.warning(
@@ -77,7 +79,7 @@ class ValidationConfig(BaseModel):
     max_errors: int = Field(default=50, ge=1, le=500)
     project_root: Path | None = None
 
-    @field_validator('project_root')
+    @field_validator("project_root")
     @classmethod
     def check_project_root_exists(cls, v: Path | None) -> Path | None:
         """Warn if project_root path doesn't exist."""
@@ -168,6 +170,7 @@ class MaverickConfig(BaseSettings):
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
+    fly: FlyConfig = Field(default_factory=FlyConfig)
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod
