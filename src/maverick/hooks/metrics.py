@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class MetricsCollector:
-    """Thread-safe metrics collector with rolling window.
+    """Async-safe metrics collector with rolling window.
+
+    Uses asyncio.Lock for coroutine-safe access to metrics data.
 
     Attributes:
         config: Metrics configuration.
@@ -35,7 +37,7 @@ class MetricsCollector:
         return len(self._entries)
 
     async def record(self, entry: ToolMetricEntry) -> None:
-        """Record a metric entry (thread-safe).
+        """Record a metric entry (async-safe).
 
         Args:
             entry: Metric data point to record.
@@ -44,7 +46,7 @@ class MetricsCollector:
             self._entries.append(entry)
 
     async def get_metrics(self, tool_name: str | None = None) -> ToolMetrics:
-        """Get aggregated metrics (thread-safe).
+        """Get aggregated metrics (async-safe).
 
         Args:
             tool_name: Filter by tool name. None for all tools.

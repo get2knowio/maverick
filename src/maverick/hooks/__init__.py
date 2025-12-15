@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any
 
@@ -98,7 +99,7 @@ def create_logging_hooks(
         metrics_collector = MetricsCollector(metrics_config)
 
     # Build list of hooks to apply
-    hook_functions: list[Any] = []
+    hook_functions: list[Callable[..., Any]] = []
 
     if logging_config.enabled:
         logging_hook = partial(log_tool_execution, config=logging_config)

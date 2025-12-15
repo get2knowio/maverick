@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +10,9 @@ from maverick.hooks.config import LoggingConfig
 from maverick.hooks.types import ToolExecutionLog
 
 logger = logging.getLogger(__name__)
+
+# Debug output preview length for truncation
+DEBUG_OUTPUT_PREVIEW_LENGTH = 100
 
 # Default sensitive patterns for sanitization (FR-013)
 # Order matters - more specific patterns first
@@ -30,6 +34,41 @@ DEFAULT_SENSITIVE_PATTERNS: list[tuple[str, str]] = [
     # Base64 encoded secrets (long strings) - last as it's very broad
     (r"[a-zA-Z0-9+/]{40,}={0,2}", "***BASE64_REDACTED***"),
 ]
+
+# Pre-compiled patterns for performance (compiled once at module load)
+# Specific token patterns (exact matches, no group references)
+_COMPILED_SPECIFIC_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(pattern, re.IGNORECASE), replacement)
+    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[:3]
+]
+
+# Generic patterns (may have group references in replacement)
+_COMPILED_GENERIC_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(pattern, re.IGNORECASE), replacement)
+    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[3:]
+]
+
+
+def _make_redaction_replacer(replacement: str) -> Callable[[re.Match[str]], str]:
+    """Create a replacer function that skips already-redacted values.
+
+    Args:
+        replacement: The replacement template string.
+
+    Returns:
+        A function suitable for re.sub that applies the replacement
+        only if the match is not already redacted.
+    """
+
+    def replacer(match: re.Match[str]) -> str:
+        # If the matched text contains ***...*** it's already redacted
+        if "***" in match.group(0):
+            return match.group(0)
+        # Otherwise apply the replacement (expanding group references)
+        return match.expand(replacement)
+
+    return replacer
+
 
 # Sensitive key names that should have their values redacted
 SENSITIVE_KEYS = {
@@ -65,24 +104,15 @@ def sanitize_string(text: str, config: LoggingConfig | None = None) -> str:
     result = text
 
     # Apply specific token patterns first (GitHub, AWS, API keys)
-    # First 3 patterns are specific tokens
-    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[:3]:
-        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    # Uses pre-compiled patterns for performance
+    for compiled_pattern, replacement in _COMPILED_SPECIFIC_PATTERNS:
+        result = compiled_pattern.sub(replacement, result)
 
     # Apply generic patterns (password, api_key, secret, token assignments)
-    # Use a custom function to skip already-redacted values
-    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[3:]:
-        # Capture replacement in default arg to avoid late binding issue
-        def replace_if_not_redacted(
-            match: re.Match[str], repl: str = replacement
-        ) -> str:
-            # If the matched text contains ***...*** it's already redacted
-            if "***" in match.group(0):
-                return match.group(0)
-            # Otherwise apply the replacement
-            return match.expand(repl)
-
-        result = re.sub(pattern, replace_if_not_redacted, result, flags=re.IGNORECASE)
+    # Uses pre-compiled patterns with factory-created replacer functions
+    for compiled_pattern, replacement in _COMPILED_GENERIC_PATTERNS:
+        replacer = _make_redaction_replacer(replacement)
+        result = compiled_pattern.sub(replacer, result)
 
     # Apply custom patterns
     for pattern in config.sensitive_patterns:
@@ -227,7 +257,9 @@ async def log_tool_execution(
         # Log detailed info at DEBUG level
         output_logger.debug(f"  Inputs: {log_entry.sanitized_inputs}")
         if output_summary:
-            output_logger.debug(f"  Output: {output_summary[:100]}...")
+            output_logger.debug(
+                f"  Output: {output_summary[:DEBUG_OUTPUT_PREVIEW_LENGTH]}..."
+            )
 
         return {}
 

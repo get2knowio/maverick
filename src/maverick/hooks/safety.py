@@ -37,6 +37,12 @@ DANGEROUS_BASH_PATTERNS: list[tuple[str, str]] = [
     (r">\s*/etc/(passwd|shadow)", "Write to password file"),
 ]
 
+# Pre-compiled dangerous patterns for performance (compiled once at module load)
+_COMPILED_DANGEROUS_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(pattern, re.IGNORECASE), description, pattern)
+    for pattern, description in DANGEROUS_BASH_PATTERNS
+]
+
 
 def normalize_command(cmd: str) -> str:
     """Normalize unicode and decode escape sequences.
@@ -52,10 +58,10 @@ def normalize_command(cmd: str) -> str:
     # Replace various whitespace characters with regular space
     normalized = re.sub(r"[\t\r\n]+", " ", normalized)
     # Handle common hex escape sequences
-    import contextlib
-
-    with contextlib.suppress(UnicodeDecodeError, UnicodeEncodeError):
+    try:
         normalized = normalized.encode().decode("unicode_escape")
+    except (UnicodeDecodeError, UnicodeEncodeError) as e:
+        logger.debug(f"Unicode normalization skipped: {e}")
     return normalized.strip()
 
 
@@ -133,21 +139,39 @@ def parse_compound_command(cmd: str) -> list[str]:
     return components if components else [cmd]
 
 
-def _check_dangerous_pattern(
-    cmd: str, patterns: list[tuple[str, str]]
+def _check_compiled_patterns(
+    cmd: str, compiled_patterns: list[tuple[re.Pattern[str], str, str]]
 ) -> tuple[bool, str | None, str | None]:
-    """Check if command matches any dangerous pattern.
+    """Check if command matches any pre-compiled dangerous pattern.
 
     Args:
         cmd: Command to check.
-        patterns: List of (pattern, description) tuples.
+        compiled_patterns: List of (compiled_pattern, description, original_pattern).
 
     Returns:
         Tuple of (is_dangerous, reason, pattern).
     """
-    for pattern, description in patterns:
+    for compiled_pattern, description, original_pattern in compiled_patterns:
+        if compiled_pattern.search(cmd):
+            return True, description, original_pattern
+    return False, None, None
+
+
+def _check_custom_patterns(
+    cmd: str, patterns: list[str]
+) -> tuple[bool, str | None, str | None]:
+    """Check if command matches any custom blocklist pattern.
+
+    Args:
+        cmd: Command to check.
+        patterns: List of custom regex pattern strings.
+
+    Returns:
+        Tuple of (is_dangerous, reason, pattern).
+    """
+    for pattern in patterns:
         if re.search(pattern, cmd, re.IGNORECASE):
-            return True, description, pattern
+            return True, f"Custom blocked pattern: {pattern}", pattern
     return False, None, None
 
 
@@ -197,17 +221,11 @@ async def validate_bash_command(
         # Parse compound commands
         components = parse_compound_command(expanded)
 
-        # Build pattern list (defaults + custom)
-        patterns = DANGEROUS_BASH_PATTERNS.copy()
-        for custom_pattern in config.bash_blocklist:
-            patterns.append(
-                (custom_pattern, f"Custom blocked pattern: {custom_pattern}")
-            )
-
-        # Check each component
+        # Check each component against pre-compiled default patterns and custom patterns
         for component in components:
-            is_dangerous, matched_reason, matched_pattern = _check_dangerous_pattern(
-                component, patterns
+            # Check pre-compiled default dangerous patterns first
+            is_dangerous, matched_reason, matched_pattern = _check_compiled_patterns(
+                component, _COMPILED_DANGEROUS_PATTERNS
             )
             if is_dangerous:
                 logger.warning(
@@ -217,6 +235,20 @@ async def validate_bash_command(
                 return _deny_response(
                     f"Dangerous command blocked: {matched_reason}", matched_pattern
                 )
+
+            # Check custom blocklist patterns if any
+            if config.bash_blocklist:
+                is_dangerous, matched_reason, matched_pattern = _check_custom_patterns(
+                    component, config.bash_blocklist
+                )
+                if is_dangerous:
+                    logger.warning(
+                        f"Dangerous command blocked: {component} "
+                        f"(pattern: {matched_pattern})"
+                    )
+                    return _deny_response(
+                        f"Dangerous command blocked: {matched_reason}", matched_pattern
+                    )
 
         return {}
 
