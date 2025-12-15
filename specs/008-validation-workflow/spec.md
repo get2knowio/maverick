@@ -88,12 +88,12 @@ A developer realizes they need to stop a running validation workflow. They reque
 
 ### Edge Cases
 
-- What happens when a stage command is not found or fails to start?
-- How does the system handle when the fix agent fails to produce any changes?
-- What happens if a stage passes on retry but a later stage fails - are previous stages re-run?
-- How does the system behave when max fix attempts is set to 0?
-- What happens when the same error persists across all fix attempts?
-- How does cancellation work if requested during a fix attempt?
+- When a stage command is not found or fails to start, the stage is immediately marked as failed (no fix attempts) and the workflow continues to the next stage
+- When the fix agent produces no changes, it counts as a fix attempt and the stage is retried (uniform behavior with other fix attempts)
+- Stages are never re-run; each stage executes once (with fix retries if applicable), and the workflow reports the final state of all stages
+- When max_fix_attempts is set to 0, the stage is treated as non-fixable (fix agent is not invoked)
+- When the same error persists across all fix attempts, the stage is marked FAILED after exhausting max_fix_attempts, and the workflow continues to the next stage
+- When cancellation is requested during a fix attempt, the current fix attempt completes, then the workflow stops at the next cancellation check point (before the retry or next stage)
 
 ## Requirements *(mandatory)*
 
@@ -111,7 +111,7 @@ A developer realizes they need to stop a running validation workflow. They reque
 - **FR-010**: System MUST emit progress updates as async events for TUI consumption
 - **FR-011**: System MUST support dry-run mode that reports planned actions without execution
 - **FR-012**: System MUST be cancellable at any point during execution
-- **FR-013**: System MUST provide default stage commands for common project types (starting with Rust)
+- **FR-013**: System MUST provide default stage commands for common project types (starting with Python)
 - **FR-014**: System MUST produce a structured result containing overall success/failure status
 - **FR-015**: System MUST produce per-stage results indicating passed, failed, or fixed status
 - **FR-016**: System MUST track and report the number of fix attempts made per stage
@@ -138,9 +138,19 @@ A developer realizes they need to stop a running validation workflow. They reque
 - **SC-006**: Validation results provide sufficient detail for developers to understand what passed, failed, and was fixed
 - **SC-007**: Workflow can be configured for any project type by providing appropriate stage commands
 
+## Clarifications
+
+### Session 2025-12-15
+
+- Q: What should happen when a stage command is not found or fails to start? → A: Fail stage immediately, continue to next stage (fail-fast, complete picture)
+- Q: How should the fix agent be provided to the ValidationWorkflow? → A: Follow existing pattern for agent injection into workflows (constructor injection)
+- Q: Should the workflow re-run previously passed stages if a later stage fails? → A: No re-runs - each stage runs once, workflow reports final state
+- Q: What should happen when the fix agent produces no changes? → A: Count as fix attempt, retry stage (simple, uniform behavior)
+- Q: What should happen when max_fix_attempts is set to 0? → A: Treat as non-fixable, skip fix agent (0 means "don't fix")
+
 ## Assumptions
 
-- The fix agent capability exists or will be provided as a dependency (the agent that attempts to fix issues is external to this workflow)
+- The fix agent is provided via constructor injection following existing workflow patterns (the agent that attempts to fix issues is external to this workflow)
 - Stage commands are available in the execution environment (e.g., `cargo` for Rust projects)
 - The TUI or calling code will consume progress updates via async iteration
 - Default stage commands assume standard tooling for each supported project type
