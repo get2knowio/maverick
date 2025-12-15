@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create custom MCP tools for GitHub integration in Maverick using Claude Agent SDK's in-process MCP server pattern"
 
+## Clarifications
+
+### Session 2025-12-14
+
+- Q: How should the tools handle GitHub API rate limiting? → A: Return error with retry-after info (let caller decide retry strategy)
+- Q: How should `github_get_pr_diff` handle very large diffs? → A: Truncate at configurable limit (default 100KB) with warning in response
+- Q: When should the system verify `gh` CLI availability? → A: At server creation time (fail fast on `create_github_tools_server()`)
+- Q: What format should successful tool responses use? → A: Structured JSON object with typed fields (e.g., `{"pr_number": 123, "url": "..."}`)
+- Q: How should tools handle missing git repository context? → A: Fail at server creation with clear error (same as missing `gh` CLI)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Create Pull Request via Agent (Priority: P1)
@@ -103,11 +113,11 @@ After fixing an issue, RefuelWorkflow needs to close it with an optional comment
 
 ### Edge Cases
 
-- What happens when GitHub CLI (`gh`) is not installed or not authenticated?
-- How does the system handle rate limiting from GitHub API?
-- What happens when the repository context cannot be determined (not in a git repo)?
-- How are very large diffs handled (PRs with 100+ changed files)?
-- What happens when network connectivity is intermittent?
+- **Missing gh CLI**: `create_github_tools_server()` raises exception immediately if `gh` is not installed or not authenticated (fail-fast)
+- **Rate Limiting**: Tools return error with `isError: true` and include retry-after information when rate limited; caller decides retry strategy
+- **Missing Repo Context**: `create_github_tools_server()` raises exception if not in a git repository with configured remote (fail-fast)
+- **Large Diffs**: `github_get_pr_diff` truncates output at configurable limit (default 100KB) and includes warning when truncated
+- **Network Errors**: Tools surface underlying `gh` CLI network errors via `isError: true` with original message (no special handling beyond FR-005)
 
 ## Requirements *(mandatory)*
 
@@ -116,23 +126,24 @@ After fixing an issue, RefuelWorkflow needs to close it with an optional comment
 - **FR-001**: System MUST provide a `create_github_tools_server()` factory function that returns a configured MCP server with all GitHub tools
 - **FR-002**: All tools MUST use the Claude Agent SDK's `@tool` decorator pattern
 - **FR-003**: All tools MUST wrap GitHub CLI (`gh`) commands for reliability and consistency
-- **FR-004**: Each tool MUST return MCP-formatted responses with content array containing text blocks
+- **FR-004**: Each tool MUST return MCP-formatted responses with content array containing structured JSON (typed fields, not free-form text)
 - **FR-005**: Each tool MUST handle errors gracefully and return `isError: true` with helpful error messages
 - **FR-006**: Each tool MUST log operations for debugging using the standard logging module
 - **FR-007**: `github_create_pr` MUST accept parameters: title (required), body (required), base (required), head (required), draft (optional, default false)
 - **FR-008**: `github_list_issues` MUST accept parameters: label (optional), state (optional, default "open"), limit (optional, default 30)
 - **FR-009**: `github_get_issue` MUST accept parameter: issue_number (required)
-- **FR-010**: `github_get_pr_diff` MUST accept parameter: pr_number (required)
+- **FR-010**: `github_get_pr_diff` MUST accept parameters: pr_number (required), max_size (optional, default 100KB); truncate with warning if exceeded
 - **FR-011**: `github_add_labels` MUST accept parameters: issue_number (required), labels (required, list of strings)
 - **FR-012**: `github_close_issue` MUST accept parameters: issue_number (required), comment (optional)
 - **FR-013**: `github_pr_status` MUST accept parameter: pr_number (required) and return checks status, review status, and mergeable state
 - **FR-014**: All tools MUST have clear input schemas with type hints for all parameters
-- **FR-015**: System MUST gracefully handle missing `gh` CLI with clear error message
+- **FR-015**: `create_github_tools_server()` MUST verify at creation time: (a) `gh` CLI installed and authenticated, (b) running in git repo with remote; raise `GitHubToolsError` if not
+- **FR-016**: When rate limited, tools MUST return `isError: true` with retry-after duration extracted from GitHub response; no automatic retry
 
 ### Key Entities
 
 - **MCPServer**: The configured server instance returned by the factory function, containing all registered tools
-- **ToolResponse**: MCP-formatted response object with `content` array containing `TextContent` blocks, and optional `isError` flag
+- **ToolResponse**: MCP-formatted response object with `content` array containing structured JSON (typed fields like `pr_number`, `url`, `state`), and optional `isError` flag
 - **GitHubTool**: Individual tool functions decorated with `@tool`, each wrapping specific `gh` CLI commands
 - **PullRequest**: Represents a GitHub PR with properties: number, title, body, state, checks, reviews, mergeable
 - **Issue**: Represents a GitHub issue with properties: number, title, body, state, labels, assignees, comments
