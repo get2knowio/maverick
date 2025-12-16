@@ -16,6 +16,7 @@ from typing_extensions import Self
 
 from maverick.exceptions import ConfigError
 from maverick.workflows.fly import FlyConfig
+from maverick.workflows.refuel import RefuelConfig
 
 __all__ = [
     "MaverickConfig",
@@ -26,6 +27,7 @@ __all__ = [
     "ParallelConfig",
     "AgentConfig",
     "FlyConfig",
+    "RefuelConfig",
     "load_config",
     "get_user_config_path",
 ]
@@ -171,6 +173,7 @@ class MaverickConfig(BaseSettings):
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
     fly: FlyConfig = Field(default_factory=FlyConfig)
+    refuel: RefuelConfig = Field(default_factory=RefuelConfig)
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod
