@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create hooks system for safety validation and execution logging using Claude Agent SDK hook capabilities"
 
+## Clarifications
+
+### Session 2025-12-15
+
+- Q: When a safety hook itself throws an exception during validation, should the system fail-open or fail-closed? → A: Fail-closed (block command with generic safety error, log hook failure)
+- Q: How should compound commands (e.g., `ls && rm -rf /`) be handled? → A: Parse and check all components; block if any is dangerous
+- Q: How should symlinks and relative paths be handled for sensitive path detection? → A: Resolve to canonical path using realpath() before checking
+- Q: What should happen when metrics collection grows large due to high volume? → A: Rolling window—keep metrics for last N calls or T time period, discard older
+- Q: How should unicode or escape sequences in paths/commands be handled? → A: Normalize first—decode escape sequences and normalize unicode before pattern matching
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Block Dangerous Bash Commands (Priority: P1)
@@ -95,12 +105,12 @@ Project maintainers can configure which hooks are enabled/disabled and customize
 
 ### Edge Cases
 
-- What happens when a hook itself throws an exception during validation?
-- How does the system handle commands that combine safe and dangerous operations (e.g., `ls && rm -rf /`)?
-- What happens when file paths use symlinks or relative paths to bypass sensitive path detection?
-- How are environment variables in commands handled (e.g., `rm -rf $HOME`)?
-- What happens when metrics collection runs out of memory with very high tool call volumes?
-- How does the system handle unicode or escape sequences in paths/commands that might bypass pattern matching?
+- **Hook exception handling**: Safety hooks fail-closed—if a hook throws an exception during validation, the operation is blocked with a generic safety error and the hook failure is logged.
+- **Compound command handling**: Compound commands (`&&`, `||`, `;`, `|`) are parsed and each component is validated; the entire command is blocked if any component matches a dangerous pattern.
+- **Path resolution**: File paths are resolved to canonical form using `realpath()` (resolving symlinks and normalizing `..` sequences) before checking against sensitive path patterns.
+- **Environment variable expansion**: Already covered by FR-008—environment variables in commands are expanded before validation.
+- **Metrics memory bounds**: Metrics collector uses a rolling window, keeping data for a configurable number of calls or time period; older entries are discarded to bound memory usage.
+- **Unicode/escape normalization**: Inputs are normalized (escape sequences decoded, unicode normalized) before pattern matching to prevent encoding-based bypass attempts.
 
 ## Requirements *(mandatory)*
 
@@ -123,6 +133,8 @@ Project maintainers can configure which hooks are enabled/disabled and customize
   - Writes to system directories (`/etc`, `/usr`, `/bin`, `/sbin`)
 - **FR-007**: `validate_bash_command` MUST support a configurable blocklist of additional patterns
 - **FR-008**: `validate_bash_command` MUST expand environment variables and resolve relative paths before validation
+- **FR-008a**: `validate_bash_command` MUST parse compound commands (`&&`, `||`, `;`, `|`) and validate each component; block if any component is dangerous
+- **FR-008b**: `validate_bash_command` MUST normalize inputs (decode escape sequences, normalize unicode to NFC form) before pattern matching
 - **FR-009**: `validate_file_write` hook MUST block writes to sensitive paths:
   - Environment files (`.env`, `.env.*`)
   - Secrets directories (`secrets/`, `.secrets/`)
@@ -130,7 +142,10 @@ Project maintainers can configure which hooks are enabled/disabled and customize
   - Cloud credentials (`~/.aws/`, `~/.config/gcloud/`)
   - System paths (`/etc/`, `/usr/`, `/bin/`)
 - **FR-010**: `validate_file_write` MUST support configurable allowlist (exceptions) and blocklist (additional paths)
+- **FR-010a**: `validate_file_write` MUST resolve paths to canonical form using `realpath()` (resolving symlinks and normalizing relative paths) before pattern matching
+- **FR-010b**: `validate_file_write` MUST normalize path inputs (decode escape sequences, normalize unicode) before pattern matching
 - **FR-011**: Safety hooks MUST return a clear, actionable error message when blocking an operation
+- **FR-011a**: Safety hooks MUST fail-closed—if a hook throws an exception during validation, the operation MUST be blocked with a generic safety error and the exception MUST be logged
 
 #### Logging Hooks (PostToolUse)
 
@@ -138,8 +153,9 @@ Project maintainers can configure which hooks are enabled/disabled and customize
 - **FR-013**: `log_tool_execution` MUST sanitize sensitive data in inputs (passwords, tokens, API keys) before logging
 - **FR-014**: `log_tool_execution` MUST truncate output summaries to a configurable maximum length (default 1000 characters)
 - **FR-015**: `metrics_collector` hook MUST track: call counts per tool type, success count, failure count, execution times
-- **FR-016**: `metrics_collector` MUST be thread-safe for concurrent workflow execution
+- **FR-016**: `metrics_collector` MUST be async-safe for concurrent workflow execution (using asyncio synchronization primitives)
 - **FR-017**: `metrics_collector` MUST provide methods to query current metrics (counts, rates, timing statistics)
+- **FR-017a**: `metrics_collector` MUST use a rolling window (configurable max entries or time period) to bound memory usage; older entries are discarded
 
 #### Configuration
 
