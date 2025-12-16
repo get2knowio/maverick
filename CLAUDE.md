@@ -135,6 +135,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, asyncio (008-validation-workflow)
 - N/A (in-memory state during workflow execution) (008-validation-workflow)
 - Python 3.10+ (with `from __future__ import annotations`) + Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (009-fly-workflow)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (010-refuel-workflow)
+- N/A (no persistence; in-memory state during workflow execution) (010-refuel-workflow)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI

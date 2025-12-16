@@ -63,3 +63,41 @@ except ImportError as e:
         logger.debug("Fly workflow not yet available")
     else:
         raise  # Re-raise unexpected import errors
+
+try:
+    from maverick.workflows.refuel import (
+        RefuelWorkflow,
+        RefuelConfig,
+        RefuelInputs,
+        RefuelResult,
+        GitHubIssue,
+        IssueStatus,
+        IssueProcessingResult,
+        RefuelStarted,
+        IssueProcessingStarted,
+        IssueProcessingCompleted,
+        RefuelCompleted,
+        RefuelProgressEvent,
+    )
+
+    __all__.extend(
+        [
+            "RefuelWorkflow",
+            "RefuelConfig",
+            "RefuelInputs",
+            "RefuelResult",
+            "GitHubIssue",
+            "IssueStatus",
+            "IssueProcessingResult",
+            "RefuelStarted",
+            "IssueProcessingStarted",
+            "IssueProcessingCompleted",
+            "RefuelCompleted",
+            "RefuelProgressEvent",
+        ]
+    )
+except ImportError as e:
+    if "refuel" in str(e).lower():
+        logger.debug("Refuel workflow not yet available")
+    else:
+        raise  # Re-raise unexpected import errors
