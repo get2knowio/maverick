@@ -31,13 +31,17 @@ class Sidebar(Widget):
     ]
 
     mode: reactive[str] = reactive("navigation")
-    _stages: list[dict[str, Any]] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the sidebar widget."""
+        super().__init__(*args, **kwargs)
+        self._stages: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         """Create the sidebar layout."""
         with Vertical(id="sidebar-content"):
-            yield Static("Navigation", id="sidebar-title", classes="sidebar-title")
-            with Vertical(id="nav-items"):
+            yield Static("Navigation", classes="sidebar-title")
+            with Vertical(classes="nav-items"):
                 for item in self.NAVIGATION_ITEMS:
                     shortcut = f" ({item['shortcut']})" if item["shortcut"] else ""
                     yield Static(
@@ -47,7 +51,11 @@ class Sidebar(Widget):
                     )
 
     def set_navigation_mode(self) -> None:
-        """Switch to navigation menu mode."""
+        """Switch to navigation menu mode.
+
+        Clears workflow stages and displays the standard navigation menu.
+        Workflows should call this when exiting or resetting to idle state.
+        """
         self.mode = "navigation"
         self._rebuild_content()
 
@@ -61,6 +69,11 @@ class Sidebar(Widget):
                    - display_name (str, optional): Display name (defaults to name)
                    - status (str): Stage status
                      ("pending", "active", "completed", "failed")
+
+        Note:
+            Workflows should call this method when starting execution to display
+            their stages. Use update_stage_status() to update individual stages
+            during workflow execution, and set_navigation_mode() when complete.
         """
         self._stages = stages
         self.mode = "workflow"
@@ -76,7 +89,14 @@ class Sidebar(Widget):
         Note:
             This method searches for the stage by its ID (stage-{name}), not by
             the displayed name, to properly handle stages with custom display names.
+            The status is persisted in _stages to survive content rebuilds.
         """
+        # Update the status in _stages to persist across rebuilds
+        for stage in self._stages:
+            if stage.get("name") == stage_name:
+                stage["status"] = status
+                break
+
         # Find the stage indicator by its ID (which uses the internal stage name)
         stage_id = f"stage-{stage_name}"
         try:
@@ -89,13 +109,16 @@ class Sidebar(Widget):
     def _rebuild_content(self) -> None:
         """Rebuild the sidebar content based on current mode."""
         content = self.query_one("#sidebar-content", Vertical)
-        content.remove_children()
+
+        # Remove children properly to clear ID registry
+        for child in list(content.children):
+            child.remove()
 
         if self.mode == "navigation":
             content.mount(
-                Static("Navigation", id="sidebar-title", classes="sidebar-title")
+                Static("Navigation", classes="sidebar-title")
             )
-            nav_container = Vertical(id="nav-items")
+            nav_container = Vertical(classes="nav-items")
             content.mount(nav_container)
             for item in self.NAVIGATION_ITEMS:
                 shortcut = f" ({item['shortcut']})" if item["shortcut"] else ""
@@ -108,9 +131,9 @@ class Sidebar(Widget):
                 )
         else:
             content.mount(
-                Static("Workflow Stages", id="sidebar-title", classes="sidebar-title")
+                Static("Workflow Stages", classes="sidebar-title")
             )
-            stages_container = Vertical(id="stage-items")
+            stages_container = Vertical(classes="stage-items")
             content.mount(stages_container)
             for stage in self._stages:
                 stage_name = str(stage.get("name", ""))

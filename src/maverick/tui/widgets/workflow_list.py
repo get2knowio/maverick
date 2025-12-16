@@ -49,14 +49,18 @@ class WorkflowList(Widget):
             super().__init__()
 
     selected_index: reactive[int] = reactive(0)
-    _workflows: list[dict[str, Any]] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the workflow list widget."""
+        super().__init__(*args, **kwargs)
+        self._workflows: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         """Create the workflow list layout."""
         with Vertical(id="workflow-list-container"):
             yield Static(
                 "[dim]No workflows available[/dim]",
-                id="workflow-empty-message",
+                classes="workflow-empty-message",
             )
 
     def set_workflows(self, workflows: list[dict[str, Any]]) -> None:
@@ -94,13 +98,15 @@ class WorkflowList(Widget):
     def _rebuild_list(self) -> None:
         """Rebuild the workflow list display."""
         container = self.query_one("#workflow-list-container", Vertical)
-        container.remove_children()
+        # Remove children properly to clear ID registry
+        for child in list(container.children):
+            child.remove()
 
         if not self._workflows:
             container.mount(
                 Static(
                     "[dim]No workflows available[/dim]",
-                    id="workflow-empty-message",
+                    classes="workflow-empty-message",
                 )
             )
             return
@@ -118,14 +124,13 @@ class WorkflowList(Widget):
             pr_indicator = " [link]" if pr_url else ""
             text = f"{status_display} [{wf_type}] {branch}{pr_indicator}"
 
-            classes = "workflow-item"
+            classes = f"workflow-item workflow-item-{i}"
             if i == self.selected_index:
                 classes += " --selected"
 
             container.mount(
                 Static(
                     text,
-                    id=f"workflow-{i}",
                     classes=classes,
                 )
             )
@@ -150,7 +155,7 @@ class WorkflowList(Widget):
         """Update the visual selection indicator."""
         for i in range(len(self._workflows)):
             try:
-                item = self.query_one(f"#workflow-{i}", Static)
+                item = self.query_one(f".workflow-item-{i}", Static)
                 if i == self.selected_index:
                     item.add_class("--selected")
                 else:

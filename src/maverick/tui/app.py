@@ -41,8 +41,11 @@ class MaverickCommands(Provider):
         commands = [
             ("Go to Home", "Navigate to the home screen", app.action_go_home),
             ("Go to Settings", "Navigate to settings", app.action_show_config),
+            ("Go to Review", "Navigate to review screen", app.action_go_review),
+            ("Go to Workflow", "Navigate to workflow screen", app.action_go_workflow),
             ("Toggle Log Panel", "Show or hide log panel", app.action_toggle_log),
             ("Start Workflow", "Start a new workflow", app.action_start_workflow),
+            ("Refresh", "Refresh current screen", app.action_refresh),
             ("Show Help", "Display keybinding help", app.action_show_help),
         ]
 
@@ -81,6 +84,7 @@ class MaverickApp(App[None]):
         Binding("q", "quit", "Quit", show=True),
         Binding("?", "show_help", "Help", show=False),
         Binding("ctrl+comma", "show_config", "Settings", show=False),
+        Binding("ctrl+h", "go_home", "Home", show=False),
     ]
 
     def __init__(self) -> None:
@@ -88,6 +92,8 @@ class MaverickApp(App[None]):
         super().__init__()
         self._timer_start: float | None = None
         self._timer_running: bool = False
+        self._current_workflow: str = ""
+        self._current_branch: str = ""
 
     def compose(self) -> ComposeResult:
         """Create the app layout.
@@ -119,6 +125,8 @@ class MaverickApp(App[None]):
 
         # Check initial terminal size
         self._check_terminal_size()
+        # Set up timer interval to update header subtitle every second
+        self.set_interval(1.0, self._update_header_subtitle)
         await self.push_screen(HomeScreen())
 
     def on_resize(self) -> None:
@@ -136,17 +144,24 @@ class MaverickApp(App[None]):
         width = self.size.width
         height = self.size.height
 
-        warning = self.query_one("#min-size-warning", Container)
-
-        if width < self.MIN_WIDTH or height < self.MIN_HEIGHT:
-            warning.add_class("visible")
-        else:
-            warning.remove_class("visible")
+        try:
+            warning = self.query_one("#min-size-warning", Container)
+            if width < self.MIN_WIDTH or height < self.MIN_HEIGHT:
+                warning.add_class("visible")
+            else:
+                warning.remove_class("visible")
+        except Exception:
+            # Widget not yet mounted, skip size check
+            pass
 
     def action_toggle_log(self) -> None:
         """Toggle log panel visibility (Ctrl+L)."""
-        log_panel = self.query_one(LogPanel)
-        log_panel.toggle()
+        try:
+            log_panel = self.query_one(LogPanel)
+            log_panel.toggle()
+        except Exception:
+            # Widget not yet mounted, skip toggle
+            pass
 
     def action_pop_screen(self) -> None:
         """Go back to previous screen (Escape)."""
@@ -165,9 +180,13 @@ class MaverickApp(App[None]):
         self.add_log("  q: Quit application", "info", "app")
         self.add_log("  Ctrl+,: Settings", "info", "app")
         # Make sure log panel is visible to show help
-        log_panel = self.query_one(LogPanel)
-        if not log_panel.visible:
-            log_panel.toggle()
+        try:
+            log_panel = self.query_one(LogPanel)
+            if not log_panel.visible:
+                log_panel.toggle()
+        except Exception:
+            # Widget not yet mounted, skip toggle
+            pass
 
     def action_go_home(self) -> None:
         """Navigate to home screen."""
@@ -189,6 +208,29 @@ class MaverickApp(App[None]):
 
         self.push_screen(ConfigScreen())
 
+    def action_go_review(self) -> None:
+        """Navigate to review screen."""
+        from maverick.tui.screens.review import ReviewScreen
+
+        self.push_screen(ReviewScreen())
+
+    def action_go_workflow(self) -> None:
+        """Navigate to workflow screen."""
+        from maverick.tui.screens.workflow import WorkflowScreen
+
+        self.push_screen(
+            WorkflowScreen(workflow_name="New Workflow", branch_name="main")
+        )
+
+    def action_refresh(self) -> None:
+        """Refresh the current screen."""
+        # Trigger a refresh by removing and re-adding the current screen
+        if hasattr(self.screen, "refresh"):
+            self.screen.refresh()
+        else:
+            # Generic refresh - just log it
+            self.add_log("Screen refreshed", "info", "app")
+
     def add_log(
         self,
         message: str,
@@ -204,8 +246,12 @@ class MaverickApp(App[None]):
             level: Log level ("info", "success", "warning", "error").
             source: Source component/agent name.
         """
-        log_panel = self.query_one(LogPanel)
-        log_panel.add_log(message, level, source)
+        try:
+            log_panel = self.query_one(LogPanel)
+            log_panel.add_log(message, level, source)
+        except Exception:
+            # Widget not yet mounted, skip logging
+            pass
 
     def start_timer(self) -> None:
         """Start the elapsed time timer.
@@ -235,13 +281,16 @@ class MaverickApp(App[None]):
             return time.time() - self._timer_start
         return 0.0
 
-    def get_sidebar(self) -> Sidebar:
+    def get_sidebar(self) -> Sidebar | None:
         """Get the sidebar widget.
 
         Returns:
-            The Sidebar widget instance.
+            The Sidebar widget instance, or None if not mounted.
         """
-        return self.query_one(Sidebar)
+        try:
+            return self.query_one(Sidebar)
+        except Exception:
+            return None
 
     def set_workflow_info(self, workflow_name: str, branch_name: str = "") -> None:
         """Set the current workflow info in the header.
@@ -260,19 +309,27 @@ class MaverickApp(App[None]):
         """Clear the workflow info from the header."""
         self._current_workflow = ""
         self._current_branch = ""
-        header = self.query_one(Header)
-        header.sub_title = ""
+        try:
+            header = self.query_one(Header)
+            header.sub_title = ""
+        except Exception:
+            # Widget not yet mounted, skip clear
+            pass
 
     def _update_header_subtitle(self) -> None:
         """Update the header subtitle with workflow info and elapsed time."""
-        if hasattr(self, "_current_workflow") and self._current_workflow:
+        if self._current_workflow:
             elapsed = self.elapsed_time
             minutes = int(elapsed // 60)
             seconds = int(elapsed % 60)
             time_str = f"{minutes:02d}:{seconds:02d}"
             subtitle = f"{self._current_workflow}"
-            if hasattr(self, "_current_branch") and self._current_branch:
+            if self._current_branch:
                 subtitle += f" ({self._current_branch})"
             subtitle += f" - {time_str}"
-            header = self.query_one(Header)
-            header.sub_title = subtitle
+            try:
+                header = self.query_one(Header)
+                header.sub_title = subtitle
+            except Exception:
+                # Widget not yet mounted, skip update
+                pass

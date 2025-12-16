@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -59,18 +58,27 @@ class WorkflowScreen(Screen):
             "validation",
             "pr_management",
         ]
-        self._elapsed_time: float = 0.0
-        self._start_time: float = time.time()
 
     @property
     def workflow_name(self) -> str:
-        """Get the current workflow name."""
+        """Get the current workflow name.
+
+        Returns:
+            The name of the workflow being executed.
+        """
         return self._workflow_name
 
     @property
     def elapsed_time(self) -> float:
-        """Get elapsed time in seconds."""
-        return time.time() - self._start_time
+        """Get elapsed time in seconds.
+
+        Returns:
+            Elapsed time in seconds since workflow started, delegated to app timer.
+        """
+        from maverick.tui.app import MaverickApp
+
+        app = cast(MaverickApp, self.app)
+        return app.elapsed_time
 
     def compose(self) -> ComposeResult:
         """Create the workflow screen layout.
@@ -104,16 +112,66 @@ class WorkflowScreen(Screen):
         # Container for error messages
         yield Static("", id="workflow-errors")
 
+    def on_mount(self) -> None:
+        """Initialize the workflow screen.
+
+        Sets up sidebar to display workflow stages and starts the app-level timer
+        for tracking workflow execution time.
+        """
+        from maverick.tui.app import MaverickApp
+
+        app = cast(MaverickApp, self.app)
+
+        # Start the app-level timer for elapsed time tracking
+        app.start_timer()
+
+        # Configure sidebar to display workflow stages
+        sidebar = app.get_sidebar()
+        stages_data = [
+            {
+                "name": stage_name,
+                "display_name": stage_name.replace("_", " ").title(),
+                "status": "pending",
+            }
+            for stage_name in self._stages
+        ]
+        if sidebar is not None:
+            sidebar.set_workflow_mode(stages_data)
+
+    def cleanup_sidebar(self) -> None:
+        """Reset sidebar to navigation mode.
+
+        Should be called when exiting the workflow screen to restore
+        the sidebar to its default navigation menu state.
+        """
+        from maverick.tui.app import MaverickApp
+
+        app = cast(MaverickApp, self.app)
+        sidebar = app.get_sidebar()
+        if sidebar is not None:
+            sidebar.set_navigation_mode()
+
     def update_stage(self, stage_name: str, status: str) -> None:
         """Update the status of a workflow stage.
+
+        Updates both the on-screen stage indicator and the sidebar's workflow
+        stage display.
 
         Args:
             stage_name: Name of the stage to update.
             status: New status ("pending", "active", "completed", "failed").
         """
+        from maverick.tui.app import MaverickApp
+
         # Find the stage indicator widget and update its status
         stage_widget = self.query_one(f"#stage-{stage_name}", StageIndicator)
         stage_widget.status = status
+
+        # Update sidebar stage indicator as well
+        app = cast(MaverickApp, self.app)
+        sidebar = app.get_sidebar()
+        if sidebar is not None:
+            sidebar.update_stage_status(stage_name, status)
 
         # Update elapsed time display
         elapsed = self.elapsed_time

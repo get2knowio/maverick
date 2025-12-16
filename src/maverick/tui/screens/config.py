@@ -35,8 +35,16 @@ class ConfigScreen(Screen):
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
-        """Initialize the config screen."""
+        """Initialize the config screen.
+
+        Args:
+            name: Optional screen name for identification.
+            id: Optional screen ID for identification.
+            classes: Optional CSS class names to apply.
+        """
         super().__init__(name=name, id=id, classes=classes)
+        # TODO: Replace dict-based options with ConfigOption dataclass from models.py
+        # This will provide better type safety and alignment with the spec
         self._options: list[dict[str, Any]] = []
         self._selected_index: int = 0
         self._editing: bool = False
@@ -61,7 +69,11 @@ class ConfigScreen(Screen):
             yield Vertical(id="config-options")
 
     def on_mount(self) -> None:
-        """Load configuration when screen is mounted."""
+        """Load configuration when screen is mounted.
+
+        Called by Textual framework when the screen is added to the DOM.
+        Initializes the configuration options and renders the display.
+        """
         self.load_config()
 
     def load_config(self) -> None:
@@ -164,10 +176,13 @@ class ConfigScreen(Screen):
     def edit_option(self, key: str) -> None:
         """Enter edit mode for a configuration option.
 
+        For boolean options, toggles the value immediately.
+        For choice options, cycles to the next choice.
+        For other types (int, string), enters input mode.
+
         Args:
             key: Configuration key to edit.
         """
-        # Find the option
         option = next((opt for opt in self._options if opt["key"] == key), None)
         if not option:
             return
@@ -175,26 +190,48 @@ class ConfigScreen(Screen):
         self._editing = True
         self._editing_key = key
 
-        # Set initial edit value based on type
-        if option["type"] == "bool":
-            # For boolean, just toggle immediately
-            option["value"] = not option["value"]
-            self._editing = False
-            self._editing_key = None
-            self._render_options()
-        elif option["type"] == "choice":
-            # For choices, cycle to next choice
-            choices = option["choices"]
-            current_idx = choices.index(option["value"])
-            next_idx = (current_idx + 1) % len(choices)
-            option["value"] = choices[next_idx]
-            self._editing = False
-            self._editing_key = None
-            self._render_options()
+        # Dispatch to type-specific handlers
+        option_type = option["type"]
+        if option_type == "bool":
+            self._toggle_bool_option(option)
+        elif option_type == "choice":
+            self._cycle_choice_option(option)
         else:
-            # For other types (int, string), show input
-            self._edit_value = str(option["value"])
-            self._render_options()
+            self._enter_input_mode(option)
+
+    def _toggle_bool_option(self, option: dict[str, Any]) -> None:
+        """Toggle a boolean option and immediately save.
+
+        Args:
+            option: The option dictionary to toggle.
+        """
+        option["value"] = not option["value"]
+        self._editing = False
+        self._editing_key = None
+        self._render_options()
+
+    def _cycle_choice_option(self, option: dict[str, Any]) -> None:
+        """Cycle a choice option to the next value and immediately save.
+
+        Args:
+            option: The option dictionary to cycle.
+        """
+        choices = option["choices"]
+        current_idx = choices.index(option["value"])
+        next_idx = (current_idx + 1) % len(choices)
+        option["value"] = choices[next_idx]
+        self._editing = False
+        self._editing_key = None
+        self._render_options()
+
+    def _enter_input_mode(self, option: dict[str, Any]) -> None:
+        """Enter input mode for text/numeric options.
+
+        Args:
+            option: The option dictionary to edit.
+        """
+        self._edit_value = str(option["value"])
+        self._render_options()
 
     def save_option(self, key: str, value: object) -> None:
         """Save a modified configuration value.

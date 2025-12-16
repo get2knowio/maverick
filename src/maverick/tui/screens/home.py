@@ -6,7 +6,6 @@ workflow selection options and recent workflow runs.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
@@ -100,37 +99,32 @@ class HomeScreen(Screen):
         workflow_list = self.query_one(WorkflowList)
         workflow_list.action_select_previous()
 
-    def refresh_recent_workflows(self) -> None:
+    def refresh_recent_workflows(
+        self, workflows: list[dict[str, Any]] | None = None
+    ) -> None:
         """Refresh the list of recent workflow runs.
 
-        Loads the 10 most recent workflow entries and updates the display.
-        """
-        # For demo purposes, use sample data
-        # In production, this would load from a data source
-        sample_workflows: list[dict[str, Any]] = [
-            {
-                "branch_name": "feature/add-authentication",
-                "workflow_type": "fly",
-                "status": "completed",
-                "started_at": datetime.now(),
-                "pr_url": "https://github.com/example/pr/1",
-            },
-            {
-                "branch_name": "fix/memory-leak",
-                "workflow_type": "refuel",
-                "status": "completed",
-                "started_at": datetime.now(),
-            },
-            {
-                "branch_name": "feature/dashboard",
-                "workflow_type": "fly",
-                "status": "in_progress",
-                "started_at": datetime.now(),
-            },
-        ]
+        This method updates the workflow list display with provided workflow data.
+        Per the separation of concerns principle, the TUI layer should receive
+        workflow data from external sources (e.g., a workflow manager or service
+        layer), not generate it internally.
 
+        Args:
+            workflows: Optional list of workflow dictionaries containing workflow
+                metadata (branch_name, workflow_type, status, started_at, etc.).
+                If None, the workflow list will be cleared/show empty state.
+
+        Note:
+            In production, workflow data should be provided by a workflow manager
+            or persistence layer, not generated within the TUI.
+        """
         workflow_list = self.query_one(WorkflowList)
-        workflow_list.set_workflows(sample_workflows)
+
+        if workflows is None:
+            # Clear the list if no workflows provided
+            workflow_list.set_workflows([])
+        else:
+            workflow_list.set_workflows(workflows)
 
     def select_workflow(self, index: int) -> None:
         """Select a workflow from the recent list.

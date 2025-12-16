@@ -6,6 +6,7 @@ It exports the main MaverickApp class and supporting screens/widgets.
 
 from __future__ import annotations
 
+from maverick.tui.app import MaverickApp
 from maverick.tui.models import (
     DARK_THEME,
     LIGHT_THEME,
@@ -27,8 +28,22 @@ from maverick.tui.models import (
     ThemeColors,
     WorkflowScreenState,
 )
+from maverick.tui.screens import ConfigScreen, HomeScreen, ReviewScreen, WorkflowScreen
+from maverick.tui.widgets import LogPanel, Sidebar, StageIndicator, WorkflowList
 
 __all__ = [
+    # App
+    "MaverickApp",
+    # Screens
+    "HomeScreen",
+    "WorkflowScreen",
+    "ReviewScreen",
+    "ConfigScreen",
+    # Widgets
+    "Sidebar",
+    "LogPanel",
+    "StageIndicator",
+    "WorkflowList",
     # Models
     "StageStatus",
     "IssueSeverity",
