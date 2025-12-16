@@ -24,9 +24,9 @@
 
 **Purpose**: Project initialization and TUI directory structure
 
-- [ ] T001 Create TUI directory structure: `src/maverick/tui/screens/` and `src/maverick/tui/widgets/`
-- [ ] T002 [P] Create screens package init in `src/maverick/tui/screens/__init__.py` with public exports
-- [ ] T003 [P] Create widgets package init in `src/maverick/tui/widgets/__init__.py` with public exports
+- [X] T001 Create TUI directory structure: `src/maverick/tui/screens/` and `src/maverick/tui/widgets/`
+- [X] T002 [P] Create screens package init in `src/maverick/tui/screens/__init__.py` with public exports
+- [X] T003 [P] Create widgets package init in `src/maverick/tui/widgets/__init__.py` with public exports
 
 ---
 
@@ -36,11 +36,11 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Create data models (StageStatus, ScreenState, LogEntry, ThemeColors, etc.) in `src/maverick/tui/models.py`
-- [ ] T005 Create stylesheet with theme colors and layout rules in `src/maverick/tui/maverick.tcss`
-- [ ] T006 [P] Create StageIndicator widget with status icons (pending ○, active ◉, completed ✓, failed ✗) in `src/maverick/tui/widgets/stage_indicator.py`
-- [ ] T007 [P] Create LogPanel widget with RichLog, 1000-line buffer, and toggle visibility in `src/maverick/tui/widgets/log_panel.py`
-- [ ] T008 Update TUI package init with public exports (MaverickApp, screens, widgets) in `src/maverick/tui/__init__.py`
+- [X] T004 Create data models (StageStatus, ScreenState, LogEntry, ThemeColors, etc.) in `src/maverick/tui/models.py`
+- [X] T005 Create stylesheet with theme colors and layout rules in `src/maverick/tui/maverick.tcss`
+- [X] T006 [P] Create StageIndicator widget with status icons (pending ○, active ◉, completed ✓, failed ✗) in `src/maverick/tui/widgets/stage_indicator.py`
+- [X] T007 [P] Create LogPanel widget with RichLog, 1000-line buffer, and toggle visibility in `src/maverick/tui/widgets/log_panel.py`
+- [X] T008 Update TUI package init with public exports (MaverickApp, screens, widgets) in `src/maverick/tui/__init__.py`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -54,13 +54,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Create MaverickApp class with CSS_PATH, TITLE, ENABLE_COMMAND_PALETTE, and BINDINGS in `src/maverick/tui/app.py`
-- [ ] T010 [US1] Implement MaverickApp.compose() yielding Header, main container (Horizontal with sidebar + content area), LogPanel, Footer in `src/maverick/tui/app.py`
-- [ ] T011 [US1] Implement MaverickApp.on_mount() to push initial HomeScreen in `src/maverick/tui/app.py`
-- [ ] T012 [US1] Implement action_toggle_log(), action_pop_screen(), action_quit() in `src/maverick/tui/app.py`
-- [ ] T013 [US1] Implement add_log() convenience method delegating to LogPanel in `src/maverick/tui/app.py`
-- [ ] T014 [P] [US1] Create Sidebar widget in navigation mode with menu items (Home, Workflows, Settings) in `src/maverick/tui/widgets/sidebar.py`
-- [ ] T015 [US1] Create basic HomeScreen with welcome message placeholder in `src/maverick/tui/screens/home.py`
+- [X] T009 [US1] Create MaverickApp class with CSS_PATH, TITLE, ENABLE_COMMAND_PALETTE, and BINDINGS in `src/maverick/tui/app.py`
+- [X] T010 [US1] Implement MaverickApp.compose() yielding Header, main container (Horizontal with sidebar + content area), LogPanel, Footer in `src/maverick/tui/app.py`
+- [X] T011 [US1] Implement MaverickApp.on_mount() to push initial HomeScreen in `src/maverick/tui/app.py`
+- [X] T012 [US1] Implement action_toggle_log(), action_pop_screen(), action_quit() in `src/maverick/tui/app.py`
+- [X] T013 [US1] Implement add_log() convenience method delegating to LogPanel in `src/maverick/tui/app.py`
+- [X] T014 [P] [US1] Create Sidebar widget in navigation mode with menu items (Home, Workflows, Settings) in `src/maverick/tui/widgets/sidebar.py`
+- [X] T015 [US1] Create basic HomeScreen with welcome message placeholder in `src/maverick/tui/screens/home.py`
 
 **Checkpoint**: User Story 1 complete - app launches with visible header, sidebar, content, footer, and footer shows keybindings
 
@@ -74,13 +74,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T016 [P] [US2] Create WorkflowScreen placeholder in `src/maverick/tui/screens/workflow.py`
-- [ ] T017 [P] [US2] Create ReviewScreen placeholder in `src/maverick/tui/screens/review.py`
-- [ ] T018 [P] [US2] Create ConfigScreen placeholder in `src/maverick/tui/screens/config.py`
-- [ ] T019 [US2] Add screen navigation actions to HomeScreen (select workflow pushes WorkflowScreen) in `src/maverick/tui/screens/home.py`
-- [ ] T020 [US2] Implement command palette command provider for Maverick commands in `src/maverick/tui/app.py`
-- [ ] T021 [US2] Add action_show_help() keybinding handler in `src/maverick/tui/app.py`
-- [ ] T022 [US2] Update screens/__init__.py with all screen exports in `src/maverick/tui/screens/__init__.py`
+- [X] T016 [P] [US2] Create WorkflowScreen placeholder in `src/maverick/tui/screens/workflow.py`
+- [X] T017 [P] [US2] Create ReviewScreen placeholder in `src/maverick/tui/screens/review.py`
+- [X] T018 [P] [US2] Create ConfigScreen placeholder in `src/maverick/tui/screens/config.py`
+- [X] T019 [US2] Add screen navigation actions to HomeScreen (select workflow pushes WorkflowScreen) in `src/maverick/tui/screens/home.py`
+- [X] T020 [US2] Implement command palette command provider for Maverick commands in `src/maverick/tui/app.py`
+- [X] T021 [US2] Add action_show_help() keybinding handler in `src/maverick/tui/app.py`
+- [X] T022 [US2] Update screens/__init__.py with all screen exports in `src/maverick/tui/screens/__init__.py`
 
 **Checkpoint**: User Story 2 complete - all 4 screens navigable, Escape goes back, Ctrl+P opens command palette
 
@@ -94,12 +94,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Implement Sidebar.set_workflow_mode() to switch from navigation to workflow stages display in `src/maverick/tui/widgets/sidebar.py`
-- [ ] T024 [US3] Implement Sidebar.update_stage_status() to update individual stage indicators in `src/maverick/tui/widgets/sidebar.py`
-- [ ] T025 [US3] Implement WorkflowScreen with stage indicators, workflow name, and elapsed time display in `src/maverick/tui/screens/workflow.py`
-- [ ] T026 [US3] Implement WorkflowScreen.update_stage() and show_stage_error() methods in `src/maverick/tui/screens/workflow.py`
-- [ ] T027 [US3] Implement MaverickApp.start_timer() and stop_timer() for elapsed time tracking in `src/maverick/tui/app.py`
-- [ ] T028 [US3] Add Header subtitle showing current workflow name and elapsed time in `src/maverick/tui/app.py`
+- [X] T023 [US3] Implement Sidebar.set_workflow_mode() to switch from navigation to workflow stages display in `src/maverick/tui/widgets/sidebar.py`
+- [X] T024 [US3] Implement Sidebar.update_stage_status() to update individual stage indicators in `src/maverick/tui/widgets/sidebar.py`
+- [X] T025 [US3] Implement WorkflowScreen with stage indicators, workflow name, and elapsed time display in `src/maverick/tui/screens/workflow.py`
+- [X] T026 [US3] Implement WorkflowScreen.update_stage() and show_stage_error() methods in `src/maverick/tui/screens/workflow.py`
+- [X] T027 [US3] Implement MaverickApp.start_timer() and stop_timer() for elapsed time tracking in `src/maverick/tui/app.py`
+- [X] T028 [US3] Add Header subtitle showing current workflow name and elapsed time in `src/maverick/tui/app.py`
 
 **Checkpoint**: User Story 3 complete - workflow stages show in sidebar with status icons; elapsed time updates
 
@@ -113,10 +113,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T029 [US4] Enhance LogPanel.add_log() with timestamp, source prefix, and level-based coloring in `src/maverick/tui/widgets/log_panel.py`
-- [ ] T030 [US4] Implement LogPanel auto-scroll behavior in `src/maverick/tui/widgets/log_panel.py`
-- [ ] T031 [US4] Add log panel CSS styles for visible/hidden states with <200ms toggle response in `src/maverick/tui/maverick.tcss`
-- [ ] T032 [US4] Verify log buffer respects 1000-line limit per clarifications in `src/maverick/tui/widgets/log_panel.py`
+- [X] T029 [US4] Enhance LogPanel.add_log() with timestamp, source prefix, and level-based coloring in `src/maverick/tui/widgets/log_panel.py`
+- [X] T030 [US4] Implement LogPanel auto-scroll behavior in `src/maverick/tui/widgets/log_panel.py`
+- [X] T031 [US4] Add log panel CSS styles for visible/hidden states with <200ms toggle response in `src/maverick/tui/maverick.tcss`
+- [X] T032 [US4] Verify log buffer respects 1000-line limit per clarifications in `src/maverick/tui/widgets/log_panel.py`
 
 **Checkpoint**: User Story 4 complete - log panel toggles with Ctrl+L, shows timestamped colored output
 
@@ -130,11 +130,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T033 [US5] Implement ReviewScreen.compose() with issue list and detail view layout in `src/maverick/tui/screens/review.py`
-- [ ] T034 [US5] Implement ReviewScreen.load_issues() to populate issue list in `src/maverick/tui/screens/review.py`
-- [ ] T035 [US5] Implement ReviewScreen.filter_by_severity() for filtering by error/warning/info in `src/maverick/tui/screens/review.py`
-- [ ] T036 [US5] Implement issue navigation (n/p for next/previous) with highlight in `src/maverick/tui/screens/review.py`
-- [ ] T037 [US5] Add severity-based CSS styling (error=red, warning=yellow, info=blue) in `src/maverick/tui/maverick.tcss`
+- [X] T033 [US5] Implement ReviewScreen.compose() with issue list and detail view layout in `src/maverick/tui/screens/review.py`
+- [X] T034 [US5] Implement ReviewScreen.load_issues() to populate issue list in `src/maverick/tui/screens/review.py`
+- [X] T035 [US5] Implement ReviewScreen.filter_by_severity() for filtering by error/warning/info in `src/maverick/tui/screens/review.py`
+- [X] T036 [US5] Implement issue navigation (n/p for next/previous) with highlight in `src/maverick/tui/screens/review.py`
+- [X] T037 [US5] Add severity-based CSS styling (error=red, warning=yellow, info=blue) in `src/maverick/tui/maverick.tcss`
 
 **Checkpoint**: User Story 5 complete - review screen shows organized issues with severity colors
 
@@ -148,11 +148,11 @@
 
 ### Implementation for User Story 6
 
-- [ ] T038 [US6] Implement ConfigScreen.compose() with options list layout in `src/maverick/tui/screens/config.py`
-- [ ] T039 [US6] Implement ConfigScreen.load_config() to load current MaverickConfig values in `src/maverick/tui/screens/config.py`
-- [ ] T040 [US6] Implement ConfigScreen.edit_option() for inline editing in `src/maverick/tui/screens/config.py`
-- [ ] T041 [US6] Implement ConfigScreen.save_option() and cancel_edit() in `src/maverick/tui/screens/config.py`
-- [ ] T042 [US6] Add keyboard shortcut (Ctrl+,) to navigate to ConfigScreen from any screen in `src/maverick/tui/app.py`
+- [X] T038 [US6] Implement ConfigScreen.compose() with options list layout in `src/maverick/tui/screens/config.py`
+- [X] T039 [US6] Implement ConfigScreen.load_config() to load current MaverickConfig values in `src/maverick/tui/screens/config.py`
+- [X] T040 [US6] Implement ConfigScreen.edit_option() for inline editing in `src/maverick/tui/screens/config.py`
+- [X] T041 [US6] Implement ConfigScreen.save_option() and cancel_edit() in `src/maverick/tui/screens/config.py`
+- [X] T042 [US6] Add keyboard shortcut (Ctrl+,) to navigate to ConfigScreen from any screen in `src/maverick/tui/app.py`
 
 **Checkpoint**: User Story 6 complete - settings accessible and editable
 
@@ -166,11 +166,11 @@
 
 ### Implementation for User Story 7
 
-- [ ] T043 [P] [US7] Create WorkflowList widget displaying recent workflow entries in `src/maverick/tui/widgets/workflow_list.py`
-- [ ] T044 [US7] Implement WorkflowList.set_workflows() and select() methods in `src/maverick/tui/widgets/workflow_list.py`
-- [ ] T045 [US7] Enhance HomeScreen with WorkflowList integration in `src/maverick/tui/screens/home.py`
-- [ ] T046 [US7] Implement HomeScreen.refresh_recent_workflows() loading 10 most recent in `src/maverick/tui/screens/home.py`
-- [ ] T047 [US7] Add workflow list CSS styles with hover and selected states in `src/maverick/tui/maverick.tcss`
+- [X] T043 [P] [US7] Create WorkflowList widget displaying recent workflow entries in `src/maverick/tui/widgets/workflow_list.py`
+- [X] T044 [US7] Implement WorkflowList.set_workflows() and select() methods in `src/maverick/tui/widgets/workflow_list.py`
+- [X] T045 [US7] Enhance HomeScreen with WorkflowList integration in `src/maverick/tui/screens/home.py`
+- [X] T046 [US7] Implement HomeScreen.refresh_recent_workflows() loading 10 most recent in `src/maverick/tui/screens/home.py`
+- [X] T047 [US7] Add workflow list CSS styles with hover and selected states in `src/maverick/tui/maverick.tcss`
 
 **Checkpoint**: User Story 7 complete - home screen shows recent workflows with selection
 
@@ -180,12 +180,12 @@
 
 **Purpose**: Edge cases, validation, and improvements across all stories
 
-- [ ] T048 Implement minimum terminal size warning overlay (80x24) in `src/maverick/tui/app.py`
-- [ ] T049 Add terminal resize handler showing warning when below minimum in `src/maverick/tui/app.py`
-- [ ] T050 [P] Verify all status colors are distinguishable and WCAG AA compliant in `src/maverick/tui/maverick.tcss`
-- [ ] T051 [P] Ensure unbound key presses do not crash or display errors in `src/maverick/tui/app.py`
-- [ ] T052 Run quickstart.md validation scenarios to verify all patterns work correctly
-- [ ] T053 Update widgets/__init__.py with final exports in `src/maverick/tui/widgets/__init__.py`
+- [X] T048 Implement minimum terminal size warning overlay (80x24) in `src/maverick/tui/app.py`
+- [X] T049 Add terminal resize handler showing warning when below minimum in `src/maverick/tui/app.py`
+- [X] T050 [P] Verify all status colors are distinguishable and WCAG AA compliant in `src/maverick/tui/maverick.tcss`
+- [X] T051 [P] Ensure unbound key presses do not crash or display errors in `src/maverick/tui/app.py`
+- [X] T052 Run quickstart.md validation scenarios to verify all patterns work correctly
+- [X] T053 Update widgets/__init__.py with final exports in `src/maverick/tui/widgets/__init__.py`
 
 ---
 
