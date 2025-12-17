@@ -6,6 +6,7 @@ horizontal layout with status icons and expandable error details for failed step
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from textual import on
@@ -251,15 +252,16 @@ class ValidationStatus(Widget):
         # Add header to container
         step_container.compose_add_child(step_header)
 
-        # Add re-run button
-        step_container.compose_add_child(
-            Button(
-                "⟳ Rerun",
-                id=f"rerun-{step.name}",
-                classes="rerun-button",
-                disabled=disabled,
+        # Add re-run button (only for failed steps per FR-028)
+        if step.status == ValidationStepStatus.FAILED:
+            step_container.compose_add_child(
+                Button(
+                    "⟳ Rerun",
+                    id=f"rerun-{step.name}",
+                    classes="rerun-button",
+                    disabled=disabled,
+                )
             )
-        )
 
         # Error output for failed steps (collapsible)
         if step.status == ValidationStepStatus.FAILED and step.error_output:
@@ -276,9 +278,7 @@ class ValidationStatus(Widget):
 
         return step_container
 
-    def update_steps(
-        self, steps: list[ValidationStep] | tuple[ValidationStep, ...]
-    ) -> None:
+    def update_steps(self, steps: Sequence[ValidationStep]) -> None:
         """Update all validation steps.
 
         Args:

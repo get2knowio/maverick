@@ -17,6 +17,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Label, Static
 
 from maverick.tui.models import (
@@ -42,6 +43,7 @@ class ReviewFindings(Static):
         - BulkDismissRequested: When bulk dismiss is triggered
         - BulkCreateIssueRequested: When bulk issue creation is triggered
         - FileLocationClicked: When a file:line link is clicked
+        - CodeContextRequested: When code context is requested for a finding
 
     Example usage:
         findings_widget = ReviewFindings()
@@ -133,13 +135,41 @@ class ReviewFindings(Static):
             self.file_path = file_path
             self.line_number = line_number
 
+    class CodeContextRequested(Message):
+        """Emitted when code context is requested for a finding."""
+
+        def __init__(self, file_path: str, line_number: int) -> None:
+            """Initialize CodeContextRequested message.
+
+            Args:
+                file_path: Path to the file.
+                line_number: Line number in the file.
+            """
+            super().__init__()
+            self.file_path = file_path
+            self.line_number = line_number
+
     # ==========================================================================
     # Initialization
     # ==========================================================================
 
-    def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        """Initialize ReviewFindings widget."""
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        """Initialize ReviewFindings widget.
+
+        Args:
+            name: The name of the widget.
+            id: The ID of the widget in the DOM.
+            classes: The CSS classes for the widget.
+            disabled: Whether the widget is disabled or not.
+        """
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self._state = ReviewFindingsState()
 
     def compose(self) -> ComposeResult:
@@ -251,15 +281,24 @@ class ReviewFindings(Static):
     def show_code_context(self, finding_index: int) -> None:
         """Show code context for a finding.
 
+        Emits a CodeContextRequested message for the parent to handle.
+
         Args:
             finding_index: Index of finding to show context for.
         """
         if not (0 <= finding_index < len(self._state.findings)):
             return
 
-        # Implementation note: This would typically fetch code context
-        # from the file system and update _state.code_context
-        # For now, this is a placeholder
+        finding = self._state.findings[finding_index].finding
+        location = finding.location
+
+        # Emit message for parent to handle
+        self.post_message(
+            self.CodeContextRequested(
+                file_path=location.file_path,
+                line_number=location.line_number,
+            )
+        )
 
     @property
     def selected_findings(self) -> tuple[ReviewFinding, ...]:
@@ -311,7 +350,7 @@ class ReviewFindings(Static):
             Vertical container with findings.
         """
         # Prepare all child widgets first
-        children = []
+        children: list[Widget] = []
 
         # Header with selection count
         header_text = f"Review Findings ({len(self._state.findings)})"
@@ -385,7 +424,7 @@ class ReviewFindings(Static):
             Vertical container with the section.
         """
         # Prepare children first
-        children = []
+        children: list[Widget] = []
 
         # Severity header with icon and count
         severity_icon = self._get_severity_icon(severity)
@@ -399,11 +438,15 @@ class ReviewFindings(Static):
         # Render each finding in this section
         for item in items:
             # Find global index
-            global_index = next(
-                i
-                for i, state_item in enumerate(self._state.findings)
-                if state_item.finding.id == item.finding.id
-            )
+            try:
+                global_index = next(
+                    i
+                    for i, state_item in enumerate(self._state.findings)
+                    if state_item.finding.id == item.finding.id
+                )
+            except StopIteration:
+                # Item not found in state, skip
+                continue
             children.append(self._render_finding_row(item, global_index))
 
         return Vertical(*children, classes="severity-section")
@@ -419,7 +462,7 @@ class ReviewFindings(Static):
             Vertical container with the finding row.
         """
         # Prepare children
-        children = []
+        children: list[Widget] = []
 
         # Summary line with checkbox, title, and file:line
         # Checkbox for selection
@@ -432,15 +475,21 @@ class ReviewFindings(Static):
         # Title
         title_text = f"{item.finding.title}"
 
-        # File location (plain text for now - link requires action binding)
+        # File location as clickable button styled as link
         location = item.finding.location
         location_text = f"{location.file_path}:{location.line_number}"
+        location_button = Button(
+            location_text,
+            id=f"location-{index}",
+            variant="default",
+            classes="file-location-link",
+        )
 
         children.append(
             Horizontal(
                 checkbox,
                 Label(title_text),
-                Label(location_text),
+                location_button,
                 classes="finding-summary",
             )
         )
@@ -448,7 +497,7 @@ class ReviewFindings(Static):
         # Expandable details
         is_expanded = self._state.expanded_index == index
         if is_expanded:
-            detail_children = []
+            detail_children: list[Widget] = []
 
             # Description
             detail_children.append(Label(f"Description: {item.finding.description}"))
@@ -540,6 +589,27 @@ class ReviewFindings(Static):
         """Handle bulk create issue button press."""
         event.stop()
         self.action_bulk_create_issue()
+
+    @on(Button.Pressed)
+    def _on_file_location_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle file location button press."""
+        # Check if this is a file location button
+        if not event.button.id or not event.button.id.startswith("location-"):
+            return
+
+        event.stop()
+
+        # Extract index from button ID
+        try:
+            index = int(event.button.id.split("-")[1])
+        except (IndexError, ValueError):
+            return
+
+        # Get the finding and emit message
+        if 0 <= index < len(self._state.findings):
+            finding = self._state.findings[index].finding
+            location = finding.location
+            self._on_file_location_clicked(location.file_path, location.line_number)
 
     # ==========================================================================
     # Keyboard Navigation Actions

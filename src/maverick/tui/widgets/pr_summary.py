@@ -15,6 +15,7 @@ Displays:
 from __future__ import annotations
 
 import webbrowser
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from rich.console import RenderableType
@@ -199,7 +200,8 @@ class PRSummary(Widget):
         Args:
             pr: PR data to display, or None to show empty state.
         """
-        self.state = PRSummaryState(
+        self.state = replace(
+            self.state,
             pr=pr,
             description_expanded=False,
             loading=False,
@@ -211,9 +213,8 @@ class PRSummary(Widget):
         Args:
             loading: Whether PR data is loading.
         """
-        self.state = PRSummaryState(
-            pr=self.state.pr,
-            description_expanded=self.state.description_expanded,
+        self.state = replace(
+            self.state,
             loading=loading,
         )
 
@@ -222,10 +223,9 @@ class PRSummary(Widget):
         if self.state.pr is None:
             return
 
-        self.state = PRSummaryState(
-            pr=self.state.pr,
+        self.state = replace(
+            self.state,
             description_expanded=True,
-            loading=self.state.loading,
         )
         self.post_message(self.DescriptionExpanded())
 
@@ -234,10 +234,9 @@ class PRSummary(Widget):
         if self.state.pr is None:
             return
 
-        self.state = PRSummaryState(
-            pr=self.state.pr,
+        self.state = replace(
+            self.state,
             description_expanded=False,
-            loading=self.state.loading,
         )
         self.post_message(self.DescriptionCollapsed())
 
@@ -250,7 +249,7 @@ class PRSummary(Widget):
         webbrowser.open(url)
         self.post_message(self.OpenPRRequested(url))
 
-    async def on_click(self) -> None:
+    def on_click(self) -> None:
         """Handle click events on the widget.
 
         Toggles description expansion or opens browser depending on click location.

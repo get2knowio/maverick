@@ -513,6 +513,23 @@ class LogEntry:
     message: str
 
 
+# -----------------------------------------------------------------------------
+# Mutable State Models (Performance Optimization)
+# -----------------------------------------------------------------------------
+# The following state classes use mutable @dataclass(slots=True) instead of
+# frozen dataclasses. This is an intentional design decision for performance
+# optimization in high-frequency message buffering scenarios.
+#
+# Why mutable here:
+# - LogPanelState and AgentOutputState handle continuous message appending
+# - Creating new frozen tuples on every message would be expensive
+# - Message buffers are capped (max_entries, max_messages) to prevent unbounded growth
+# - These are internal TUI state objects, not part of the public API
+#
+# All other state classes remain frozen for immutability guarantees.
+# -----------------------------------------------------------------------------
+
+
 @dataclass(slots=True)
 class LogPanelState:
     """Mutable state for the log panel (performance optimization)."""
@@ -543,6 +560,7 @@ class AgentOutputState:
         search_query: Current search filter text.
         search_matches: Indices of messages matching search.
         filter_agent: Filter to specific agent ID.
+        filter_message_type: Filter to specific message type.
         truncated: Whether old messages were discarded.
     """
 
@@ -552,6 +570,7 @@ class AgentOutputState:
     search_query: str | None = None
     search_matches: list[int] = field(default_factory=list)
     filter_agent: str | None = None
+    filter_message_type: MessageType | None = None
     truncated: bool = False
 
     def add_message(self, message: AgentMessage) -> None:
@@ -563,10 +582,12 @@ class AgentOutputState:
 
     @property
     def filtered_messages(self) -> list[AgentMessage]:
-        """Get messages filtered by agent and search."""
+        """Get messages filtered by agent, message type, and search."""
         result = self.messages
         if self.filter_agent:
             result = [m for m in result if m.agent_id == self.filter_agent]
+        if self.filter_message_type:
+            result = [m for m in result if m.message_type == self.filter_message_type]
         # Search filtering handled in widget for highlighting
         return result
 

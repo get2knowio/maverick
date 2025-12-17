@@ -4,7 +4,7 @@ This widget displays workflow stages vertically with status icons, duration,
 and expandable details. Part of User Story 1 for feature 012-workflow-widgets.
 
 Features:
-- Status icons: pending (○), active (◐), completed (✓), failed (✗ in red)
+- Status icons: pending (○), active (animated spinner), completed (✓), failed (✗ in red)
 - Duration display for completed stages (e.g., "12s", "1m 30s")
 - Expandable details via Collapsible
 - Loading and empty states
@@ -17,11 +17,11 @@ from dataclasses import replace
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Collapsible, Label, Static
+from textual.widgets import Collapsible, Label, LoadingIndicator, Static
 
 from maverick.tui.models import StageStatus, WorkflowProgressState, WorkflowStage
 
@@ -78,7 +78,6 @@ class WorkflowProgress(Widget):
 
     ICONS = {
         StageStatus.PENDING: "○",
-        StageStatus.ACTIVE: "◐",
         StageStatus.COMPLETED: "✓",
         StageStatus.FAILED: "✗",
     }
@@ -242,9 +241,72 @@ class WorkflowProgress(Widget):
         Returns:
             Widget representing the stage.
         """
-        # Create stage header with icon, name, and duration
-        icon = self.ICONS.get(stage.status, "○")
         status_class = f"status-{stage.status.value}"
+
+        # For active stages, create a container with LoadingIndicator
+        if stage.status == StageStatus.ACTIVE:
+            # Build header text without icon (indicator will be shown separately)
+            header_text = stage.display_name
+            if stage.duration_display:
+                header_text += f" ({stage.duration_display})"
+
+            # If stage has details or error, make it expandable
+            if stage.detail_content or stage.error_message:
+                is_expanded = self.state.expanded_stage == stage.name
+
+                # Determine detail content
+                if stage.error_message:
+                    detail_text = stage.error_message
+                    detail_classes = "stage-detail error-detail"
+                elif stage.detail_content:
+                    detail_text = stage.detail_content
+                    detail_classes = "stage-detail"
+                else:
+                    detail_text = ""
+                    detail_classes = "stage-detail"
+
+                # Create expandable container with spinner
+                class ActiveStageItemContainer(Vertical):
+                    """Container for active stage with collapsible details."""
+
+                    def compose(self) -> ComposeResult:
+                        """Compose the stage item with spinner and collapsible."""
+                        # Header with spinner
+                        with Horizontal(classes="stage-header-active"):
+                            yield LoadingIndicator(classes="stage-spinner")
+                            yield Label(
+                                header_text, classes=f"stage-label {status_class}"
+                            )
+
+                        # Inner collapsible class for details
+                        class StageCollapsibleWidget(Collapsible):
+                            """Custom collapsible for stage details."""
+
+                            def compose(self) -> ComposeResult:
+                                yield Static(detail_text, classes=detail_classes)
+
+                        yield StageCollapsibleWidget(
+                            title="Details",
+                            collapsed=not is_expanded,
+                            classes=f"stage-collapsible {status_class}",
+                        )
+
+                return ActiveStageItemContainer(classes="stage-item active-stage-item")
+            else:
+                # Simple active stage without expansion
+                class ActiveStageContainer(Horizontal):
+                    """Container for active stage with animated spinner."""
+
+                    def compose(self) -> ComposeResult:
+                        yield LoadingIndicator(classes="stage-spinner")
+                        yield Label(header_text, classes=f"stage-label {status_class}")
+
+                return ActiveStageContainer(
+                    classes=f"stage-header {status_class} active-stage"
+                )
+
+        # For non-active stages, use static icons
+        icon = self.ICONS.get(stage.status, "○")
 
         # Build header text
         header_text = f"{icon} {stage.display_name}"

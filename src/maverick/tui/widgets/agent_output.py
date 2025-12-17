@@ -16,9 +16,11 @@ Date: 2025-12-17
 
 from __future__ import annotations
 
+from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -235,8 +237,9 @@ class AgentOutput(Widget):
             try:
                 empty_state = self.query_one("#empty-state", Static)
                 empty_state.remove()
-            except Exception:
-                pass  # Empty state already removed
+            except NoMatches:
+                # Empty state widget not present (already removed or never created)
+                pass
 
         # Render the message
         self._render_message(message)
@@ -304,8 +307,6 @@ class AgentOutput(Widget):
         Returns:
             Static widget with syntax-highlighted code.
         """
-        from rich.syntax import Syntax
-
         # Create syntax-highlighted code
         syntax = Syntax(
             message.content,
@@ -412,8 +413,9 @@ class AgentOutput(Widget):
                     id="empty-state",
                 )
             )
-        except Exception:
-            pass  # Container not found
+        except NoMatches:
+            # Scroll container not found (widget not mounted or already removed)
+            pass
 
     def set_auto_scroll(self, enabled: bool) -> None:
         """Enable or disable auto-scrolling.
@@ -425,13 +427,14 @@ class AgentOutput(Widget):
         self.show_scroll_indicator = not enabled
 
     def scroll_to_bottom(self) -> None:
-        """Scroll to the bottom of the output."""
+        """Scroll to the bottom of the output and re-enable auto-scroll."""
         try:
             scroll_container = self.query_one("#message-scroll", VerticalScroll)
             scroll_container.scroll_end(animate=False)
-            self.show_scroll_indicator = False
-        except Exception:
-            pass  # Container not ready yet
+            self.set_auto_scroll(True)
+        except NoMatches:
+            # Scroll container not found (widget not mounted yet)
+            pass
 
     def set_search_query(self, query: str | None) -> None:
         """Set the search filter query.
@@ -450,6 +453,17 @@ class AgentOutput(Widget):
             agent_id: Agent ID to filter by, or None to show all.
         """
         self.state.filter_agent = agent_id
+        self._refresh_display()
+
+    def set_message_type_filter(self, message_type: MessageType | None) -> None:
+        """Filter messages to a specific message type.
+
+        FR-016: Support filtering by message type (text, code, tool_call, tool_result).
+
+        Args:
+            message_type: Message type to filter by, or None to show all.
+        """
+        self.state.filter_message_type = message_type
         self._refresh_display()
 
     def _refresh_display(self) -> None:
@@ -477,8 +491,9 @@ class AgentOutput(Widget):
             else:
                 for msg in filtered:
                     self._render_message(msg)
-        except Exception:
-            pass  # Container not found
+        except NoMatches:
+            # Scroll container not found (widget not mounted yet)
+            pass
 
     def action_activate_search(self) -> None:
         """Activate search mode (Ctrl+F)."""
@@ -497,25 +512,33 @@ class AgentOutput(Widget):
         try:
             indicator = self.query_one("#scroll-indicator", Static)
             indicator.set_class(show, "visible")
-        except Exception:
-            pass  # Indicator not ready yet
+        except NoMatches:
+            # Scroll indicator not found (widget not mounted yet)
+            pass
 
     def on_mount(self) -> None:
-        """Handle widget mount event."""
-        # Set up scroll detection for auto-scroll pause
+        """Handle widget mount event to set up scroll detection.
+
+        FR-013: Widget MUST pause auto-scroll when user scrolls up manually.
+        """
+        # Get the scroll container
         scroll_container = self.query_one("#message-scroll", VerticalScroll)
 
-        def on_scroll() -> None:
-            """Detect when user scrolls up."""
-            # Check if we're at the bottom
-            if scroll_container.scroll_offset.y < scroll_container.max_scroll_y:
-                self.set_auto_scroll(False)
-            else:
-                self.set_auto_scroll(True)
+        # Watch the scroll_y reactive to detect user scrolling
+        def watch_scroll(old_value: float, new_value: float) -> None:
+            """Detect when user scrolls to pause/resume auto-scroll."""
+            # Check if at bottom (within 1px threshold for float precision)
+            at_bottom = new_value >= scroll_container.max_scroll_y - 1
 
-        # Note: Textual doesn't have a direct scroll event, so we'd need to
-        # implement this differently in a real app (e.g., with a background task)
-        # For now, this is a placeholder for the architecture
+            if at_bottom and not self.state.auto_scroll:
+                # User scrolled back to bottom, re-enable auto-scroll
+                self.set_auto_scroll(True)
+            elif not at_bottom and self.state.auto_scroll:
+                # User scrolled up, pause auto-scroll
+                self.set_auto_scroll(False)
+
+        # Use Textual's watch method to monitor scroll_y changes
+        scroll_container.watch(scroll_container, "scroll_y", watch_scroll)
 
     # =========================================================================
     # Keyboard Navigation Actions
@@ -527,7 +550,8 @@ class AgentOutput(Widget):
             scroll_container = self.query_one("#message-scroll", VerticalScroll)
             scroll_container.scroll_page_up()
             self.set_auto_scroll(False)
-        except Exception:
+        except NoMatches:
+            # Scroll container not found (widget not mounted yet)
             pass
 
     def action_page_down(self) -> None:
@@ -538,7 +562,8 @@ class AgentOutput(Widget):
             # Check if at bottom
             if scroll_container.scroll_offset.y >= scroll_container.max_scroll_y:
                 self.set_auto_scroll(True)
-        except Exception:
+        except NoMatches:
+            # Scroll container not found (widget not mounted yet)
             pass
 
     def action_scroll_home(self) -> None:
@@ -547,7 +572,8 @@ class AgentOutput(Widget):
             scroll_container = self.query_one("#message-scroll", VerticalScroll)
             scroll_container.scroll_home()
             self.set_auto_scroll(False)
-        except Exception:
+        except NoMatches:
+            # Scroll container not found (widget not mounted yet)
             pass
 
     def action_scroll_end(self) -> None:
