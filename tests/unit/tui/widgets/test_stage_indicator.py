@@ -1,11 +1,11 @@
 """Unit tests for StageIndicator widget."""
+
 from __future__ import annotations
 
 import pytest
 from textual.app import App
 
 from maverick.tui.widgets.stage_indicator import StageIndicator
-
 
 # =============================================================================
 # Test App for StageIndicator Testing

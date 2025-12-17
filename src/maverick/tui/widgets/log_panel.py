@@ -27,7 +27,7 @@ class LogPanel(Widget):
 
     MAX_LINES = 1000
 
-    visible: reactive[bool] = reactive(False)
+    visible: reactive[bool] = reactive(False)  # type: ignore[override]
     auto_scroll: reactive[bool] = reactive(True)
 
     def compose(self) -> ComposeResult:

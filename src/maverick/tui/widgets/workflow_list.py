@@ -87,9 +87,7 @@ class WorkflowList(Widget):
         if 0 <= index < len(self._workflows):
             self.selected_index = index
             self._update_selection()
-            self.post_message(
-                self.WorkflowSelected(index, self._workflows[index])
-            )
+            self.post_message(self.WorkflowSelected(index, self._workflows[index]))
 
     def watch_selected_index(self, old_index: int, new_index: int) -> None:
         """Handle selection changes."""
@@ -166,9 +164,7 @@ class WorkflowList(Widget):
     def action_select_next(self) -> None:
         """Select the next workflow."""
         if self._workflows:
-            self.selected_index = min(
-                self.selected_index + 1, len(self._workflows) - 1
-            )
+            self.selected_index = min(self.selected_index + 1, len(self._workflows) - 1)
 
     def action_select_previous(self) -> None:
         """Select the previous workflow."""

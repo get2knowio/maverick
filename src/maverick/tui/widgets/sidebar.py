@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -14,6 +14,34 @@ if TYPE_CHECKING:
     pass
 
 
+class NavigationItemDict(TypedDict, total=False):
+    """Type definition for navigation item dictionary.
+
+    Attributes:
+        id: Item identifier
+        label: Display label
+        icon: Icon character
+        shortcut: Keyboard shortcut (optional)
+    """
+    id: str
+    label: str
+    icon: str
+    shortcut: str | None
+
+
+class StageDict(TypedDict, total=False):
+    """Type definition for workflow stage dictionary.
+
+    Attributes:
+        name: Stage identifier
+        display_name: Display name (optional, defaults to name)
+        status: Stage status (pending, active, completed, failed)
+    """
+    name: str
+    display_name: str
+    status: str
+
+
 class Sidebar(Widget):
     """Sidebar widget displaying navigation or workflow stages."""
 
@@ -24,7 +52,7 @@ class Sidebar(Widget):
     }
     """
 
-    NAVIGATION_ITEMS = [
+    NAVIGATION_ITEMS: list[NavigationItemDict] = [
         {"id": "home", "label": "Home", "icon": "H", "shortcut": "Ctrl+H"},
         {"id": "workflows", "label": "Workflows", "icon": "W", "shortcut": None},
         {"id": "settings", "label": "Settings", "icon": "S", "shortcut": "Ctrl+,"},
@@ -32,10 +60,23 @@ class Sidebar(Widget):
 
     mode: reactive[str] = reactive("navigation")
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Initialize the sidebar widget."""
-        super().__init__(*args, **kwargs)
-        self._stages: list[dict[str, Any]] = []
+    def __init__(
+        self,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        """Initialize the sidebar widget.
+
+        Args:
+            name: The name of the widget.
+            id: The ID of the widget in the DOM.
+            classes: The CSS classes for the widget.
+            disabled: Whether the widget is disabled or not.
+        """
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
+        self._stages: list[StageDict] = []
 
     def compose(self) -> ComposeResult:
         """Create the sidebar layout."""
@@ -59,7 +100,7 @@ class Sidebar(Widget):
         self.mode = "navigation"
         self._rebuild_content()
 
-    def set_workflow_mode(self, stages: list[dict[str, Any]]) -> None:
+    def set_workflow_mode(self, stages: list[StageDict]) -> None:
         """Switch to workflow stages mode.
 
         Args:
@@ -115,9 +156,7 @@ class Sidebar(Widget):
             child.remove()
 
         if self.mode == "navigation":
-            content.mount(
-                Static("Navigation", classes="sidebar-title")
-            )
+            content.mount(Static("Navigation", classes="sidebar-title"))
             nav_container = Vertical(classes="nav-items")
             content.mount(nav_container)
             for item in self.NAVIGATION_ITEMS:
@@ -130,19 +169,17 @@ class Sidebar(Widget):
                     )
                 )
         else:
-            content.mount(
-                Static("Workflow Stages", classes="sidebar-title")
-            )
+            content.mount(Static("Workflow Stages", classes="sidebar-title"))
             stages_container = Vertical(classes="stage-items")
             content.mount(stages_container)
             for stage in self._stages:
-                stage_name = str(stage.get("name", ""))
+                stage_name = stage.get("name", "")
                 # Use display_name if available, otherwise fall back to name
-                display_name = str(stage.get("display_name", stage_name))
+                display_name = stage.get("display_name", stage_name)
                 stages_container.mount(
                     StageIndicator(
                         name=display_name,
-                        status=str(stage.get("status", "pending")),
+                        status=stage.get("status", "pending"),
                         id=f"stage-{stage_name}",
                     )
                 )

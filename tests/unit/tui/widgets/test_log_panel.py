@@ -1,15 +1,12 @@
 """Unit tests for LogPanel widget."""
-from __future__ import annotations
 
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
 
 import pytest
 from textual.app import App
 from textual.widgets import RichLog
 
 from maverick.tui.widgets.log_panel import LogPanel
-
 
 # =============================================================================
 # Test App for LogPanel Testing
@@ -148,8 +145,8 @@ class TestLogPanelAddLog:
 
             # Verify log was written
             rich_log = log_panel.query_one(RichLog)
-            # RichLog doesn't expose content directly, but we can verify write was called
-            # by checking that lines exist
+            # RichLog doesn't expose content directly, but we can verify
+            # write was called by checking that lines exist
             assert len(rich_log.lines) >= 1
 
     @pytest.mark.asyncio

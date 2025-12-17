@@ -17,14 +17,27 @@ import pytest
 from maverick.tui.models import (
     DARK_THEME,
     LIGHT_THEME,
+    AgentMessage,
+    AgentOutputState,
+    CheckStatus,
+    CodeContext,
+    CodeLocation,
     ConfigOption,
     ConfigScreenState,
+    FindingSeverity,
     HomeScreenState,
     IssueSeverity,
     LogEntry,
     LogPanelState,
+    MessageType,
     NavigationItem,
+    PRInfo,
+    PRState,
+    PRSummaryState,
     RecentWorkflowEntry,
+    ReviewFinding,
+    ReviewFindingItem,
+    ReviewFindingsState,
     ReviewIssue,
     ReviewScreenState,
     ScreenState,
@@ -32,8 +45,15 @@ from maverick.tui.models import (
     SidebarState,
     StageState,
     StageStatus,
+    StatusCheck,
     ThemeColors,
+    ToolCallInfo,
+    ValidationStatusState,
+    ValidationStep,
+    ValidationStepStatus,
+    WorkflowProgressState,
     WorkflowScreenState,
+    WorkflowStage,
 )
 
 
@@ -1728,6 +1748,1778 @@ class TestThemeConstants:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             LIGHT_THEME.background = "#ffffff"  # type: ignore[misc]
+
+
+# =============================================================================
+# New Enum Tests (012-workflow-widgets)
+# =============================================================================
+
+
+class TestMessageType:
+    """Tests for MessageType enum."""
+
+    def test_message_type_text_value(self) -> None:
+        """Test MessageType.TEXT has correct value."""
+        assert MessageType.TEXT.value == "text"
+
+    def test_message_type_code_value(self) -> None:
+        """Test MessageType.CODE has correct value."""
+        assert MessageType.CODE.value == "code"
+
+    def test_message_type_tool_call_value(self) -> None:
+        """Test MessageType.TOOL_CALL has correct value."""
+        assert MessageType.TOOL_CALL.value == "tool_call"
+
+    def test_message_type_tool_result_value(self) -> None:
+        """Test MessageType.TOOL_RESULT has correct value."""
+        assert MessageType.TOOL_RESULT.value == "tool_result"
+
+    def test_message_type_is_string_enum(self) -> None:
+        """Test MessageType inherits from str."""
+        assert isinstance(MessageType.TEXT, str)
+        assert isinstance(MessageType.CODE, str)
+        assert isinstance(MessageType.TOOL_CALL, str)
+        assert isinstance(MessageType.TOOL_RESULT, str)
+
+    def test_message_type_string_comparison(self) -> None:
+        """Test MessageType can be compared to strings."""
+        assert MessageType.TEXT == "text"
+        assert MessageType.CODE == "code"
+        assert MessageType.TOOL_CALL == "tool_call"
+        assert MessageType.TOOL_RESULT == "tool_result"
+
+    def test_message_type_from_string(self) -> None:
+        """Test creating MessageType from string value."""
+        assert MessageType("text") == MessageType.TEXT
+        assert MessageType("code") == MessageType.CODE
+        assert MessageType("tool_call") == MessageType.TOOL_CALL
+        assert MessageType("tool_result") == MessageType.TOOL_RESULT
+
+    def test_message_type_all_members(self) -> None:
+        """Test all MessageType members are present."""
+        expected_types = {"text", "code", "tool_call", "tool_result"}
+        actual_types = {msg_type.value for msg_type in MessageType}
+        assert actual_types == expected_types
+
+
+class TestFindingSeverity:
+    """Tests for FindingSeverity enum."""
+
+    def test_finding_severity_error_value(self) -> None:
+        """Test FindingSeverity.ERROR has correct value."""
+        assert FindingSeverity.ERROR.value == "error"
+
+    def test_finding_severity_warning_value(self) -> None:
+        """Test FindingSeverity.WARNING has correct value."""
+        assert FindingSeverity.WARNING.value == "warning"
+
+    def test_finding_severity_suggestion_value(self) -> None:
+        """Test FindingSeverity.SUGGESTION has correct value."""
+        assert FindingSeverity.SUGGESTION.value == "suggestion"
+
+    def test_finding_severity_is_string_enum(self) -> None:
+        """Test FindingSeverity inherits from str."""
+        assert isinstance(FindingSeverity.ERROR, str)
+        assert isinstance(FindingSeverity.WARNING, str)
+        assert isinstance(FindingSeverity.SUGGESTION, str)
+
+    def test_finding_severity_string_comparison(self) -> None:
+        """Test FindingSeverity can be compared to strings."""
+        assert FindingSeverity.ERROR == "error"
+        assert FindingSeverity.WARNING == "warning"
+        assert FindingSeverity.SUGGESTION == "suggestion"
+
+    def test_finding_severity_from_string(self) -> None:
+        """Test creating FindingSeverity from string value."""
+        assert FindingSeverity("error") == FindingSeverity.ERROR
+        assert FindingSeverity("warning") == FindingSeverity.WARNING
+        assert FindingSeverity("suggestion") == FindingSeverity.SUGGESTION
+
+    def test_finding_severity_all_members(self) -> None:
+        """Test all FindingSeverity members are present."""
+        expected_severities = {"error", "warning", "suggestion"}
+        actual_severities = {severity.value for severity in FindingSeverity}
+        assert actual_severities == expected_severities
+
+
+class TestValidationStepStatus:
+    """Tests for ValidationStepStatus enum."""
+
+    def test_validation_step_status_pending_value(self) -> None:
+        """Test ValidationStepStatus.PENDING has correct value."""
+        assert ValidationStepStatus.PENDING.value == "pending"
+
+    def test_validation_step_status_running_value(self) -> None:
+        """Test ValidationStepStatus.RUNNING has correct value."""
+        assert ValidationStepStatus.RUNNING.value == "running"
+
+    def test_validation_step_status_passed_value(self) -> None:
+        """Test ValidationStepStatus.PASSED has correct value."""
+        assert ValidationStepStatus.PASSED.value == "passed"
+
+    def test_validation_step_status_failed_value(self) -> None:
+        """Test ValidationStepStatus.FAILED has correct value."""
+        assert ValidationStepStatus.FAILED.value == "failed"
+
+    def test_validation_step_status_is_string_enum(self) -> None:
+        """Test ValidationStepStatus inherits from str."""
+        assert isinstance(ValidationStepStatus.PENDING, str)
+        assert isinstance(ValidationStepStatus.RUNNING, str)
+        assert isinstance(ValidationStepStatus.PASSED, str)
+        assert isinstance(ValidationStepStatus.FAILED, str)
+
+    def test_validation_step_status_string_comparison(self) -> None:
+        """Test ValidationStepStatus can be compared to strings."""
+        assert ValidationStepStatus.PENDING == "pending"
+        assert ValidationStepStatus.RUNNING == "running"
+        assert ValidationStepStatus.PASSED == "passed"
+        assert ValidationStepStatus.FAILED == "failed"
+
+    def test_validation_step_status_from_string(self) -> None:
+        """Test creating ValidationStepStatus from string value."""
+        assert ValidationStepStatus("pending") == ValidationStepStatus.PENDING
+        assert ValidationStepStatus("running") == ValidationStepStatus.RUNNING
+        assert ValidationStepStatus("passed") == ValidationStepStatus.PASSED
+        assert ValidationStepStatus("failed") == ValidationStepStatus.FAILED
+
+    def test_validation_step_status_all_members(self) -> None:
+        """Test all ValidationStepStatus members are present."""
+        expected_statuses = {"pending", "running", "passed", "failed"}
+        actual_statuses = {status.value for status in ValidationStepStatus}
+        assert actual_statuses == expected_statuses
+
+
+class TestPRState:
+    """Tests for PRState enum."""
+
+    def test_pr_state_open_value(self) -> None:
+        """Test PRState.OPEN has correct value."""
+        assert PRState.OPEN.value == "open"
+
+    def test_pr_state_merged_value(self) -> None:
+        """Test PRState.MERGED has correct value."""
+        assert PRState.MERGED.value == "merged"
+
+    def test_pr_state_closed_value(self) -> None:
+        """Test PRState.CLOSED has correct value."""
+        assert PRState.CLOSED.value == "closed"
+
+    def test_pr_state_is_string_enum(self) -> None:
+        """Test PRState inherits from str."""
+        assert isinstance(PRState.OPEN, str)
+        assert isinstance(PRState.MERGED, str)
+        assert isinstance(PRState.CLOSED, str)
+
+    def test_pr_state_string_comparison(self) -> None:
+        """Test PRState can be compared to strings."""
+        assert PRState.OPEN == "open"
+        assert PRState.MERGED == "merged"
+        assert PRState.CLOSED == "closed"
+
+    def test_pr_state_from_string(self) -> None:
+        """Test creating PRState from string value."""
+        assert PRState("open") == PRState.OPEN
+        assert PRState("merged") == PRState.MERGED
+        assert PRState("closed") == PRState.CLOSED
+
+    def test_pr_state_all_members(self) -> None:
+        """Test all PRState members are present."""
+        expected_states = {"open", "merged", "closed"}
+        actual_states = {state.value for state in PRState}
+        assert actual_states == expected_states
+
+
+class TestCheckStatus:
+    """Tests for CheckStatus enum."""
+
+    def test_check_status_pending_value(self) -> None:
+        """Test CheckStatus.PENDING has correct value."""
+        assert CheckStatus.PENDING.value == "pending"
+
+    def test_check_status_passing_value(self) -> None:
+        """Test CheckStatus.PASSING has correct value."""
+        assert CheckStatus.PASSING.value == "passing"
+
+    def test_check_status_failing_value(self) -> None:
+        """Test CheckStatus.FAILING has correct value."""
+        assert CheckStatus.FAILING.value == "failing"
+
+    def test_check_status_is_string_enum(self) -> None:
+        """Test CheckStatus inherits from str."""
+        assert isinstance(CheckStatus.PENDING, str)
+        assert isinstance(CheckStatus.PASSING, str)
+        assert isinstance(CheckStatus.FAILING, str)
+
+    def test_check_status_string_comparison(self) -> None:
+        """Test CheckStatus can be compared to strings."""
+        assert CheckStatus.PENDING == "pending"
+        assert CheckStatus.PASSING == "passing"
+        assert CheckStatus.FAILING == "failing"
+
+    def test_check_status_from_string(self) -> None:
+        """Test creating CheckStatus from string value."""
+        assert CheckStatus("pending") == CheckStatus.PENDING
+        assert CheckStatus("passing") == CheckStatus.PASSING
+        assert CheckStatus("failing") == CheckStatus.FAILING
+
+    def test_check_status_all_members(self) -> None:
+        """Test all CheckStatus members are present."""
+        expected_statuses = {"pending", "passing", "failing"}
+        actual_statuses = {status.value for status in CheckStatus}
+        assert actual_statuses == expected_statuses
+
+
+# =============================================================================
+# Helper Dataclass Tests (012-workflow-widgets)
+# =============================================================================
+
+
+class TestToolCallInfo:
+    """Tests for ToolCallInfo dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating ToolCallInfo with required fields."""
+        tool_call = ToolCallInfo(
+            tool_name="read_file",
+            arguments="file_path=/path/to/file",
+        )
+
+        assert tool_call.tool_name == "read_file"
+        assert tool_call.arguments == "file_path=/path/to/file"
+        assert tool_call.result is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating ToolCallInfo with all fields."""
+        tool_call = ToolCallInfo(
+            tool_name="write_file",
+            arguments="file_path=/path/to/file, content=...",
+            result="File written successfully",
+        )
+
+        assert tool_call.tool_name == "write_file"
+        assert tool_call.arguments == "file_path=/path/to/file, content=..."
+        assert tool_call.result == "File written successfully"
+
+    def test_result_defaults_to_none(self) -> None:
+        """Test result defaults to None."""
+        tool_call = ToolCallInfo(tool_name="test", arguments="arg=value")
+        assert tool_call.result is None
+
+    def test_tool_call_info_is_frozen(self) -> None:
+        """Test ToolCallInfo is immutable (frozen)."""
+        tool_call = ToolCallInfo(tool_name="test", arguments="args")
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            tool_call.result = "modified"  # type: ignore[misc]
+
+
+class TestStatusCheck:
+    """Tests for StatusCheck dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating StatusCheck with required fields."""
+        check = StatusCheck(name="CI / build", status=CheckStatus.PASSING)
+
+        assert check.name == "CI / build"
+        assert check.status == CheckStatus.PASSING
+        assert check.url is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating StatusCheck with all fields."""
+        check = StatusCheck(
+            name="CI / test",
+            status=CheckStatus.FAILING,
+            url="https://github.com/org/repo/runs/123",
+        )
+
+        assert check.name == "CI / test"
+        assert check.status == CheckStatus.FAILING
+        assert check.url == "https://github.com/org/repo/runs/123"
+
+    def test_url_defaults_to_none(self) -> None:
+        """Test url defaults to None."""
+        check = StatusCheck(name="lint", status=CheckStatus.PASSING)
+        assert check.url is None
+
+    def test_different_statuses(self) -> None:
+        """Test StatusCheck with different statuses."""
+        for status in CheckStatus:
+            check = StatusCheck(name="test", status=status)
+            assert check.status == status
+
+    def test_status_check_is_frozen(self) -> None:
+        """Test StatusCheck is immutable (frozen)."""
+        check = StatusCheck(name="test", status=CheckStatus.PENDING)
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            check.status = CheckStatus.PASSING  # type: ignore[misc]
+
+
+class TestCodeLocation:
+    """Tests for CodeLocation dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating CodeLocation with required fields."""
+        location = CodeLocation(file_path="src/main.py", line_number=42)
+
+        assert location.file_path == "src/main.py"
+        assert location.line_number == 42
+        assert location.end_line is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating CodeLocation with all fields."""
+        location = CodeLocation(
+            file_path="src/utils.py", line_number=10, end_line=20
+        )
+
+        assert location.file_path == "src/utils.py"
+        assert location.line_number == 10
+        assert location.end_line == 20
+
+    def test_end_line_defaults_to_none(self) -> None:
+        """Test end_line defaults to None."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        assert location.end_line is None
+
+    def test_single_line_location(self) -> None:
+        """Test single-line location (no end_line)."""
+        location = CodeLocation(file_path="src/app.py", line_number=100)
+        assert location.line_number == 100
+        assert location.end_line is None
+
+    def test_multi_line_location(self) -> None:
+        """Test multi-line location with end_line."""
+        location = CodeLocation(
+            file_path="src/app.py", line_number=100, end_line=110
+        )
+        assert location.line_number == 100
+        assert location.end_line == 110
+
+    def test_code_location_is_frozen(self) -> None:
+        """Test CodeLocation is immutable (frozen)."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            location.line_number = 2  # type: ignore[misc]
+
+
+class TestCodeContext:
+    """Tests for CodeContext dataclass."""
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating CodeContext with all fields."""
+        code = "def foo():\n    pass\n    return 42"
+        context = CodeContext(
+            file_path="src/main.py",
+            start_line=10,
+            end_line=12,
+            content=code,
+            highlight_line=11,
+        )
+
+        assert context.file_path == "src/main.py"
+        assert context.start_line == 10
+        assert context.end_line == 12
+        assert context.content == code
+        assert context.highlight_line == 11
+
+    def test_multiline_content(self) -> None:
+        """Test CodeContext with multi-line content."""
+        code = "line1\nline2\nline3"
+        context = CodeContext(
+            file_path="test.py",
+            start_line=1,
+            end_line=3,
+            content=code,
+            highlight_line=2,
+        )
+
+        assert context.content == code
+        assert context.start_line == 1
+        assert context.end_line == 3
+
+    def test_code_context_is_frozen(self) -> None:
+        """Test CodeContext is immutable (frozen)."""
+        context = CodeContext(
+            file_path="test.py",
+            start_line=1,
+            end_line=1,
+            content="code",
+            highlight_line=1,
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            context.highlight_line = 2  # type: ignore[misc]
+
+
+class TestReviewFinding:
+    """Tests for ReviewFinding dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating ReviewFinding with required fields."""
+        location = CodeLocation(file_path="src/main.py", line_number=42)
+        finding = ReviewFinding(
+            id="finding-001",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Undefined variable",
+            description="Variable 'x' is used before being defined",
+        )
+
+        assert finding.id == "finding-001"
+        assert finding.severity == FindingSeverity.ERROR
+        assert finding.location == location
+        assert finding.title == "Undefined variable"
+        assert finding.description == "Variable 'x' is used before being defined"
+        assert finding.suggested_fix is None  # default
+        assert finding.source == "review"  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating ReviewFinding with all fields."""
+        location = CodeLocation(file_path="src/app.py", line_number=10)
+        finding = ReviewFinding(
+            id="finding-002",
+            severity=FindingSeverity.WARNING,
+            location=location,
+            title="Unused variable",
+            description="Variable 'temp' is assigned but never used",
+            suggested_fix="Remove unused variable 'temp'",
+            source="coderabbit",
+        )
+
+        assert finding.id == "finding-002"
+        assert finding.severity == FindingSeverity.WARNING
+        assert finding.location == location
+        assert finding.title == "Unused variable"
+        assert finding.suggested_fix == "Remove unused variable 'temp'"
+        assert finding.source == "coderabbit"
+
+    def test_suggested_fix_defaults_to_none(self) -> None:
+        """Test suggested_fix defaults to None."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.SUGGESTION,
+            location=location,
+            title="Title",
+            description="Description",
+        )
+        assert finding.suggested_fix is None
+
+    def test_source_defaults_to_review(self) -> None:
+        """Test source defaults to 'review'."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Title",
+            description="Description",
+        )
+        assert finding.source == "review"
+
+    def test_different_severities(self) -> None:
+        """Test ReviewFinding with different severities."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        for severity in FindingSeverity:
+            finding = ReviewFinding(
+                id=f"test-{severity.value}",
+                severity=severity,
+                location=location,
+                title="Test",
+                description="Test finding",
+            )
+            assert finding.severity == severity
+
+    def test_review_finding_is_frozen(self) -> None:
+        """Test ReviewFinding is immutable (frozen)."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Title",
+            description="Description",
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            finding.title = "Modified"  # type: ignore[misc]
+
+
+class TestReviewFindingItem:
+    """Tests for ReviewFindingItem dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating ReviewFindingItem with required fields."""
+        location = CodeLocation(file_path="src/main.py", line_number=42)
+        finding = ReviewFinding(
+            id="finding-001",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test finding",
+        )
+        item = ReviewFindingItem(finding=finding)
+
+        assert item.finding == finding
+        assert item.selected is False  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating ReviewFindingItem with all fields."""
+        location = CodeLocation(file_path="src/main.py", line_number=42)
+        finding = ReviewFinding(
+            id="finding-001",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test finding",
+        )
+        item = ReviewFindingItem(finding=finding, selected=True)
+
+        assert item.finding == finding
+        assert item.selected is True
+
+    def test_selected_defaults_to_false(self) -> None:
+        """Test selected defaults to False."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test",
+        )
+        item = ReviewFindingItem(finding=finding)
+        assert item.selected is False
+
+    def test_review_finding_item_is_frozen(self) -> None:
+        """Test ReviewFindingItem is immutable (frozen)."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test",
+        )
+        item = ReviewFindingItem(finding=finding)
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            item.selected = True  # type: ignore[misc]
+
+
+class TestPRInfo:
+    """Tests for PRInfo dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating PRInfo with required fields."""
+        pr = PRInfo(
+            number=123,
+            title="Add new feature",
+            description="This PR adds a new feature to the app",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/123",
+        )
+
+        assert pr.number == 123
+        assert pr.title == "Add new feature"
+        assert pr.description == "This PR adds a new feature to the app"
+        assert pr.state == PRState.OPEN
+        assert pr.url == "https://github.com/org/repo/pull/123"
+        assert pr.checks == ()  # default
+        assert pr.branch == ""  # default
+        assert pr.base_branch == "main"  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating PRInfo with all fields."""
+        check1 = StatusCheck(name="CI / build", status=CheckStatus.PASSING)
+        check2 = StatusCheck(name="CI / test", status=CheckStatus.FAILING)
+
+        pr = PRInfo(
+            number=456,
+            title="Fix bug",
+            description="Fixes issue #123",
+            state=PRState.MERGED,
+            url="https://github.com/org/repo/pull/456",
+            checks=(check1, check2),
+            branch="feature/bug-fix",
+            base_branch="develop",
+        )
+
+        assert pr.number == 456
+        assert pr.title == "Fix bug"
+        assert pr.description == "Fixes issue #123"
+        assert pr.state == PRState.MERGED
+        assert len(pr.checks) == 2
+        assert pr.branch == "feature/bug-fix"
+        assert pr.base_branch == "develop"
+
+    def test_checks_defaults_to_empty_tuple(self) -> None:
+        """Test checks defaults to empty tuple."""
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description="Test PR",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+        assert pr.checks == ()
+
+    def test_branch_defaults_to_empty_string(self) -> None:
+        """Test branch defaults to empty string."""
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description="Test PR",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+        assert pr.branch == ""
+
+    def test_base_branch_defaults_to_main(self) -> None:
+        """Test base_branch defaults to 'main'."""
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description="Test PR",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+        assert pr.base_branch == "main"
+
+    def test_description_preview_property_short_description(self) -> None:
+        """Test description_preview with short description."""
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description="This is a short description",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+        assert pr.description_preview == "This is a short description"
+
+    def test_description_preview_property_long_description(self) -> None:
+        """Test description_preview with long description."""
+        long_desc = "This is a very long description " * 20  # > 200 chars
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description=long_desc,
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+
+        preview = pr.description_preview
+        assert len(preview) <= 204  # 200 + "..."
+        assert preview.endswith("...")
+        assert preview in long_desc or long_desc.startswith(preview[:-3])
+
+    def test_description_preview_property_exactly_200_chars(self) -> None:
+        """Test description_preview with exactly 200 characters."""
+        desc = "x" * 200
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description=desc,
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+        assert pr.description_preview == desc
+
+    def test_different_states(self) -> None:
+        """Test PRInfo with different states."""
+        for state in PRState:
+            pr = PRInfo(
+                number=1,
+                title="Test",
+                description="Test",
+                state=state,
+                url="https://github.com/org/repo/pull/1",
+            )
+            assert pr.state == state
+
+    def test_pr_info_is_frozen(self) -> None:
+        """Test PRInfo is immutable (frozen)."""
+        pr = PRInfo(
+            number=1,
+            title="Test",
+            description="Test",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/1",
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            pr.state = PRState.MERGED  # type: ignore[misc]
+
+
+class TestWorkflowStage:
+    """Tests for WorkflowStage dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating WorkflowStage with required fields."""
+        stage = WorkflowStage(
+            name="setup", display_name="Setup", status=StageStatus.PENDING
+        )
+
+        assert stage.name == "setup"
+        assert stage.display_name == "Setup"
+        assert stage.status == StageStatus.PENDING
+        assert stage.started_at is None  # default
+        assert stage.completed_at is None  # default
+        assert stage.detail_content is None  # default
+        assert stage.error_message is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating WorkflowStage with all fields."""
+        started = datetime(2025, 1, 1, 10, 0, 0)
+        completed = datetime(2025, 1, 1, 10, 5, 30)
+
+        stage = WorkflowStage(
+            name="implementation",
+            display_name="Implementation",
+            status=StageStatus.COMPLETED,
+            started_at=started,
+            completed_at=completed,
+            detail_content="Implementation details...",
+            error_message=None,
+        )
+
+        assert stage.name == "implementation"
+        assert stage.display_name == "Implementation"
+        assert stage.status == StageStatus.COMPLETED
+        assert stage.started_at == started
+        assert stage.completed_at == completed
+        assert stage.detail_content == "Implementation details..."
+        assert stage.error_message is None
+
+    def test_duration_seconds_property_with_times(self) -> None:
+        """Test duration_seconds property with start and end times."""
+        started = datetime(2025, 1, 1, 10, 0, 0)
+        completed = datetime(2025, 1, 1, 10, 5, 30)
+
+        stage = WorkflowStage(
+            name="test",
+            display_name="Test",
+            status=StageStatus.COMPLETED,
+            started_at=started,
+            completed_at=completed,
+        )
+
+        assert stage.duration_seconds == 330.0  # 5 minutes 30 seconds
+
+    def test_duration_seconds_property_no_start(self) -> None:
+        """Test duration_seconds property when not started."""
+        stage = WorkflowStage(
+            name="test", display_name="Test", status=StageStatus.PENDING
+        )
+        assert stage.duration_seconds is None
+
+    def test_duration_seconds_property_no_completion(self) -> None:
+        """Test duration_seconds property when not completed."""
+        stage = WorkflowStage(
+            name="test",
+            display_name="Test",
+            status=StageStatus.ACTIVE,
+            started_at=datetime.now(),
+        )
+        assert stage.duration_seconds is None
+
+    def test_duration_display_property_seconds(self) -> None:
+        """Test duration_display property for durations under 60 seconds."""
+        started = datetime(2025, 1, 1, 10, 0, 0)
+        completed = datetime(2025, 1, 1, 10, 0, 45)
+
+        stage = WorkflowStage(
+            name="test",
+            display_name="Test",
+            status=StageStatus.COMPLETED,
+            started_at=started,
+            completed_at=completed,
+        )
+
+        assert stage.duration_display == "45s"
+
+    def test_duration_display_property_minutes_seconds(self) -> None:
+        """Test duration_display property for durations over 60 seconds."""
+        started = datetime(2025, 1, 1, 10, 0, 0)
+        completed = datetime(2025, 1, 1, 10, 2, 30)
+
+        stage = WorkflowStage(
+            name="test",
+            display_name="Test",
+            status=StageStatus.COMPLETED,
+            started_at=started,
+            completed_at=completed,
+        )
+
+        assert stage.duration_display == "2m 30s"
+
+    def test_duration_display_property_exact_minutes(self) -> None:
+        """Test duration_display property for exact minutes."""
+        started = datetime(2025, 1, 1, 10, 0, 0)
+        completed = datetime(2025, 1, 1, 10, 3, 0)
+
+        stage = WorkflowStage(
+            name="test",
+            display_name="Test",
+            status=StageStatus.COMPLETED,
+            started_at=started,
+            completed_at=completed,
+        )
+
+        assert stage.duration_display == "3m 0s"
+
+    def test_duration_display_property_no_duration(self) -> None:
+        """Test duration_display property when no duration available."""
+        stage = WorkflowStage(
+            name="test", display_name="Test", status=StageStatus.PENDING
+        )
+        assert stage.duration_display == ""
+
+    def test_workflow_stage_with_error(self) -> None:
+        """Test WorkflowStage with error message."""
+        stage = WorkflowStage(
+            name="build",
+            display_name="Build",
+            status=StageStatus.FAILED,
+            error_message="Build failed: compilation error",
+        )
+
+        assert stage.status == StageStatus.FAILED
+        assert stage.error_message == "Build failed: compilation error"
+
+    def test_workflow_stage_is_frozen(self) -> None:
+        """Test WorkflowStage is immutable (frozen)."""
+        stage = WorkflowStage(
+            name="test", display_name="Test", status=StageStatus.PENDING
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            stage.status = StageStatus.COMPLETED  # type: ignore[misc]
+
+
+class TestValidationStep:
+    """Tests for ValidationStep dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating ValidationStep with required fields."""
+        step = ValidationStep(
+            name="format",
+            display_name="Format",
+            status=ValidationStepStatus.PENDING,
+        )
+
+        assert step.name == "format"
+        assert step.display_name == "Format"
+        assert step.status == ValidationStepStatus.PENDING
+        assert step.error_output is None  # default
+        assert step.command is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating ValidationStep with all fields."""
+        step = ValidationStep(
+            name="lint",
+            display_name="Lint",
+            status=ValidationStepStatus.FAILED,
+            error_output="Line 42: undefined variable 'x'",
+            command="ruff check src/",
+        )
+
+        assert step.name == "lint"
+        assert step.display_name == "Lint"
+        assert step.status == ValidationStepStatus.FAILED
+        assert step.error_output == "Line 42: undefined variable 'x'"
+        assert step.command == "ruff check src/"
+
+    def test_error_output_defaults_to_none(self) -> None:
+        """Test error_output defaults to None."""
+        step = ValidationStep(
+            name="test", display_name="Test", status=ValidationStepStatus.PASSED
+        )
+        assert step.error_output is None
+
+    def test_command_defaults_to_none(self) -> None:
+        """Test command defaults to None."""
+        step = ValidationStep(
+            name="test", display_name="Test", status=ValidationStepStatus.PASSED
+        )
+        assert step.command is None
+
+    def test_different_statuses(self) -> None:
+        """Test ValidationStep with different statuses."""
+        for status in ValidationStepStatus:
+            step = ValidationStep(
+                name="test", display_name="Test", status=status
+            )
+            assert step.status == status
+
+    def test_validation_step_is_frozen(self) -> None:
+        """Test ValidationStep is immutable (frozen)."""
+        step = ValidationStep(
+            name="test", display_name="Test", status=ValidationStepStatus.PENDING
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            step.status = ValidationStepStatus.PASSED  # type: ignore[misc]
+
+
+class TestAgentMessage:
+    """Tests for AgentMessage dataclass."""
+
+    def test_creation_with_required_fields(self) -> None:
+        """Test creating AgentMessage with required fields."""
+        timestamp = datetime(2025, 1, 1, 10, 0, 0)
+        message = AgentMessage(
+            id="msg-001",
+            timestamp=timestamp,
+            agent_id="agent-1",
+            agent_name="CodeReviewer",
+            message_type=MessageType.TEXT,
+            content="Starting code review...",
+        )
+
+        assert message.id == "msg-001"
+        assert message.timestamp == timestamp
+        assert message.agent_id == "agent-1"
+        assert message.agent_name == "CodeReviewer"
+        assert message.message_type == MessageType.TEXT
+        assert message.content == "Starting code review..."
+        assert message.language is None  # default
+        assert message.tool_call is None  # default
+
+    def test_creation_with_all_fields(self) -> None:
+        """Test creating AgentMessage with all fields."""
+        timestamp = datetime(2025, 1, 1, 10, 0, 0)
+        tool_call = ToolCallInfo(
+            tool_name="read_file",
+            arguments="file_path=/src/main.py",
+            result="File contents...",
+        )
+
+        message = AgentMessage(
+            id="msg-002",
+            timestamp=timestamp,
+            agent_id="agent-2",
+            agent_name="Implementer",
+            message_type=MessageType.TOOL_CALL,
+            content="Reading file...",
+            language="python",
+            tool_call=tool_call,
+        )
+
+        assert message.id == "msg-002"
+        assert message.timestamp == timestamp
+        assert message.agent_id == "agent-2"
+        assert message.agent_name == "Implementer"
+        assert message.message_type == MessageType.TOOL_CALL
+        assert message.content == "Reading file..."
+        assert message.language == "python"
+        assert message.tool_call == tool_call
+
+    def test_language_defaults_to_none(self) -> None:
+        """Test language defaults to None."""
+        message = AgentMessage(
+            id="test",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        assert message.language is None
+
+    def test_tool_call_defaults_to_none(self) -> None:
+        """Test tool_call defaults to None."""
+        message = AgentMessage(
+            id="test",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        assert message.tool_call is None
+
+    def test_different_message_types(self) -> None:
+        """Test AgentMessage with different message types."""
+        for msg_type in MessageType:
+            message = AgentMessage(
+                id=f"msg-{msg_type.value}",
+                timestamp=datetime.now(),
+                agent_id="agent",
+                agent_name="Agent",
+                message_type=msg_type,
+                content="Test content",
+            )
+            assert message.message_type == msg_type
+
+    def test_code_message_with_language(self) -> None:
+        """Test AgentMessage with CODE type and language."""
+        message = AgentMessage(
+            id="code-msg",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.CODE,
+            content="def foo():\n    pass",
+            language="python",
+        )
+
+        assert message.message_type == MessageType.CODE
+        assert message.language == "python"
+        assert "def foo()" in message.content
+
+    def test_agent_message_is_frozen(self) -> None:
+        """Test AgentMessage is immutable (frozen)."""
+        message = AgentMessage(
+            id="test",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            message.content = "Modified"  # type: ignore[misc]
+
+
+# =============================================================================
+# Widget State Model Tests (012-workflow-widgets)
+# =============================================================================
+
+
+class TestAgentOutputState:
+    """Tests for AgentOutputState dataclass."""
+
+    def test_creation_with_defaults(self) -> None:
+        """Test creating AgentOutputState with default values."""
+        state = AgentOutputState()
+
+        assert state.messages == []
+        assert state.max_messages == 1000
+        assert state.auto_scroll is True
+        assert state.search_query is None
+        assert state.search_matches == []
+        assert state.filter_agent is None
+        assert state.truncated is False
+
+    def test_creation_with_custom_values(self) -> None:
+        """Test creating AgentOutputState with custom values."""
+        message = AgentMessage(
+            id="msg-1",
+            timestamp=datetime.now(),
+            agent_id="agent-1",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+
+        state = AgentOutputState(
+            messages=[message],
+            max_messages=500,
+            auto_scroll=False,
+            search_query="test",
+            search_matches=[0],
+            filter_agent="agent-1",
+            truncated=True,
+        )
+
+        assert len(state.messages) == 1
+        assert state.max_messages == 500
+        assert state.auto_scroll is False
+        assert state.search_query == "test"
+        assert state.search_matches == [0]
+        assert state.filter_agent == "agent-1"
+        assert state.truncated is True
+
+    def test_add_message_method(self) -> None:
+        """Test add_message method adds messages."""
+        state = AgentOutputState()
+
+        msg1 = AgentMessage(
+            id="msg-1",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="First",
+        )
+        msg2 = AgentMessage(
+            id="msg-2",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Second",
+        )
+
+        state.add_message(msg1)
+        state.add_message(msg2)
+
+        assert len(state.messages) == 2
+        assert state.messages[0] == msg1
+        assert state.messages[1] == msg2
+
+    def test_add_message_respects_max_messages(self) -> None:
+        """Test add_message maintains buffer limit."""
+        state = AgentOutputState(max_messages=3)
+
+        # Add 5 messages
+        for i in range(5):
+            msg = AgentMessage(
+                id=f"msg-{i}",
+                timestamp=datetime.now(),
+                agent_id="agent",
+                agent_name="Agent",
+                message_type=MessageType.TEXT,
+                content=f"Message {i}",
+            )
+            state.add_message(msg)
+
+        # Should keep only last 3
+        assert len(state.messages) == 3
+        assert state.messages[0].content == "Message 2"
+        assert state.messages[1].content == "Message 3"
+        assert state.messages[2].content == "Message 4"
+        assert state.truncated is True
+
+    def test_filtered_messages_property_no_filter(self) -> None:
+        """Test filtered_messages property with no filter."""
+        msg1 = AgentMessage(
+            id="msg-1",
+            timestamp=datetime.now(),
+            agent_id="agent-1",
+            agent_name="Agent1",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        msg2 = AgentMessage(
+            id="msg-2",
+            timestamp=datetime.now(),
+            agent_id="agent-2",
+            agent_name="Agent2",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+
+        state = AgentOutputState(messages=[msg1, msg2])
+        assert len(state.filtered_messages) == 2
+
+    def test_filtered_messages_property_with_agent_filter(self) -> None:
+        """Test filtered_messages property with agent filter."""
+        msg1 = AgentMessage(
+            id="msg-1",
+            timestamp=datetime.now(),
+            agent_id="agent-1",
+            agent_name="Agent1",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        msg2 = AgentMessage(
+            id="msg-2",
+            timestamp=datetime.now(),
+            agent_id="agent-2",
+            agent_name="Agent2",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        msg3 = AgentMessage(
+            id="msg-3",
+            timestamp=datetime.now(),
+            agent_id="agent-1",
+            agent_name="Agent1",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+
+        state = AgentOutputState(
+            messages=[msg1, msg2, msg3], filter_agent="agent-1"
+        )
+
+        filtered = state.filtered_messages
+        assert len(filtered) == 2
+        assert filtered[0] == msg1
+        assert filtered[1] == msg3
+
+    def test_is_empty_property_when_empty(self) -> None:
+        """Test is_empty property when no messages."""
+        state = AgentOutputState()
+        assert state.is_empty is True
+
+    def test_is_empty_property_when_not_empty(self) -> None:
+        """Test is_empty property when messages exist."""
+        msg = AgentMessage(
+            id="msg-1",
+            timestamp=datetime.now(),
+            agent_id="agent",
+            agent_name="Agent",
+            message_type=MessageType.TEXT,
+            content="Test",
+        )
+        state = AgentOutputState(messages=[msg])
+        assert state.is_empty is False
+
+    def test_agent_output_state_is_mutable(self) -> None:
+        """Test AgentOutputState is mutable (not frozen)."""
+        state = AgentOutputState()
+
+        # Should allow modification
+        state.auto_scroll = False
+        assert state.auto_scroll is False
+
+        state.search_query = "test"
+        assert state.search_query == "test"
+
+
+class TestWorkflowProgressState:
+    """Tests for WorkflowProgressState dataclass."""
+
+    def test_creation_with_defaults(self) -> None:
+        """Test creating WorkflowProgressState with default values."""
+        state = WorkflowProgressState()
+
+        assert state.stages == ()
+        assert state.loading is False
+        assert state.expanded_stage is None
+
+    def test_creation_with_custom_values(self) -> None:
+        """Test creating WorkflowProgressState with custom values."""
+        stage1 = WorkflowStage(
+            name="setup", display_name="Setup", status=StageStatus.COMPLETED
+        )
+        stage2 = WorkflowStage(
+            name="build", display_name="Build", status=StageStatus.ACTIVE
+        )
+
+        state = WorkflowProgressState(
+            stages=(stage1, stage2), loading=True, expanded_stage="setup"
+        )
+
+        assert len(state.stages) == 2
+        assert state.loading is True
+        assert state.expanded_stage == "setup"
+
+    def test_current_stage_property_with_active_stage(self) -> None:
+        """Test current_stage property returns active stage."""
+        stage1 = WorkflowStage(
+            name="setup", display_name="Setup", status=StageStatus.COMPLETED
+        )
+        stage2 = WorkflowStage(
+            name="build", display_name="Build", status=StageStatus.ACTIVE
+        )
+        stage3 = WorkflowStage(
+            name="test", display_name="Test", status=StageStatus.PENDING
+        )
+
+        state = WorkflowProgressState(stages=(stage1, stage2, stage3))
+
+        assert state.current_stage == stage2
+        assert state.current_stage.status == StageStatus.ACTIVE
+
+    def test_current_stage_property_no_active_stage(self) -> None:
+        """Test current_stage property when no stage is active."""
+        stage1 = WorkflowStage(
+            name="setup", display_name="Setup", status=StageStatus.COMPLETED
+        )
+        stage2 = WorkflowStage(
+            name="build", display_name="Build", status=StageStatus.PENDING
+        )
+
+        state = WorkflowProgressState(stages=(stage1, stage2))
+        assert state.current_stage is None
+
+    def test_current_stage_property_empty_stages(self) -> None:
+        """Test current_stage property with no stages."""
+        state = WorkflowProgressState()
+        assert state.current_stage is None
+
+    def test_is_empty_property_when_empty(self) -> None:
+        """Test is_empty property when no stages."""
+        state = WorkflowProgressState()
+        assert state.is_empty is True
+
+    def test_is_empty_property_when_not_empty(self) -> None:
+        """Test is_empty property when stages exist."""
+        stage = WorkflowStage(
+            name="setup", display_name="Setup", status=StageStatus.PENDING
+        )
+        state = WorkflowProgressState(stages=(stage,))
+        assert state.is_empty is False
+
+    def test_is_empty_property_when_loading(self) -> None:
+        """Test is_empty property when loading."""
+        state = WorkflowProgressState(loading=True)
+        assert state.is_empty is False
+
+    def test_workflow_progress_state_is_frozen(self) -> None:
+        """Test WorkflowProgressState is immutable (frozen)."""
+        state = WorkflowProgressState()
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            state.loading = True  # type: ignore[misc]
+
+
+class TestReviewFindingsState:
+    """Tests for ReviewFindingsState dataclass."""
+
+    def test_creation_with_defaults(self) -> None:
+        """Test creating ReviewFindingsState with default values."""
+        state = ReviewFindingsState()
+
+        assert state.findings == ()
+        assert state.expanded_index is None
+        assert state.code_context is None
+        assert state.focused_index == 0
+
+    def test_creation_with_custom_values(self) -> None:
+        """Test creating ReviewFindingsState with custom values."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test",
+        )
+        item = ReviewFindingItem(finding=finding, selected=True)
+
+        context = CodeContext(
+            file_path="test.py",
+            start_line=1,
+            end_line=3,
+            content="code",
+            highlight_line=2,
+        )
+
+        state = ReviewFindingsState(
+            findings=(item,),
+            expanded_index=0,
+            code_context=context,
+            focused_index=0,
+        )
+
+        assert len(state.findings) == 1
+        assert state.expanded_index == 0
+        assert state.code_context == context
+        assert state.focused_index == 0
+
+    def test_selected_findings_property_with_selections(self) -> None:
+        """Test selected_findings property with selected items."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding1 = ReviewFinding(
+            id="f1",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test 1",
+            description="Test",
+        )
+        finding2 = ReviewFinding(
+            id="f2",
+            severity=FindingSeverity.WARNING,
+            location=location,
+            title="Test 2",
+            description="Test",
+        )
+        finding3 = ReviewFinding(
+            id="f3",
+            severity=FindingSeverity.SUGGESTION,
+            location=location,
+            title="Test 3",
+            description="Test",
+        )
+
+        item1 = ReviewFindingItem(finding=finding1, selected=True)
+        item2 = ReviewFindingItem(finding=finding2, selected=False)
+        item3 = ReviewFindingItem(finding=finding3, selected=True)
+
+        state = ReviewFindingsState(findings=(item1, item2, item3))
+
+        selected = state.selected_findings
+        assert len(selected) == 2
+        assert finding1 in selected
+        assert finding3 in selected
+        assert finding2 not in selected
+
+    def test_selected_findings_property_no_selections(self) -> None:
+        """Test selected_findings property with no selections."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test",
+        )
+        item = ReviewFindingItem(finding=finding, selected=False)
+
+        state = ReviewFindingsState(findings=(item,))
+        assert state.selected_findings == ()
+
+    def test_selected_count_property(self) -> None:
+        """Test selected_count property."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding1 = ReviewFinding(
+            id="f1",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test 1",
+            description="Test",
+        )
+        finding2 = ReviewFinding(
+            id="f2",
+            severity=FindingSeverity.WARNING,
+            location=location,
+            title="Test 2",
+            description="Test",
+        )
+
+        item1 = ReviewFindingItem(finding=finding1, selected=True)
+        item2 = ReviewFindingItem(finding=finding2, selected=True)
+
+        state = ReviewFindingsState(findings=(item1, item2))
+        assert state.selected_count == 2
+
+    def test_selected_count_property_no_selections(self) -> None:
+        """Test selected_count property with no selections."""
+        state = ReviewFindingsState()
+        assert state.selected_count == 0
+
+    def test_findings_by_severity_property(self) -> None:
+        """Test findings_by_severity property groups correctly."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+
+        error1 = ReviewFinding(
+            id="e1",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Error 1",
+            description="Test",
+        )
+        error2 = ReviewFinding(
+            id="e2",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Error 2",
+            description="Test",
+        )
+        warning = ReviewFinding(
+            id="w1",
+            severity=FindingSeverity.WARNING,
+            location=location,
+            title="Warning 1",
+            description="Test",
+        )
+        suggestion = ReviewFinding(
+            id="s1",
+            severity=FindingSeverity.SUGGESTION,
+            location=location,
+            title="Suggestion 1",
+            description="Test",
+        )
+
+        item1 = ReviewFindingItem(finding=error1)
+        item2 = ReviewFindingItem(finding=error2)
+        item3 = ReviewFindingItem(finding=warning)
+        item4 = ReviewFindingItem(finding=suggestion)
+
+        state = ReviewFindingsState(findings=(item1, item2, item3, item4))
+
+        grouped = state.findings_by_severity
+        assert len(grouped[FindingSeverity.ERROR]) == 2
+        assert len(grouped[FindingSeverity.WARNING]) == 1
+        assert len(grouped[FindingSeverity.SUGGESTION]) == 1
+
+    def test_findings_by_severity_property_empty(self) -> None:
+        """Test findings_by_severity property with no findings."""
+        state = ReviewFindingsState()
+
+        grouped = state.findings_by_severity
+        assert len(grouped[FindingSeverity.ERROR]) == 0
+        assert len(grouped[FindingSeverity.WARNING]) == 0
+        assert len(grouped[FindingSeverity.SUGGESTION]) == 0
+
+    def test_is_empty_property_when_empty(self) -> None:
+        """Test is_empty property when no findings."""
+        state = ReviewFindingsState()
+        assert state.is_empty is True
+
+    def test_is_empty_property_when_not_empty(self) -> None:
+        """Test is_empty property when findings exist."""
+        location = CodeLocation(file_path="test.py", line_number=1)
+        finding = ReviewFinding(
+            id="test",
+            severity=FindingSeverity.ERROR,
+            location=location,
+            title="Test",
+            description="Test",
+        )
+        item = ReviewFindingItem(finding=finding)
+
+        state = ReviewFindingsState(findings=(item,))
+        assert state.is_empty is False
+
+    def test_review_findings_state_is_frozen(self) -> None:
+        """Test ReviewFindingsState is immutable (frozen)."""
+        state = ReviewFindingsState()
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            state.focused_index = 1  # type: ignore[misc]
+
+
+class TestValidationStatusState:
+    """Tests for ValidationStatusState dataclass."""
+
+    def test_creation_with_defaults(self) -> None:
+        """Test creating ValidationStatusState with default values."""
+        state = ValidationStatusState()
+
+        assert state.steps == ()
+        assert state.expanded_step is None
+        assert state.loading is False
+        assert state.running_step is None
+
+    def test_creation_with_custom_values(self) -> None:
+        """Test creating ValidationStatusState with custom values."""
+        step1 = ValidationStep(
+            name="format",
+            display_name="Format",
+            status=ValidationStepStatus.PASSED,
+        )
+        step2 = ValidationStep(
+            name="lint",
+            display_name="Lint",
+            status=ValidationStepStatus.RUNNING,
+        )
+
+        state = ValidationStatusState(
+            steps=(step1, step2),
+            expanded_step="format",
+            loading=True,
+            running_step="lint",
+        )
+
+        assert len(state.steps) == 2
+        assert state.expanded_step == "format"
+        assert state.loading is True
+        assert state.running_step == "lint"
+
+    def test_all_passed_property_when_all_passed(self) -> None:
+        """Test all_passed property when all steps passed."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="test",
+                display_name="Test",
+                status=ValidationStepStatus.PASSED,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.all_passed is True
+
+    def test_all_passed_property_when_some_failed(self) -> None:
+        """Test all_passed property when some steps failed."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.FAILED,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.all_passed is False
+
+    def test_all_passed_property_when_some_pending(self) -> None:
+        """Test all_passed property when some steps pending."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.PENDING,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.all_passed is False
+
+    def test_has_failures_property_when_failures(self) -> None:
+        """Test has_failures property when steps failed."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.FAILED,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.has_failures is True
+
+    def test_has_failures_property_when_no_failures(self) -> None:
+        """Test has_failures property when no failures."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.RUNNING,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.has_failures is False
+
+    def test_is_running_property_when_running(self) -> None:
+        """Test is_running property when steps are running."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.RUNNING,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.is_running is True
+
+    def test_is_running_property_when_not_running(self) -> None:
+        """Test is_running property when no steps running."""
+        steps = (
+            ValidationStep(
+                name="format",
+                display_name="Format",
+                status=ValidationStepStatus.PASSED,
+            ),
+            ValidationStep(
+                name="lint",
+                display_name="Lint",
+                status=ValidationStepStatus.PENDING,
+            ),
+        )
+
+        state = ValidationStatusState(steps=steps)
+        assert state.is_running is False
+
+    def test_is_empty_property_when_empty(self) -> None:
+        """Test is_empty property when no steps."""
+        state = ValidationStatusState()
+        assert state.is_empty is True
+
+    def test_is_empty_property_when_not_empty(self) -> None:
+        """Test is_empty property when steps exist."""
+        step = ValidationStep(
+            name="format",
+            display_name="Format",
+            status=ValidationStepStatus.PASSED,
+        )
+        state = ValidationStatusState(steps=(step,))
+        assert state.is_empty is False
+
+    def test_is_empty_property_when_loading(self) -> None:
+        """Test is_empty property when loading."""
+        state = ValidationStatusState(loading=True)
+        assert state.is_empty is False
+
+    def test_validation_status_state_is_frozen(self) -> None:
+        """Test ValidationStatusState is immutable (frozen)."""
+        state = ValidationStatusState()
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            state.loading = True  # type: ignore[misc]
+
+
+class TestPRSummaryState:
+    """Tests for PRSummaryState dataclass."""
+
+    def test_creation_with_defaults(self) -> None:
+        """Test creating PRSummaryState with default values."""
+        state = PRSummaryState()
+
+        assert state.pr is None
+        assert state.description_expanded is False
+        assert state.loading is False
+
+    def test_creation_with_custom_values(self) -> None:
+        """Test creating PRSummaryState with custom values."""
+        pr = PRInfo(
+            number=123,
+            title="Test PR",
+            description="Test description",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/123",
+        )
+
+        state = PRSummaryState(
+            pr=pr, description_expanded=True, loading=False
+        )
+
+        assert state.pr == pr
+        assert state.description_expanded is True
+        assert state.loading is False
+
+    def test_is_empty_property_when_empty(self) -> None:
+        """Test is_empty property when no PR data."""
+        state = PRSummaryState()
+        assert state.is_empty is True
+
+    def test_is_empty_property_when_not_empty(self) -> None:
+        """Test is_empty property when PR data exists."""
+        pr = PRInfo(
+            number=123,
+            title="Test PR",
+            description="Test description",
+            state=PRState.OPEN,
+            url="https://github.com/org/repo/pull/123",
+        )
+        state = PRSummaryState(pr=pr)
+        assert state.is_empty is False
+
+    def test_is_empty_property_when_loading(self) -> None:
+        """Test is_empty property when loading."""
+        state = PRSummaryState(loading=True)
+        assert state.is_empty is False
+
+    def test_pr_summary_state_is_frozen(self) -> None:
+        """Test PRSummaryState is immutable (frozen)."""
+        state = PRSummaryState()
+
+        with pytest.raises(Exception):  # FrozenInstanceError
+            state.loading = True  # type: ignore[misc]
 
 
 # =============================================================================
