@@ -1,15 +1,14 @@
 """Unit tests for WorkflowList widget."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 import pytest
 from textual.app import App
 from textual.widgets import Static
 
 from maverick.tui.widgets.workflow_list import WorkflowList
-
 
 # =============================================================================
 # Test App for WorkflowList Testing
@@ -58,9 +57,7 @@ class TestWorkflowListInitialization:
             workflow_list = pilot.app.query_one(WorkflowList)
 
             # Check empty message exists
-            empty_message = workflow_list.query_one(
-                ".workflow-empty-message", Static
-            )
+            empty_message = workflow_list.query_one(".workflow-empty-message", Static)
             assert empty_message is not None
 
 
@@ -85,9 +82,7 @@ class TestWorkflowListSetWorkflows:
             assert workflow_list.selected_index == 0
 
             # Empty message should be shown
-            empty_message = workflow_list.query_one(
-                ".workflow-empty-message", Static
-            )
+            empty_message = workflow_list.query_one(".workflow-empty-message", Static)
             assert empty_message is not None
 
     @pytest.mark.asyncio
@@ -742,7 +737,5 @@ class TestWorkflowListIntegration:
             assert len(workflow_list._workflows) == 0
 
             # Empty message should be shown
-            empty_message = workflow_list.query_one(
-                ".workflow-empty-message", Static
-            )
+            empty_message = workflow_list.query_one(".workflow-empty-message", Static)
             assert empty_message is not None

@@ -115,9 +115,7 @@ class Sidebar(Widget):
             child.remove()
 
         if self.mode == "navigation":
-            content.mount(
-                Static("Navigation", classes="sidebar-title")
-            )
+            content.mount(Static("Navigation", classes="sidebar-title"))
             nav_container = Vertical(classes="nav-items")
             content.mount(nav_container)
             for item in self.NAVIGATION_ITEMS:
@@ -130,9 +128,7 @@ class Sidebar(Widget):
                     )
                 )
         else:
-            content.mount(
-                Static("Workflow Stages", classes="sidebar-title")
-            )
+            content.mount(Static("Workflow Stages", classes="sidebar-title"))
             stages_container = Vertical(classes="stage-items")
             content.mount(stages_container)
             for stage in self._stages:

@@ -1,16 +1,13 @@
 """Unit tests for Sidebar widget."""
-from __future__ import annotations
 
-from unittest.mock import MagicMock
+from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.containers import Vertical
 from textual.widgets import Static
 
 from maverick.tui.widgets.sidebar import Sidebar
 from maverick.tui.widgets.stage_indicator import StageIndicator
-
 
 # =============================================================================
 # Test App for Sidebar Testing
