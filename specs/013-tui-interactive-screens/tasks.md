@@ -24,9 +24,9 @@
 
 **Purpose**: Project initialization and foundational components needed by all screens
 
-- [ ] T001 Create MaverickScreen base class with navigation and modal support in src/maverick/tui/screens/base.py
-- [ ] T002 [P] Create data models for screen states in src/maverick/tui/models.py (extend existing)
-- [ ] T003 [P] Create WorkflowHistoryEntry and WorkflowHistoryStore in src/maverick/tui/history.py
+- [X] T001 Create MaverickScreen base class with navigation and modal support in src/maverick/tui/screens/base.py
+- [X] T002 [P] Create data models for screen states in src/maverick/tui/models.py (extend existing)
+- [X] T003 [P] Create WorkflowHistoryEntry and WorkflowHistoryStore in src/maverick/tui/history.py
 
 ---
 
@@ -36,17 +36,17 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 [P] Create ConfirmDialog modal widget in src/maverick/tui/widgets/modal.py
-- [ ] T005 [P] Create ErrorDialog modal widget in src/maverick/tui/widgets/modal.py
-- [ ] T006 [P] Create InputDialog modal widget in src/maverick/tui/widgets/modal.py
-- [ ] T007 [P] Create BranchInputField form widget in src/maverick/tui/widgets/form.py
-- [ ] T008 [P] Create NumericField form widget in src/maverick/tui/widgets/form.py
-- [ ] T009 [P] Create ToggleField form widget in src/maverick/tui/widgets/form.py
-- [ ] T010 [P] Create SelectField form widget in src/maverick/tui/widgets/form.py
-- [ ] T011 [P] Create test fixtures and mocks for modal and form widgets in tests/unit/tui/widgets/test_modal.py
-- [ ] T012 [P] Create test fixtures and mocks for form widgets in tests/unit/tui/widgets/test_form.py
-- [ ] T013 Update MaverickApp with navigation context in src/maverick/tui/app.py
-- [ ] T014 Extend maverick.tcss with styles for new widgets and screens in src/maverick/tui/maverick.tcss
+- [X] T004 [P] Create ConfirmDialog modal widget in src/maverick/tui/widgets/modal.py
+- [X] T005 [P] Create ErrorDialog modal widget in src/maverick/tui/widgets/modal.py
+- [X] T006 [P] Create InputDialog modal widget in src/maverick/tui/widgets/modal.py
+- [X] T007 [P] Create BranchInputField form widget in src/maverick/tui/widgets/form.py
+- [X] T008 [P] Create NumericField form widget in src/maverick/tui/widgets/form.py
+- [X] T009 [P] Create ToggleField form widget in src/maverick/tui/widgets/form.py
+- [X] T010 [P] Create SelectField form widget in src/maverick/tui/widgets/form.py
+- [X] T011 [P] Create test fixtures and mocks for modal and form widgets in tests/unit/tui/widgets/test_modal.py
+- [X] T012 [P] Create test fixtures and mocks for form widgets in tests/unit/tui/widgets/test_form.py
+- [X] T013 Update MaverickApp with navigation context in src/maverick/tui/app.py
+- [X] T014 Extend maverick.tcss with styles for new widgets and screens in src/maverick/tui/maverick.tcss
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -62,16 +62,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T015 [P] [US5] Test screen navigation from HomeScreen to Fly/Refuel/Settings in tests/unit/tui/screens/test_navigation.py
-- [ ] T016 [P] [US5] Test Escape key back navigation in tests/unit/tui/screens/test_navigation.py
-- [ ] T017 [P] [US5] Test modal dialog overlay behavior in tests/unit/tui/widgets/test_modal.py
+- [X] T015 [P] [US5] Test screen navigation from HomeScreen to Fly/Refuel/Settings in tests/unit/tui/screens/test_navigation.py
+- [X] T016 [P] [US5] Test Escape key back navigation in tests/unit/tui/screens/test_navigation.py
+- [X] T017 [P] [US5] Test modal dialog overlay behavior in tests/unit/tui/widgets/test_modal.py
 
 ### Implementation for User Story 5
 
-- [ ] T018 [US5] Implement navigation methods in MaverickScreen base class in src/maverick/tui/screens/base.py
-- [ ] T019 [US5] Update HomeScreen with navigation to Fly/Refuel/Settings in src/maverick/tui/screens/home.py
-- [ ] T020 [US5] Add keyboard bindings (Escape, Enter, arrow keys) for navigation in src/maverick/tui/screens/base.py
-- [ ] T021 [US5] Implement modal focus trapping and background dimming in src/maverick/tui/widgets/modal.py
+- [X] T018 [US5] Implement navigation methods in MaverickScreen base class in src/maverick/tui/screens/base.py
+- [X] T019 [US5] Update HomeScreen with navigation to Fly/Refuel/Settings in src/maverick/tui/screens/home.py
+- [X] T020 [US5] Add keyboard bindings (Escape, Enter, arrow keys) for navigation in src/maverick/tui/screens/base.py
+- [X] T021 [US5] Implement modal focus trapping and background dimming in src/maverick/tui/widgets/modal.py
 
 **Checkpoint**: At this point, User Story 5 should be fully functional and testable independently
 
@@ -85,20 +85,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T022 [P] [US1] Test branch name validation (empty, invalid chars, valid) in tests/unit/tui/screens/test_fly.py
-- [ ] T023 [P] [US1] Test FlyScreen state management in tests/unit/tui/screens/test_fly.py
-- [ ] T024 [P] [US1] Test workflow start and screen transition in tests/unit/tui/screens/test_fly.py
+- [X] T022 [P] [US1] Test branch name validation (empty, invalid chars, valid) in tests/unit/tui/screens/test_fly.py
+- [X] T023 [P] [US1] Test FlyScreen state management in tests/unit/tui/screens/test_fly.py
+- [X] T024 [P] [US1] Test workflow start and screen transition in tests/unit/tui/screens/test_fly.py
 
 ### Implementation for User Story 1
 
-- [ ] T025 [US1] Create FlyScreen class structure with compose layout in src/maverick/tui/screens/fly.py
-- [ ] T026 [US1] Implement branch name validation with real-time feedback (<200ms) in src/maverick/tui/screens/fly.py
-- [ ] T027 [US1] Implement branch existence check (local and remote) in src/maverick/tui/screens/fly.py
-- [ ] T028 [US1] Implement optional task file selector in src/maverick/tui/screens/fly.py
-- [ ] T029 [US1] Implement Start/Cancel button handlers in src/maverick/tui/screens/fly.py
-- [ ] T030 [US1] Implement workflow start with WorkflowProgress widget integration in src/maverick/tui/screens/fly.py
-- [ ] T031 [US1] Implement automatic transition to ReviewScreen on code review completion in src/maverick/tui/screens/fly.py
-- [ ] T032 [US1] Add FlyScreen to screen exports in src/maverick/tui/screens/__init__.py
+- [X] T025 [US1] Create FlyScreen class structure with compose layout in src/maverick/tui/screens/fly.py
+- [X] T026 [US1] Implement branch name validation with real-time feedback (<200ms) in src/maverick/tui/screens/fly.py
+- [X] T027 [US1] Implement branch existence check (local and remote) in src/maverick/tui/screens/fly.py
+- [X] T028 [US1] Implement optional task file selector in src/maverick/tui/screens/fly.py
+- [X] T029 [US1] Implement Start/Cancel button handlers in src/maverick/tui/screens/fly.py
+- [X] T030 [US1] Implement workflow start with WorkflowProgress widget integration in src/maverick/tui/screens/fly.py
+- [X] T031 [US1] Implement automatic transition to ReviewScreen on code review completion in src/maverick/tui/screens/fly.py
+- [X] T032 [US1] Add FlyScreen to screen exports in src/maverick/tui/screens/__init__.py
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -112,21 +112,21 @@
 
 ### Tests for User Story 2
 
-- [ ] T033 [P] [US2] Test ReviewScreen finding display and grouping in tests/unit/tui/screens/test_review.py
-- [ ] T034 [P] [US2] Test ReviewScreen action handlers (approve, request changes, dismiss, fix all) in tests/unit/tui/screens/test_review.py
-- [ ] T035 [P] [US2] Test side panel diff display in tests/unit/tui/screens/test_review.py
+- [X] T033 [P] [US2] Test ReviewScreen finding display and grouping in tests/unit/tui/screens/test_review.py
+- [X] T034 [P] [US2] Test ReviewScreen action handlers (approve, request changes, dismiss, fix all) in tests/unit/tui/screens/test_review.py
+- [X] T035 [P] [US2] Test side panel diff display in tests/unit/tui/screens/test_review.py
 
 ### Implementation for User Story 2
 
-- [ ] T036 [US2] Enhance ReviewScreen with action state management in src/maverick/tui/screens/review.py
-- [ ] T037 [US2] Implement Approve action with confirmation dialog in src/maverick/tui/screens/review.py
-- [ ] T038 [US2] Implement Request Changes action with input dialog for comments in src/maverick/tui/screens/review.py
-- [ ] T039 [US2] Implement Dismiss action for individual findings in src/maverick/tui/screens/review.py
-- [ ] T040 [US2] Implement Fix All action with confirmation and result display in src/maverick/tui/screens/review.py
-- [ ] T040a [US2] Integrate Fix All action with IssueFixerAgent execution - invoke agent with findings, handle async results, update UI with per-finding success/failure in src/maverick/tui/screens/review.py
-- [ ] T041 [US2] Implement side panel for file diff display with finding location highlighting in src/maverick/tui/screens/review.py
-- [ ] T042 [US2] Add keyboard bindings for review actions (a=approve, r=request changes, d=dismiss, f=fix) in src/maverick/tui/screens/review.py
-- [ ] T042a [US2] Implement real-time finding update notification - watch for new findings during review, display "New findings available" banner with refresh button in src/maverick/tui/screens/review.py
+- [X] T036 [US2] Enhance ReviewScreen with action state management in src/maverick/tui/screens/review.py
+- [X] T037 [US2] Implement Approve action with confirmation dialog in src/maverick/tui/screens/review.py
+- [X] T038 [US2] Implement Request Changes action with input dialog for comments in src/maverick/tui/screens/review.py
+- [X] T039 [US2] Implement Dismiss action for individual findings in src/maverick/tui/screens/review.py
+- [X] T040 [US2] Implement Fix All action with confirmation and result display in src/maverick/tui/screens/review.py
+- [X] T040a [US2] Integrate Fix All action with IssueFixerAgent execution - invoke agent with findings, handle async results, update UI with per-finding success/failure in src/maverick/tui/screens/review.py
+- [X] T041 [US2] Implement side panel for file diff display with finding location highlighting in src/maverick/tui/screens/review.py
+- [X] T042 [US2] Add keyboard bindings for review actions (a=approve, r=request changes, d=dismiss, f=fix) in src/maverick/tui/screens/review.py
+- [X] T042a [US2] Implement real-time finding update notification - watch for new findings during review, display "New findings available" banner with refresh button in src/maverick/tui/screens/review.py
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -140,26 +140,26 @@
 
 ### Tests for User Story 3
 
-- [ ] T043 [P] [US3] Test RefuelScreen label filter and issue fetching in tests/unit/tui/screens/test_refuel.py
-- [ ] T044 [P] [US3] Test issue selection and count updates in tests/unit/tui/screens/test_refuel.py
-- [ ] T045 [P] [US3] Test processing mode toggle (parallel/sequential) in tests/unit/tui/screens/test_refuel.py
-- [ ] T046 [P] [US3] Test results summary display in tests/unit/tui/screens/test_refuel.py
+- [X] T043 [P] [US3] Test RefuelScreen label filter and issue fetching in tests/unit/tui/screens/test_refuel.py
+- [X] T044 [P] [US3] Test issue selection and count updates in tests/unit/tui/screens/test_refuel.py
+- [X] T045 [P] [US3] Test processing mode toggle (parallel/sequential) in tests/unit/tui/screens/test_refuel.py
+- [X] T046 [P] [US3] Test results summary display in tests/unit/tui/screens/test_refuel.py
 
 ### Implementation for User Story 3
 
-- [ ] T047 [P] [US3] Create IssueListItem widget in src/maverick/tui/widgets/issue_list.py
-- [ ] T048 [P] [US3] Create IssueList widget with selection support in src/maverick/tui/widgets/issue_list.py
-- [ ] T049 [P] [US3] Create ResultSummary widget for displaying processing results in src/maverick/tui/widgets/result_summary.py
-- [ ] T050 [US3] Create RefuelScreen class structure with compose layout in src/maverick/tui/screens/refuel.py
-- [ ] T051 [US3] Implement label filter input and issue fetching via gh CLI in src/maverick/tui/screens/refuel.py
-- [ ] T052 [US3] Implement issue limit selector (1-10) in src/maverick/tui/screens/refuel.py
-- [ ] T053 [US3] Implement parallel/sequential toggle in src/maverick/tui/screens/refuel.py
-- [ ] T054 [US3] Implement issue selection with checkboxes and vim-style navigation in src/maverick/tui/screens/refuel.py
-- [ ] T055 [US3] Implement Start button with selected issue validation in src/maverick/tui/screens/refuel.py
-- [ ] T056 [US3] Implement workflow execution with progress indicators in src/maverick/tui/screens/refuel.py
-- [ ] T057 [US3] Implement results summary with success/failure per issue and PR links in src/maverick/tui/screens/refuel.py
-- [ ] T058 [US3] Add RefuelScreen to screen exports in src/maverick/tui/screens/__init__.py
-- [ ] T059 [P] [US3] Create tests for IssueList widget in tests/unit/tui/widgets/test_issue_list.py
+- [X] T047 [P] [US3] Create IssueListItem widget in src/maverick/tui/widgets/issue_list.py
+- [X] T048 [P] [US3] Create IssueList widget with selection support in src/maverick/tui/widgets/issue_list.py
+- [X] T049 [P] [US3] Create ResultSummary widget for displaying processing results in src/maverick/tui/widgets/result_summary.py
+- [X] T050 [US3] Create RefuelScreen class structure with compose layout in src/maverick/tui/screens/refuel.py
+- [X] T051 [US3] Implement label filter input and issue fetching via gh CLI in src/maverick/tui/screens/refuel.py
+- [X] T052 [US3] Implement issue limit selector (1-10) in src/maverick/tui/screens/refuel.py
+- [X] T053 [US3] Implement parallel/sequential toggle in src/maverick/tui/screens/refuel.py
+- [X] T054 [US3] Implement issue selection with checkboxes and vim-style navigation in src/maverick/tui/screens/refuel.py
+- [X] T055 [US3] Implement Start button with selected issue validation in src/maverick/tui/screens/refuel.py
+- [X] T056 [US3] Implement workflow execution with progress indicators in src/maverick/tui/screens/refuel.py
+- [X] T057 [US3] Implement results summary with success/failure per issue and PR links in src/maverick/tui/screens/refuel.py
+- [X] T058 [US3] Add RefuelScreen to screen exports in src/maverick/tui/screens/__init__.py
+- [X] T059 [P] [US3] Create tests for IssueList widget in tests/unit/tui/widgets/test_issue_list.py
 
 **Checkpoint**: At this point, User Stories 1, 2, AND 3 should all work independently
 
@@ -173,26 +173,26 @@
 
 ### Tests for User Story 4
 
-- [ ] T060 [P] [US4] Test SettingsScreen setting load and display in tests/unit/tui/screens/test_settings.py
-- [ ] T061 [P] [US4] Test unsaved changes tracking and navigation confirmation in tests/unit/tui/screens/test_settings.py
-- [ ] T062 [P] [US4] Test setting validation in tests/unit/tui/screens/test_settings.py
-- [ ] T063 [P] [US4] Test GitHub connection test action in tests/unit/tui/screens/test_settings.py
-- [ ] T064 [P] [US4] Test notification test action in tests/unit/tui/screens/test_settings.py
+- [X] T060 [P] [US4] Test SettingsScreen setting load and display in tests/unit/tui/screens/test_settings.py
+- [X] T061 [P] [US4] Test unsaved changes tracking and navigation confirmation in tests/unit/tui/screens/test_settings.py
+- [X] T062 [P] [US4] Test setting validation in tests/unit/tui/screens/test_settings.py
+- [X] T063 [P] [US4] Test GitHub connection test action in tests/unit/tui/screens/test_settings.py
+- [X] T064 [P] [US4] Test notification test action in tests/unit/tui/screens/test_settings.py
 
 ### Implementation for User Story 4
 
-- [ ] T065 [P] [US4] Create SettingsSection widget in src/maverick/tui/widgets/settings.py
-- [ ] T066 [P] [US4] Create SettingField widget variants (string, bool, int, choice) in src/maverick/tui/widgets/settings.py
-- [ ] T067 [US4] Create SettingsScreen class structure with compose layout in src/maverick/tui/screens/settings.py
-- [ ] T068 [US4] Implement settings load from Maverick config in src/maverick/tui/screens/settings.py
-- [ ] T069 [US4] Implement settings sections (GitHub, Notifications, Agents) in src/maverick/tui/screens/settings.py
-- [ ] T070 [US4] Implement Test GitHub Connection button with status feedback in src/maverick/tui/screens/settings.py
-- [ ] T071 [US4] Implement Test Notification button with confirmation in src/maverick/tui/screens/settings.py
-- [ ] T072 [US4] Implement unsaved changes tracking in src/maverick/tui/screens/settings.py
-- [ ] T073 [US4] Implement Save/Cancel with validation in src/maverick/tui/screens/settings.py
-- [ ] T074 [US4] Implement navigation confirmation dialog for unsaved changes in src/maverick/tui/screens/settings.py
-- [ ] T075 [US4] Add SettingsScreen to screen exports (replace config.py) in src/maverick/tui/screens/__init__.py
-- [ ] T076 [P] [US4] Create tests for settings widgets in tests/unit/tui/widgets/test_settings.py
+- [X] T065 [P] [US4] Create SettingsSection widget in src/maverick/tui/widgets/settings.py
+- [X] T066 [P] [US4] Create SettingField widget variants (string, bool, int, choice) in src/maverick/tui/widgets/settings.py
+- [X] T067 [US4] Create SettingsScreen class structure with compose layout in src/maverick/tui/screens/settings.py
+- [X] T068 [US4] Implement settings load from Maverick config in src/maverick/tui/screens/settings.py
+- [X] T069 [US4] Implement settings sections (GitHub, Notifications, Agents) in src/maverick/tui/screens/settings.py
+- [X] T070 [US4] Implement Test GitHub Connection button with status feedback in src/maverick/tui/screens/settings.py
+- [X] T071 [US4] Implement Test Notification button with confirmation in src/maverick/tui/screens/settings.py
+- [X] T072 [US4] Implement unsaved changes tracking in src/maverick/tui/screens/settings.py
+- [X] T073 [US4] Implement Save/Cancel with validation in src/maverick/tui/screens/settings.py
+- [X] T074 [US4] Implement navigation confirmation dialog for unsaved changes in src/maverick/tui/screens/settings.py
+- [X] T075 [US4] Add SettingsScreen to screen exports (replace config.py) in src/maverick/tui/screens/__init__.py
+- [X] T076 [P] [US4] Create tests for settings widgets in tests/unit/tui/widgets/test_settings.py
 
 **Checkpoint**: At this point, User Stories 1-4 should all work independently
 
@@ -206,19 +206,19 @@
 
 ### Tests for User Story 6
 
-- [ ] T077 [P] [US6] Test cancel confirmation dialog in tests/unit/tui/screens/test_workflow_cancel.py
-- [ ] T078 [P] [US6] Test graceful shutdown on cancel in tests/unit/tui/screens/test_workflow_cancel.py
-- [ ] T079 [P] [US6] Test cancellation summary display in tests/unit/tui/screens/test_workflow_cancel.py
+- [X] T077 [P] [US6] Test cancel confirmation dialog in tests/unit/tui/screens/test_workflow_cancel.py
+- [X] T078 [P] [US6] Test graceful shutdown on cancel in tests/unit/tui/screens/test_workflow_cancel.py
+- [X] T079 [P] [US6] Test cancellation summary display in tests/unit/tui/screens/test_workflow_cancel.py
 
 ### Implementation for User Story 6
 
-- [ ] T080 [US6] Implement Cancel button in FlyScreen during workflow execution in src/maverick/tui/screens/fly.py
-- [ ] T081 [US6] Implement Cancel button in RefuelScreen during workflow execution in src/maverick/tui/screens/refuel.py
-- [ ] T082 [US6] Implement cancel confirmation dialog with "Progress will be lost" warning in src/maverick/tui/screens/base.py
-- [ ] T083 [US6] Implement graceful workflow shutdown on cancel confirmation in src/maverick/tui/screens/fly.py
-- [ ] T084 [US6] Implement graceful workflow shutdown on cancel confirmation in src/maverick/tui/screens/refuel.py
-- [ ] T085 [US6] Implement cancellation summary showing stages completed before cancellation in src/maverick/tui/screens/fly.py
-- [ ] T086 [US6] Implement cancellation summary showing issues processed before cancellation in src/maverick/tui/screens/refuel.py
+- [X] T080 [US6] Implement Cancel button in FlyScreen during workflow execution in src/maverick/tui/screens/fly.py
+- [X] T081 [US6] Implement Cancel button in RefuelScreen during workflow execution in src/maverick/tui/screens/refuel.py
+- [X] T082 [US6] Implement cancel confirmation dialog with "Progress will be lost" warning in src/maverick/tui/screens/base.py
+- [X] T083 [US6] Implement graceful workflow shutdown on cancel confirmation in src/maverick/tui/screens/fly.py
+- [X] T084 [US6] Implement graceful workflow shutdown on cancel confirmation in src/maverick/tui/screens/refuel.py
+- [X] T085 [US6] Implement cancellation summary showing stages completed before cancellation in src/maverick/tui/screens/fly.py
+- [X] T086 [US6] Implement cancellation summary showing issues processed before cancellation in src/maverick/tui/screens/refuel.py
 
 **Checkpoint**: At this point, User Stories 1-6 should all work independently
 
@@ -232,20 +232,20 @@
 
 ### Tests for User Story 7
 
-- [ ] T087 [P] [US7] Test workflow history load and display in tests/unit/tui/screens/test_home.py
-- [ ] T088 [P] [US7] Test workflow history entry selection in tests/unit/tui/screens/test_home.py
-- [ ] T089 [P] [US7] Test historical workflow view navigation in tests/unit/tui/screens/test_home.py
-- [ ] T090 [P] [US7] Test WorkflowHistoryStore FIFO eviction in tests/unit/tui/test_history.py
+- [X] T087 [P] [US7] Test workflow history load and display in tests/unit/tui/screens/test_home.py
+- [X] T088 [P] [US7] Test workflow history entry selection in tests/unit/tui/screens/test_home.py
+- [X] T089 [P] [US7] Test historical workflow view navigation in tests/unit/tui/screens/test_home.py
+- [X] T090 [P] [US7] Test WorkflowHistoryStore FIFO eviction in tests/unit/tui/test_history.py
 
 ### Implementation for User Story 7
 
-- [ ] T091 [US7] Enhance HomeScreen with history display using WorkflowList widget in src/maverick/tui/screens/home.py
-- [ ] T092 [US7] Implement history loading from WorkflowHistoryStore in src/maverick/tui/screens/home.py
-- [ ] T093 [US7] Implement workflow history entry selection and highlighting in src/maverick/tui/screens/home.py
-- [ ] T094 [US7] Implement navigation to read-only historical workflow view in src/maverick/tui/screens/home.py
-- [ ] T095 [US7] Create HistoricalReviewScreen for viewing past findings (read-only) in src/maverick/tui/screens/history_review.py
-- [ ] T096 [US7] Implement workflow history recording on workflow completion in src/maverick/tui/screens/fly.py
-- [ ] T097 [US7] Implement workflow history recording on workflow completion in src/maverick/tui/screens/refuel.py
+- [X] T091 [US7] Enhance HomeScreen with history display using WorkflowList widget in src/maverick/tui/screens/home.py
+- [X] T092 [US7] Implement history loading from WorkflowHistoryStore in src/maverick/tui/screens/home.py
+- [X] T093 [US7] Implement workflow history entry selection and highlighting in src/maverick/tui/screens/home.py
+- [X] T094 [US7] Implement navigation to read-only historical workflow view in src/maverick/tui/screens/home.py
+- [X] T095 [US7] Create HistoricalReviewScreen for viewing past findings (read-only) in src/maverick/tui/screens/history_review.py
+- [X] T096 [US7] Implement workflow history recording on workflow completion in src/maverick/tui/screens/fly.py
+- [X] T097 [US7] Implement workflow history recording on workflow completion in src/maverick/tui/screens/refuel.py
 
 **Checkpoint**: All user stories should now be independently functional
 

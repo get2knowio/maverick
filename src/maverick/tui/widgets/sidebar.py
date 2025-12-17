@@ -23,6 +23,7 @@ class NavigationItemDict(TypedDict, total=False):
         icon: Icon character
         shortcut: Keyboard shortcut (optional)
     """
+
     id: str
     label: str
     icon: str
@@ -37,6 +38,7 @@ class StageDict(TypedDict, total=False):
         display_name: Display name (optional, defaults to name)
         status: Stage status (pending, active, completed, failed)
     """
+
     name: str
     display_name: str
     status: str

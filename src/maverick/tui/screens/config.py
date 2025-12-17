@@ -147,8 +147,7 @@ class ConfigScreen(Screen):
                 # Show static display
                 marker = "▶" if is_selected else " "
                 content = (
-                    f"{marker} [bold]{label}:[/bold] {value_str}\n"
-                    f"  [dim]{desc}[/dim]"
+                    f"{marker} [bold]{label}:[/bold] {value_str}\n  [dim]{desc}[/dim]"
                 )
                 container.mount(Static(content, classes=classes))
 

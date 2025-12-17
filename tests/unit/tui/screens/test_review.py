@@ -1,10 +1,11 @@
 """Unit tests for ReviewScreen."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.review import ReviewScreen
 
 
@@ -23,12 +24,22 @@ class TestReviewScreenInitialization:
         assert screen._issues == []
         assert screen._selected_index == 0
         assert screen._filter_severity is None
+        assert isinstance(screen.action_state, ReviewScreenActionState)
+        assert screen.has_new_findings is False
 
     def test_initialization_with_custom_parameters(self) -> None:
         """Test screen creation with custom parameters."""
         screen = ReviewScreen(name="custom-review", id="review-1", classes="custom")
         assert screen.name == "custom-review"
         assert screen.id == "review-1"
+
+    def test_default_action_state(self) -> None:
+        """Test that default action state is properly initialized."""
+        screen = ReviewScreen()
+        assert screen.action_state.pending_action is None
+        assert screen.action_state.is_approving is False
+        assert screen.action_state.is_fixing is False
+        assert screen.action_state.fix_results is None
 
 
 # =============================================================================
@@ -353,6 +364,400 @@ class TestReviewScreenActions:
             screen.action_filter_all()
 
         mock_filter.assert_called_once_with(None)
+
+
+# =============================================================================
+# ReviewScreen Review Action Tests (T033-T035)
+# =============================================================================
+
+
+class TestReviewScreenApproveAction:
+    """Tests for action_approve method (T033)."""
+
+    @pytest.mark.asyncio
+    async def test_action_approve_confirmed(self) -> None:
+        """Test approve action when user confirms."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "confirm", new=AsyncMock(return_value=True)), \
+             patch.object(screen, "_submit_approval") as mock_submit:
+            await screen.action_approve()
+
+        mock_submit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_action_approve_cancelled(self) -> None:
+        """Test approve action when user cancels."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "confirm", new=AsyncMock(return_value=False)), \
+             patch.object(screen, "_submit_approval") as mock_submit:
+            await screen.action_approve()
+
+        mock_submit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_action_approve_confirmation_message(self) -> None:
+        """Test that approve shows appropriate confirmation message."""
+        screen = ReviewScreen()
+        mock_confirm = AsyncMock(return_value=False)
+
+        with patch.object(screen, "confirm", new=mock_confirm), \
+             patch.object(screen, "_submit_approval"):
+            await screen.action_approve()
+
+        mock_confirm.assert_called_once_with(
+            "Approve Review",
+            "Are you sure you want to approve this review?"
+        )
+
+
+class TestReviewScreenRequestChangesAction:
+    """Tests for action_request_changes method (T033)."""
+
+    @pytest.mark.asyncio
+    async def test_action_request_changes_with_comment(self) -> None:
+        """Test request changes action when user provides comment."""
+        screen = ReviewScreen()
+        test_comment = "Please fix the issues"
+
+        with patch.object(screen, "prompt_input", new=AsyncMock(return_value=test_comment)), \
+             patch.object(screen, "_submit_request_changes") as mock_submit:
+            await screen.action_request_changes()
+
+        mock_submit.assert_called_once_with(test_comment)
+
+    @pytest.mark.asyncio
+    async def test_action_request_changes_cancelled(self) -> None:
+        """Test request changes action when user cancels."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "prompt_input", new=AsyncMock(return_value=None)), \
+             patch.object(screen, "_submit_request_changes") as mock_submit:
+            await screen.action_request_changes()
+
+        mock_submit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_action_request_changes_empty_comment(self) -> None:
+        """Test request changes action when user provides empty comment."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "prompt_input", new=AsyncMock(return_value="")), \
+             patch.object(screen, "_submit_request_changes") as mock_submit:
+            await screen.action_request_changes()
+
+        mock_submit.assert_not_called()
+
+
+class TestReviewScreenDismissAction:
+    """Tests for action_dismiss method (T034)."""
+
+    def test_action_dismiss_with_selected_issue(self) -> None:
+        """Test dismiss action with a selected issue."""
+        screen = ReviewScreen()
+        issues = [
+            {"id": "1", "severity": "error", "message": "Error 1"},
+            {"id": "2", "severity": "warning", "message": "Warning 1"},
+            {"id": "3", "severity": "info", "message": "Info 1"},
+        ]
+        screen._issues = issues
+        screen._selected_index = 1
+
+        with patch.object(screen, "_update_issue_list"), \
+             patch.object(screen, "_update_detail_view"):
+            screen.action_dismiss()
+
+        # Should remove the second issue
+        assert len(screen._issues) == 2
+        assert screen._issues[0]["id"] == "1"
+        assert screen._issues[1]["id"] == "3"
+
+    def test_action_dismiss_updates_selection(self) -> None:
+        """Test that dismiss updates selection index correctly."""
+        screen = ReviewScreen()
+        issues = [
+            {"id": "1", "severity": "error", "message": "Error 1"},
+            {"id": "2", "severity": "warning", "message": "Warning 1"},
+        ]
+        screen._issues = issues
+        screen._selected_index = 1
+
+        with patch.object(screen, "_update_issue_list"), \
+             patch.object(screen, "_update_detail_view"):
+            screen.action_dismiss()
+
+        # Selection should move back if we're at the end
+        assert screen._selected_index == 0
+
+    def test_action_dismiss_no_issues(self) -> None:
+        """Test dismiss action when no issues are loaded."""
+        screen = ReviewScreen()
+        screen._issues = []
+        screen._selected_index = -1
+
+        with patch.object(screen, "_update_issue_list") as mock_update:
+            screen.action_dismiss()
+
+        # Should not crash or update anything
+        mock_update.assert_not_called()
+
+    def test_action_dismiss_last_issue(self) -> None:
+        """Test dismissing the last remaining issue."""
+        screen = ReviewScreen()
+        issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
+        screen._issues = issues
+        screen._selected_index = 0
+
+        with patch.object(screen, "_update_issue_list"), \
+             patch.object(screen, "_clear_detail_view"):
+            screen.action_dismiss()
+
+        assert len(screen._issues) == 0
+        assert screen._selected_index == -1
+
+
+class TestReviewScreenFixAllAction:
+    """Tests for action_fix_all method (T035)."""
+
+    @pytest.mark.asyncio
+    async def test_action_fix_all_confirmed(self) -> None:
+        """Test fix all action when user confirms."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {"id": "1", "severity": "error", "message": "Error 1"},
+            {"id": "2", "severity": "warning", "message": "Warning 1"},
+        ]
+
+        with patch.object(screen, "confirm", new=AsyncMock(return_value=True)), \
+             patch.object(screen, "_execute_fix_all") as mock_execute:
+            await screen.action_fix_all()
+
+        mock_execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_action_fix_all_cancelled(self) -> None:
+        """Test fix all action when user cancels."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "confirm", new=AsyncMock(return_value=False)), \
+             patch.object(screen, "_execute_fix_all") as mock_execute:
+            await screen.action_fix_all()
+
+        mock_execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_action_fix_all_no_issues(self) -> None:
+        """Test fix all action when no issues are present."""
+        screen = ReviewScreen()
+        screen._issues = []
+
+        with patch.object(screen, "confirm", new=AsyncMock()) as mock_confirm:
+            await screen.action_fix_all()
+
+        # Should not show confirmation if no issues
+        mock_confirm.assert_not_called()
+
+
+# =============================================================================
+# ReviewScreen Internal Action Implementation Tests (T036-T042a)
+# =============================================================================
+
+
+class TestReviewScreenSubmitApproval:
+    """Tests for _submit_approval method (T037)."""
+
+    def test_submit_approval_updates_action_state(self) -> None:
+        """Test that submit approval updates action state."""
+        screen = ReviewScreen()
+        screen.action_state = ReviewScreenActionState()
+
+        with patch.object(screen, "_log_action") as mock_log:
+            screen._submit_approval()
+
+        # Should update state to show approval in progress
+        assert screen.action_state.is_approving
+        mock_log.assert_called_once()
+
+    def test_submit_approval_logs_action(self) -> None:
+        """Test that approval is logged correctly."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "_log_action") as mock_log:
+            screen._submit_approval()
+
+        mock_log.assert_called_once_with(ReviewAction.APPROVE)
+
+
+class TestReviewScreenSubmitRequestChanges:
+    """Tests for _submit_request_changes method (T038)."""
+
+    def test_submit_request_changes_with_comment(self) -> None:
+        """Test submit request changes with a comment."""
+        screen = ReviewScreen()
+        test_comment = "Fix the issues"
+
+        with patch.object(screen, "_log_action") as mock_log:
+            screen._submit_request_changes(test_comment)
+
+        # Should update action state with comment
+        assert screen.action_state.request_changes_comment == test_comment
+        mock_log.assert_called_once_with(ReviewAction.REQUEST_CHANGES)
+
+    def test_submit_request_changes_empty_comment(self) -> None:
+        """Test submit request changes with empty comment."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "_log_action") as mock_log:
+            screen._submit_request_changes("")
+
+        mock_log.assert_called_once()
+
+
+class TestReviewScreenExecuteFixAll:
+    """Tests for _execute_fix_all method (T039)."""
+
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_updates_state(self) -> None:
+        """Test that execute fix all updates action state."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {"id": "1", "severity": "error", "message": "Error 1"},
+            {"id": "2", "severity": "warning", "message": "Warning 1"},
+        ]
+        initial_state = screen.action_state
+
+        await screen._execute_fix_all()
+
+        # Should complete and update state
+        assert not screen.action_state.is_fixing
+        assert screen.action_state.fix_results is not None
+
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_creates_results(self) -> None:
+        """Test that execute fix all creates fix results for each issue."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {"id": "1", "severity": "error", "message": "Error 1"},
+            {"id": "2", "severity": "warning", "message": "Warning 1"},
+        ]
+
+        await screen._execute_fix_all()
+
+        # Should have results for both issues
+        assert screen.action_state.fix_results is not None
+        assert len(screen.action_state.fix_results) == 2
+
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_empty_issues(self) -> None:
+        """Test execute fix all with no issues."""
+        screen = ReviewScreen()
+        screen._issues = []
+
+        await screen._execute_fix_all()
+
+        # Should complete with empty results
+        assert screen.action_state.fix_results == ()
+
+
+class TestReviewScreenLogAction:
+    """Tests for _log_action helper method (T040)."""
+
+    def test_log_action_approve(self) -> None:
+        """Test logging approve action."""
+        screen = ReviewScreen()
+
+        screen._log_action(ReviewAction.APPROVE)
+
+        # Should update pending action
+        assert screen.action_state.pending_action == ReviewAction.APPROVE
+
+    def test_log_action_request_changes(self) -> None:
+        """Test logging request changes action."""
+        screen = ReviewScreen()
+
+        screen._log_action(ReviewAction.REQUEST_CHANGES)
+
+        assert screen.action_state.pending_action == ReviewAction.REQUEST_CHANGES
+
+    def test_log_action_dismiss(self) -> None:
+        """Test logging dismiss action."""
+        screen = ReviewScreen()
+
+        screen._log_action(ReviewAction.DISMISS)
+
+        assert screen.action_state.pending_action == ReviewAction.DISMISS
+
+    def test_log_action_fix_all(self) -> None:
+        """Test logging fix all action."""
+        screen = ReviewScreen()
+
+        screen._log_action(ReviewAction.FIX_ALL)
+
+        assert screen.action_state.pending_action == ReviewAction.FIX_ALL
+
+
+class TestReviewScreenRefreshFindings:
+    """Tests for refresh_findings method (T041)."""
+
+    def test_refresh_findings_updates_banner(self) -> None:
+        """Test that refresh_findings updates has_new_findings flag."""
+        screen = ReviewScreen()
+        screen.has_new_findings = False
+
+        with patch.object(screen, "_fetch_new_findings", return_value=[]), \
+             patch.object(screen, "_update_issue_list"):
+            screen.refresh_findings()
+
+        # Banner state should be updated
+        assert isinstance(screen.has_new_findings, bool)
+
+    def test_refresh_findings_with_new_findings(self) -> None:
+        """Test refresh with new findings available."""
+        screen = ReviewScreen()
+        screen._issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
+        new_findings = [{"id": "2", "severity": "warning", "message": "Warning 1"}]
+
+        with patch.object(screen, "_fetch_new_findings", return_value=new_findings), \
+             patch.object(screen, "_update_issue_list"):
+            screen.refresh_findings()
+
+        # Should set banner flag when new findings exist
+        assert screen.has_new_findings
+
+    def test_refresh_findings_no_new_findings(self) -> None:
+        """Test refresh when no new findings are available."""
+        screen = ReviewScreen()
+        screen._issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
+
+        with patch.object(screen, "_fetch_new_findings", return_value=[]), \
+             patch.object(screen, "_update_issue_list"):
+            screen.refresh_findings()
+
+        # Should not set banner flag when no new findings
+        assert not screen.has_new_findings
+
+
+class TestReviewScreenFetchNewFindings:
+    """Tests for _fetch_new_findings helper method (T042a)."""
+
+    def test_fetch_new_findings_returns_list(self) -> None:
+        """Test that _fetch_new_findings returns a list."""
+        screen = ReviewScreen()
+
+        result = screen._fetch_new_findings()
+
+        assert isinstance(result, list)
+
+    def test_fetch_new_findings_empty_when_no_new(self) -> None:
+        """Test fetch returns empty list when no new findings."""
+        screen = ReviewScreen()
+
+        # Mock scenario where no new findings exist
+        result = screen._fetch_new_findings()
+
+        # For now, should return empty list (placeholder implementation)
+        assert result == []
 
 
 # =============================================================================
