@@ -141,6 +141,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A (in-memory state; workflows provide state via async generators) (011-tui-layout-theming)
 - Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Rich (syntax highlighting via Textual's built-in support) (012-workflow-widgets)
 - N/A (in-memory state; widgets receive immutable snapshots) (012-workflow-widgets)
+- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Click (CLI), Pydantic (configuration models) (013-tui-interactive-screens)
+- JSON file at `~/.config/maverick/history.json` for workflow history (013-tui-interactive-screens)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
