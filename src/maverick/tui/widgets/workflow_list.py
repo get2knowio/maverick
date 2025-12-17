@@ -6,7 +6,7 @@ runs with status indicators and selection support.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -14,9 +14,6 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static
-
-if TYPE_CHECKING:
-    pass
 
 
 class WorkflowList(Widget):

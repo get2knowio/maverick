@@ -230,6 +230,13 @@ WorkflowList .workflow-item.--selected {
     padding: 1;
 }
 
+.issue-list .severity-header {
+    height: 1;
+    padding: 0 1;
+    margin: 1 0;
+    text-style: bold;
+}
+
 .issue-item {
     height: 3;
     padding: 0 1;
@@ -761,4 +768,424 @@ ReviewFindings .severity-suggestion {
 /* Selected finding highlighting */
 ReviewFindings .finding-row.--selected {
     border-left: solid $accent 2;
+}
+
+/* === Modal Dialogs (013-tui-interactive-screens) === */
+
+/* Modal Dialog Base */
+.modal-container {
+    align: center middle;
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+/* Confirm Dialog */
+ConfirmDialog {
+    align: center middle;
+}
+
+ConfirmDialog > Container {
+    width: 60;
+    height: auto;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+ConfirmDialog #title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+ConfirmDialog #buttons {
+    height: auto;
+    margin-top: 1;
+}
+
+ConfirmDialog Button {
+    margin: 0 1;
+}
+
+/* Error Dialog */
+ErrorDialog {
+    align: center middle;
+}
+
+ErrorDialog > Container {
+    width: 70;
+    height: auto;
+    max-height: 80%;
+    border: solid $error;
+    background: $surface;
+    padding: 1 2;
+}
+
+ErrorDialog #title {
+    text-style: bold;
+    color: $error;
+    margin-bottom: 1;
+}
+
+ErrorDialog #message {
+    color: $error;
+    margin: 1 0;
+}
+
+ErrorDialog #details {
+    height: auto;
+    max-height: 30;
+    overflow-y: scroll;
+    background: $surface-elevated;
+    padding: 1;
+    margin: 1 0;
+}
+
+/* Input Dialog */
+InputDialog {
+    align: center middle;
+}
+
+InputDialog > Container {
+    width: 60;
+    height: auto;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+InputDialog #input-field {
+    margin: 1 0;
+}
+
+/* === Form Widgets (013-tui-interactive-screens) === */
+
+/* Form Field Base */
+.form-field {
+    height: auto;
+    layout: vertical;
+    margin-bottom: 1;
+}
+
+.form-field .label {
+    margin-bottom: 1;
+}
+
+.form-field .error {
+    color: $error;
+    margin-top: 0;
+}
+
+.form-field .valid {
+    color: $success;
+    margin-top: 0;
+}
+
+/* Branch Input Field */
+BranchInputField {
+    height: auto;
+    layout: vertical;
+}
+
+/* Numeric Field */
+NumericField {
+    height: auto;
+    layout: vertical;
+}
+
+NumericField .controls {
+    height: auto;
+}
+
+NumericField Button {
+    min-width: 5;
+    margin: 0 1;
+}
+
+/* Toggle Field */
+ToggleField {
+    height: auto;
+    layout: horizontal;
+}
+
+ToggleField .label {
+    width: 1fr;
+}
+
+/* Select Field */
+SelectField {
+    height: auto;
+    layout: vertical;
+}
+
+/* === Interactive Screens (013-tui-interactive-screens) === */
+
+/* Screen Base */
+.screen-content {
+    height: 1fr;
+    padding: 1 2;
+}
+
+.screen-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* Fly Screen */
+FlyScreen .form-container {
+    height: auto;
+    width: 100%;
+    max-width: 80;
+}
+
+/* Refuel Screen */
+RefuelScreen .issue-list-container {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* Review Screen */
+ReviewScreen .findings-panel {
+    height: 1fr;
+}
+
+ReviewScreen .code-panel {
+    height: 1fr;
+    border-left: solid $border;
+}
+
+/* Settings Screen */
+SettingsScreen .settings-form {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+SettingsScreen .settings-section {
+    margin-bottom: 2;
+}
+
+SettingsScreen .section-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* === Navigation and Status (013-tui-interactive-screens) === */
+
+/* Navigation Context */
+.nav-breadcrumb {
+    height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+/* Action buttons */
+.action-bar {
+    height: auto;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+.action-bar Button {
+    margin: 0 1 0 0;
+}
+
+/* Status indicators */
+.status-valid {
+    color: $success;
+}
+
+.status-invalid {
+    color: $error;
+}
+
+.status-warning {
+    color: $warning;
+}
+
+.status-checking {
+    color: $warning;
+}
+
+/* === Historical Review Screen (T098) === */
+HistoricalReviewScreen {
+    layout: vertical;
+    align: center top;
+}
+
+HistoricalReviewScreen #content-container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    margin: 2 2;
+}
+
+HistoricalReviewScreen #header {
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: solid $accent;
+    margin-bottom: 1;
+}
+
+HistoricalReviewScreen #header .title {
+    text-style: bold;
+    color: $accent;
+}
+
+HistoricalReviewScreen #details {
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: solid $border;
+    margin-bottom: 1;
+}
+
+HistoricalReviewScreen #details .section-title {
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 0;
+    color: $text;
+}
+
+HistoricalReviewScreen #details .detail-line {
+    margin: 0 0 0 2;
+}
+
+HistoricalReviewScreen #stages {
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: solid $border;
+    margin-bottom: 1;
+}
+
+HistoricalReviewScreen #findings {
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: solid $border;
+    margin-bottom: 1;
+}
+
+HistoricalReviewScreen #actions {
+    height: 3;
+    align: center middle;
+}
+
+HistoricalReviewScreen #actions Button {
+    margin: 0 1;
+}
+
+/* === Keyboard Shortcut Footer (T099) === */
+.shortcut-footer {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.shortcut-footer .shortcut-key {
+    color: $accent;
+    text-style: bold;
+}
+
+/* === Loading Spinners (T101/T101a) === */
+.loading-spinner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    color: $accent;
+}
+
+.loading-spinner.active {
+    text-style: bold;
+}
+
+LoadingSpinner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+LoadingSpinner .spinner-text {
+    color: $accent;
+    text-style: italic;
+}
+
+/* === Connectivity Status Indicators (T101/T101a) === */
+.connectivity-indicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+}
+
+.connectivity-indicator.connected {
+    color: $success;
+    background: $success 20%;
+}
+
+.connectivity-indicator.disconnected {
+    color: $error;
+    background: $error 20%;
+}
+
+.connectivity-indicator.checking {
+    color: $warning;
+    background: $warning 20%;
+}
+
+ConnectivityIndicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+}
+
+ConnectivityIndicator .status-icon {
+    width: 2;
+    text-align: center;
+}
+
+ConnectivityIndicator .status-text {
+    width: auto;
+    margin: 0 1;
+}
+
+/* === Performance Indicators (T102) === */
+.performance-warning {
+    color: $warning;
+    text-style: italic;
+}
+
+.performance-error {
+    color: $error;
+    text-style: bold;
+}
+
+/* === Pause/Resume Indicators (T101b) === */
+.workflow-paused {
+    background: $warning 30%;
+    border: solid $warning;
+    padding: 1;
+    margin: 1 0;
+}
+
+.workflow-paused .pause-icon {
+    color: $warning;
+    text-style: bold;
+}
+
+.workflow-resumed {
+    background: $success 30%;
+    border: solid $success;
+    padding: 1;
+    margin: 1 0;
+}
+
+.workflow-resumed .resume-icon {
+    color: $success;
+    text-style: bold;
 }

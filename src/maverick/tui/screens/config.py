@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Input, Static
-
-if TYPE_CHECKING:
-    pass
 
 
 class ConfigScreen(Screen):
@@ -147,8 +144,7 @@ class ConfigScreen(Screen):
                 # Show static display
                 marker = "▶" if is_selected else " "
                 content = (
-                    f"{marker} [bold]{label}:[/bold] {value_str}\n"
-                    f"  [dim]{desc}[/dim]"
+                    f"{marker} [bold]{label}:[/bold] {value_str}\n  [dim]{desc}[/dim]"
                 )
                 container.mount(Static(content, classes=classes))
 
@@ -248,7 +244,8 @@ class ConfigScreen(Screen):
         # Validate and convert value based on type
         try:
             if option["type"] == "int":
-                new_value = int(value)  # type: ignore
+                # value is validated as string from Input widget
+                new_value = int(str(value))
                 # Check min/max if specified
                 if "min" in option and new_value < option["min"]:
                     new_value = option["min"]

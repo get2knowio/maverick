@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import webbrowser
 from dataclasses import replace
-from typing import TYPE_CHECKING
 
 from rich.console import RenderableType
 from rich.text import Text
@@ -26,9 +25,6 @@ from textual.reactive import reactive
 from textual.widget import Widget
 
 from maverick.tui.models import CheckStatus, PRInfo, PRState, PRSummaryState
-
-if TYPE_CHECKING:
-    pass
 
 
 class PRSummary(Widget):

@@ -9,27 +9,45 @@ from __future__ import annotations
 
 __all__ = [
     # Enums
+    "BranchValidationStatus",
     "CheckStatus",
     "FindingSeverity",
     "IssueSeverity",
     "MessageType",
     "PRState",
+    "ProcessingMode",
+    "ReviewAction",
+    "SettingType",
     "SidebarMode",
     "StageStatus",
     "ValidationStepStatus",
     # Helper dataclasses
     "AgentMessage",
+    "BranchValidation",
     "CodeContext",
     "CodeLocation",
+    "ConfirmDialogConfig",
+    "ErrorDialogConfig",
+    "FixResult",
+    "GitHubIssue",
+    "InputDialogConfig",
+    "IssueSelectionItem",
+    "NavigationEntry",
     "PRInfo",
+    "RefuelResultItem",
     "ReviewFinding",
     "ReviewFindingItem",
+    "SettingDefinition",
+    "SettingValue",
+    "SettingsSection",
     "StatusCheck",
     "ToolCallInfo",
     "ValidationStep",
+    "WorkflowHistoryEntry",
     "WorkflowStage",
     # Widget state models
     "AgentOutputState",
+    "NavigationContext",
     "PRSummaryState",
     "ReviewFindingsState",
     "ValidationStatusState",
@@ -37,14 +55,18 @@ __all__ = [
     # Screen state models
     "ConfigOption",
     "ConfigScreenState",
+    "FlyScreenState",
     "HomeScreenState",
     "LogEntry",
     "LogPanelState",
     "NavigationItem",
     "RecentWorkflowEntry",
+    "RefuelScreenState",
     "ReviewIssue",
+    "ReviewScreenActionState",
     "ReviewScreenState",
     "ScreenState",
+    "SettingsScreenState",
     "SidebarState",
     "StageState",
     "WorkflowScreenState",
@@ -57,10 +79,11 @@ __all__ = [
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Any
 
-if TYPE_CHECKING:
-    pass
+# Re-export WorkflowHistoryEntry for backwards compatibility
+from maverick.tui.history import WorkflowHistoryEntry
 
 
 class StageStatus(str, Enum):
@@ -128,6 +151,43 @@ class CheckStatus(str, Enum):
     PENDING = "pending"
     PASSING = "passing"
     FAILING = "failing"
+
+
+class BranchValidationStatus(str, Enum):
+    """Status of branch name validation."""
+
+    EMPTY = "empty"
+    INVALID_CHARS = "invalid_chars"
+    EXISTS_LOCAL = "exists_local"
+    EXISTS_REMOTE = "exists_remote"
+    VALID_NEW = "valid_new"
+    VALID_EXISTING = "valid_existing"
+    CHECKING = "checking"
+
+
+class ProcessingMode(str, Enum):
+    """Issue processing mode."""
+
+    PARALLEL = "parallel"
+    SEQUENTIAL = "sequential"
+
+
+class ReviewAction(str, Enum):
+    """Available review actions."""
+
+    APPROVE = "approve"
+    REQUEST_CHANGES = "request_changes"
+    DISMISS = "dismiss"
+    FIX_ALL = "fix_all"
+
+
+class SettingType(str, Enum):
+    """Type of setting value."""
+
+    STRING = "string"
+    BOOL = "bool"
+    INT = "int"
+    CHOICE = "choice"
 
 
 # =============================================================================
@@ -354,6 +414,263 @@ class AgentMessage:
     tool_call: ToolCallInfo | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class BranchValidation:
+    """Result of branch name validation.
+
+    Attributes:
+        status: Validation status.
+        message: User-facing message.
+        is_valid: Whether the branch name can be used.
+    """
+
+    status: BranchValidationStatus
+    message: str
+    is_valid: bool
+
+    @classmethod
+    def empty(cls) -> BranchValidation:
+        """Create validation result for empty branch name."""
+        return cls(
+            status=BranchValidationStatus.EMPTY,
+            message="Branch name cannot be empty",
+            is_valid=False,
+        )
+
+    @classmethod
+    def invalid_chars(cls, chars: str) -> BranchValidation:
+        """Create validation result for invalid characters."""
+        return cls(
+            status=BranchValidationStatus.INVALID_CHARS,
+            message=f"Invalid characters: {chars}",
+            is_valid=False,
+        )
+
+    @classmethod
+    def valid_new(cls) -> BranchValidation:
+        """Create validation result for valid new branch."""
+        return cls(
+            status=BranchValidationStatus.VALID_NEW,
+            message="Valid - new branch",
+            is_valid=True,
+        )
+
+    @classmethod
+    def valid_existing(cls) -> BranchValidation:
+        """Create validation result for existing branch."""
+        return cls(
+            status=BranchValidationStatus.VALID_EXISTING,
+            message="Branch exists - will continue existing work",
+            is_valid=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubIssue:
+    """GitHub issue for selection.
+
+    Attributes:
+        number: Issue number.
+        title: Issue title.
+        labels: Issue labels.
+        url: URL to the issue.
+        state: Open/closed state.
+    """
+
+    number: int
+    title: str
+    labels: tuple[str, ...]
+    url: str
+    state: str = "open"
+
+    @property
+    def display_labels(self) -> str:
+        """Formatted labels for display."""
+        return ", ".join(self.labels) if self.labels else "No labels"
+
+
+@dataclass(frozen=True, slots=True)
+class IssueSelectionItem:
+    """Issue with selection state.
+
+    Attributes:
+        issue: The GitHub issue.
+        selected: Whether this issue is selected for processing.
+    """
+
+    issue: GitHubIssue
+    selected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RefuelResultItem:
+    """Result of processing a single issue.
+
+    Attributes:
+        issue_number: The issue number.
+        success: Whether processing succeeded.
+        pr_url: URL to created PR (if successful).
+        error_message: Error message (if failed).
+    """
+
+    issue_number: int
+    success: bool
+    pr_url: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FixResult:
+    """Result of fixing a single finding.
+
+    Attributes:
+        finding_id: ID of the finding.
+        success: Whether fix succeeded.
+        error_message: Error message (if failed).
+    """
+
+    finding_id: str
+    success: bool
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SettingDefinition:
+    """Definition of a configurable setting.
+
+    Attributes:
+        key: Configuration key path (e.g., "github.owner").
+        display_name: Human-readable name.
+        description: Help text.
+        setting_type: Type of value.
+        choices: Available choices (for CHOICE type).
+        min_value: Minimum value (for INT type).
+        max_value: Maximum value (for INT type).
+    """
+
+    key: str
+    display_name: str
+    description: str
+    setting_type: SettingType
+    choices: tuple[str, ...] | None = None
+    min_value: int | None = None
+    max_value: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SettingValue:
+    """Current value of a setting.
+
+    Attributes:
+        definition: The setting definition.
+        current_value: Current value.
+        original_value: Value when screen was opened.
+        validation_error: Validation error (if any).
+    """
+
+    definition: SettingDefinition
+    current_value: Any
+    original_value: Any
+    validation_error: str | None = None
+
+    @property
+    def is_modified(self) -> bool:
+        """Check if value has changed."""
+        return bool(self.current_value != self.original_value)
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if value is valid."""
+        return self.validation_error is None
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsSection:
+    """Group of related settings.
+
+    Attributes:
+        name: Section name (e.g., "GitHub", "Notifications").
+        settings: Settings in this section.
+    """
+
+    name: str
+    settings: tuple[SettingValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmDialogConfig:
+    """Configuration for confirmation dialog.
+
+    Attributes:
+        title: Dialog title.
+        message: Dialog message.
+        confirm_label: Label for confirm button.
+        cancel_label: Label for cancel button.
+        confirm_variant: Button variant for confirm button.
+    """
+
+    title: str
+    message: str
+    confirm_label: str = "Yes"
+    cancel_label: str = "No"
+    confirm_variant: str = "primary"  # "primary" | "warning" | "error"
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorDialogConfig:
+    """Configuration for error dialog.
+
+    Attributes:
+        title: Dialog title.
+        message: Error message.
+        details: Optional detailed error information.
+        dismiss_label: Label for dismiss button.
+        retry_action: Optional retry callback name.
+    """
+
+    title: str = "Error"
+    message: str = ""
+    details: str | None = None
+    dismiss_label: str = "Dismiss"
+    retry_action: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InputDialogConfig:
+    """Configuration for input dialog.
+
+    Attributes:
+        title: Dialog title.
+        prompt: Input prompt.
+        placeholder: Input placeholder.
+        initial_value: Initial input value.
+        submit_label: Label for submit button.
+        cancel_label: Label for cancel button.
+    """
+
+    title: str
+    prompt: str
+    placeholder: str = ""
+    initial_value: str = ""
+    submit_label: str = "Submit"
+    cancel_label: str = "Cancel"
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationEntry:
+    """Entry in navigation history.
+
+    Attributes:
+        screen_name: Name of the screen class.
+        params: Parameters passed to screen constructor.
+        timestamp: When screen was pushed.
+    """
+
+    screen_name: str
+    params: dict[str, Any] = field(default_factory=dict)
+    timestamp: str = ""  # ISO 8601
+
+
 # =============================================================================
 # Screen State Models
 # =============================================================================
@@ -386,6 +703,7 @@ class HomeScreenState(ScreenState):
 
     recent_workflows: tuple[RecentWorkflowEntry, ...] = ()
     selected_index: int = 0
+    loading: bool = False
 
     @property
     def selected_workflow(self) -> RecentWorkflowEntry | None:
@@ -393,6 +711,11 @@ class HomeScreenState(ScreenState):
         if 0 <= self.selected_index < len(self.recent_workflows):
             return self.recent_workflows[self.selected_index]
         return None
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if there are no recent workflows."""
+        return len(self.recent_workflows) == 0 and not self.loading
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,6 +819,205 @@ class ConfigScreenState(ScreenState):
         if 0 <= self.selected_option_index < len(self.options):
             return self.options[self.selected_option_index]
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class FlyScreenState:
+    """State for the FlyScreen workflow launcher.
+
+    Attributes:
+        branch_name: Current branch name input value.
+        branch_validation: Validation result for branch name.
+        task_file: Optional path to task file.
+        is_starting: Whether workflow is being started.
+        error_message: Error to display (if any).
+    """
+
+    branch_name: str = ""
+    branch_validation: BranchValidation = field(default_factory=BranchValidation.empty)
+    task_file: Path | None = None
+    is_starting: bool = False
+    error_message: str | None = None
+
+    @property
+    def can_start(self) -> bool:
+        """Whether the Start button should be enabled."""
+        return self.branch_validation.is_valid and not self.is_starting
+
+    @property
+    def start_button_label(self) -> str:
+        """Label for the start button."""
+        if self.is_starting:
+            return "Starting..."
+        return "Start"
+
+
+@dataclass(frozen=True, slots=True)
+class RefuelScreenState:
+    """State for the RefuelScreen issue processor.
+
+    Attributes:
+        label_filter: Current label filter input.
+        issue_limit: Maximum issues to process (1-10).
+        processing_mode: Parallel or sequential.
+        issues: Fetched issues with selection state.
+        focused_index: Currently focused issue index.
+        is_fetching: Whether issues are being fetched.
+        is_processing: Whether workflow is running.
+        results: Processing results (after completion).
+        error_message: Error to display (if any).
+    """
+
+    label_filter: str = ""
+    issue_limit: int = 3
+    processing_mode: ProcessingMode = ProcessingMode.PARALLEL
+    issues: tuple[IssueSelectionItem, ...] = ()
+    focused_index: int = 0
+    is_fetching: bool = False
+    is_processing: bool = False
+    results: tuple[RefuelResultItem, ...] | None = None
+    error_message: str | None = None
+
+    @property
+    def selected_issues(self) -> tuple[GitHubIssue, ...]:
+        """Get all selected issues."""
+        return tuple(item.issue for item in self.issues if item.selected)
+
+    @property
+    def selected_count(self) -> int:
+        """Count of selected issues."""
+        return sum(1 for item in self.issues if item.selected)
+
+    @property
+    def can_start(self) -> bool:
+        """Whether the Start button should be enabled."""
+        return (
+            self.selected_count > 0 and not self.is_processing and not self.is_fetching
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if no issues are loaded."""
+        return len(self.issues) == 0 and not self.is_fetching
+
+    @property
+    def has_results(self) -> bool:
+        """Check if results are available."""
+        return self.results is not None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewScreenActionState:
+    """State for ReviewScreen action handling.
+
+    Extends base ReviewScreenState with action-specific state.
+
+    Attributes:
+        pending_action: Action being processed (if any).
+        request_changes_comment: Comment for request changes action.
+        fix_results: Results of fix all action.
+        is_approving: Whether approval is in progress.
+        is_fixing: Whether fix all is in progress.
+        confirmation_pending: Action awaiting confirmation.
+    """
+
+    pending_action: ReviewAction | None = None
+    request_changes_comment: str = ""
+    fix_results: tuple[FixResult, ...] | None = None
+    is_approving: bool = False
+    is_fixing: bool = False
+    confirmation_pending: ReviewAction | None = None
+
+    @property
+    def is_action_in_progress(self) -> bool:
+        """Check if any action is in progress."""
+        return self.is_approving or self.is_fixing
+
+    @property
+    def has_fix_results(self) -> bool:
+        """Check if fix results are available."""
+        return self.fix_results is not None
+
+    @property
+    def fix_success_count(self) -> int:
+        """Count of successful fixes."""
+        if not self.fix_results:
+            return 0
+        return sum(1 for r in self.fix_results if r.success)
+
+    @property
+    def fix_failure_count(self) -> int:
+        """Count of failed fixes."""
+        if not self.fix_results:
+            return 0
+        return sum(1 for r in self.fix_results if not r.success)
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsScreenState:
+    """State for the SettingsScreen configuration editor.
+
+    Attributes:
+        sections: Configuration sections.
+        focused_section_index: Currently focused section.
+        focused_setting_index: Currently focused setting within section.
+        editing: Whether a setting is being edited.
+        edit_value: Current edit value (string representation).
+        test_github_status: Result of GitHub connection test.
+        test_notification_status: Result of notification test.
+        is_testing_github: Whether GitHub test is running.
+        is_testing_notification: Whether notification test is running.
+        load_error: Error loading configuration (if any).
+    """
+
+    sections: tuple[SettingsSection, ...] = ()
+    focused_section_index: int = 0
+    focused_setting_index: int = 0
+    editing: bool = False
+    edit_value: str = ""
+    test_github_status: str | None = None
+    test_notification_status: str | None = None
+    is_testing_github: bool = False
+    is_testing_notification: bool = False
+    load_error: str | None = None
+
+    @property
+    def current_section(self) -> SettingsSection | None:
+        """Get currently focused section."""
+        if 0 <= self.focused_section_index < len(self.sections):
+            return self.sections[self.focused_section_index]
+        return None
+
+    @property
+    def current_setting(self) -> SettingValue | None:
+        """Get currently focused setting."""
+        section = self.current_section
+        if section and 0 <= self.focused_setting_index < len(section.settings):
+            return section.settings[self.focused_setting_index]
+        return None
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        """Check if any settings have been modified."""
+        return any(
+            setting.is_modified
+            for section in self.sections
+            for setting in section.settings
+        )
+
+    @property
+    def has_validation_errors(self) -> bool:
+        """Check if any settings have validation errors."""
+        return any(
+            not setting.is_valid
+            for section in self.sections
+            for setting in section.settings
+        )
+
+    @property
+    def can_save(self) -> bool:
+        """Whether settings can be saved."""
+        return self.has_unsaved_changes and not self.has_validation_errors
 
 
 # =============================================================================
@@ -748,6 +1270,34 @@ class ReviewFindingsState:
     def is_empty(self) -> bool:
         """Check if there are no findings."""
         return len(self.findings) == 0
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationContext:
+    """Tracks screen navigation history.
+
+    Attributes:
+        history: Stack of navigation entries.
+    """
+
+    history: tuple[NavigationEntry, ...] = ()
+
+    @property
+    def current_screen(self) -> NavigationEntry | None:
+        """Get current screen entry."""
+        if self.history:
+            return self.history[-1]
+        return None
+
+    @property
+    def can_go_back(self) -> bool:
+        """Check if back navigation is possible."""
+        return len(self.history) > 1
+
+    @property
+    def current_depth(self) -> int:
+        """Get current navigation depth."""
+        return len(self.history)
 
 
 # =============================================================================

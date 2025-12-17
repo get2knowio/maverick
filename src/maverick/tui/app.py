@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -16,11 +16,15 @@ from textual.command import Hit, Hits, Provider
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
+from maverick.tui.models import NavigationContext, NavigationEntry
 from maverick.tui.widgets.log_panel import LogPanel
 from maverick.tui.widgets.sidebar import Sidebar
 
 if TYPE_CHECKING:
-    pass
+    from textual.screen import Screen as TextualScreen
+
+    # Type alias for Textual Screen without result type (Screen[None])
+    Screen = TextualScreen[None]
 
 
 class MaverickCommands(Provider):
@@ -40,11 +44,42 @@ class MaverickCommands(Provider):
 
         commands = [
             ("Go to Home", "Navigate to the home screen", app.action_go_home),
-            ("Go to Settings", "Navigate to settings", app.action_show_config),
+            (
+                "Go to Settings",
+                "Navigate to settings",
+                app.action_show_config,
+            ),
             ("Go to Review", "Navigate to review screen", app.action_go_review),
-            ("Go to Workflow", "Navigate to workflow screen", app.action_go_workflow),
-            ("Toggle Log Panel", "Show or hide log panel", app.action_toggle_log),
-            ("Start Workflow", "Start a new workflow", app.action_start_workflow),
+            (
+                "Go to Workflow",
+                "Navigate to workflow screen",
+                app.action_go_workflow,
+            ),
+            (
+                "Start Fly Workflow",
+                "Navigate to Fly workflow screen",
+                app.action_show_fly,
+            ),
+            (
+                "Start Refuel Workflow",
+                "Navigate to Refuel workflow screen",
+                app.action_show_refuel,
+            ),
+            (
+                "Settings",
+                "Navigate to settings screen",
+                app.action_show_settings,
+            ),
+            (
+                "Toggle Log Panel",
+                "Show or hide log panel",
+                app.action_toggle_log,
+            ),
+            (
+                "Start Workflow",
+                "Start a new workflow",
+                app.action_start_workflow,
+            ),
             ("Refresh", "Refresh current screen", app.action_refresh),
             ("Show Help", "Display keybinding help", app.action_show_help),
         ]
@@ -94,6 +129,7 @@ class MaverickApp(App[None]):
         self._timer_running: bool = False
         self._current_workflow: str = ""
         self._current_branch: str = ""
+        self._navigation_context = NavigationContext()
 
     def compose(self) -> ComposeResult:
         """Create the app layout.
@@ -168,6 +204,45 @@ class MaverickApp(App[None]):
         if len(self.screen_stack) > 1:
             self.pop_screen()
 
+    @property
+    def navigation_context(self) -> NavigationContext:
+        """Get the current navigation context."""
+        return self._navigation_context
+
+    def push_screen_tracked(
+        self, screen: Screen, params: dict[str, Any] | None = None
+    ) -> None:
+        """Push a screen with navigation tracking.
+
+        Updates the navigation context history.
+
+        Args:
+            screen: Screen to push.
+            params: Optional parameters passed to the screen.
+        """
+        from datetime import datetime
+
+        entry = NavigationEntry(
+            screen_name=type(screen).__name__,
+            params=params or {},
+            timestamp=datetime.now().isoformat(),
+        )
+        self._navigation_context = NavigationContext(
+            history=self._navigation_context.history + (entry,)
+        )
+        self.push_screen(screen)
+
+    def pop_screen_tracked(self) -> None:
+        """Pop a screen with navigation tracking.
+
+        Updates the navigation context history.
+        """
+        if self._navigation_context.can_go_back:
+            self._navigation_context = NavigationContext(
+                history=self._navigation_context.history[:-1]
+            )
+        self.pop_screen()
+
     def action_quit(self) -> None:
         """Quit the application (q)."""
         self.exit()
@@ -206,20 +281,21 @@ class MaverickApp(App[None]):
         """Navigate to config screen (Ctrl+,)."""
         from maverick.tui.screens.config import ConfigScreen
 
-        self.push_screen(ConfigScreen())
+        self.push_screen_tracked(ConfigScreen())
 
     def action_go_review(self) -> None:
         """Navigate to review screen."""
         from maverick.tui.screens.review import ReviewScreen
 
-        self.push_screen(ReviewScreen())
+        self.push_screen_tracked(ReviewScreen())
 
     def action_go_workflow(self) -> None:
         """Navigate to workflow screen."""
         from maverick.tui.screens.workflow import WorkflowScreen
 
-        self.push_screen(
-            WorkflowScreen(workflow_name="New Workflow", branch_name="main")
+        self.push_screen_tracked(
+            WorkflowScreen(workflow_name="New Workflow", branch_name="main"),
+            params={"workflow_name": "New Workflow", "branch_name": "main"},
         )
 
     def action_refresh(self) -> None:
@@ -316,6 +392,24 @@ class MaverickApp(App[None]):
             # Widget not yet mounted, skip clear
             pass
 
+    def action_show_settings(self) -> None:
+        """Navigate to settings screen."""
+        from maverick.tui.screens.settings import SettingsScreen
+
+        self.push_screen_tracked(SettingsScreen())
+
+    def action_show_fly(self) -> None:
+        """Navigate to Fly workflow screen."""
+        from maverick.tui.screens.fly import FlyScreen
+
+        self.push_screen_tracked(FlyScreen())
+
+    def action_show_refuel(self) -> None:
+        """Navigate to Refuel workflow screen."""
+        from maverick.tui.screens.refuel import RefuelScreen
+
+        self.push_screen_tracked(RefuelScreen())
+
     def _update_header_subtitle(self) -> None:
         """Update the header subtitle with workflow info and elapsed time."""
         if self._current_workflow:
@@ -333,3 +427,42 @@ class MaverickApp(App[None]):
             except Exception:
                 # Widget not yet mounted, skip update
                 pass
+
+    def push_screen_timed(self, screen: Screen) -> float:
+        """Push screen and return transition time in milliseconds.
+
+        Measures the time taken to push a screen onto the stack and logs a
+        warning if the transition exceeds 300ms. This helps identify slow
+        screen transitions that may impact user experience.
+
+        Args:
+            screen: Screen to push onto the stack.
+
+        Returns:
+            Elapsed time in milliseconds for the screen push operation.
+
+        Example:
+            ```python
+            # Push screen with timing measurement
+            elapsed = app.push_screen_timed(SettingsScreen())
+
+            # Log will show: "Slow transition: 450ms" if > 300ms
+            ```
+
+        Note:
+            A transition time over 300ms is considered slow and will generate
+            a warning log entry. Target response time is <200ms per SC-003
+            performance requirements.
+        """
+        start = time.perf_counter()
+        self.push_screen(screen)
+        elapsed = (time.perf_counter() - start) * 1000
+
+        if elapsed > 300:
+            self.add_log(
+                f"Slow screen transition: {elapsed:.0f}ms (target: <300ms)",
+                "warning",
+                "performance",
+            )
+
+        return elapsed
