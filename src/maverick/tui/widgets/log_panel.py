@@ -27,6 +27,7 @@ class LogPanel(Widget):
 
     MAX_LINES = 1000
 
+    # Textual's reactive descriptor conflicts with bool type annotation at runtime
     visible: reactive[bool] = reactive(False)  # type: ignore[override]
     auto_scroll: reactive[bool] = reactive(True)
 

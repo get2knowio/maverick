@@ -14,7 +14,7 @@ Settings are loaded from and saved to the Maverick configuration system.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import Any
 
 from textual import work
 from textual.app import ComposeResult
@@ -30,9 +30,6 @@ from maverick.tui.models import (
 )
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.widgets.settings import SettingField, SettingsSection
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["SettingsScreen"]
 
@@ -77,7 +74,7 @@ class SettingsScreen(MaverickScreen):
         """
         super().__init__(**kwargs)
         self._settings_fields: dict[str, SettingField] = {}
-        self._original_values: dict[str, any] = {}
+        self._original_values: dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the settings screen layout.

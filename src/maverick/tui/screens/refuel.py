@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -18,9 +17,6 @@ from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.widgets.form import NumericField, ToggleField
 from maverick.tui.widgets.issue_list import IssueList
 from maverick.tui.widgets.result_summary import ResultSummary
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["RefuelScreen", "record_refuel_workflow_completion"]
 
@@ -316,21 +312,31 @@ class RefuelScreen(MaverickScreen):
 
         try:
             # Call gh CLI to fetch issues
-            proc = await asyncio.create_subprocess_exec(
-                "gh",
-                "issue",
-                "list",
-                "-l",
-                label,
-                "--json",
-                "number,title,labels,url,state",
-                "--limit",
-                "50",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            try:
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "gh",
+                        "issue",
+                        "list",
+                        "-l",
+                        label,
+                        "--json",
+                        "number,title,labels,url,state",
+                        "--limit",
+                        "50",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
+                    timeout=30.0,  # 30 second timeout for process creation
+                )
 
-            stdout, stderr = await proc.communicate()
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=60.0,  # 60 seconds for data fetch
+                )
+            except asyncio.TimeoutError:
+                self.show_error("GitHub CLI timed out")
+                return
 
             if proc.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Failed to fetch issues"
@@ -513,6 +519,22 @@ class RefuelScreen(MaverickScreen):
         Displays a summary of which issues were processed before the workflow
         was cancelled, helping the user understand progress that was made.
         """
-        # In a future implementation, this would display a modal or message
-        # showing which issues were processed successfully before cancellation
-        pass
+        processed = self.issues_processed_before_cancel
+
+        if not processed:
+            self.notify(
+                "Workflow cancelled before any issues were processed.",
+                title="Workflow Cancelled",
+                severity="warning",
+                timeout=8.0,
+            )
+            return
+
+        # Format processed issues as a comma-separated list
+        issue_list = ", ".join(f"#{num}" for num in processed)
+        self.notify(
+            f"Processed issues: {issue_list}",
+            title="Workflow Cancelled",
+            severity="information",
+            timeout=10.0,
+        )

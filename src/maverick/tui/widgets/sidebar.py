@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -9,9 +9,6 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from maverick.tui.widgets.stage_indicator import StageIndicator
-
-if TYPE_CHECKING:
-    pass
 
 
 class NavigationItemDict(TypedDict, total=False):

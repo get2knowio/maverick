@@ -230,6 +230,13 @@ WorkflowList .workflow-item.--selected {
     padding: 1;
 }
 
+.issue-list .severity-header {
+    height: 1;
+    padding: 0 1;
+    margin: 1 0;
+    text-style: bold;
+}
+
 .issue-item {
     height: 3;
     padding: 0 1;

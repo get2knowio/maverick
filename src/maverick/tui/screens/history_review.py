@@ -6,8 +6,6 @@ Users can review past workflow details including status, stages, findings, and P
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -15,9 +13,6 @@ from textual.widgets import Button, Static
 
 from maverick.tui.history import WorkflowHistoryEntry
 from maverick.tui.screens.base import MaverickScreen
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["HistoricalReviewScreen"]
 

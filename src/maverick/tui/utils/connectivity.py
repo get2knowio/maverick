@@ -18,9 +18,9 @@ Example:
     is_connected = await monitor.check_connectivity()
 
     if is_connected:
-        print(f"Status: {monitor.status}")
+        logger.info(f"Status: {monitor.status}")
     else:
-        print("GitHub API is unreachable")
+        logger.warning("GitHub API is unreachable")
     ```
 """
 

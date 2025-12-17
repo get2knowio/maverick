@@ -5,9 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
+from maverick.tui.models import ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.review import ReviewScreen
-
 
 # =============================================================================
 # ReviewScreen Initialization Tests
@@ -807,3 +806,108 @@ class TestReviewScreenHelperMethods:
         assert screen._get_severity_icon("info") == "ℹ"
         assert screen._get_severity_icon("suggestion") == "💡"
         assert screen._get_severity_icon("unknown") == "○"
+
+
+# =============================================================================
+# ReviewScreen Grouped Findings Tests
+# =============================================================================
+
+
+class TestReviewScreenGroupedFindings:
+    """Tests for grouped findings display by severity."""
+
+    def test_update_issue_list_groups_by_severity(self) -> None:
+        """Test that _update_issue_list groups issues by severity."""
+        screen = ReviewScreen()
+        issues = [
+            {"severity": "warning", "message": "Warning 1", "file_path": "a.py", "line_number": 1},
+            {"severity": "error", "message": "Error 1", "file_path": "b.py", "line_number": 2},
+            {"severity": "info", "message": "Info 1", "file_path": "c.py", "line_number": 3},
+            {"severity": "error", "message": "Error 2", "file_path": "d.py", "line_number": 4},
+            {"severity": "suggestion", "message": "Suggestion 1", "file_path": "e.py", "line_number": 5},
+        ]
+        screen._issues = issues
+
+        mock_issue_list = MagicMock()
+        mounted_widgets = []
+        mock_issue_list.mount = lambda w: mounted_widgets.append(w)
+        mock_issue_list.remove_children = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_issue_list):
+            screen._update_issue_list()
+
+        # Should have mounted: 4 headers + 5 issue items = 9 widgets total
+        assert len(mounted_widgets) == 9
+
+        # Verify headers are present by checking IDs
+        header_ids = [
+            w.id for w in mounted_widgets
+            if hasattr(w, "id") and w.id and "severity-header" in w.id
+        ]
+        assert len(header_ids) == 4  # error, warning, suggestion, info
+
+    def test_update_issue_list_severity_order(self) -> None:
+        """Test that severities are displayed in correct order: errors, warnings, suggestions, info."""
+        screen = ReviewScreen()
+        issues = [
+            {"severity": "info", "message": "Info 1", "file_path": "a.py", "line_number": 1},
+            {"severity": "suggestion", "message": "Suggestion 1", "file_path": "b.py", "line_number": 2},
+            {"severity": "warning", "message": "Warning 1", "file_path": "c.py", "line_number": 3},
+            {"severity": "error", "message": "Error 1", "file_path": "d.py", "line_number": 4},
+        ]
+        screen._issues = issues
+
+        mock_issue_list = MagicMock()
+        mounted_widgets = []
+        mock_issue_list.mount = lambda w: mounted_widgets.append(w)
+        mock_issue_list.remove_children = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_issue_list):
+            screen._update_issue_list()
+
+        # Check that headers appear in correct order
+        header_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "severity-header" in w.id]
+        assert header_ids == ["severity-header-error", "severity-header-warning", "severity-header-suggestion", "severity-header-info"]
+
+    def test_update_issue_list_skips_empty_severity_groups(self) -> None:
+        """Test that severity groups with no issues are not displayed."""
+        screen = ReviewScreen()
+        issues = [
+            {"severity": "error", "message": "Error 1", "file_path": "a.py", "line_number": 1},
+            {"severity": "error", "message": "Error 2", "file_path": "b.py", "line_number": 2},
+        ]
+        screen._issues = issues
+
+        mock_issue_list = MagicMock()
+        mounted_widgets = []
+        mock_issue_list.mount = lambda w: mounted_widgets.append(w)
+        mock_issue_list.remove_children = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_issue_list):
+            screen._update_issue_list()
+
+        # Should only have 1 header (error) + 2 issue items = 3 widgets
+        assert len(mounted_widgets) == 3
+        header_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "severity-header" in w.id]
+        assert header_ids == ["severity-header-error"]
+
+    def test_update_issue_list_global_index_across_groups(self) -> None:
+        """Test that issue indices continue across severity groups."""
+        screen = ReviewScreen()
+        issues = [
+            {"severity": "error", "message": "Error 1", "file_path": "a.py", "line_number": 1},
+            {"severity": "warning", "message": "Warning 1", "file_path": "b.py", "line_number": 2},
+        ]
+        screen._issues = issues
+
+        mock_issue_list = MagicMock()
+        mounted_widgets = []
+        mock_issue_list.mount = lambda w: mounted_widgets.append(w)
+        mock_issue_list.remove_children = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_issue_list):
+            screen._update_issue_list()
+
+        # Check that issue items have sequential IDs
+        issue_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "issue-item" in w.id]
+        assert issue_ids == ["issue-item-0", "issue-item-1"]

@@ -7,13 +7,8 @@ support.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from textual.binding import Binding
 from textual.screen import Screen
-
-if TYPE_CHECKING:
-    pass
 
 
 class MaverickScreen(Screen):

@@ -12,7 +12,9 @@ from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.base import MaverickScreen
 
 if TYPE_CHECKING:
-    pass
+    from textual.timer import Timer
+
+__all__ = ["ReviewScreen"]
 
 
 class ReviewScreen(MaverickScreen):
@@ -33,9 +35,10 @@ class ReviewScreen(MaverickScreen):
         Binding("w", "filter_warnings", "Warnings Only", show=False),
         Binding("ctrl+a", "filter_all", "Show All", show=False),
         Binding("a", "approve", "Approve", show=True),
-        Binding("r", "request_changes", "Request Changes", show=True),
+        Binding("c", "request_changes", "Request Changes", show=True),
         Binding("d", "dismiss", "Dismiss", show=True),
         Binding("f", "fix_all", "Fix All", show=True),
+        Binding("r", "refresh_findings", "Refresh", show=True),
     ]
 
     # Reactive state for action handling
@@ -56,6 +59,8 @@ class ReviewScreen(MaverickScreen):
         self._issues: list[dict[str, object]] = []
         self._selected_index: int = 0
         self._filter_severity: str | None = None
+        self._poll_timer: Timer | None = None
+        self._findings_hash: str = ""
 
     def compose(self) -> ComposeResult:
         """Create the review screen layout.
@@ -64,6 +69,16 @@ class ReviewScreen(MaverickScreen):
             ComposeResult: Review results display with issue list and detail view.
         """
         yield Static("[bold]Code Review Results[/bold]", id="review-title")
+
+        # New findings banner (initially hidden)
+        yield Static(
+            (
+                "[yellow]⚠ New findings available[/yellow] "
+                "[dim]Press [bold]r[/bold] to refresh[/dim]"
+            ),
+            id="new-findings-banner",
+            classes="hidden",
+        )
 
         with Horizontal():
             # Left panel: Issue list
@@ -83,6 +98,35 @@ class ReviewScreen(MaverickScreen):
                     id="issue-detail-content",
                 )
 
+    def on_mount(self) -> None:
+        """Start polling timer when screen is mounted."""
+        # Start polling every 30 seconds
+        self._poll_timer = self.set_interval(30.0, self._check_for_new_findings)
+        # Calculate initial hash
+        self._findings_hash = self._compute_findings_hash()
+
+    def on_unmount(self) -> None:
+        """Stop polling timer when screen is unmounted."""
+        if self._poll_timer:
+            self._poll_timer.stop()
+            self._poll_timer = None
+
+    def watch_has_new_findings(self, value: bool) -> None:
+        """Show or hide the new findings banner when has_new_findings changes.
+
+        Args:
+            value: True if new findings are available, False otherwise.
+        """
+        try:
+            banner = self.query_one("#new-findings-banner", Static)
+            if value:
+                banner.remove_class("hidden")
+            else:
+                banner.add_class("hidden")
+        except Exception:
+            # Banner widget not yet mounted or already removed
+            pass
+
     def load_issues(self, issues: list[dict[str, object]]) -> None:
         """Load review issues for display.
 
@@ -92,6 +136,7 @@ class ReviewScreen(MaverickScreen):
         """
         self._issues = issues
         self._selected_index = 0 if issues else -1
+        self._findings_hash = self._compute_findings_hash()
         self._update_issue_list()
         if issues:
             self._update_detail_view()
@@ -151,6 +196,30 @@ class ReviewScreen(MaverickScreen):
         """Show all issues."""
         self.filter_by_severity(None)
 
+    def action_refresh_findings(self) -> None:
+        """Refresh findings from the review source.
+
+        Manually triggers a refresh of findings and clears the new findings banner.
+        This method reloads the current findings while preserving the selection.
+        """
+        # Store the current selected index
+        current_index = self._selected_index
+
+        # Fetch new findings
+        self.refresh_findings()
+
+        # Clear the banner since we've refreshed
+        self.has_new_findings = False
+
+        # Restore selection if still valid
+        filtered = self._get_filtered_issues()
+        if filtered and current_index >= 0:
+            if current_index < len(filtered):
+                self._selected_index = current_index
+            else:
+                self._selected_index = len(filtered) - 1
+            self._update_detail_view()
+
     def _get_filtered_issues(self) -> list[dict[str, object]]:
         """Get issues filtered by current severity filter.
 
@@ -166,7 +235,7 @@ class ReviewScreen(MaverickScreen):
         ]
 
     def _update_issue_list(self) -> None:
-        """Update the issue list display."""
+        """Update the issue list display with grouped severities."""
         issue_list = self.query_one("#issue-list", VerticalScroll)
 
         # Remove all children
@@ -182,10 +251,47 @@ class ReviewScreen(MaverickScreen):
             issue_list.mount(Static(placeholder_text, id="issue-list-placeholder"))
             return
 
-        # Add issue items
-        for idx, issue in enumerate(filtered_issues):
-            issue_widget = self._create_issue_item(issue, idx)
-            issue_list.mount(issue_widget)
+        # Group issues by severity
+        severity_order = ["error", "warning", "suggestion", "info"]
+        grouped: dict[str, list[dict[str, object]]] = {s: [] for s in severity_order}
+
+        for issue in filtered_issues:
+            severity = str(issue.get("severity", "info")).lower()
+            if severity in grouped:
+                grouped[severity].append(issue)
+            else:
+                # Fallback to info for unknown severities
+                grouped["info"].append(issue)
+
+        # Track global index across all groups
+        global_index = 0
+
+        # Add grouped issue items with headers
+        for severity in severity_order:
+            issues_in_group = grouped[severity]
+            if not issues_in_group:
+                continue
+
+            # Add severity group header
+            severity_icon = self._get_severity_icon(severity)
+            severity_class = f"severity-{severity}"
+            header_text = (
+                f"[{severity_class} bold]"
+                f"{severity_icon} {severity.upper()} ({len(issues_in_group)})"
+                f"[/{severity_class} bold]"
+            )
+            header_widget = Static(
+                header_text,
+                classes="severity-header",
+                id=f"severity-header-{severity}"
+            )
+            issue_list.mount(header_widget)
+
+            # Add issues in this severity group
+            for issue in issues_in_group:
+                issue_widget = self._create_issue_item(issue, global_index)
+                issue_list.mount(issue_widget)
+                global_index += 1
 
     def _create_issue_item(self, issue: dict[str, object], index: int) -> Static:
         """Create a widget for an issue item.
@@ -197,8 +303,9 @@ class ReviewScreen(MaverickScreen):
         Returns:
             Static widget displaying the issue summary.
         """
-        severity = issue.get("severity", "info")
-        file_path = issue.get("file_path", "unknown")
+        severity_raw = issue.get("severity", "info")
+        severity = str(severity_raw)
+        file_path = str(issue.get("file_path", "unknown"))
         line_number = issue.get("line_number", 0)
         message = issue.get("message", "")
 
@@ -249,11 +356,12 @@ class ReviewScreen(MaverickScreen):
 
         issue = filtered_issues[self._selected_index]
 
-        severity = issue.get("severity", "info")
-        file_path = issue.get("file_path", "unknown")
+        severity_raw = issue.get("severity", "info")
+        severity = str(severity_raw)
+        file_path = str(issue.get("file_path", "unknown"))
         line_number = issue.get("line_number", 0)
-        message = issue.get("message", "")
-        source = issue.get("source", "unknown")
+        message = str(issue.get("message", ""))
+        source = str(issue.get("source", "unknown"))
 
         severity_class = f"severity-{severity}"
         severity_icon = self._get_severity_icon(severity)
@@ -465,3 +573,64 @@ class ReviewScreen(MaverickScreen):
         # TODO: Integrate with actual review service polling
         # For now, return empty list
         return []
+
+    def _compute_findings_hash(self) -> str:
+        """Compute a hash of the current findings for change detection.
+
+        Returns:
+            SHA256 hash of the findings data.
+        """
+        import hashlib
+        import json
+
+        # Create a stable representation of findings for hashing
+        # Sort by file_path and line_number for consistent ordering
+        sorted_issues = sorted(
+            self._issues,
+            key=lambda x: (str(x.get("file_path", "")), int(x.get("line_number", 0)))
+        )
+
+        # Create a JSON representation of key fields
+        findings_data = [
+            {
+                "file_path": issue.get("file_path"),
+                "line_number": issue.get("line_number"),
+                "severity": issue.get("severity"),
+                "message": issue.get("message"),
+                "source": issue.get("source"),
+            }
+            for issue in sorted_issues
+        ]
+
+        # Compute hash
+        findings_json = json.dumps(findings_data, sort_keys=True)
+        return hashlib.sha256(findings_json.encode()).hexdigest()
+
+    async def _check_for_new_findings(self) -> None:
+        """Poll for new findings and update banner if changes detected.
+
+        This method is called periodically by the polling timer to check
+        if new findings have been added to the review.
+        """
+        # Fetch new findings from the source
+        new_findings = self._fetch_new_findings()
+
+        # If no new findings returned, nothing to check
+        if not new_findings:
+            return
+
+        # Compute hash of new findings
+        # Temporarily store current issues
+        original_issues = self._issues
+        original_hash = self._findings_hash
+
+        # Set new issues to compute their hash
+        self._issues = new_findings
+        new_hash = self._compute_findings_hash()
+
+        # Restore original issues
+        self._issues = original_issues
+
+        # If hashes differ, we have new findings
+        if new_hash != original_hash:
+            self.has_new_findings = True

@@ -6,7 +6,7 @@ workflow selection options and recent workflow runs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -16,9 +16,6 @@ from textual.widgets import Static
 from maverick.tui.history import WorkflowHistoryEntry, WorkflowHistoryStore
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.widgets.workflow_list import WorkflowList
-
-if TYPE_CHECKING:
-    pass
 
 
 class HomeScreen(MaverickScreen):

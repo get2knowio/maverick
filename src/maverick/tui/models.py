@@ -80,10 +80,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    pass
+# Re-export WorkflowHistoryEntry for backwards compatibility
+from maverick.tui.history import WorkflowHistoryEntry
 
 
 class StageStatus(str, Enum):
@@ -654,47 +654,6 @@ class InputDialogConfig:
     initial_value: str = ""
     submit_label: str = "Submit"
     cancel_label: str = "Cancel"
-
-
-@dataclass(frozen=True, slots=True)
-class WorkflowHistoryEntry:
-    """Persisted record of a completed workflow.
-
-    Stored in ~/.config/maverick/history.json with FIFO eviction at 50 entries.
-
-    Attributes:
-        id: Unique identifier (UUID).
-        workflow_type: "fly" or "refuel".
-        branch_name: Git branch name for the workflow.
-        timestamp: When the workflow started (ISO 8601).
-        final_status: "completed" or "failed".
-        stages_completed: List of stage names that completed successfully.
-        finding_counts: Count of findings by severity.
-        pr_link: URL to the created PR (if any).
-    """
-
-    id: str
-    workflow_type: str  # Literal["fly", "refuel"]
-    branch_name: str
-    timestamp: str  # ISO 8601 format
-    final_status: str  # Literal["completed", "failed"]
-    stages_completed: tuple[str, ...]
-    finding_counts: dict[str, int]  # {"error": int, "warning": int, "suggestion": int}
-    pr_link: str | None = None
-
-    @property
-    def display_status(self) -> str:
-        """Human-readable status with icon."""
-        if self.final_status == "completed":
-            return "✓ Completed"
-        return "✗ Failed"
-
-    @property
-    def display_timestamp(self) -> str:
-        """Human-readable relative time."""
-        dt = datetime.fromisoformat(self.timestamp)
-        # Implementation would calculate relative time
-        return dt.strftime("%Y-%m-%d %H:%M")
 
 
 @dataclass(frozen=True, slots=True)

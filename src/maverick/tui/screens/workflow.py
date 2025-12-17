@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -9,9 +9,6 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from maverick.tui.widgets.stage_indicator import StageIndicator
-
-if TYPE_CHECKING:
-    pass
 
 
 class WorkflowScreen(Screen):

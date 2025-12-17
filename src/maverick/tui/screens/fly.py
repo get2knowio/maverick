@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -15,9 +14,6 @@ from textual.widgets import Button, Input, Static
 from maverick.tui.history import WorkflowHistoryEntry, WorkflowHistoryStore
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.widgets.form import BranchInputField
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["FlyScreen", "record_fly_workflow_completion"]
 
@@ -264,9 +260,39 @@ class FlyScreen(MaverickScreen):
         Displays a summary of which stages were completed before the workflow
         was cancelled, helping the user understand progress that was made.
         """
-        # In a future implementation, this would display a modal or message
-        # showing which stages completed successfully before cancellation
-        pass
+        completed = self.stages_completed_before_cancel
+
+        if not completed:
+            self.notify(
+                "Workflow cancelled before any stages completed.",
+                title="Workflow Cancelled",
+                severity="warning",
+                timeout=8.0,
+            )
+            return
+
+        # Map stage IDs to display names
+        stage_names = {
+            "init": "Initialization",
+            "implementation": "Implementation",
+            "validation": "Validation",
+            "code_review": "Code Review",
+            "convention_update": "Convention Update",
+            "pr_creation": "PR Creation",
+            "complete": "Complete",
+            "failed": "Failed",
+        }
+
+        # Format completed stages with checkmarks
+        completed_list = [f"✓ {stage_names.get(s, s)}" for s in completed]
+        summary = "Completed stages:\n" + "\n".join(completed_list)
+
+        self.notify(
+            summary,
+            title="Workflow Cancelled",
+            severity="information",
+            timeout=10.0,
+        )
 
 
 __all__ = [
