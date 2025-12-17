@@ -122,6 +122,7 @@ A developer wants to control Maverick's behavior across all commands. They use `
 - What happens when a command is interrupted (Ctrl+C)? System performs graceful shutdown, saves any in-progress state, and exits with code 130
 - What happens when running in a non-git directory? System shows error requiring git repository for most commands
 - What happens when GitHub CLI is not installed? System checks for `gh` on startup for commands that need it and shows installation instructions if missing
+- What happens when GitHub CLI is not authenticated? System shows error with `gh auth login` instructions and exits with code 1
 
 ## Requirements *(mandatory)*
 
@@ -134,7 +135,7 @@ A developer wants to control Maverick's behavior across all commands. They use `
 - **FR-005**: System MUST support global option `--no-tui` that disables TUI mode for headless operation
 - **FR-006**: System MUST implement `fly <branch-name>` command with options: `--task-file/-t`, `--skip-review`, `--skip-pr`, `--dry-run`
 - **FR-007**: System MUST implement `refuel` command with options: `--label/-l` (default: "tech-debt"), `--limit/-n`, `--parallel/--sequential` (default: parallel), `--dry-run`
-- **FR-008**: System MUST implement `review <pr-number>` command with options: `--fix/--no-fix` (default: no-fix), `--output/-o` (choices: tui, json, markdown; default: tui)
+- **FR-008**: System MUST implement `review <pr-number>` command with options: `--fix/--no-fix` (default: no-fix), `--output/-o` (choices: tui, json, markdown, text; default: tui; text is used as fallback in non-TTY environments)
 - **FR-009**: System MUST implement `config` command group with subcommands: `show`, `edit`, `validate`, `init`
 - **FR-010**: System MUST implement `status` command showing current branch, pending tasks, and project state
 - **FR-011**: System MUST auto-detect non-TTY environments and disable TUI automatically when stdout is not a terminal
@@ -164,6 +165,17 @@ A developer wants to control Maverick's behavior across all commands. They use `
 - **SC-006**: Users can complete a typical fly workflow invocation with 5 or fewer command-line arguments
 - **SC-007**: Error messages clearly indicate what went wrong and suggest corrective action
 - **SC-008**: Configuration can be initialized in under 30 seconds for a new project
+
+## Non-Functional Requirements
+
+- **NFR-001**: CLI startup time MUST be under 500ms before command execution begins (standard CLI responsiveness)
+
+## Clarifications
+
+### Session 2025-12-17
+
+- Q: What is the acceptable CLI startup time before commands begin execution? → A: Under 500ms (standard CLI responsiveness)
+- Q: How should the CLI behave when GitHub CLI (`gh`) is not authenticated but a command requires it? → A: Show error with `gh auth login` instructions
 
 ## Assumptions
 
