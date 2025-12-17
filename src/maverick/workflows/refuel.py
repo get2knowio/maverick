@@ -91,7 +91,7 @@ class RefuelInputs:
 
     label: str = "tech-debt"
     limit: int = 5
-    parallel: bool = False
+    parallel: bool = True
     dry_run: bool = False
     auto_assign: bool = True
 

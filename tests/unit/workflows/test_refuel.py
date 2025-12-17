@@ -165,7 +165,7 @@ class TestRefuelInputs:
         inputs = RefuelInputs()
         assert inputs.label == "tech-debt"
         assert inputs.limit == 5
-        assert inputs.parallel is False
+        assert inputs.parallel is True
         assert inputs.dry_run is False
         assert inputs.auto_assign is True
 
