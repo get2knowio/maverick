@@ -157,25 +157,31 @@ A workflow may need to temporarily set aside uncommitted changes to perform othe
 - **FR-021**: System MUST raise BranchExistsError when creating a branch that already exists
 - **FR-022**: System MUST raise MergeConflictError when pull results in conflicts
 - **FR-023**: System MUST raise PushRejectedError when remote rejects a push
+- **FR-024**: System MUST raise NothingToCommitError when commit is attempted with no changes
+- **FR-025**: System MUST raise NoStashError when stash_pop is called with no stash entries
+- **FR-026**: System MUST raise CheckoutConflictError when checkout would overwrite uncommitted changes
 
 **Thread Safety**:
-- **FR-024**: System MUST be thread-safe by maintaining no mutable instance state beyond the working directory path
+- **FR-027**: System MUST be thread-safe by maintaining no mutable instance state beyond the working directory path
 
 **Scope Boundary**:
-- **FR-025**: System MUST NOT invoke any AI/Claude operations; this is pure Python git automation
+- **FR-028**: System MUST NOT invoke any AI/Claude operations; this is pure Python git automation
 
 ### Key Entities
 
 - **GitOperations**: The main class providing all git operations. Configured with an optional working directory path.
-- **DiffStats**: Represents diff statistics with files_changed (int), insertions (int), deletions (int), and file_list (list of file paths)
-- **GitStatus**: Represents repository status with staged (list), unstaged (list), untracked (list), branch (str), ahead (int), behind (int)
-- **CommitInfo**: Represents a commit with hash (str), short_hash (str), message (str), author (str), date (datetime or str)
+- **DiffStats**: Represents diff statistics with files_changed (int), insertions (int), deletions (int), and file_list (tuple of file paths)
+- **GitStatus**: Represents repository status with staged (tuple), unstaged (tuple), untracked (tuple), branch (str), ahead (int), behind (int)
+- **CommitInfo**: Represents a commit with hash (str), short_hash (str), message (str), author (str), date (str, ISO 8601 format)
 - **GitError**: Base exception for all git-related errors
 - **GitNotFoundError**: Raised when git CLI is not available
 - **NotARepositoryError**: Raised when not in a git repository
 - **BranchExistsError**: Raised when branch already exists
 - **MergeConflictError**: Raised when merge conflicts occur
 - **PushRejectedError**: Raised when remote rejects push
+- **NothingToCommitError**: Raised when commit attempted with no staged or unstaged changes
+- **NoStashError**: Raised when stash_pop called with empty stash list
+- **CheckoutConflictError**: Raised when checkout would overwrite uncommitted local changes
 
 ## Success Criteria *(mandatory)*
 
@@ -183,7 +189,7 @@ A workflow may need to temporarily set aside uncommitted changes to perform othe
 
 - **SC-001**: All 12 specified git operations execute successfully on valid repositories without errors
 - **SC-002**: 100% of error conditions raise the appropriate typed exception (not generic exceptions or boolean returns)
-- **SC-003**: All operations complete within 5 seconds for typical repository sizes (under 10,000 files)
+- **SC-003**: All operations complete within 5 seconds wall-clock time for typical repository sizes (under 10,000 files), measured from method call to return excluding test setup
 - **SC-004**: Module correctly handles all edge cases identified in the specification
 - **SC-005**: All structured return types (DiffStats, GitStatus, CommitInfo) contain accurate, parsed data matching git output
 - **SC-006**: Thread safety is verified by concurrent operations on the same repository not causing data corruption

@@ -124,12 +124,12 @@ Agents may need to send arbitrary notifications beyond workflow updates (e.g., a
 
 ### Edge Cases
 
-- What happens when ntfy.sh server is unreachable but configured?
-- How does the system handle git operations when in detached HEAD state?
-- What happens when validation commands timeout (e.g., test suite hangs)?
-- How are very large validation outputs handled (thousands of errors)?
-- What happens when git credentials are missing or expired?
-- How does the system behave when running outside a git repository?
+- **ntfy.sh server unreachable**: Return success with warning message after brief retry (1-2 attempts with 2s timeout); log warning for debugging; never block workflow
+- **Detached HEAD state**: `git_current_branch` returns "(detached)"; commits allowed; `git_push` returns warning that push requires a branch
+- **Validation timeout**: Kill process after configured timeout, return error with "timeout" status and any partial output captured
+- **Large validation output**: Truncate to first 50 errors with summary count (e.g., "Showing 50 of 1,247 errors"); configurable limit
+- **Git credentials missing/expired**: Detect authentication failure patterns, return structured error with "authentication_required" status and remediation hint (e.g., "Run 'gh auth login' or configure git credentials")
+- **Outside git repository**: Git tools return clear error with "not_a_repository" status (covered by FR-019)
 
 ## Requirements *(mandatory)*
 
@@ -156,6 +156,7 @@ Agents may need to send arbitrary notifications beyond workflow updates (e.g., a
 - **FR-011**: `send_workflow_update` MUST accept parameters: stage (required), message (required), workflow_name (optional)
 - **FR-012**: Notification tools MUST gracefully handle missing ntfy.sh configuration by returning success with "notifications disabled" message
 - **FR-013**: Notification tools MUST support configurable ntfy.sh server URL and topic via configuration
+- **FR-013a**: Notification tools MUST gracefully handle network failures with brief retry (1-2 attempts, 2s timeout per attempt), returning success with warning message and logging the failure
 
 #### Git Utility Tools
 
@@ -165,6 +166,9 @@ Agents may need to send arbitrary notifications beyond workflow updates (e.g., a
 - **FR-017**: `git_push` MUST accept parameters: set_upstream (optional, boolean, default false)
 - **FR-018**: `git_diff_stats` MUST return structured data: files_changed (int), insertions (int), deletions (int)
 - **FR-019**: Git tools MUST handle non-git-repository context gracefully with clear error messages
+- **FR-019a**: `git_current_branch` MUST return "(detached)" when in detached HEAD state
+- **FR-019b**: `git_push` MUST return an error with helpful message when in detached HEAD state, suggesting branch creation
+- **FR-019c**: `git_push` MUST detect authentication failures and return structured error with "authentication_required" status and remediation hint
 
 #### Validation Tools
 
@@ -175,6 +179,8 @@ Agents may need to send arbitrary notifications beyond workflow updates (e.g., a
 - **FR-024**: `parse_validation_output` MUST return structured errors with file, line, column (if available), and message
 - **FR-025**: Validation commands MUST be configurable via project configuration (e.g., pyproject.toml, maverick.yaml)
 - **FR-026**: `run_validation` MUST support timeout configuration with sensible defaults (5 minutes)
+- **FR-026a**: `run_validation` MUST kill timed-out processes and return error with "timeout" status, including any partial output captured before timeout
+- **FR-027**: `parse_validation_output` MUST truncate results to configurable limit (default 50 errors) and include total error count in response
 
 ### Key Entities
 
@@ -199,6 +205,16 @@ Agents may need to send arbitrary notifications beyond workflow updates (e.g., a
 - **SC-007**: Validation output parsing correctly extracts errors from common linter output formats (ruff, mypy)
 - **SC-008**: Error messages are clear enough that users can diagnose and fix issues without additional support in 90% of cases
 - **SC-009**: FlyWorkflow and RefuelWorkflow can successfully use these tools for their respective operations
+
+## Clarifications
+
+### Session 2025-12-15
+
+- Q: When ntfy.sh server is configured but unreachable, how should notification tools behave? → A: Return success with warning message after brief retry (graceful degradation)
+- Q: When validation tools produce very large output (thousands of errors), how should it be handled? → A: Truncate to first N errors (e.g., 50) with summary count of remaining
+- Q: How should git tools behave in detached HEAD state? → A: Return "(detached)" for git_current_branch; allow commits but warn on push
+- Q: When a validation command times out, what should happen? → A: Kill process after timeout, return error with "timeout" status and partial output
+- Q: When git credentials are missing or expired during push, how should the tool respond? → A: Detect auth failure, return structured error with "authentication_required" status and remediation hint
 
 ## Assumptions
 
