@@ -24,10 +24,10 @@
 
 **Purpose**: Module structure and foundational utilities
 
-- [ ] T001 Create module file `src/maverick/utils/context.py` with docstring and imports
-- [ ] T002 [P] Create test file `tests/unit/utils/test_context.py` with imports and fixtures
-- [ ] T003 [P] Create `tests/unit/utils/__init__.py` if not exists
-- [ ] T004 Add module exports to `src/maverick/utils/__init__.py`
+- [X] T001 Create module file `src/maverick/utils/context.py` with docstring and imports
+- [X] T002 [P] Create test file `tests/unit/utils/test_context.py` with imports and fixtures
+- [X] T003 [P] Create `tests/unit/utils/__init__.py` if not exists
+- [X] T004 Add module exports to `src/maverick/utils/__init__.py`
 
 ---
 
@@ -37,18 +37,18 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement `estimate_tokens(text: str) -> int` utility in `src/maverick/utils/context.py` (FR-006: chars / 4)
-- [ ] T006 [P] Implement `truncate_line(line: str, max_chars: int = 2000) -> str` utility in `src/maverick/utils/context.py`
-- [ ] T007 [P] Implement `detect_secrets(content: str) -> list[tuple[int, str]]` utility in `src/maverick/utils/context.py` (FR-015)
-- [ ] T008 Implement `truncate_file(content: str, max_lines: int, around_lines: list[int] | None, context_lines: int = 10) -> str` in `src/maverick/utils/context.py` (FR-005, FR-011)
-- [ ] T009 [P] Implement `extract_file_paths(text: str) -> list[str]` utility in `src/maverick/utils/context.py`
-- [ ] T010 [P] Implement `_read_file_safely(path: Path, max_lines: int = 50000) -> tuple[str, bool]` internal helper in `src/maverick/utils/context.py`
-- [ ] T011 [P] Implement `_read_conventions(path: Path | None) -> str` internal helper in `src/maverick/utils/context.py`
-- [ ] T012 [P] Add tests for `estimate_tokens` in `tests/unit/utils/test_context.py`
-- [ ] T013 [P] Add tests for `truncate_line` in `tests/unit/utils/test_context.py`
-- [ ] T014 [P] Add tests for `detect_secrets` in `tests/unit/utils/test_context.py`
-- [ ] T015 Add tests for `truncate_file` in `tests/unit/utils/test_context.py`
-- [ ] T016 [P] Add tests for `extract_file_paths` in `tests/unit/utils/test_context.py`
+- [X] T005 Implement `estimate_tokens(text: str) -> int` utility in `src/maverick/utils/context.py` (FR-006: chars / 4)
+- [X] T006 [P] Implement `truncate_line(line: str, max_chars: int = 2000) -> str` utility in `src/maverick/utils/context.py`
+- [X] T007 [P] Implement `detect_secrets(content: str) -> list[tuple[int, str]]` utility in `src/maverick/utils/context.py` (FR-015)
+- [X] T008 Implement `truncate_file(content: str, max_lines: int, around_lines: list[int] | None, context_lines: int = 10) -> str` in `src/maverick/utils/context.py` (FR-005, FR-011)
+- [X] T009 [P] Implement `extract_file_paths(text: str) -> list[str]` utility in `src/maverick/utils/context.py`
+- [X] T010 [P] Implement `_read_file_safely(path: Path, max_lines: int = 50000) -> tuple[str, bool]` internal helper in `src/maverick/utils/context.py`
+- [X] T011 [P] Implement `_read_conventions(path: Path | None) -> str` internal helper in `src/maverick/utils/context.py`
+- [X] T012 [P] Add tests for `estimate_tokens` in `tests/unit/utils/test_context.py`
+- [X] T013 [P] Add tests for `truncate_line` in `tests/unit/utils/test_context.py`
+- [X] T014 [P] Add tests for `detect_secrets` in `tests/unit/utils/test_context.py`
+- [X] T015 Add tests for `truncate_file` in `tests/unit/utils/test_context.py`
+- [X] T016 [P] Add tests for `extract_file_paths` in `tests/unit/utils/test_context.py`
 
 **Checkpoint**: Foundation ready - all utility functions tested and working
 
@@ -64,17 +64,17 @@
 
 > **NOTE: Write tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T017 [P] [US1] Add test for happy path (valid task file, git operations) in `tests/unit/utils/test_context.py`
-- [ ] T018 [P] [US1] Add test for missing task file returns empty content with metadata in `tests/unit/utils/test_context.py`
-- [ ] T019 [P] [US1] Add test for large CLAUDE.md truncation with metadata in `tests/unit/utils/test_context.py`
-- [ ] T020 [P] [US1] Add test for secret detection logging in `tests/unit/utils/test_context.py`
+- [X] T017 [P] [US1] Add test for happy path (valid task file, git operations) in `tests/unit/utils/test_context.py`
+- [X] T018 [P] [US1] Add test for missing task file returns empty content with metadata in `tests/unit/utils/test_context.py`
+- [X] T019 [P] [US1] Add test for large CLAUDE.md truncation with metadata in `tests/unit/utils/test_context.py`
+- [X] T020 [P] [US1] Add test for secret detection logging in `tests/unit/utils/test_context.py`
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Implement `build_implementation_context(task_file: Path, git: GitOperations, *, conventions_path: Path | None = None) -> ContextDict` in `src/maverick/utils/context.py` (FR-001)
-- [ ] T022 [US1] Add metadata population logic with `truncated`, `original_lines`, `kept_lines`, `sections_affected` fields (FR-010)
-- [ ] T023 [US1] Add secret detection logging calls within `build_implementation_context` (FR-015)
-- [ ] T024 [US1] Verify all tests pass for User Story 1
+- [X] T021 [US1] Implement `build_implementation_context(task_file: Path, git: GitOperations, *, conventions_path: Path | None = None) -> ContextDict` in `src/maverick/utils/context.py` (FR-001)
+- [X] T022 [US1] Add metadata population logic with `truncated`, `original_lines`, `kept_lines`, `sections_affected` fields (FR-010)
+- [X] T023 [US1] Add secret detection logging calls within `build_implementation_context` (FR-015)
+- [X] T024 [US1] Verify all tests pass for User Story 1
 
 **Checkpoint**: User Story 1 fully functional and testable independently
 
@@ -88,18 +88,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T025 [P] [US2] Add test for happy path (diff with changed files) in `tests/unit/utils/test_context.py`
-- [ ] T026 [P] [US2] Add test for large files truncation (>500 lines) in `tests/unit/utils/test_context.py`
-- [ ] T027 [P] [US2] Add test for no changes returns empty diff with stats in `tests/unit/utils/test_context.py`
-- [ ] T028 [P] [US2] Add test for binary files are skipped in `tests/unit/utils/test_context.py`
+- [X] T025 [P] [US2] Add test for happy path (diff with changed files) in `tests/unit/utils/test_context.py`
+- [X] T026 [P] [US2] Add test for large files truncation (>500 lines) in `tests/unit/utils/test_context.py`
+- [X] T027 [P] [US2] Add test for no changes returns empty diff with stats in `tests/unit/utils/test_context.py`
+- [X] T028 [P] [US2] Add test for binary files are skipped in `tests/unit/utils/test_context.py`
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Implement `build_review_context(git: GitOperations, base_branch: str, *, conventions_path: Path | None = None, max_file_lines: int = 500) -> ContextDict` in `src/maverick/utils/context.py` (FR-002, FR-012)
-- [ ] T030 [US2] Add file content reading with truncation for files >= 500 lines (FR-012)
-- [ ] T031 [US2] Add binary file detection and skipping with metadata note
-- [ ] T032 [US2] Add stats dict population (files_changed, insertions, deletions)
-- [ ] T033 [US2] Verify all tests pass for User Story 2
+- [X] T029 [US2] Implement `build_review_context(git: GitOperations, base_branch: str, *, conventions_path: Path | None = None, max_file_lines: int = 500) -> ContextDict` in `src/maverick/utils/context.py` (FR-002, FR-012)
+- [X] T030 [US2] Add file content reading with truncation for files >= 500 lines (FR-012)
+- [X] T031 [US2] Add binary file detection and skipping with metadata note
+- [X] T032 [US2] Add stats dict population (files_changed, insertions, deletions)
+- [X] T033 [US2] Verify all tests pass for User Story 2
 
 **Checkpoint**: User Stories 1 AND 2 both work independently
 
@@ -113,18 +113,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T034 [P] [US3] Add test for happy path (errors with source context) in `tests/unit/utils/test_context.py`
-- [ ] T035 [P] [US3] Add test for ±10 lines context around error lines in `tests/unit/utils/test_context.py`
-- [ ] T036 [P] [US3] Add test for no errors returns empty errors section in `tests/unit/utils/test_context.py`
-- [ ] T037 [P] [US3] Add test for overlapping error regions are merged in `tests/unit/utils/test_context.py`
+- [X] T034 [P] [US3] Add test for happy path (errors with source context) in `tests/unit/utils/test_context.py`
+- [X] T035 [P] [US3] Add test for ±10 lines context around error lines in `tests/unit/utils/test_context.py`
+- [X] T036 [P] [US3] Add test for no errors returns empty errors section in `tests/unit/utils/test_context.py`
+- [X] T037 [P] [US3] Add test for overlapping error regions are merged in `tests/unit/utils/test_context.py`
 
 ### Implementation for User Story 3
 
-- [ ] T038 [US3] Implement `build_fix_context(validation_output: ValidationOutput, files: list[Path], *, context_lines: int = 10) -> ContextDict` in `src/maverick/utils/context.py` (FR-003, FR-013)
-- [ ] T039 [US3] Add error extraction from ValidationOutput.stages[].errors
-- [ ] T040 [US3] Add source file truncation using `truncate_file` with around_lines from errors
-- [ ] T041 [US3] Add error_summary generation (e.g., "3 errors in 2 files")
-- [ ] T042 [US3] Verify all tests pass for User Story 3
+- [X] T038 [US3] Implement `build_fix_context(validation_output: ValidationOutput, files: list[Path], *, context_lines: int = 10) -> ContextDict` in `src/maverick/utils/context.py` (FR-003, FR-013)
+- [X] T039 [US3] Add error extraction from ValidationOutput.stages[].errors
+- [X] T040 [US3] Add source file truncation using `truncate_file` with around_lines from errors
+- [X] T041 [US3] Add error_summary generation (e.g., "3 errors in 2 files")
+- [X] T042 [US3] Verify all tests pass for User Story 3
 
 **Checkpoint**: User Stories 1, 2, AND 3 all work independently
 
@@ -138,19 +138,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T043 [P] [US4] Add test for happy path (issue with file references) in `tests/unit/utils/test_context.py`
-- [ ] T044 [P] [US4] Add test for file path extraction from issue body in `tests/unit/utils/test_context.py`
-- [ ] T045 [P] [US4] Add test for non-existent referenced files handled gracefully in `tests/unit/utils/test_context.py`
-- [ ] T046 [P] [US4] Add test for issue with no file references returns empty related_files in `tests/unit/utils/test_context.py`
+- [X] T043 [P] [US4] Add test for happy path (issue with file references) in `tests/unit/utils/test_context.py`
+- [X] T044 [P] [US4] Add test for file path extraction from issue body in `tests/unit/utils/test_context.py`
+- [X] T045 [P] [US4] Add test for non-existent referenced files handled gracefully in `tests/unit/utils/test_context.py`
+- [X] T046 [P] [US4] Add test for issue with no file references returns empty related_files in `tests/unit/utils/test_context.py`
 
 ### Implementation for User Story 4
 
-- [ ] T047 [US4] Implement `build_issue_context(issue: GitHubIssue, git: GitOperations, *, max_related_files: int = 10) -> ContextDict` in `src/maverick/utils/context.py` (FR-004) - import `GitHubIssue` from `maverick.runners.models`
-- [ ] T048 [US4] Add issue dict conversion (number, title, body, labels, state, url)
-- [ ] T049 [US4] Add file path extraction from issue body using `extract_file_paths`
-- [ ] T050 [US4] Add related file content reading with existence checks
-- [ ] T051 [US4] Add recent_changes population (last 5 commits)
-- [ ] T052 [US4] Verify all tests pass for User Story 4
+- [X] T047 [US4] Implement `build_issue_context(issue: GitHubIssue, git: GitOperations, *, max_related_files: int = 10) -> ContextDict` in `src/maverick/utils/context.py` (FR-004) - import `GitHubIssue` from `maverick.runners.models`
+- [X] T048 [US4] Add issue dict conversion (number, title, body, labels, state, url)
+- [X] T049 [US4] Add file path extraction from issue body using `extract_file_paths`
+- [X] T050 [US4] Add related file content reading with existence checks
+- [X] T051 [US4] Add recent_changes population (last 5 commits)
+- [X] T052 [US4] Verify all tests pass for User Story 4
 
 **Checkpoint**: User Stories 1-4 all work independently
 
@@ -164,18 +164,18 @@
 
 ### Tests for User Story 5
 
-- [ ] T053 [P] [US5] Add test for sections under budget returned unchanged in `tests/unit/utils/test_context.py`
-- [ ] T054 [P] [US5] Add test for sections over budget proportionally truncated in `tests/unit/utils/test_context.py`
-- [ ] T055 [P] [US5] Add test for result within 5% of budget (SC-002) in `tests/unit/utils/test_context.py`
-- [ ] T056 [P] [US5] Add test for minimum section tokens honored in `tests/unit/utils/test_context.py`
+- [X] T053 [P] [US5] Add test for sections under budget returned unchanged in `tests/unit/utils/test_context.py`
+- [X] T054 [P] [US5] Add test for sections over budget proportionally truncated in `tests/unit/utils/test_context.py`
+- [X] T055 [P] [US5] Add test for result within 5% of budget (SC-002) in `tests/unit/utils/test_context.py`
+- [X] T056 [P] [US5] Add test for minimum section tokens honored in `tests/unit/utils/test_context.py`
 
 ### Implementation for User Story 5
 
-- [ ] T057 [US5] Implement `fit_to_budget(sections: dict[str, str], budget: int = 32000, *, min_section_tokens: int = 100) -> dict[str, str]` in `src/maverick/utils/context.py` (FR-007)
-- [ ] T058 [US5] Add proportional allocation algorithm (section_budget = budget * section_tokens / total_tokens)
-- [ ] T059 [US5] Add minimum token guarantee per section
-- [ ] T060 [US5] Add _metadata key with truncation info when budget exceeded
-- [ ] T061 [US5] Verify all tests pass for User Story 5
+- [X] T057 [US5] Implement `fit_to_budget(sections: dict[str, str], budget: int = 32000, *, min_section_tokens: int = 100) -> dict[str, str]` in `src/maverick/utils/context.py` (FR-007)
+- [X] T058 [US5] Add proportional allocation algorithm (section_budget = budget * section_tokens / total_tokens)
+- [X] T059 [US5] Add minimum token guarantee per section
+- [X] T060 [US5] Add _metadata key with truncation info when budget exceeded
+- [X] T061 [US5] Verify all tests pass for User Story 5
 
 **Checkpoint**: All user stories fully functional
 
@@ -185,12 +185,12 @@
 
 **Purpose**: Final verification and integration
 
-- [ ] T062 Run all tests with pytest: `PYTHONPATH=src pytest tests/unit/utils/test_context.py -v`
-- [ ] T063 Run type checking: `PYTHONPATH=src mypy src/maverick/utils/context.py --strict`
-- [ ] T064 Run linting: `ruff check src/maverick/utils/context.py`
-- [ ] T065 [P] Verify test coverage >= 100% for happy path and error scenarios (SC-005)
+- [X] T062 Run all tests with pytest: `PYTHONPATH=src pytest tests/unit/utils/test_context.py -v`
+- [X] T063 Run type checking: `PYTHONPATH=src mypy src/maverick/utils/context.py --strict`
+- [X] T064 Run linting: `ruff check src/maverick/utils/context.py`
+- [X] T065 [P] Verify test coverage >= 100% for happy path and error scenarios (SC-005)
 - [ ] T066 Run quickstart.md code examples to validate usage documentation
-- [ ] T067 Final code cleanup and docstring review
+- [X] T067 Final code cleanup and docstring review
 
 ---
 
