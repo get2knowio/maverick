@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create a spec for two related agents in Maverick: ImplementerAgent and IssueFixerAgent"
 
+## Clarifications
+
+### Session 2025-12-14
+
+- Q: How should ImplementerAgent handle tasks marked for parallel execution ("P:" prefix)? → A: Agent spawns sub-agents for parallel task execution.
+- Q: What format should task files follow for parsing? → A: Use `.specify` tasks.md format - checkbox items with `[ ]`, task IDs like `[T001]`, `P:` prefix for parallel.
+- Q: How should parallel sub-agent failures be handled? → A: Retry failed sub-agent while others continue, then aggregate all results.
+- Q: How should GitHub API failures be handled? → A: Retry up to 3 times with exponential backoff, then fail with actionable error message.
+- Q: How should git commit failures be handled? → A: Auto-recover common issues (stash/unstash for dirty index, fix hook failures if possible), fail on merge conflicts.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Execute Implementation Tasks from Task File (Priority: P1)
@@ -106,14 +116,14 @@ For workflow optimization, the IssueFixerAgent can accept pre-fetched issue data
 
 ### Edge Cases
 
-- What happens when a task file has invalid format or syntax?
-- How does ImplementerAgent handle tasks marked as parallel ("P:" prefix)?
-- What happens when a GitHub issue doesn't exist or is inaccessible?
-- How are very large task files handled (50+ tasks)?
-- What happens when git commit fails (dirty index, hooks)?
-- How does IssueFixerAgent handle issues with no clear reproduction steps?
-- What happens when validation commands are not configured for the project?
-- How are tasks with external dependencies (APIs, databases) handled?
+- Task file has invalid format or syntax: Raise `TaskParseError` with line number and description (e.g., "Line 42: Invalid task ID format 'TX1', expected 'T###'"). Do not attempt partial execution.
+- GitHub issue doesn't exist: Return error with "Issue #N not found" after retry exhaustion.
+- GitHub inaccessible: Retry with exponential backoff, then fail with actionable error.
+- Very large task files (50+ tasks): Process all tasks sequentially/parallel as normal. Log warning at 100+ tasks ("Large task file detected: 150 tasks. Consider splitting into phases."). No hard limit.
+- Git commit fails (dirty index): Auto-stash, commit, unstash. Pre-commit hook failure: Attempt auto-fix, retry. Merge conflict: Fail with descriptive error.
+- Issue has no clear reproduction steps: Attempt best-effort fix based on issue title, description, and code analysis. Set `verification_passed=False` in result. Add note to `fix_description`: "Unable to verify fix - no reproduction steps provided."
+- Validation commands not configured: Check for ruff/mypy/pytest in pyproject.toml or environment. If missing, skip that validation step with warning logged. Set `validation_passed=True` with note in metadata: `{"skipped_validation": ["lint", "typecheck"]}`.
+- Tasks with external dependencies (APIs, databases): Treat as out of scope for agent. Task description should include any required mock setup. Agent will not provision infrastructure. If external dependency blocks execution, fail task with error: "External dependency unavailable: {description}".
 
 ## Requirements *(mandatory)*
 
@@ -124,7 +134,8 @@ For workflow optimization, the IssueFixerAgent can accept pre-fetched issue data
 - **FR-003**: `ImplementerAgent` MUST specify allowed tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep.
 - **FR-004**: `ImplementerAgent` MUST implement an `execute()` method that accepts context containing: task file path OR task description, and branch name.
 - **FR-005**: The `execute()` method MUST parse task files to extract individual tasks with their metadata (priority, dependencies, parallel markers).
-- **FR-006**: The `execute()` method MUST work through tasks sequentially unless marked for parallel execution.
+- **FR-006**: The `execute()` method MUST work through tasks sequentially unless marked for parallel execution ("P:" prefix), in which case it spawns sub-agents to execute parallel tasks concurrently using asyncio.
+- **FR-006a**: When a parallel sub-agent fails, the system MUST retry the failed sub-agent (up to 3 attempts) while other sub-agents continue, then aggregate all results.
 - **FR-007**: The `execute()` method MUST create git commits after each logical unit of work with conventional commit messages.
 - **FR-008**: The `execute()` method MUST run validation (format, lint, test) before considering any task complete.
 - **FR-009**: The `execute()` method MUST return an `ImplementationResult` dataclass with files changed, tests added, and commits created.
@@ -137,6 +148,7 @@ For workflow optimization, the IssueFixerAgent can accept pre-fetched issue data
 - **FR-013**: `IssueFixerAgent` MUST specify allowed tools: Read, Write, Edit, Bash, Glob, Grep, plus GitHub MCP tools for issue interaction.
 - **FR-014**: `IssueFixerAgent` MUST implement an `execute()` method that accepts context containing: issue number OR issue data dictionary.
 - **FR-015**: The `execute()` method MUST fetch issue details from GitHub when given an issue number.
+- **FR-015a**: GitHub API calls MUST retry up to 3 times with exponential backoff on failure, then raise an error with actionable message (e.g., "GitHub rate limit exceeded, retry after X seconds").
 - **FR-016**: The `execute()` method MUST analyze the issue to understand the problem and identify affected code.
 - **FR-017**: The `execute()` method MUST implement a fix with minimal code changes (no unrelated refactoring).
 - **FR-018**: The `execute()` method MUST verify the fix works by running relevant tests or reproduction steps.
@@ -149,6 +161,7 @@ For workflow optimization, the IssueFixerAgent can accept pre-fetched issue data
 - **FR-022**: Both agents MUST follow project conventions documented in CLAUDE.md if present.
 - **FR-023**: Both agents MUST produce conventional commit messages following the pattern: `type(scope): description`.
 - **FR-024**: Both agents MUST handle validation failures by attempting auto-fix up to 3 times before failing.
+- **FR-024a**: Both agents MUST auto-recover from common git failures: stash/unstash for dirty index, retry after fixing pre-commit hook issues. Merge conflicts MUST fail with descriptive error.
 - **FR-025**: Both agents MUST provide machine-parseable output (JSON-structured) that can be deserialized into result dataclasses.
 
 ### Key Entities
@@ -181,7 +194,7 @@ For workflow optimization, the IssueFixerAgent can accept pre-fetched issue data
 - The base `MaverickAgent` class exists and provides the abstract interface (from feature 002-base-agent).
 - `AgentResult` and `AgentContext` dataclasses are available from the base agent module.
 - Git is installed and the working directory is a git repository.
-- Task files follow a consistent format (markdown with task items, priorities, and optional parallel markers).
+- Task files follow the `.specify` tasks.md format: checkbox items with `[ ]` or `[x]`, task IDs like `[T001]`, optional `P:` prefix for parallel execution markers.
 - GitHub CLI (`gh`) is installed and authenticated for issue fetching.
 - Project validation commands (format, lint, test) are configured via pyproject.toml or similar.
 - CLAUDE.md is located at the repository root if it exists.

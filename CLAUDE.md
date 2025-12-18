@@ -118,3 +118,42 @@ Tech-debt resolution workflow:
 The `plugins/maverick/` directory contains the legacy Claude Code plugin implementation being migrated. Reference for workflow logic:
 - `plugins/maverick/commands/` - Slash command definitions
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
+
+## Active Technologies
+- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic (001-maverick-foundation)
+- YAML config files (project: `maverick.yaml`, user: `~/.config/maverick/config.yaml`) (001-maverick-foundation)
+- Claude Agent SDK (`claude-agent-sdk`), Pydantic for MaverickAgent base class (002-base-agent)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI (003-code-reviewer-agent)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, GitHub CLI (`gh`) (004-implementer-issue-fixer-agents)
+- N/A (file system for task files, Git for commits) (004-implementer-issue-fixer-agents)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), GitHub CLI (`gh`) (005-github-mcp-tools)
+- N/A (tools interact with GitHub API via CLI) (005-github-mcp-tools)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, ntfy.sh (HTTP API) (006-utility-mcp-tools)
+- N/A (tools interact with external systems: git, ntfy.sh, validation commands) (006-utility-mcp-tools)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (for configuration models) (007-safety-hooks)
+- N/A (metrics in-memory with rolling window; logs via standard Python logging) (007-safety-hooks)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, asyncio (008-validation-workflow)
+- N/A (in-memory state during workflow execution) (008-validation-workflow)
+- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (009-fly-workflow)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (010-refuel-workflow)
+- N/A (no persistence; in-memory state during workflow execution) (010-refuel-workflow)
+- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Click (CLI entry point), Pydantic (for configuration models) (011-tui-layout-theming)
+- N/A (in-memory state; workflows provide state via async generators) (011-tui-layout-theming)
+- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Rich (syntax highlighting via Textual's built-in support) (012-workflow-widgets)
+- N/A (in-memory state; widgets receive immutable snapshots) (012-workflow-widgets)
+- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Click (CLI), Pydantic (configuration models) (013-tui-interactive-screens)
+- JSON file at `~/.config/maverick/history.json` for workflow history (013-tui-interactive-screens)
+- Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Textual (TUI), Pydantic (config validation), existing workflows (FlyWorkflow, RefuelWorkflow) (014-cli-entry-point)
+- Python 3.10+ (with `from __future__ import annotations`) + pytest>=7.0.0, pytest-asyncio>=0.21.0, pytest-cov>=4.0.0, ruff, mypy, textual (for pilot testing), click (for CliRunner) (015-testing-infrastructure)
+- N/A (no persistent storage; in-memory state during test execution) (015-testing-infrastructure)
+- Python 3.10+ (with `from __future__ import annotations`) + subprocess (stdlib), dataclasses (stdlib), pathlib (stdlib) (016-git-operations)
+- N/A (operates on git repositories) (016-git-operations)
+- Python 3.10+ with `from __future__ import annotations` + asyncio (stdlib), dataclasses (stdlib), pathlib (stdlib), signal (stdlib) (017-subprocess-runners)
+- N/A (in-memory state during execution) (017-subprocess-runners)
+- Python 3.10+ (with `from __future__ import annotations`) + pathlib (stdlib), logging (stdlib), re (stdlib), existing GitOperations utility (018-context-builder)
+- N/A (read-only file access, no persistence) (018-context-builder)
+
+## Recent Changes
+- 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
+- 002-base-agent: Added MaverickAgent abstract base class with Claude Agent SDK integration
+- 001-maverick-foundation: Added Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic
