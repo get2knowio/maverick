@@ -91,3 +91,20 @@ try:
     ])
 except ImportError:
     logger.debug("Task parser utilities not yet available")
+
+# Git operations (synchronous wrapper)
+try:
+    from maverick.utils.git_operations import (
+        CommitInfo,
+        DiffStats,
+        GitOperations,
+        GitStatus,
+    )
+    __all__.extend([
+        "CommitInfo",
+        "DiffStats",
+        "GitOperations",
+        "GitStatus",
+    ])
+except ImportError:
+    logger.debug("Git operations utilities not yet available")

@@ -146,6 +146,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Textual (TUI), Pydantic (config validation), existing workflows (FlyWorkflow, RefuelWorkflow) (014-cli-entry-point)
 - Python 3.10+ (with `from __future__ import annotations`) + pytest>=7.0.0, pytest-asyncio>=0.21.0, pytest-cov>=4.0.0, ruff, mypy, textual (for pilot testing), click (for CliRunner) (015-testing-infrastructure)
 - N/A (no persistent storage; in-memory state during test execution) (015-testing-infrastructure)
+- Python 3.10+ (with `from __future__ import annotations`) + subprocess (stdlib), dataclasses (stdlib), pathlib (stdlib) (016-git-operations)
+- N/A (operates on git repositories) (016-git-operations)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
