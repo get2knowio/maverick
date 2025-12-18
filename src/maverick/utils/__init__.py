@@ -108,3 +108,32 @@ try:
     ])
 except ImportError:
     logger.debug("Git operations utilities not yet available")
+
+# Context builder utilities
+try:
+    from maverick.utils.context import (
+        build_fix_context,
+        build_implementation_context,
+        build_issue_context,
+        build_review_context,
+        detect_secrets,
+        estimate_tokens,
+        extract_file_paths,
+        fit_to_budget,
+        truncate_file,
+        truncate_line,
+    )
+    __all__.extend([
+        "build_fix_context",
+        "build_implementation_context",
+        "build_issue_context",
+        "build_review_context",
+        "detect_secrets",
+        "estimate_tokens",
+        "extract_file_paths",
+        "fit_to_budget",
+        "truncate_file",
+        "truncate_line",
+    ])
+except ImportError:
+    logger.debug("Context builder utilities not yet available")
