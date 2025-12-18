@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
     from maverick.runners.models import GitHubIssue, ValidationOutput
@@ -57,7 +57,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # Type alias for context dictionaries
-ContextDict = dict[str, Any]
+ContextDict: TypeAlias = dict[str, Any]
 
 # =============================================================================
 # Constants
@@ -88,6 +88,7 @@ DEFAULT_MIN_SECTION_TOKENS = 100
 DEFAULT_MAX_FILE_LINES_REVIEW = 500
 DEFAULT_MAX_RELATED_FILES = 10
 DEFAULT_RECENT_COMMITS = 10
+MAX_PARENT_SEARCH_DEPTH = 10
 
 # =============================================================================
 # Foundational Utilities
@@ -217,8 +218,19 @@ def _read_file_safely(
 
     Note:
         Returns empty string and False if file doesn't exist or can't be read.
+        Binary files (detected by null bytes in first 8KB) are skipped.
     """
     if not path.exists() or not path.is_file():
+        return "", False
+
+    # Check for binary content (null bytes in first 8KB)
+    try:
+        with path.open('rb') as f:
+            sample = f.read(8192)
+            if b'\x00' in sample:
+                logger.debug("Skipping binary file: %s", path)
+                return "", False
+    except OSError:
         return "", False
 
     try:
@@ -255,7 +267,7 @@ def _read_conventions(path: Path | None = None) -> str:
 
     # Search for CLAUDE.md in current directory and parents
     search_path = Path.cwd()
-    for _ in range(10):  # Limit search depth
+    for _ in range(MAX_PARENT_SEARCH_DEPTH):  # Limit search depth
         claude_md = search_path / "CLAUDE.md"
         if claude_md.exists():
             content, _ = _read_file_safely(claude_md)
@@ -394,6 +406,14 @@ def build_implementation_context(
         - recent_commits: List of last 10 commits as dicts
         - _metadata: TruncationMetadata with truncation info
 
+    Raises:
+        No exceptions are raised; errors are handled gracefully with warnings logged.
+
+    Note:
+        Git operation failures result in default values
+        ("unknown" branch, empty commits list).
+        File I/O errors return empty content with appropriate metadata.
+
     Example:
         >>> git = GitOperations()
         >>> ctx = build_implementation_context(Path("tasks.md"), git)
@@ -434,8 +454,8 @@ def build_implementation_context(
     # Get branch info
     try:
         branch = git.current_branch()
-    except Exception:
-        logger.warning("Failed to get current branch")
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Failed to get current branch: %s", e)
         branch = "unknown"
 
     # Get recent commits
@@ -449,8 +469,8 @@ def build_implementation_context(
                 "author": commit.author,
                 "date": commit.date,
             })
-    except Exception:
-        logger.warning("Failed to get recent commits")
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Failed to get recent commits: %s", e)
 
     # Calculate line counts
     tasks_lines = tasks_content.count("\n") + 1 if tasks_content else 0
@@ -497,6 +517,13 @@ def build_review_context(
         - stats: Dict with files_changed, insertions, deletions counts
         - _metadata: TruncationMetadata with truncation info
 
+    Raises:
+        No exceptions are raised; errors are handled gracefully with warnings logged.
+
+    Note:
+        Git operation failures result in empty diff/stats.
+        Individual file read errors are logged and skipped.
+
     Example:
         >>> git = GitOperations()
         >>> ctx = build_review_context(git, "main")
@@ -511,8 +538,8 @@ def build_review_context(
     # Get diff
     try:
         diff_content = git.diff(base=base_branch)
-    except Exception:
-        logger.warning("Failed to get diff against %s", base_branch)
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Failed to get diff against %s: %s", base_branch, e)
         diff_content = ""
 
     # Get diff stats
@@ -526,8 +553,8 @@ def build_review_context(
             "deletions": diff_stats.deletions,
         }
         changed_file_list = list(diff_stats.file_list)
-    except Exception:
-        logger.warning("Failed to get diff stats")
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Failed to get diff stats: %s", e)
 
     # Read changed files
     changed_files: dict[str, str] = {}
@@ -544,8 +571,8 @@ def build_review_context(
                 if "changed_files" not in sections_affected:
                     sections_affected.append("changed_files")
             changed_files[file_path] = content
-        except Exception:
-            logger.warning("Failed to read changed file: %s", file_path)
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.warning("Failed to read changed file %s: %s", file_path, e)
 
     # Read conventions
     conventions_content = _read_conventions(conventions_path)
@@ -608,6 +635,12 @@ def build_fix_context(
         - source_files: Dict mapping file paths to truncated content with context
         - error_summary: Human-readable summary (e.g., "3 errors in 2 files")
         - _metadata: TruncationMetadata with truncation info
+
+    Raises:
+        No exceptions are raised; missing files are handled gracefully.
+
+    Note:
+        File I/O errors return empty content with appropriate metadata.
 
     Example:
         >>> ctx = build_fix_context(validation_result, [Path("src/main.py")])
@@ -676,6 +709,17 @@ def build_fix_context(
             kept_lines += content_lines
             source_files[file_str] = content
 
+    # Check for secrets in source files
+    for file_str, content in source_files.items():
+        secrets = detect_secrets(content)
+        for line_num, pattern in secrets:
+            logger.warning(
+                "Potential secret detected in %s at line %d: %s pattern",
+                file_str,
+                line_num,
+                pattern,
+            )
+
     # Generate error summary
     error_count = len(errors)
     file_count = len({e["file"] for e in errors})
@@ -723,6 +767,13 @@ def build_issue_context(
         - related_files: Dict mapping file paths to their content
         - recent_changes: List of last 5 commits as dicts
         - _metadata: TruncationMetadata with truncation info
+
+    Raises:
+        No exceptions are raised; errors are handled gracefully with warnings logged.
+
+    Note:
+        Git operation failures result in empty recent_changes list.
+        Missing related files are skipped silently.
 
     Example:
         >>> ctx = build_issue_context(issue, git)
@@ -789,8 +840,8 @@ def build_issue_context(
                 "author": commit.author,
                 "date": commit.date,
             })
-    except Exception:
-        logger.warning("Failed to get recent changes")
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Failed to get recent changes: %s", e)
 
     return {
         "issue": issue_dict,

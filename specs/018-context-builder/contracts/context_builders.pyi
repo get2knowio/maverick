@@ -178,7 +178,7 @@ def fit_to_budget(
     budget: int = 32000,
     *,
     min_section_tokens: int = 100,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Proportionally truncate sections to fit token budget.
 
     Args:

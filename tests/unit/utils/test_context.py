@@ -23,6 +23,8 @@ from maverick.utils.context import (
     fit_to_budget,
     truncate_file,
     truncate_line,
+    _read_file_safely,
+    _read_conventions,
 )
 
 if TYPE_CHECKING:
@@ -224,6 +226,45 @@ class TestEstimateTokens:
 
 
 # =============================================================================
+# Tests: _read_file_safely (internal utility)
+# =============================================================================
+
+
+class TestReadFileSafely:
+    """Tests for _read_file_safely internal utility."""
+
+    def test_read_file_safely_with_permission_error(self, tmp_path: Path) -> None:
+        """Test _read_file_safely handles permission errors gracefully."""
+        file_path = tmp_path / "no_read.txt"
+        file_path.write_text("content")
+        file_path.chmod(0o000)
+
+        try:
+            content, truncated = _read_file_safely(file_path)
+            assert content == ""
+            assert truncated is False
+        finally:
+            file_path.chmod(0o644)  # Restore for cleanup
+
+
+# =============================================================================
+# Tests: _read_conventions (internal utility)
+# =============================================================================
+
+
+class TestReadConventions:
+    """Tests for _read_conventions internal utility."""
+
+    def test_read_conventions_no_claude_md_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _read_conventions when no CLAUDE.md exists anywhere."""
+        # Use tmp_path as cwd (no CLAUDE.md exists)
+        monkeypatch.chdir(tmp_path)
+
+        result = _read_conventions()
+        assert result == ""
+
+
+# =============================================================================
 # Tests: truncate_line (T013)
 # =============================================================================
 
@@ -358,6 +399,23 @@ class TestTruncateFile:
         assert "line 50" in result
         assert "line 45" in result
         assert "line 55" in result
+
+    def test_truncate_file_severe_budget_constraint(self) -> None:
+        """Test truncate_file handles severe budget constraints."""
+        content = "\n".join(f"line {i}" for i in range(1, 201))  # 200 lines
+
+        # Request context around many lines but with tiny budget
+        result = truncate_file(
+            content,
+            max_lines=10,  # Very small budget
+            around_lines=[50, 100, 150],  # Multiple targets
+            context_lines=5,
+        )
+
+        # Should still produce valid output
+        assert "..." in result
+        result_lines = result.splitlines()
+        assert len([l for l in result_lines if not l.startswith("...")]) <= 15
 
 
 # =============================================================================
@@ -508,8 +566,8 @@ class TestBuildImplementationContext:
     ) -> None:
         """Handles git errors gracefully."""
         mock_git = MagicMock()
-        mock_git.current_branch.side_effect = Exception("Git error")
-        mock_git.log.side_effect = Exception("Git error")
+        mock_git.current_branch.side_effect = OSError("Git error")
+        mock_git.log.side_effect = RuntimeError("Git error")
 
         context = build_implementation_context(
             task_file=temp_task_file,
@@ -518,6 +576,20 @@ class TestBuildImplementationContext:
 
         assert context["branch"] == "unknown"
         assert context["recent_commits"] == []
+
+    def test_build_implementation_context_task_file_truncation(
+        self, tmp_path: Path, mock_git: MagicMock
+    ) -> None:
+        """Test metadata reflects task file truncation."""
+        # Create a very large task file
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("\n".join(f"Task {i}" for i in range(60000)))
+
+        context = build_implementation_context(task_file, mock_git)
+
+        # Should have truncation metadata
+        assert context["_metadata"]["truncated"] is True
+        assert "tasks" in context["_metadata"]["sections_affected"]
 
 
 # =============================================================================
