@@ -879,3 +879,33 @@ class GitHubAuthError(RunnerError):
     def __init__(self) -> None:
         """Initialize the GitHubAuthError."""
         super().__init__("GitHub CLI not authenticated. Run: gh auth login")
+
+
+class GeneratorError(AgentError):
+    """Exception for generator agent failures.
+
+    Raised when a generator agent fails during text generation. This includes
+    API errors, invalid input validation, and other generation failures.
+
+    Attributes:
+        message: Human-readable error message.
+        generator_name: Name of the generator that failed.
+        input_context: Sanitized context that caused the failure.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        generator_name: str | None = None,
+        input_context: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize the GeneratorError.
+
+        Args:
+            message: Human-readable error message.
+            generator_name: Name of the generator that failed.
+            input_context: Sanitized context that caused the failure.
+        """
+        self.generator_name = generator_name
+        self.input_context = input_context
+        super().__init__(message, agent_name=generator_name)
