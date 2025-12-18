@@ -16,24 +16,21 @@ import pytest
 
 from maverick.agents.code_reviewer import (
     ALLOWED_TOOLS,
-    CodeReviewerAgent,
     DEFAULT_BASE_BRANCH,
     MAX_DIFF_FILES,
     MAX_DIFF_LINES,
     MAX_TOKENS_PER_CHUNK,
     SYSTEM_PROMPT,
+    CodeReviewerAgent,
 )
 from maverick.agents.context import AgentContext
 from maverick.agents.result import AgentUsage
 from maverick.exceptions import AgentError
 from maverick.models.review import (
     ReviewContext,
-    ReviewFinding,
-    ReviewResult,
     ReviewSeverity,
     UsageStats,
 )
-
 
 # =============================================================================
 # Fixtures

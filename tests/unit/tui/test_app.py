@@ -8,7 +8,7 @@ action methods, and command provider functionality.
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from textual.command import Hit

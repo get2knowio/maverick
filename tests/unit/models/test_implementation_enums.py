@@ -11,7 +11,6 @@ import pytest
 
 from maverick.models.implementation import ChangeType, TaskStatus, ValidationStep
 
-
 # =============================================================================
 # TaskStatus Tests
 # =============================================================================

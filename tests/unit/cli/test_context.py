@@ -11,7 +11,6 @@ Tests the CLI context management, exit codes, and utilities:
 from __future__ import annotations
 
 import asyncio
-import sys
 from enum import IntEnum
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -28,7 +27,6 @@ from maverick.cli.context import (
 )
 from maverick.cli.output import OutputFormat
 from maverick.config import MaverickConfig
-
 
 # =============================================================================
 # ExitCode Tests

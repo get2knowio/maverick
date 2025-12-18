@@ -7,12 +7,7 @@ tested without triggering those runtime checks.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, PropertyMock, patch
-
-import pytest
-
 from maverick.tui.screens.workflow import WorkflowScreen
-
 
 # =============================================================================
 # WorkflowScreen Initialization Tests

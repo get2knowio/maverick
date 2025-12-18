@@ -16,7 +16,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -35,7 +35,6 @@ from maverick.tools.validation import (
     _success_response,
     create_validation_tools_server,
 )
-
 
 # =============================================================================
 # Test Fixtures (T073)
@@ -412,7 +411,6 @@ class TestRunValidation:
 
         # Instead, let's test "build" which is an alias for typecheck
         # If typecheck_cmd is None, build will also map to None
-        from unittest.mock import patch, PropertyMock
 
         # Create a custom config where we'll simulate None command
         class MockConfig:

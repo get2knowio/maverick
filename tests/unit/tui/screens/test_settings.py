@@ -27,14 +27,15 @@ from textual.widgets import Button, Static
 
 from maverick.tui.models import (
     SettingDefinition,
+    SettingsScreenState,
     SettingType,
     SettingValue,
-    SettingsScreenState,
+)
+from maverick.tui.models import (
     SettingsSection as SettingsSectionModel,
 )
 from maverick.tui.screens.settings import SettingsScreen
 from maverick.tui.widgets.settings import SettingField, SettingsSection
-
 
 # =============================================================================
 # SettingsScreen Tests

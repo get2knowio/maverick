@@ -276,7 +276,7 @@ class TestCreateLoggingHooks:
 
     def test_uses_provided_metrics_collector(self) -> None:
         """Test uses provided metrics collector."""
-        from maverick.hooks import create_logging_hooks, MetricsCollector
+        from maverick.hooks import MetricsCollector, create_logging_hooks
 
         collector = MetricsCollector()
         hooks = create_logging_hooks(metrics_collector=collector)

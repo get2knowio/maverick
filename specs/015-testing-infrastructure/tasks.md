@@ -24,10 +24,10 @@
 
 **Purpose**: Project initialization and test directory structure
 
-- [ ] T001 Create tests/fixtures/ directory with __init__.py
-- [ ] T002 Create tests/utils/ directory with __init__.py
-- [ ] T003 Create tests/tui/ directory with __init__.py for dedicated TUI tests
-- [ ] T004 [P] Create tests/unit/config/ directory with __init__.py for configuration tests
+- [X] T001 Create tests/fixtures/ directory with __init__.py
+- [X] T002 Create tests/utils/ directory with __init__.py
+- [X] T003 Create tests/tui/ directory with __init__.py for dedicated TUI tests
+- [X] T004 [P] Create tests/unit/config/ directory with __init__.py for configuration tests
 
 ---
 
@@ -37,12 +37,12 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement MockMessage class in tests/fixtures/agents.py
-- [ ] T006 Implement MockSDKClient class with response queue in tests/fixtures/agents.py (depends on T005)
-- [ ] T007 [P] Implement mock_text_message factory fixture in tests/fixtures/agents.py
-- [ ] T008 [P] Implement mock_result_message factory fixture in tests/fixtures/agents.py
-- [ ] T009 [P] Implement mock_sdk_client fixture in tests/fixtures/agents.py
-- [ ] T010 Update tests/conftest.py to register fixture plugins from tests/fixtures/
+- [X] T005 Implement MockMessage class in tests/fixtures/agents.py
+- [X] T006 Implement MockSDKClient class with response queue in tests/fixtures/agents.py (depends on T005)
+- [X] T007 [P] Implement mock_text_message factory fixture in tests/fixtures/agents.py
+- [X] T008 [P] Implement mock_result_message factory fixture in tests/fixtures/agents.py
+- [X] T009 [P] Implement mock_sdk_client fixture in tests/fixtures/agents.py
+- [X] T010 Update tests/conftest.py to register fixture plugins from tests/fixtures/
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -56,15 +56,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Create sample MaverickConfig fixtures in tests/fixtures/config.py (FR-002)
-- [ ] T012 [P] [US1] Create sample agent response fixtures in tests/fixtures/responses.py (FR-004)
-- [ ] T013 [US1] Implement AsyncGeneratorCapture utility in tests/utils/async_helpers.py (FR-005)
-- [ ] T014 [US1] Implement AgentResultAssertion helpers in tests/utils/assertions.py (FR-006)
-- [ ] T015 [US1] Implement MCPToolValidator utility in tests/utils/mcp.py (FR-007)
-- [ ] T016 [US1] Configure pytest-asyncio 30-second default timeout in pyproject.toml (FR-026)
-- [ ] T017 [US1] Create example agent unit test in tests/unit/agents/test_base_example.py (FR-024)
-- [ ] T018 [US1] Create example tool unit test in tests/unit/tools/test_git_example.py (FR-024)
-- [ ] T019 [US1] Create example config unit test in tests/unit/config/test_config_example.py (FR-024)
+- [X] T011 [P] [US1] Create sample MaverickConfig fixtures in tests/fixtures/config.py (FR-002)
+- [X] T012 [P] [US1] Create sample agent response fixtures in tests/fixtures/responses.py (FR-004)
+- [X] T013 [US1] Implement AsyncGeneratorCapture utility in tests/utils/async_helpers.py (FR-005)
+- [X] T014 [US1] Implement AgentResultAssertion helpers in tests/utils/assertions.py (FR-006)
+- [X] T015 [US1] Implement MCPToolValidator utility in tests/utils/mcp.py (FR-007)
+- [X] T016 [US1] Configure pytest-asyncio 30-second default timeout in pyproject.toml (FR-026)
+- [X] T017 [US1] Create example agent unit test in tests/unit/agents/test_base_example.py (FR-024)
+- [X] T018 [US1] Create example tool unit test in tests/unit/tools/test_git_example.py (FR-024)
+- [X] T019 [US1] Create example config unit test in tests/unit/config/test_config_example.py (FR-024)
 
 **Checkpoint**: Developers can run `pytest tests/unit/` with full fixture support and example patterns
 
@@ -78,11 +78,11 @@
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] Implement MockGitHubCLI, CommandResponse, and CommandCall classes in tests/fixtures/github.py (FR-003)
-- [ ] T021 [US4] Implement mock_github_cli fixture in tests/fixtures/github.py (FR-003)
-- [ ] T022 [US4] Implement cli_runner fixture in tests/conftest.py for Click testing
-- [ ] T023 [US4] Add fixture usage documentation to tests/fixtures/__init__.py
-- [ ] T024 [US4] Create example fixture usage test in tests/unit/test_fixture_examples.py demonstrating all fixtures; verify test setup requires <20 lines of boilerplate (SC-005)
+- [X] T020 [US4] Implement MockGitHubCLI, CommandResponse, and CommandCall classes in tests/fixtures/github.py (FR-003)
+- [X] T021 [US4] Implement mock_github_cli fixture in tests/fixtures/github.py (FR-003)
+- [X] T022 [US4] Implement cli_runner fixture in tests/conftest.py for Click testing
+- [X] T023 [US4] Add fixture usage documentation to tests/fixtures/__init__.py
+- [X] T024 [US4] Create example fixture usage test in tests/unit/test_fixture_examples.py demonstrating all fixtures; verify test setup requires <20 lines of boilerplate (SC-005)
 
 **Checkpoint**: All reusable fixtures available and documented with usage examples
 
@@ -96,12 +96,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T025 [P] [US2] Implement TestWorkflowRunner utility in tests/utils/workflow_helpers.py (FR-014)
-- [ ] T026 [US2] Create example workflow integration test in tests/integration/workflows/test_validation_example.py (FR-024)
-- [ ] T027 [P] [US2] Create TUI test app base class in tests/tui/conftest.py (FR-015)
-- [ ] T028 [US2] Create example TUI screen test using pilot in tests/tui/screens/test_home_example.py (FR-024)
-- [ ] T029 [US2] Create example CLI command test using CliRunner in tests/integration/cli/test_commands_example.py (FR-024)
-- [ ] T030 [US2] Ensure tests/integration/ directory structure matches plan (FR-012)
+- [X] T025 [P] [US2] Implement TestWorkflowRunner utility in tests/utils/workflow_helpers.py (FR-014)
+- [X] T026 [US2] Create example workflow integration test in tests/integration/workflows/test_validation_example.py (FR-024)
+- [X] T027 [P] [US2] Create TUI test app base class in tests/tui/conftest.py (FR-015)
+- [X] T028 [US2] Create example TUI screen test using pilot in tests/tui/screens/test_home_example.py (FR-024)
+- [X] T029 [US2] Create example CLI command test using CliRunner in tests/integration/cli/test_commands_example.py (FR-024)
+- [X] T030 [US2] Ensure tests/integration/ directory structure matches plan (FR-012)
 
 **Checkpoint**: Integration and TUI tests run successfully with mocked components
 
@@ -115,14 +115,14 @@
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Create .github/workflows/test.yml with CI workflow structure (FR-017, FR-023)
-- [ ] T032 [US3] Configure lint job with ruff check in CI workflow (FR-019)
-- [ ] T033 [US3] Configure type-check job with mypy in CI workflow (FR-020)
-- [ ] T034 [US3] Configure test job with Python matrix (3.10, 3.11, 3.12) in CI workflow (FR-018)
-- [ ] T035 [US3] Add pytest coverage enforcement (80% threshold) to CI workflow (FR-021, FR-022)
-- [ ] T036 [US3] Configure JUnit XML reporting for GitHub check annotations (FR-025)
-- [ ] T037 [US3] Add dorny/test-reporter for inline PR failure annotations (FR-025)
-- [ ] T038 [US3] Consolidate CI: remove plugin validation from .github/workflows/ci.yml (now covered by test.yml) or add job dependency to avoid duplicate checkouts
+- [X] T031 [US3] Create .github/workflows/test.yml with CI workflow structure (FR-017, FR-023)
+- [X] T032 [US3] Configure lint job with ruff check in CI workflow (FR-019)
+- [X] T033 [US3] Configure type-check job with mypy in CI workflow (FR-020)
+- [X] T034 [US3] Configure test job with Python matrix (3.10, 3.11, 3.12) in CI workflow (FR-018)
+- [X] T035 [US3] Add pytest coverage enforcement (80% threshold) to CI workflow (FR-021, FR-022)
+- [X] T036 [US3] Configure JUnit XML reporting for GitHub check annotations (FR-025)
+- [X] T037 [US3] Add dorny/test-reporter for inline PR failure annotations (FR-025)
+- [X] T038 [US3] Consolidate CI: remove plugin validation from .github/workflows/ci.yml (now covered by test.yml) or add job dependency to avoid duplicate checkouts
 
 **Checkpoint**: CI runs automatically on PR with lint, type check, and tests across Python versions
 
@@ -132,11 +132,11 @@
 
 **Purpose**: Final validation and documentation
 
-- [ ] T039 Verify test directory structure: all dirs have __init__.py; tests/unit/agents/, tests/unit/tools/, tests/unit/workflows/ exist per FR-008, FR-009, FR-010
-- [ ] T040 Run full test suite and verify 80% coverage threshold
-- [ ] T041 Verify example tests demonstrate patterns for all component types (FR-024)
-- [ ] T042 Update tests/conftest.py with final fixture exports
-- [ ] T043 Run quickstart.md validation scenarios
+- [X] T039 Verify test directory structure: all dirs have __init__.py; tests/unit/agents/, tests/unit/tools/, tests/unit/workflows/ exist per FR-008, FR-009, FR-010
+- [X] T040 Run full test suite and verify 80% coverage threshold
+- [X] T041 Verify example tests demonstrate patterns for all component types (FR-024)
+- [X] T042 Update tests/conftest.py with final fixture exports
+- [X] T043 Run quickstart.md validation scenarios
 
 ---
 

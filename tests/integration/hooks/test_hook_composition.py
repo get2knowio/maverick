@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
 
 import pytest
 
-from maverick.hooks.config import HookConfig, LoggingConfig, MetricsConfig, SafetyConfig
+from maverick.hooks.config import LoggingConfig, SafetyConfig
 from maverick.hooks.logging import log_tool_execution
 from maverick.hooks.metrics import MetricsCollector, collect_metrics
 from maverick.hooks.safety import validate_bash_command, validate_file_write
