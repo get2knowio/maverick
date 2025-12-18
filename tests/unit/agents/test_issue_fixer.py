@@ -21,9 +21,13 @@ from maverick.agents.issue_fixer import (
     IssueFixerAgent,
 )
 from maverick.exceptions import AgentError, GitHubError
-from maverick.models.implementation import ChangeType, FileChange, ValidationResult, ValidationStep
+from maverick.models.implementation import (
+    ChangeType,
+    FileChange,
+    ValidationResult,
+    ValidationStep,
+)
 from maverick.models.issue_fix import FixResult, IssueFixerContext
-
 
 # =============================================================================
 # Fixtures

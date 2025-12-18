@@ -14,15 +14,12 @@ Test coverage includes:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from textual.app import App
 from textual.widgets import Input, Static, Switch
 
 from maverick.tui.models import SettingDefinition, SettingType, SettingValue
 from maverick.tui.widgets.settings import SettingField, SettingsSection
-
 
 # =============================================================================
 # SettingField Tests

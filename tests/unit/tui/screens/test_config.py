@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from maverick.tui.screens.config import ConfigScreen
-
 
 # =============================================================================
 # ConfigScreen Initialization Tests

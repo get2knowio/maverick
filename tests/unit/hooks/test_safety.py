@@ -215,8 +215,9 @@ class TestNormalizePath:
 
     def test_expand_home(self) -> None:
         """Test ~ expansion."""
-        from maverick.hooks.safety import normalize_path
         import os
+
+        from maverick.hooks.safety import normalize_path
         result = normalize_path("~/.ssh/id_rsa")
         assert os.path.expanduser("~") in result
 
@@ -266,8 +267,9 @@ class TestValidateFileWrite:
     @pytest.mark.asyncio
     async def test_blocks_ssh_directory(self) -> None:
         """Test blocking ~/.ssh/ writes."""
-        from maverick.hooks.safety import validate_file_write
         import os
+
+        from maverick.hooks.safety import validate_file_write
         ssh_path = os.path.expanduser("~/.ssh/id_rsa")
         input_data = {
             "tool_name": "Write",
@@ -301,8 +303,8 @@ class TestValidateFileWrite:
     @pytest.mark.asyncio
     async def test_custom_allowlist(self) -> None:
         """Test custom path allowlist."""
-        from maverick.hooks.safety import validate_file_write
         from maverick.hooks.config import SafetyConfig
+        from maverick.hooks.safety import validate_file_write
         config = SafetyConfig(path_allowlist=[".env.example"])
         input_data = {
             "tool_name": "Write",
@@ -314,8 +316,8 @@ class TestValidateFileWrite:
     @pytest.mark.asyncio
     async def test_custom_blocklist(self) -> None:
         """Test custom path blocklist."""
-        from maverick.hooks.safety import validate_file_write
         from maverick.hooks.config import SafetyConfig
+        from maverick.hooks.safety import validate_file_write
         config = SafetyConfig(path_blocklist=["config/production/"])
         input_data = {
             "tool_name": "Write",

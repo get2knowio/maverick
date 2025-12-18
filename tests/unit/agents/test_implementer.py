@@ -27,13 +27,11 @@ from maverick.models.implementation import (
     ImplementationResult,
     ImplementerContext,
     Task,
-    TaskFile,
     TaskResult,
     TaskStatus,
     ValidationResult,
     ValidationStep,
 )
-
 
 # =============================================================================
 # Fixtures

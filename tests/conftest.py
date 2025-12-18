@@ -2,14 +2,26 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Generator
+from typing import TYPE_CHECKING
 
 import pytest
 
+if TYPE_CHECKING:
+    from click.testing import CliRunner
+
+# Register fixture plugins from tests/fixtures/
+pytest_plugins = [
+    "tests.fixtures.agents",
+    "tests.fixtures.config",
+    "tests.fixtures.github",
+    "tests.fixtures.responses",
+]
+
 
 @pytest.fixture
-def temp_dir() -> Generator[Path, None, None]:
+def temp_dir() -> Iterator[Path]:
     """Create a temporary directory for test files.
 
     Also saves and restores the current working directory to prevent
@@ -58,3 +70,21 @@ parallel:
 
 verbosity: "info"
 '''
+
+
+@pytest.fixture
+def cli_runner() -> "CliRunner":
+    """Provide a Click CLI test runner.
+
+    Returns:
+        CliRunner instance for testing Click commands.
+
+    Example:
+        >>> def test_version(cli_runner):
+        ...     from maverick.main import cli
+        ...     result = cli_runner.invoke(cli, ["--version"])
+        ...     assert result.exit_code == 0
+    """
+    from click.testing import CliRunner
+
+    return CliRunner()

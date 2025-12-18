@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pytest
-
 from maverick.models.implementation import Task, TaskFile, TaskStatus
 
 

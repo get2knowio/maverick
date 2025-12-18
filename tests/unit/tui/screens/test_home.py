@@ -1,16 +1,11 @@
 """Unit tests for HomeScreen."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
-
-import pytest
 
 from maverick.tui.history import WorkflowHistoryEntry, WorkflowHistoryStore
 from maverick.tui.screens.home import HomeScreen
 from maverick.tui.widgets.workflow_list import WorkflowList
-
 
 # =============================================================================
 # HomeScreen Initialization Tests
