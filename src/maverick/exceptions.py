@@ -780,3 +780,102 @@ class HookConfigError(HookError):
         self.field = field
         self.value = value
         super().__init__(message)
+
+
+class RunnerError(MaverickError):
+    """Base exception for runner failures.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    pass
+
+
+class WorkingDirectoryError(RunnerError):
+    """Working directory does not exist or is not accessible.
+
+    Attributes:
+        message: Human-readable error message.
+        path: The path that was not found.
+    """
+
+    def __init__(self, message: str, path: Any = None) -> None:
+        """Initialize the WorkingDirectoryError.
+
+        Args:
+            message: Human-readable error message.
+            path: The path that was not found (Path object).
+        """
+        self.path = path
+        super().__init__(message)
+
+
+class CommandTimeoutError(RunnerError):
+    """Command execution exceeded timeout.
+
+    Attributes:
+        message: Human-readable error message.
+        timeout_seconds: The timeout that was exceeded.
+        command: The command that timed out.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        timeout_seconds: float | None = None,
+        command: list[str] | None = None,
+    ) -> None:
+        """Initialize the CommandTimeoutError.
+
+        Args:
+            message: Human-readable error message.
+            timeout_seconds: The timeout value that was exceeded.
+            command: The command that timed out.
+        """
+        self.timeout_seconds = timeout_seconds
+        self.command = command
+        super().__init__(message)
+
+
+class CommandNotFoundError(RunnerError):
+    """Executable not found in PATH.
+
+    Attributes:
+        message: Human-readable error message.
+        executable: The command that was not found.
+    """
+
+    def __init__(self, message: str, executable: str | None = None) -> None:
+        """Initialize the CommandNotFoundError.
+
+        Args:
+            message: Human-readable error message.
+            executable: The command that was not found.
+        """
+        self.executable = executable
+        super().__init__(message)
+
+
+class GitHubCLINotFoundError(RunnerError):
+    """GitHub CLI (gh) is not installed.
+
+    Provides installation instructions in the message.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the GitHubCLINotFoundError."""
+        super().__init__(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/"
+        )
+
+
+class GitHubAuthError(RunnerError):
+    """GitHub CLI is not authenticated.
+
+    Provides authentication instructions in the message.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the GitHubAuthError."""
+        super().__init__("GitHub CLI not authenticated. Run: gh auth login")
