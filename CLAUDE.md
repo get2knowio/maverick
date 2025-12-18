@@ -152,6 +152,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A (in-memory state during execution) (017-subprocess-runners)
 - Python 3.10+ (with `from __future__ import annotations`) + pathlib (stdlib), logging (stdlib), re (stdlib), existing GitOperations utility (018-context-builder)
 - N/A (read-only file access, no persistence) (018-context-builder)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (for input models), standard logging (019-generator-agents)
+- N/A (stateless text generation, no persistence) (019-generator-agents)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI

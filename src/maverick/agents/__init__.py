@@ -18,6 +18,9 @@ Public API:
     CodeReviewerAgent: Concrete agent for code review (if available)
     ImplementerAgent: Concrete agent for task implementation (if available)
     IssueFixerAgent: Concrete agent for issue fixing (if available)
+
+Submodules:
+    generators: Lightweight text generators (CommitMessageGenerator, etc.)
 """
 from __future__ import annotations
 
@@ -70,6 +73,8 @@ __all__: list[str] = [
     "extract_all_text",
     # Type alias
     "AgentMessage",
+    # Submodules
+    "generators",
 ]
 
 # Conditionally add concrete agents to __all__ if they were successfully imported
