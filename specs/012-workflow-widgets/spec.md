@@ -20,7 +20,7 @@ A developer runs a Maverick workflow and watches the progress display. They see 
 1. **Given** a workflow with 5 stages, **When** the WorkflowProgress widget mounts, **Then** all 5 stages display vertically with their names and pending status icons
 2. **Given** a stage transitions to active, **When** the widget updates, **Then** that stage shows an animated spinner icon
 3. **Given** a stage completes successfully, **When** the widget updates, **Then** that stage shows a checkmark icon and elapsed duration (e.g., "12s")
-4. **Given** a stage fails, **When** the widget updates, **Then** that stage shows an error icon in red
+4. **Given** a stage fails, **When** the widget updates, **Then** that stage shows a failed icon in red
 5. **Given** a completed stage is focused, **When** the user presses Enter, **Then** the stage expands to show detail text
 
 ---
@@ -135,7 +135,7 @@ A developer navigates within widgets using only the keyboard. Arrow keys move be
 
 - What happens when workflow has 0 stages?
   - WorkflowProgress displays an empty state message
-- What happens when agent output exceeds buffer limit?
+- What happens when agent output exceeds 1000 messages?
   - Oldest messages are discarded to maintain performance; a "truncated" indicator appears at the top
 - What happens when a file location in findings points to a deleted file?
   - The link is styled as broken (strikethrough) and clicking shows an error tooltip
@@ -156,7 +156,7 @@ A developer navigates within widgets using only the keyboard. Arrow keys move be
 
 - **FR-001**: Widget MUST display workflow stages as a vertical list
 - **FR-002**: Widget MUST show stage name and status icon for each stage
-- **FR-003**: Widget MUST support four status states: pending, active, completed, error
+- **FR-003**: Widget MUST support four status states: pending, active, completed, failed
 - **FR-004**: Widget MUST display elapsed duration for completed stages
 - **FR-005**: Widget MUST support expanding stages to show detail content
 - **FR-006**: Widget MUST animate the active stage indicator (spinner)
@@ -232,13 +232,29 @@ A developer navigates within widgets using only the keyboard. Arrow keys move be
 - **SC-009**: Loading states appear within 200 milliseconds of widget mount
 - **SC-010**: Empty states clearly communicate the reason and potential action to the user
 
+## Clarifications
+
+### Session 2025-12-16
+
+- Q: What is the maximum buffer size for AgentOutput messages? → A: 1000 messages
+- Q: Should widgets use mutable internal state or immutable snapshots? → A: Immutable snapshots with reactive binding
+- Q: Should widgets emit performance metrics? → A: Out of scope for initial implementation
+- Q: Are additional widget types beyond the 5 specified in scope? → A: No, only the 5 specified widgets
+- Q: What is the maximum number of review findings to handle? → A: 200 findings maximum
+- Q: Should search support navigation between matches (F3/Shift+F3)? → A: Out of scope for initial implementation; highlighting only
+- Q: Should broken file links show an error tooltip? → A: No, strikethrough styling only for initial implementation; tooltip is a polish item
+
 ## Assumptions
 
 - Widgets will be used within the TUI layout defined in spec 011-tui-layout-theming
+- Widgets receive immutable data snapshots and re-render reactively (no mutable internal state management)
 - The Textual framework provides reactive primitives for data binding and updates
 - Syntax highlighting will use a library compatible with Textual rendering
 - Browser opening will use the system default browser via standard OS mechanisms
 - Tool call sections will show tool name and arguments; full input/output may be truncated for display
 - The search functionality in AgentOutput uses simple substring matching; advanced regex search is out of scope
+- Widget performance metrics/observability is out of scope for initial implementation
+- Only the 5 specified widgets (WorkflowProgress, AgentOutput, ReviewFindings, ValidationStatus, PRSummary) are in scope; additional widget types are out of scope
+- ReviewFindings widget should handle up to 200 findings performantly (no list virtualization required)
 - Bulk actions (dismiss, create issue) operate on currently visible/selected findings only
 - Widget styling will inherit from the Maverick theme stylesheet (maverick.tcss)

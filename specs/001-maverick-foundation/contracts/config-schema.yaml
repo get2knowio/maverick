@@ -1,0 +1,100 @@
+# Maverick Configuration Schema
+# Feature: 001-maverick-foundation
+# Date: 2025-12-12
+#
+# This file documents the YAML configuration schema for maverick.yaml
+# and ~/.config/maverick/config.yaml files.
+
+# Root configuration object
+# All fields are optional; defaults are applied for missing values
+maverick:
+  # GitHub integration settings
+  github:
+    # Repository owner (organization or user)
+    # Type: string | null
+    # Default: null
+    # Env: MAVERICK_GITHUB__OWNER
+    owner: null
+
+    # Repository name
+    # Type: string | null
+    # Default: null
+    # Env: MAVERICK_GITHUB__REPO
+    repo: null
+
+    # Default branch for PRs
+    # Type: string
+    # Default: "main"
+    # Env: MAVERICK_GITHUB__DEFAULT_BRANCH
+    default_branch: "main"
+
+  # Push notification settings (ntfy)
+  notifications:
+    # Enable/disable notifications
+    # Type: boolean
+    # Default: false
+    # Env: MAVERICK_NOTIFICATIONS__ENABLED
+    enabled: false
+
+    # ntfy server URL
+    # Type: string
+    # Default: "https://ntfy.sh"
+    # Env: MAVERICK_NOTIFICATIONS__SERVER
+    server: "https://ntfy.sh"
+
+    # ntfy topic name
+    # Type: string | null
+    # Default: null
+    # Env: MAVERICK_NOTIFICATIONS__TOPIC
+    topic: null
+
+  # Claude model settings
+  model:
+    # Claude model identifier
+    # Type: string
+    # Default: "claude-sonnet-4-20250514"
+    # Env: MAVERICK_MODEL__MODEL_ID
+    model_id: "claude-sonnet-4-20250514"
+
+    # Maximum tokens per request
+    # Type: integer (1-200000)
+    # Default: 8192
+    # Env: MAVERICK_MODEL__MAX_TOKENS
+    max_tokens: 8192
+
+    # Sampling temperature
+    # Type: float (0.0-1.0)
+    # Default: 0.0
+    # Env: MAVERICK_MODEL__TEMPERATURE
+    temperature: 0.0
+
+  # Concurrency limits
+  parallel:
+    # Maximum concurrent agents
+    # Type: integer (1-10)
+    # Default: 3
+    # Env: MAVERICK_PARALLEL__MAX_AGENTS
+    max_agents: 3
+
+    # Maximum concurrent tasks per agent
+    # Type: integer (1-20)
+    # Default: 5
+    # Env: MAVERICK_PARALLEL__MAX_TASKS
+    max_tasks: 5
+
+  # Default logging verbosity
+  # Type: enum ["error", "warning", "info", "debug"]
+  # Default: "warning"
+  # Env: MAVERICK_VERBOSITY
+  verbosity: "warning"
+
+  # Agent-specific configuration overrides
+  # Type: dict[string, AgentConfig]
+  # Default: {}
+  # Each agent can override: model_id, max_tokens, temperature
+  agents:
+    # Example: code_reviewer agent with custom settings
+    # code_reviewer:
+    #   model_id: "claude-sonnet-4-20250514"
+    #   max_tokens: 4096
+    #   temperature: 0.1
