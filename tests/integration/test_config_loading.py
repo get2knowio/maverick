@@ -74,7 +74,7 @@ model:
         os.chdir(temp_dir)
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-        from maverick.config import load_config, MaverickConfig
+        from maverick.config import MaverickConfig, load_config
 
         config = load_config()
 

@@ -38,7 +38,7 @@ A developer is automatically transitioned to ReviewScreen after code review comp
 1. **Given** findings exist at multiple severities, **When** ReviewScreen loads, **Then** findings display grouped with errors first, then warnings, then suggestions
 2. **Given** a finding is selected, **When** the user clicks it, **Then** the side panel shows the relevant file diff with the finding location highlighted
 3. **Given** findings are displayed, **When** the user clicks "Approve", **Then** a confirmation dialog appears and approval is submitted on confirm
-4. **Given** a finding is selected, **When** the user triggers "Fix", **Then** the system attempts to auto-fix and shows success/failure result
+4. **Given** findings are displayed, **When** the user triggers "Fix All", **Then** the system attempts to auto-fix all findings and shows success/failure results per finding
 5. **Given** the user wants to leave feedback, **When** they click "Request Changes", **Then** a text input appears for comments before submitting
 
 ---
@@ -143,9 +143,11 @@ A developer returns to Maverick and wants to review results from a previous work
 - What happens when the SettingsScreen cannot load current configuration?
   - Default values display with a warning banner "Could not load saved settings"
 - What happens when network connectivity is lost mid-workflow?
-  - A non-blocking warning appears; the workflow continues if possible or pauses with resume option
+  - A non-blocking warning appears; the workflow continues if possible or pauses. When connectivity is restored, the workflow auto-resumes immediately with a notification confirming resumption
 - What happens when the ReviewScreen receives new findings while user is reviewing?
-  - A notification appears "New findings available" with a refresh button
+  - A non-blocking notification banner appears at the top of the screen: "New findings available"
+  - A Refresh button is provided; clicking it reloads findings while preserving current selection if still valid
+  - New findings are polled every 30 seconds during active review session
 
 ## Requirements *(mandatory)*
 
@@ -189,8 +191,8 @@ A developer returns to Maverick and wants to review results from a previous work
 - **FR-025**: Screen MUST provide an Approve button to approve the review
 - **FR-026**: Screen MUST provide a Request Changes button with text input for comments
 - **FR-027**: Screen MUST provide a Dismiss action for individual findings
-- **FR-028**: Screen MUST provide a Fix action to trigger automatic fixes for findings
-- **FR-029**: Screen MUST display fix results (success/failure) inline after fix attempt
+- **FR-028**: Screen MUST provide a Fix All action to trigger automatic fixes for all review findings
+- **FR-029**: Screen MUST display fix results (success/failure per finding) after fix attempt completes
 
 #### SettingsScreen
 
@@ -224,6 +226,7 @@ A developer returns to Maverick and wants to review results from a previous work
 - **ModalDialog**: An overlay component for confirmations and error display with title, message content, and action buttons
 - **NavigationContext**: Tracks screen history for back navigation and manages screen transitions
 - **WorkflowSession**: Active workflow execution state including current stage, agent outputs, and results
+- **WorkflowHistoryEntry**: Persisted record of a completed workflow containing: workflow type, branch name, timestamp, final status, stages completed, finding counts by severity, and PR link (if created)
 
 ## Success Criteria *(mandatory)*
 
@@ -242,14 +245,25 @@ A developer returns to Maverick and wants to review results from a previous work
 - **SC-011**: Screen transitions complete within 300 milliseconds with no visual glitches
 - **SC-012**: 100% of screen interactions are achievable via keyboard alone
 
+## Clarifications
+
+### Session 2025-12-17
+
+- Q: How should workflow history be persisted? → A: Simple JSON file in ~/.config/maverick/history.json
+- Q: What should happen when network connectivity is restored after a workflow pause? → A: Auto-resume immediately when connectivity restored
+- Q: How many workflow history entries should be retained? → A: Last 50 entries (balanced retention)
+- Q: What scope should the automatic fix action have? → A: Fix all issues found in review
+- Q: What data should each workflow history entry store? → A: Core metadata plus outcome summary (stages completed, finding counts, PR link)
+
 ## Assumptions
 
+- Workflow history is persisted as a JSON file at ~/.config/maverick/history.json with FIFO eviction at 50 entries
 - Screens build upon the layout and theming infrastructure defined in spec 011-tui-layout-theming
 - Screens integrate widgets defined in spec 012-workflow-widgets (WorkflowProgress, AgentOutput, ReviewFindings, etc.)
 - Git operations for branch name validation use local repository checks; remote checks may have slight delay
 - GitHub issue fetching uses the GitHub CLI (gh) which must be authenticated
 - File diffs are generated from git diff output parsed for display
-- Automatic fixes triggered from ReviewScreen use agent-based fixing with limited scope
+- Automatic fixes triggered from ReviewScreen use agent-based fixing to address all findings from the review
 - Settings persistence uses the existing Maverick configuration system (Pydantic models, file-based storage)
 - Workflow history is stored locally and persists across application restarts
 - Screen navigation follows a stack-based model where Escape pops the current screen

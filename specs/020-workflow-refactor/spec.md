@@ -81,20 +81,20 @@ As a system administrator, I want agents to have minimal required permissions, s
 
 **Acceptance Scenarios**:
 
-1. **Given** the ImplementerAgent configuration, **When** examining allowed tools, **Then** only file read/write tools are permitted (no bash, no git, no GitHub tools)
-2. **Given** the CodeReviewerAgent configuration, **When** examining allowed tools, **Then** only file read tools are permitted
+1. **Given** the ImplementerAgent configuration, **When** examining allowed tools, **Then** only file manipulation and local execution tools are permitted (Read, Write, Edit, Bash, Glob, Grep) - no git or GitHub tools
+2. **Given** the CodeReviewerAgent configuration, **When** examining allowed tools, **Then** only file inspection tools are permitted (Read, Glob, Grep, Bash for running tests)
 3. **Given** any agent attempting an unauthorized tool call, **When** the tool is not in allowed_tools, **Then** the tool call is rejected
 
 ---
 
 ### Edge Cases
 
-- What happens when git branch creation fails due to name conflict?
-- What happens when validation fails more than the maximum allowed attempts?
-- What happens when an issue has no clear fix and the agent cannot make progress?
-- How does the system handle network failures during GitHub API calls?
-- What happens when CodeRabbit is unavailable during code review stage?
-- How does the system handle partial completion (some issues succeed, some fail)?
+- What happens when git branch creation fails due to name conflict? → Append timestamp suffix and continue (FR-001a)
+- What happens when validation fails more than the maximum allowed attempts? → Continue workflow, mark PR as draft (FR-009a)
+- What happens when an issue has no clear fix and the agent cannot make progress? → Mark as skipped after 3 attempts (FR-026)
+- How does the system handle network failures during GitHub API calls? → Retry with exponential backoff (FR-025)
+- What happens when CodeRabbit is unavailable during code review stage? → Skip with warning, continue workflow (FR-010a)
+- How does the system handle partial completion (some issues succeed, some fail)? → Aggregate with success/failure/skipped counts (FR-027)
 
 ## Requirements *(mandatory)*
 
@@ -103,6 +103,7 @@ As a system administrator, I want agents to have minimal required permissions, s
 #### FlyWorkflow Requirements
 
 - **FR-001**: System MUST create feature branches using direct process execution without AI tool calls
+- **FR-001a**: System MUST append a timestamp suffix to branch name when a name conflict occurs, allowing workflow to continue
 - **FR-002**: System MUST read and parse task files using direct file operations without AI tool calls
 - **FR-003**: System MUST build implementation context by aggregating file contents, task definitions, and project conventions
 - **FR-004**: System MUST delegate code implementation to an agent with only file manipulation tools (Read, Write, Edit, Glob, Grep)
@@ -110,8 +111,10 @@ As a system administrator, I want agents to have minimal required permissions, s
 - **FR-006**: System MUST execute git commit operations using direct process execution
 - **FR-007**: System MUST run validation stages (format, lint, build, test) using direct process execution
 - **FR-008**: System MUST delegate validation fixes to an agent when validation fails, limited to file modification tools
-- **FR-009**: System MUST retry validation up to a configurable maximum number of attempts
+- **FR-009**: System MUST retry validation up to a configurable maximum number of attempts (default: 3)
+- **FR-009a**: System MUST continue workflow when validation exhausts retries, marking the resulting PR as draft
 - **FR-010**: System MUST run code review tools (CodeRabbit) using direct process execution
+- **FR-010a**: System MUST skip code review with a warning when CodeRabbit is unavailable, allowing workflow to continue
 - **FR-011**: System MUST delegate code review interpretation to an agent that receives external review findings as context
 - **FR-012**: System MUST generate PR descriptions using a focused AI call with workflow summary as context
 - **FR-013**: System MUST create pull requests using direct process execution
@@ -132,6 +135,9 @@ As a system administrator, I want agents to have minimal required permissions, s
 - **FR-022**: System MUST emit progress updates at each stage transition
 - **FR-023**: System MUST capture and report errors without crashing the entire workflow
 - **FR-024**: System MUST support dry-run mode where runners log operations instead of executing them
+- **FR-025**: System MUST retry GitHub API operations with exponential backoff (3 attempts, 1s/2s/4s delays) on network failures before failing the operation
+- **FR-026**: System MUST mark an issue as skipped after 3 unsuccessful agent fix attempts, logging context for manual review
+- **FR-027**: System MUST aggregate partial completion results, reporting per-issue success/failure/skipped counts in the final summary
 
 ### Key Entities
 
@@ -153,6 +159,15 @@ As a system administrator, I want agents to have minimal required permissions, s
 - **SC-006**: Workflow failures are contained to individual stages or issues; one failure does not crash the entire workflow
 - **SC-007**: FlyWorkflow completes a typical feature implementation end-to-end successfully
 - **SC-008**: RefuelWorkflow processes at least 3 issues in a single run with proper isolation between each
+
+## Clarifications
+
+### Session 2025-12-18
+
+- Q: What is the default validation retry limit? → A: Default 3 retries (balanced approach)
+- Q: What happens when CodeRabbit is unavailable? → A: Skip code review with warning, continue workflow
+- Q: What happens when validation exhausts all retries? → A: Fail current stage, continue workflow, mark PR as draft
+- Q: What happens when branch creation fails due to name conflict? → A: Append timestamp suffix and continue
 
 ## Assumptions
 

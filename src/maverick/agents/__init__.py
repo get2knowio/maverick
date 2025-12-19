@@ -16,6 +16,11 @@ Public API:
     BUILTIN_TOOLS: Set of built-in tools available to agents
     DEFAULT_MODEL: Default Claude model for agents
     CodeReviewerAgent: Concrete agent for code review (if available)
+    ImplementerAgent: Concrete agent for task implementation (if available)
+    IssueFixerAgent: Concrete agent for issue fixing (if available)
+
+Submodules:
+    generators: Lightweight text generators (CommitMessageGenerator, etc.)
 """
 from __future__ import annotations
 
@@ -33,6 +38,16 @@ try:
     from maverick.agents.code_reviewer import CodeReviewerAgent
 except ImportError:
     CodeReviewerAgent = None  # type: ignore[assignment]  # Not yet implemented
+
+try:
+    from maverick.agents.implementer import ImplementerAgent
+except ImportError:
+    ImplementerAgent = None  # type: ignore[assignment]  # Not yet implemented
+
+try:
+    from maverick.agents.issue_fixer import IssueFixerAgent
+except ImportError:
+    IssueFixerAgent = None  # type: ignore[assignment]  # Not yet implemented
 
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.
@@ -58,8 +73,16 @@ __all__: list[str] = [
     "extract_all_text",
     # Type alias
     "AgentMessage",
+    # Submodules
+    "generators",
 ]
 
 # Conditionally add concrete agents to __all__ if they were successfully imported
 if CodeReviewerAgent is not None:
     __all__.append("CodeReviewerAgent")
+
+if ImplementerAgent is not None:
+    __all__.append("ImplementerAgent")
+
+if IssueFixerAgent is not None:
+    __all__.append("IssueFixerAgent")
