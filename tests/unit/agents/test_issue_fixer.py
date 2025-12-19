@@ -185,6 +185,18 @@ class TestIssueFixerConstants:
         """Test ISSUE_FIXER_TOOLS has expected number of tools."""
         assert len(ISSUE_FIXER_TOOLS) == 6
 
+    def test_allowed_tools_matches_contract(self) -> None:
+        """Test ISSUE_FIXER_TOOLS matches US5 contract exactly.
+
+        US5 Contract: IssueFixerAgent must have exactly Read, Write, Edit, Bash, Glob, Grep.
+        Same as ImplementerAgent - full code manipulation for targeted bug fixes.
+        """
+        expected_tools = {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}
+        actual_tools = set(ISSUE_FIXER_TOOLS)
+        assert actual_tools == expected_tools, (
+            f"IssueFixerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
 
 # =============================================================================
 # Execute Method Tests

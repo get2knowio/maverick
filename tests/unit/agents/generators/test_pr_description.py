@@ -47,6 +47,19 @@ class TestPRDescriptionGeneratorConstruction:
         for section in DEFAULT_PR_SECTIONS:
             assert section in generator.system_prompt
 
+    def test_generator_has_no_tools(self) -> None:
+        """Test PRDescriptionGenerator has no tools per US5 contract.
+
+        US5 Contract: PRDescriptionGenerator must have allowed_tools=[].
+        Pure text generation, no tools needed.
+        """
+        generator = PRDescriptionGenerator()
+
+        # Generators inherit from GeneratorAgent which sets allowed_tools=[]
+        # We need to access the internal _options to verify
+        assert hasattr(generator, "_options")
+        assert generator._options.allowed_tools == []
+
 
 class TestPRDescriptionGeneratorGenerate:
     """Tests for the generate method."""

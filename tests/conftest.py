@@ -17,6 +17,7 @@ pytest_plugins = [
     "tests.fixtures.config",
     "tests.fixtures.github",
     "tests.fixtures.responses",
+    "tests.fixtures.runners",
 ]
 
 

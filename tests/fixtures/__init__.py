@@ -26,6 +26,28 @@ Fixtures:
 
     mock_sdk_client: Provides a fresh MockSDKClient instance for each test.
 
+    mock_implementer_agent: Mock ImplementerAgent for workflow testing.
+        Returns MagicMock with AsyncMock execute() returning ImplementationResult.
+
+    mock_commit_generator: Mock CommitMessageGenerator for workflow testing.
+        Returns MagicMock with AsyncMock generate() returning conventional commit messages.
+
+Runner Mocks (from tests/fixtures/runners.py)
+----------------------------------------------
+
+Fixtures:
+    mock_git_runner: Mock GitRunner for testing git operations.
+        Returns MagicMock with AsyncMock methods returning GitResult instances.
+        Supports all git operations: create_branch, checkout, commit, push, add, status, diff.
+
+    mock_validation_runner: Mock ValidationRunner for testing validation stages.
+        Returns MagicMock with AsyncMock run() returning ValidationOutput.
+        Default behavior: all stages pass successfully.
+
+    mock_github_runner: Mock GitHubCLIRunner for testing GitHub operations.
+        Returns MagicMock with AsyncMock methods for PR and issue management.
+        Supports: create_pr, update_pr, get_pr, list_issues, get_issue, close_issue.
+
 Example:
     >>> @pytest.mark.asyncio
     ... async def test_agent(mock_sdk_client, mock_text_message, mock_result_message):
@@ -125,6 +147,8 @@ from __future__ import annotations
 from tests.fixtures.agents import (
     MockMessage,
     MockSDKClient,
+    mock_commit_generator,
+    mock_implementer_agent,
     mock_result_message,
     mock_sdk_client,
     mock_text_message,
@@ -141,6 +165,11 @@ from tests.fixtures.responses import (
     sample_implementation_response,
     sample_review_response,
 )
+from tests.fixtures.runners import (
+    mock_git_runner,
+    mock_github_runner,
+    mock_validation_runner,
+)
 
 __all__ = [
     # Agent SDK mocks
@@ -149,6 +178,8 @@ __all__ = [
     "mock_text_message",
     "mock_result_message",
     "mock_sdk_client",
+    "mock_implementer_agent",
+    "mock_commit_generator",
     # Configuration
     "sample_config",
     # Sample responses
@@ -160,4 +191,8 @@ __all__ = [
     "CommandCall",
     "MockGitHubCLI",
     "mock_github_cli",
+    # Runner mocks
+    "mock_git_runner",
+    "mock_validation_runner",
+    "mock_github_runner",
 ]

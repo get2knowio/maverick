@@ -27,6 +27,19 @@ class TestCommitMessageGeneratorConstruction:
 
         assert generator.model == "claude-opus-4-5-20250929"
 
+    def test_generator_has_no_tools(self) -> None:
+        """Test CommitMessageGenerator has no tools per US5 contract.
+
+        US5 Contract: CommitMessageGenerator must have allowed_tools=[].
+        Pure text generation, no tools needed.
+        """
+        generator = CommitMessageGenerator()
+
+        # Generators inherit from GeneratorAgent which sets allowed_tools=[]
+        # We need to access the internal _options to verify
+        assert hasattr(generator, "_options")
+        assert generator._options.allowed_tools == []
+
 
 class TestCommitMessageGeneratorGenerate:
     """Tests for CommitMessageGenerator.generate()."""

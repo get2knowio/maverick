@@ -92,6 +92,7 @@ class TestFlyInputs:
         assert inputs.draft_pr is False
         assert inputs.base_branch == "main"
         assert inputs.task_file is None
+        assert inputs.dry_run is False
 
     def test_accepts_all_optional_fields_with_custom_values(self):
         """Test FlyInputs accepts all fields set to custom values."""
@@ -102,6 +103,7 @@ class TestFlyInputs:
             draft_pr=True,
             base_branch="develop",
             task_file="custom-tasks.md",
+            dry_run=True,
         )
 
         assert inputs.branch_name == "feature-branch"
@@ -110,6 +112,7 @@ class TestFlyInputs:
         assert inputs.draft_pr is True
         assert inputs.base_branch == "develop"
         assert inputs.task_file == Path("custom-tasks.md")
+        assert inputs.dry_run is True
 
 
 class TestWorkflowState:
@@ -236,17 +239,6 @@ class TestFlyConfig:
 class TestFlyWorkflow:
     """Tests for FlyWorkflow orchestration."""
 
-    @pytest.mark.asyncio
-    async def test_execute_raises_not_implemented_with_spec_26_message(self):
-        """Test FlyWorkflow.execute() raises NotImplementedError with Spec 26."""
-        workflow = FlyWorkflow()
-        inputs = FlyInputs(branch_name="test-branch")
-
-        with pytest.raises(NotImplementedError) as exc_info:
-            await workflow.execute(inputs)
-
-        assert "Spec 26" in str(exc_info.value)
-
     def test_accepts_optional_fly_config_in_constructor(self):
         """Test FlyWorkflow accepts optional FlyConfig in constructor."""
         # Should work with no args
@@ -257,6 +249,514 @@ class TestFlyWorkflow:
         config = FlyConfig()
         workflow2 = FlyWorkflow(config=config)
         assert workflow2 is not None
+
+
+class TestFlyWorkflowExecution:
+    """Tests for FlyWorkflow.execute() implementation (User Story 1)."""
+
+    @pytest.mark.asyncio
+    async def test_init_stage_creates_branch_without_ai(self, tmp_path):
+        """Test INIT stage creates branch via GitRunner without AI (T014)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True,
+                output="feature-test",
+                error=None,
+                duration_ms=50,
+            )
+        )
+
+        # Create task file
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test task")
+
+        # Create workflow with injected runner
+        workflow = FlyWorkflow(
+            git_runner=mock_git,
+            implementer_agent=None,  # Should not be called in INIT
+        )
+        inputs = FlyInputs(branch_name="feature-test", task_file=task_file)
+
+        # Execute and collect events
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            # Stop after INIT stage completes
+            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.INIT:
+                break
+
+        # Verify branch creation was called
+        mock_git.create_branch_with_fallback.assert_called_once_with(
+            "feature-test", "HEAD"
+        )
+
+        # Verify INIT stage events were emitted
+        stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
+        assert any(e.stage == WorkflowStage.INIT for e in stage_started)
+
+    @pytest.mark.asyncio
+    async def test_implementation_stage_invokes_agent(self, tmp_path):
+        """Test IMPLEMENTATION stage invokes ImplementerAgent (T015)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test-branch", error=None, duration_ms=50
+            )
+        )
+
+        mock_agent = MagicMock()
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(
+                output="Implementation complete", usage=usage
+            )
+        )
+
+        # Create task file
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Implement feature")
+
+        # Create workflow
+        workflow = FlyWorkflow(git_runner=mock_git, implementer_agent=mock_agent)
+        inputs = FlyInputs(branch_name="test-branch", task_file=task_file)
+
+        # Execute and collect events
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.IMPLEMENTATION
+            ):
+                break
+
+        # Verify agent was invoked
+        assert mock_agent.execute.call_count >= 1
+
+        # Verify IMPLEMENTATION stage completed
+        impl_completed = [
+            e
+            for e in events
+            if isinstance(e, FlyStageCompleted)
+            and e.stage == WorkflowStage.IMPLEMENTATION
+        ]
+        assert len(impl_completed) >= 1
+
+    @pytest.mark.asyncio
+    async def test_validation_stage_with_retry(self, tmp_path):
+        """Test VALIDATION stage runs ValidationRunner with retry (T016)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import (
+            StageResult,
+            StageStatus,
+            ValidationWorkflowResult,
+        )
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+
+        mock_agent = MagicMock()
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        mock_validation = MagicMock()
+        # First attempt fails
+        mock_validation.run = AsyncMock(
+            return_value=iter(
+                [
+                    ValidationWorkflowResult(
+                        success=False,
+                        stage_results=[
+                            StageResult(
+                                stage_name="test",
+                                status=StageStatus.FAILED,
+                                fix_attempts=0,
+                                error_message="Test failed",
+                                output="Error",
+                                duration_ms=100,
+                            )
+                        ],
+                    )
+                ]
+            )
+        )
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        workflow = FlyWorkflow(
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        # Execute workflow
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.VALIDATION
+            ):
+                break
+
+        # Verify validation was attempted
+        assert mock_validation.run.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_code_review_stage_optional_coderabbit(self, tmp_path):
+        """Test CODE_REVIEW stage with optional CodeRabbit (T017)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import ValidationWorkflowResult
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(
+            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+        )
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.execute = AsyncMock(
+            return_value=AgentResult.success_result(
+                output="Review complete", usage=usage
+            )
+        )
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        # Test without CodeRabbit
+        config = FlyConfig(coderabbit_enabled=False)
+        workflow = FlyWorkflow(
+            config=config,
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+            code_reviewer_agent=mock_reviewer,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.CODE_REVIEW
+            ):
+                break
+
+        # Verify reviewer was called even without CodeRabbit
+        assert mock_reviewer.execute.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_pr_creation_stage_generates_description(self, tmp_path):
+        """Test PR_CREATION stage generates PR body (T018)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import ValidationWorkflowResult
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+        mock_git.diff = AsyncMock(return_value="test diff")
+        mock_git.commit = AsyncMock(
+            return_value=GitResult(
+                success=True, output="commit created", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(
+            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+        )
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Review done", usage=usage)
+        )
+
+        mock_commit_gen = MagicMock()
+        mock_commit_gen.generate = AsyncMock(return_value="feat: test commit")
+
+        mock_pr_gen = MagicMock()
+        mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest PR")
+
+        mock_github = MagicMock()
+        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        workflow = FlyWorkflow(
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+            code_reviewer_agent=mock_reviewer,
+            commit_generator=mock_commit_gen,
+            pr_generator=mock_pr_gen,
+            github_runner=mock_github,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file, skip_pr=False)
+
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+
+        # Verify PR generator was called
+        assert mock_pr_gen.generate.call_count >= 1
+
+        # Verify GitHub PR creation was called
+        assert mock_github.create_pr.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_progress_events_emitted_at_each_stage(self, tmp_path):
+        """Test progress events are emitted at each stage (T019)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import ValidationWorkflowResult
+        from maverick.runners.git import GitResult
+
+        # Setup minimal mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+        mock_git.diff = AsyncMock(return_value="diff")
+        mock_git.commit = AsyncMock(
+            return_value=GitResult(
+                success=True, output="commit", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(
+            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+        )
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Review", usage=usage)
+        )
+
+        mock_commit_gen = MagicMock()
+        mock_commit_gen.generate = AsyncMock(return_value="feat: test")
+
+        mock_pr_gen = MagicMock()
+        mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
+
+        mock_github = MagicMock()
+        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test task")
+
+        workflow = FlyWorkflow(
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+            code_reviewer_agent=mock_reviewer,
+            commit_generator=mock_commit_gen,
+            pr_generator=mock_pr_gen,
+            github_runner=mock_github,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+
+        # Verify workflow started event
+        started_events = [e for e in events if isinstance(e, FlyWorkflowStarted)]
+        assert len(started_events) == 1
+
+        # Verify each stage has started and completed events
+        stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
+        stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
+
+        # Should have at least INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW, PR_CREATION
+        assert len(stage_started) >= 5
+        assert len(stage_completed) >= 5
+
+        # Verify workflow completed
+        completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+        assert len(completed_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_error_handling_stage_failure_continues(self, tmp_path):
+        """Test error handling: stage failure continues workflow (T020)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import (
+            StageResult,
+            StageStatus,
+            ValidationWorkflowResult,
+        )
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+        mock_git.diff = AsyncMock(return_value="diff")
+        mock_git.commit = AsyncMock(
+            return_value=GitResult(
+                success=True, output="commit", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        # Validation fails
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(
+            return_value=iter(
+                [
+                    ValidationWorkflowResult(
+                        success=False,
+                        stage_results=[
+                            StageResult(
+                                stage_name="test",
+                                status=StageStatus.FAILED,
+                                fix_attempts=0,
+                                error_message="Failed",
+                                output="",
+                                duration_ms=100,
+                            )
+                        ],
+                    )
+                ]
+            )
+        )
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Review", usage=usage)
+        )
+
+        mock_commit_gen = MagicMock()
+        mock_commit_gen.generate = AsyncMock(return_value="feat: test")
+
+        mock_pr_gen = MagicMock()
+        mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
+
+        mock_github = MagicMock()
+        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        config = FlyConfig(max_validation_attempts=1)
+        workflow = FlyWorkflow(
+            config=config,
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+            code_reviewer_agent=mock_reviewer,
+            commit_generator=mock_commit_gen,
+            pr_generator=mock_pr_gen,
+            github_runner=mock_github,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+
+        # Workflow should continue despite validation failure
+        # Verify CODE_REVIEW stage was reached
+        review_started = [
+            e
+            for e in events
+            if isinstance(e, FlyStageStarted) and e.stage == WorkflowStage.CODE_REVIEW
+        ]
+        assert len(review_started) >= 1
+
+        # Result should indicate validation failed but workflow completed
+        result = workflow.get_result()
+        assert result is not None
+        # Workflow should have errors but not fail completely
+        assert len(result.state.errors) > 0 or not result.state.validation_result.success
 
 
 # Helper functions for creating test objects
@@ -580,3 +1080,241 @@ class TestInterfaceIntegration:
         )
         state.validation_result = validation_result
         assert state.validation_result is validation_result
+
+
+class TestProgressEventEmission:
+    """Tests for User Story 4: Progress Event Emission."""
+
+    @pytest.mark.asyncio
+    async def test_workflow_started_event_emission(self, tmp_path):
+        """Test FlyWorkflowStarted event emitted at workflow start (T067)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.runners.git import GitResult
+
+        # Setup minimal mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test-branch", error=None, duration_ms=50
+            )
+        )
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test task")
+
+        workflow = FlyWorkflow(git_runner=mock_git)
+        inputs = FlyInputs(branch_name="test-branch", task_file=task_file)
+
+        # Collect events
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            # Stop after INIT completes
+            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.INIT:
+                break
+
+        # Verify FlyWorkflowStarted is first event
+        assert len(events) >= 1
+        assert isinstance(events[0], FlyWorkflowStarted)
+
+        # Verify it contains the inputs
+        started_event = events[0]
+        assert started_event.inputs == inputs
+        assert started_event.inputs.branch_name == "test-branch"
+
+        # Verify timestamp is set
+        assert hasattr(started_event, "timestamp")
+        assert isinstance(started_event.timestamp, float)
+        assert started_event.timestamp > 0
+
+    @pytest.mark.asyncio
+    async def test_stage_started_completed_event_pairs(self, tmp_path):
+        """Test FlyStageStarted/Completed event pairs for each stage (T068)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import ValidationWorkflowResult
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+        mock_git.diff = AsyncMock(return_value="diff")
+        mock_git.commit = AsyncMock(
+            return_value=GitResult(
+                success=True, output="commit", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(
+            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+        )
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Review", usage=usage)
+        )
+
+        mock_commit_gen = MagicMock()
+        mock_commit_gen.generate = AsyncMock(return_value="feat: test")
+
+        mock_pr_gen = MagicMock()
+        mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
+
+        mock_github = MagicMock()
+        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        workflow = FlyWorkflow(
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+            code_reviewer_agent=mock_reviewer,
+            commit_generator=mock_commit_gen,
+            pr_generator=mock_pr_gen,
+            github_runner=mock_github,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        # Collect events
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+
+        # Extract stage started and completed events
+        stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
+        stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
+
+        # Verify we have matching pairs
+        assert len(stage_started) >= 5  # INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW, PR_CREATION
+        assert len(stage_completed) >= 5
+
+        # Verify each stage has both started and completed
+        stages_with_started = {e.stage for e in stage_started}
+        stages_with_completed = {e.stage for e in stage_completed}
+
+        expected_stages = {
+            WorkflowStage.INIT,
+            WorkflowStage.IMPLEMENTATION,
+            WorkflowStage.VALIDATION,
+            WorkflowStage.CODE_REVIEW,
+            WorkflowStage.PR_CREATION,
+        }
+
+        assert expected_stages.issubset(stages_with_started)
+        assert expected_stages.issubset(stages_with_completed)
+
+        # Verify order: for each stage, started comes before completed
+        for stage in expected_stages:
+            started_idx = next(i for i, e in enumerate(events) if isinstance(e, FlyStageStarted) and e.stage == stage)
+            completed_idx = next(i for i, e in enumerate(events) if isinstance(e, FlyStageCompleted) and e.stage == stage)
+            assert started_idx < completed_idx, f"Stage {stage} started must come before completed"
+
+    @pytest.mark.asyncio
+    async def test_validation_retry_progress_updates(self, tmp_path):
+        """Test validation retry progress updates in events (T069)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from maverick.agents.result import AgentResult, AgentUsage
+        from maverick.models.validation import (
+            StageResult,
+            StageStatus,
+            ValidationWorkflowResult,
+        )
+        from maverick.runners.git import GitResult
+
+        # Setup mocks
+        mock_git = MagicMock()
+        mock_git.create_branch_with_fallback = AsyncMock(
+            return_value=GitResult(
+                success=True, output="test", error=None, duration_ms=50
+            )
+        )
+
+        usage = AgentUsage(
+            input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
+        )
+        mock_agent = MagicMock()
+        mock_agent.execute = AsyncMock(
+            return_value=AgentResult.success_result(output="Done", usage=usage)
+        )
+
+        # Validation runner that returns results
+        # Create a mock ValidationOutput that has success and stages attributes
+        from maverick.runners.models import ValidationOutput
+
+        mock_validation_output = MagicMock(spec=ValidationOutput)
+        mock_validation_output.success = False
+        mock_validation_output.stages = [
+            StageResult(
+                stage_name="format",
+                status=StageStatus.FAILED,
+                fix_attempts=1,
+                error_message="Formatting errors detected",
+                output="File needs formatting",
+                duration_ms=200,
+            )
+        ]
+
+        mock_validation = MagicMock()
+        mock_validation.run = AsyncMock(return_value=mock_validation_output)
+
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("- [ ] T001 Test")
+
+        config = FlyConfig(max_validation_attempts=2)
+        workflow = FlyWorkflow(
+            config=config,
+            git_runner=mock_git,
+            implementer_agent=mock_agent,
+            validation_runner=mock_validation,
+        )
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+
+        # Collect events
+        events = []
+        async for event in workflow.execute(inputs):
+            events.append(event)
+            # Stop after validation completes
+            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.VALIDATION:
+                break
+
+        # Verify VALIDATION stage events exist
+        validation_started = [
+            e for e in events
+            if isinstance(e, FlyStageStarted) and e.stage == WorkflowStage.VALIDATION
+        ]
+        validation_completed = [
+            e for e in events
+            if isinstance(e, FlyStageCompleted) and e.stage == WorkflowStage.VALIDATION
+        ]
+
+        assert len(validation_started) >= 1
+        assert len(validation_completed) >= 1
+
+        # Verify completed event contains validation result
+        completed_event = validation_completed[0]
+        assert completed_event.result is not None
+        # Result should be ValidationWorkflowResult
+        assert hasattr(completed_event.result, 'success')
+        assert completed_event.result.success is False  # Validation failed
+
+        # Verify stage results contain retry information
+        if hasattr(completed_event.result, 'stage_results'):
+            assert len(completed_event.result.stage_results) > 0
