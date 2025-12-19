@@ -13,7 +13,14 @@
 - Q: How should `ValidateStep.stages` be interpreted/resolved when a validate step runs (especially when `stages=None`)? → A: Allow list or config key; `stages=None` uses a configured default stages set.
 - Q: When a step raises an exception during execution, what should the workflow engine do? → A: Catch it, mark the step as failed, store a human-readable error string in `StepResult.error`, and stop the workflow.
 - Q: What should a context builder callable receive (for AgentStep/GenerateStep contexts)? → A: The full `WorkflowContext` object.
-- Q: When a `SubWorkflowStep` runs, how much of the sub-workflow’s details should be exposed to the parent workflow run? → A: Parent records the sub-workflow final output, and also makes the full sub-workflow result available.
+- Q: When a `SubWorkflowStep` runs, how much of the sub-workflow's details should be exposed to the parent workflow run? → A: Parent records the sub-workflow final output, and also makes the full sub-workflow result available.
+
+### Session 2025-12-19
+
+- Q: What happens when a validate step has `retry=0` or `retry=1` and the first validation fails? → A: `retry=0` means no retries (fail immediately, no on-failure step runs); `retry=1` means one retry allowed (on-failure runs once if configured, then re-validate once).
+- Q: What happens when a context builder callable fails or returns an invalid context object? → A: Treat as step failure: catch exception, record failed `StepResult` with error, stop workflow (consistent with FR-022).
+- Q: What happens when a sub-workflow fails or returns no final output? → A: Sub-workflow failure propagates (parent step fails, parent workflow stops); no explicit return uses last step output per FR-021.
+- Q: What happens when a validate step references a stages config key that does not exist? → A: Step failure: validate step fails immediately with clear error about missing config key, workflow stops (fail-fast).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -78,11 +85,12 @@ As a workflow author, I can validate prior step outputs and optionally retry val
 ### Edge Cases
 
 - A step raises an exception: the workflow records a failed `StepResult` with a human-readable error string and stops further execution.
-- What happens when a validate step has `retry=0` or `retry=1` and the first validation fails?
-- What happens when a validate step references a stages config key that does not exist?
-- What happens when a context builder callable fails or returns an invalid context object?
-- What happens when two steps in the same workflow share the same name?
-- What happens when a sub-workflow fails or returns no final output?
+- Validate step with `retry=0` and first validation fails: workflow fails immediately without running any on-failure step.
+- Validate step with `retry=1` and first validation fails: on-failure step runs once (if configured), then re-validates once; if still failing, workflow fails.
+- Context builder callable fails or returns invalid context: treated as step failure with error recorded in `StepResult`, workflow stops (consistent with FR-022).
+- Validate step references non-existent stages config key: step fails immediately with clear error, workflow stops (fail-fast).
+- Two steps share the same name: workflow fails with a clear error message (per FR-005).
+- Sub-workflow fails: parent step fails, parent workflow stops (failure propagates); sub-workflow has no explicit return: uses last step output per FR-021.
 
 ## Requirements *(mandatory)*
 
