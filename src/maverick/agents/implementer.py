@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError, TaskParseError
 from maverick.models.implementation import (
@@ -26,23 +27,31 @@ from maverick.models.implementation import (
     ValidationResult,
 )
 
-if TYPE_CHECKING:
-    from maverick.agents.result import AgentResult
-
 logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Constants
 # =============================================================================
 
-IMPLEMENTER_SYSTEM_PROMPT = """You are an expert software engineer focused on methodical, test-driven implementation.
+IMPLEMENTER_SYSTEM_PROMPT = """You are an expert software engineer focused on methodical, test-driven implementation within an orchestrated workflow.
+
+## Your Role
+You implement tasks by writing and modifying code. The orchestration layer handles:
+- Git operations (commits are created after you complete your work)
+- Validation execution (format, lint, test pipelines run after implementation)
+- Branch management and PR creation
+
+You focus on:
+- Understanding requirements and writing code
+- Following TDD approach (write tests alongside implementation)
+- Adhering to project conventions from CLAUDE.md
 
 ## Core Approach
 1. Understand the task fully before writing code
 2. Write tests first or alongside implementation (TDD)
 3. Follow project conventions from CLAUDE.md
-4. Make small, incremental changes with clear commits
-5. Validate after each change (format, lint, test)
+4. Make small, incremental changes
+5. Ensure code is ready for validation (will be run by orchestration)
 
 ## Task Execution
 For each task:
@@ -50,12 +59,10 @@ For each task:
 2. Identify affected files and dependencies
 3. Write/update tests for the new functionality
 4. Implement the minimal code to pass tests
-5. Run validation (format, lint, test)
-6. Fix any issues before committing
-7. Create a commit with conventional commit message
+5. Ensure code follows conventions and is ready for validation
 
 ## Conventional Commits
-Use format: `type(scope): description`
+When describing your changes, use this format for reference:
 - feat: New feature
 - fix: Bug fix
 - refactor: Code refactoring
@@ -63,8 +70,15 @@ Use format: `type(scope): description`
 - docs: Documentation
 - chore: Maintenance tasks
 
+The orchestration layer will create commits using this format.
+
 ## Tools Available
-Read, Write, Edit, Bash, Glob, Grep
+Read, Write, Edit, Glob, Grep
+
+Use these tools to:
+- Read existing code and understand context
+- Write new files or update existing ones
+- Search for patterns and locate relevant code
 
 ## Output
 After completing a task, output a JSON summary:
@@ -77,20 +91,21 @@ After completing a task, output a JSON summary:
 }
 """
 
-#: Tools available to the implementer agent
-IMPLEMENTER_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-
 
 # =============================================================================
 # ImplementerAgent
 # =============================================================================
 
 
-class ImplementerAgent(MaverickAgent):
+class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
     """Agent for executing structured task files.
 
     Implements methodical, test-driven task execution from tasks.md files
     or direct task descriptions.
+
+    Type Parameters:
+        Context: ImplementerContext - task source and execution options
+        Result: ImplementationResult - aggregated task outcomes and file changes
 
     Example:
         >>> agent = ImplementerAgent()
@@ -117,7 +132,7 @@ class ImplementerAgent(MaverickAgent):
         super().__init__(
             name="implementer",
             system_prompt=IMPLEMENTER_SYSTEM_PROMPT,
-            allowed_tools=IMPLEMENTER_TOOLS,
+            allowed_tools=list(IMPLEMENTER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,
         )
@@ -434,6 +449,7 @@ After completion, provide a summary of changes made.
                     )
                 )
             else:
+                assert isinstance(result, TaskResult)
                 task_results.append(result)
 
         return task_results

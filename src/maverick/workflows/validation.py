@@ -11,7 +11,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from maverick.models.validation import (
     ProgressUpdate,
@@ -65,7 +65,7 @@ class ValidationWorkflow:
     def __init__(
         self,
         stages: list[ValidationStage],
-        fix_agent: MaverickAgent | None = None,
+        fix_agent: "MaverickAgent[Any, Any]" | None = None,
         config: ValidationWorkflowConfig | None = None,
     ) -> None:
         """Initialize the validation workflow.
@@ -465,7 +465,7 @@ class ValidationWorkflow:
 
 
 def create_python_workflow(
-    fix_agent: MaverickAgent | None = None,
+    fix_agent: "MaverickAgent[Any, Any]" | None = None,
     config: ValidationWorkflowConfig | None = None,
 ) -> ValidationWorkflow:
     """Create a ValidationWorkflow with default Python stages.

@@ -15,6 +15,11 @@ Public API:
     AgentMessage: Type alias for SDK Message type
     BUILTIN_TOOLS: Set of built-in tools available to agents
     DEFAULT_MODEL: Default Claude model for agents
+    REVIEWER_TOOLS: Read-only tools for code analysis agents
+    IMPLEMENTER_TOOLS: Code modification tools without command execution
+    FIXER_TOOLS: Minimal tools for targeted file fixes
+    ISSUE_FIXER_TOOLS: Issue resolution with file search capability
+    GENERATOR_TOOLS: Empty set for text generation agents
     CodeReviewerAgent: Concrete agent for code review (if available)
     ImplementerAgent: Concrete agent for task implementation (if available)
     IssueFixerAgent: Concrete agent for issue fixing (if available)
@@ -31,23 +36,35 @@ from maverick.agents.base import BUILTIN_TOOLS, DEFAULT_MODEL, MaverickAgent
 from maverick.agents.context import AgentContext
 from maverick.agents.registry import AgentRegistry, register, registry
 from maverick.agents.result import AgentResult, AgentUsage
+from maverick.agents.tools import (
+    FIXER_TOOLS,
+    GENERATOR_TOOLS,
+    IMPLEMENTER_TOOLS,
+    ISSUE_FIXER_TOOLS,
+    REVIEWER_TOOLS,
+)
 from maverick.agents.utils import extract_all_text, extract_text
 
 # Conditional import for concrete agent implementations
 try:
     from maverick.agents.code_reviewer import CodeReviewerAgent
 except ImportError:
-    CodeReviewerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    CodeReviewerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.implementer import ImplementerAgent
 except ImportError:
-    ImplementerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    ImplementerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.issue_fixer import IssueFixerAgent
 except ImportError:
-    IssueFixerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    IssueFixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
+
+try:
+    from maverick.agents.fixer import FixerAgent
+except ImportError:
+    FixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.
@@ -56,9 +73,15 @@ AgentMessage = Any
 
 __all__: list[str] = [
     # Base class and constants
-    "MaverickAgent",
     "BUILTIN_TOOLS",
     "DEFAULT_MODEL",
+    "MaverickAgent",
+    # Tool permission constants
+    "FIXER_TOOLS",
+    "GENERATOR_TOOLS",
+    "IMPLEMENTER_TOOLS",
+    "ISSUE_FIXER_TOOLS",
+    "REVIEWER_TOOLS",
     # Result types
     "AgentResult",
     "AgentUsage",
@@ -66,11 +89,11 @@ __all__: list[str] = [
     "AgentContext",
     # Registry
     "AgentRegistry",
-    "registry",
     "register",
+    "registry",
     # Utilities
-    "extract_text",
     "extract_all_text",
+    "extract_text",
     # Type alias
     "AgentMessage",
     # Submodules
@@ -79,10 +102,13 @@ __all__: list[str] = [
 
 # Conditionally add concrete agents to __all__ if they were successfully imported
 if CodeReviewerAgent is not None:
-    __all__.append("CodeReviewerAgent")
+    __all__ += ["CodeReviewerAgent"]
 
 if ImplementerAgent is not None:
-    __all__.append("ImplementerAgent")
+    __all__ += ["ImplementerAgent"]
 
 if IssueFixerAgent is not None:
-    __all__.append("IssueFixerAgent")
+    __all__ += ["IssueFixerAgent"]
+
+if FixerAgent is not None:
+    __all__ += ["FixerAgent"]

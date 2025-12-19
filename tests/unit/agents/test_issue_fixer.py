@@ -17,9 +17,9 @@ import pytest
 
 from maverick.agents.issue_fixer import (
     ISSUE_FIXER_SYSTEM_PROMPT,
-    ISSUE_FIXER_TOOLS,
     IssueFixerAgent,
 )
+from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.exceptions import AgentError, GitHubError
 from maverick.models.implementation import (
     ChangeType,
@@ -117,7 +117,8 @@ class TestIssueFixerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "issue-fixer"
         assert agent.system_prompt == ISSUE_FIXER_SYSTEM_PROMPT
-        assert agent.allowed_tools == ISSUE_FIXER_TOOLS
+        # Compare as sets since allowed_tools is a list and ISSUE_FIXER_TOOLS is a frozenset
+        assert set(agent.allowed_tools) == set(ISSUE_FIXER_TOOLS)
 
     def test_custom_model(self) -> None:
         """Test agent accepts custom model parameter."""
@@ -170,11 +171,12 @@ class TestIssueFixerConstants:
         assert len(ISSUE_FIXER_SYSTEM_PROMPT) > 100
 
     def test_allowed_tools_includes_essential_tools(self) -> None:
-        """Test ISSUE_FIXER_TOOLS includes essential file and command tools."""
+        """Test ISSUE_FIXER_TOOLS includes essential file tools (no Bash per US3)."""
         assert "Read" in ISSUE_FIXER_TOOLS
         assert "Write" in ISSUE_FIXER_TOOLS
         assert "Edit" in ISSUE_FIXER_TOOLS
-        assert "Bash" in ISSUE_FIXER_TOOLS
+        # Bash removed - orchestration layer handles command execution
+        assert "Bash" not in ISSUE_FIXER_TOOLS
 
     def test_allowed_tools_includes_search_tools(self) -> None:
         """Test ISSUE_FIXER_TOOLS includes search tools."""
@@ -183,18 +185,44 @@ class TestIssueFixerConstants:
 
     def test_allowed_tools_count(self) -> None:
         """Test ISSUE_FIXER_TOOLS has expected number of tools."""
-        assert len(ISSUE_FIXER_TOOLS) == 6
+        assert len(ISSUE_FIXER_TOOLS) == 5  # Without Bash
 
     def test_allowed_tools_matches_contract(self) -> None:
-        """Test ISSUE_FIXER_TOOLS matches US5 contract exactly.
+        """Test ISSUE_FIXER_TOOLS matches US3 contract exactly.
 
-        US5 Contract: IssueFixerAgent must have exactly Read, Write, Edit, Bash, Glob, Grep.
+        US3 Contract: IssueFixerAgent must have exactly Read, Write, Edit, Glob, Grep.
         Same as ImplementerAgent - full code manipulation for targeted bug fixes.
+        Bash removed - orchestration layer handles command execution.
         """
-        expected_tools = {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
         actual_tools = set(ISSUE_FIXER_TOOLS)
         assert actual_tools == expected_tools, (
             f"IssueFixerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
+    def test_allowed_tools_uses_centralized_constants(
+        self, agent: IssueFixerAgent
+    ) -> None:
+        """Test allowed tools uses ISSUE_FIXER_TOOLS from maverick.agents.tools.
+
+        T012: Verify that IssueFixerAgent uses the centralized ISSUE_FIXER_TOOLS
+        constant from tools.py, not local definition. This enforces the orchestration
+        pattern where tool permissions are centrally managed.
+        """
+        from maverick.agents.tools import ISSUE_FIXER_TOOLS as CENTRALIZED_TOOLS
+
+        # Agent's allowed_tools should match the centralized constant
+        expected_tools = set(CENTRALIZED_TOOLS)
+        actual_tools = set(agent.allowed_tools)
+
+        assert actual_tools == expected_tools, (
+            f"IssueFixerAgent must use centralized ISSUE_FIXER_TOOLS. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
+        # Ensure Bash is NOT in the centralized tools (per US1 contract)
+        assert "Bash" not in CENTRALIZED_TOOLS, (
+            "Bash should be removed from ISSUE_FIXER_TOOLS per US1"
         )
 
 

@@ -208,8 +208,8 @@ class FlyWorkflow:
         validation_runner: ValidationRunner | None = None,
         github_runner: GitHubCLIRunner | None = None,
         coderabbit_runner: CodeRabbitRunner | None = None,
-        implementer_agent: MaverickAgent | None = None,
-        code_reviewer_agent: MaverickAgent | None = None,
+        implementer_agent: "MaverickAgent[Any, Any]" | None = None,
+        code_reviewer_agent: "MaverickAgent[Any, Any]" | None = None,
         commit_generator: CommitMessageGenerator | None = None,
         pr_generator: PRDescriptionGenerator | None = None,
     ) -> None:
