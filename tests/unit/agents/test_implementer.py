@@ -196,6 +196,17 @@ class TestImplementerAgentInitialization:
         assert "Glob" in agent.allowed_tools
         assert "Grep" in agent.allowed_tools
 
+    def test_allowed_tools_matches_contract(self, agent: ImplementerAgent) -> None:
+        """Test allowed tools matches US5 contract exactly.
+
+        US5 Contract: ImplementerAgent must have exactly Read, Write, Edit, Bash, Glob, Grep.
+        """
+        expected_tools = {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}
+        actual_tools = set(agent.allowed_tools)
+        assert actual_tools == expected_tools, (
+            f"ImplementerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
 
 # =============================================================================
 # Constants Tests

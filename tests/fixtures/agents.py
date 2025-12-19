@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Callable
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -226,3 +227,198 @@ def mock_sdk_client() -> MockSDKClient:
         ...     # Use mock_sdk_client in your agent test
     """
     return MockSDKClient()
+
+
+# =============================================================================
+# Agent Mocks for Workflow Testing
+# =============================================================================
+
+
+@pytest.fixture
+def mock_implementer_agent() -> MagicMock:
+    """Fixture providing a mock ImplementerAgent instance.
+
+    Returns:
+        MagicMock configured with AsyncMock execute() that returns ImplementationResult.
+        Default behavior: successful task completion with minimal file changes.
+
+    Example:
+        >>> @pytest.mark.asyncio
+        ... async def test_workflow(mock_implementer_agent):
+        ...     from maverick.models.implementation import ImplementerContext
+        ...     # Default: implementation succeeds
+        ...     context = ImplementerContext(branch="test-branch")
+        ...     result = await mock_implementer_agent.execute(context)
+        ...     assert result.success
+        ...
+        ...     # Configure specific behavior
+        ...     from maverick.models.implementation import ImplementationResult
+        ...     mock_implementer_agent.execute.return_value = ImplementationResult(
+        ...         success=False,
+        ...         tasks_completed=2,
+        ...         tasks_failed=1,
+        ...         tasks_skipped=0,
+        ...         task_results=[],
+        ...         files_changed=[],
+        ...         commits=[],
+        ...         validation_passed=False,
+        ...         errors=["Task T003 failed"],
+        ...     )
+    """
+    from maverick.models.implementation import (
+        ChangeType,
+        FileChange,
+        ImplementationResult,
+        TaskResult,
+        TaskStatus,
+    )
+
+    agent = MagicMock()
+
+    # Configure default successful implementation
+    agent.execute = AsyncMock(
+        return_value=ImplementationResult(
+            success=True,
+            tasks_completed=3,
+            tasks_failed=0,
+            tasks_skipped=0,
+            task_results=[
+                TaskResult(
+                    task_id="T001",
+                    status=TaskStatus.COMPLETED,
+                    files_changed=[
+                        FileChange(
+                            file_path="src/module.py",
+                            change_type=ChangeType.MODIFIED,
+                            lines_added=15,
+                            lines_removed=3,
+                        )
+                    ],
+                    tests_added=["tests/test_module.py"],
+                    commit_sha="abc1234567890",
+                    duration_ms=5000,
+                    validation=[],
+                ),
+                TaskResult(
+                    task_id="T002",
+                    status=TaskStatus.COMPLETED,
+                    files_changed=[
+                        FileChange(
+                            file_path="tests/test_module.py",
+                            change_type=ChangeType.ADDED,
+                            lines_added=25,
+                            lines_removed=0,
+                        )
+                    ],
+                    tests_added=["tests/test_module.py"],
+                    commit_sha="def4567890123",
+                    duration_ms=3000,
+                    validation=[],
+                ),
+                TaskResult(
+                    task_id="T003",
+                    status=TaskStatus.COMPLETED,
+                    files_changed=[
+                        FileChange(
+                            file_path="README.md",
+                            change_type=ChangeType.MODIFIED,
+                            lines_added=5,
+                            lines_removed=1,
+                        )
+                    ],
+                    tests_added=[],
+                    commit_sha="ghi7890123456",
+                    duration_ms=1500,
+                    validation=[],
+                ),
+            ],
+            files_changed=[
+                FileChange(
+                    file_path="src/module.py",
+                    change_type=ChangeType.MODIFIED,
+                    lines_added=15,
+                    lines_removed=3,
+                ),
+                FileChange(
+                    file_path="tests/test_module.py",
+                    change_type=ChangeType.ADDED,
+                    lines_added=25,
+                    lines_removed=0,
+                ),
+                FileChange(
+                    file_path="README.md",
+                    change_type=ChangeType.MODIFIED,
+                    lines_added=5,
+                    lines_removed=1,
+                ),
+            ],
+            commits=["abc1234567890", "def4567890123", "ghi7890123456"],
+            validation_passed=True,
+            metadata={
+                "branch": "test-branch",
+                "duration_ms": 9500,
+                "dry_run": False,
+            },
+            errors=[],
+        )
+    )
+
+    # Set agent properties
+    agent.name = "implementer"
+    agent.system_prompt = "Mock implementer agent"
+    agent.allowed_tools = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+
+    return agent
+
+
+@pytest.fixture
+def mock_commit_generator() -> MagicMock:
+    """Fixture providing a mock CommitMessageGenerator instance.
+
+    Returns:
+        MagicMock configured with AsyncMock generate() that returns commit messages.
+        Default behavior: generates conventional commit messages based on context.
+
+    Example:
+        >>> @pytest.mark.asyncio
+        ... async def test_commit_generation(mock_commit_generator):
+        ...     # Default: generates conventional commit message
+        ...     context = {
+        ...         "diff": "diff --git a/auth.py...",
+        ...         "file_stats": {"auth.py": {"additions": 10, "deletions": 2}},
+        ...         "scope_hint": "auth",
+        ...     }
+        ...     message = await mock_commit_generator.generate(context)
+        ...     assert message.startswith("feat(")
+        ...
+        ...     # Configure specific behavior
+        ...     mock_commit_generator.generate.return_value = "fix(api): handle null user"
+        ...     message = await mock_commit_generator.generate(context)
+        ...     assert message == "fix(api): handle null user"
+    """
+    generator = MagicMock()
+
+    # Configure generate method to return context-aware commit messages
+    def generate_commit_message(context: dict) -> str:
+        """Generate a mock commit message based on context."""
+        scope_hint = context.get("scope_hint", "core")
+        file_stats = context.get("file_stats", {})
+
+        # Determine type based on file changes (simple heuristic)
+        if file_stats:
+            first_file = next(iter(file_stats.keys()), "")
+            if "test" in first_file.lower():
+                return f"test({scope_hint}): add test coverage"
+            elif "README" in first_file or "docs/" in first_file:
+                return f"docs({scope_hint}): update documentation"
+            else:
+                return f"feat({scope_hint}): implement new functionality"
+        return f"chore({scope_hint}): update codebase"
+
+    generator.generate = AsyncMock(side_effect=generate_commit_message)
+
+    # Set generator properties
+    generator.name = "commit-message-generator"
+    generator.system_prompt = "Mock commit message generator"
+
+    return generator

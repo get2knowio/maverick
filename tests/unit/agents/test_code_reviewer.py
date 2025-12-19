@@ -151,6 +151,21 @@ class TestCodeReviewerAgentInitialization:
         """Test allowed tools includes Read for file reading."""
         assert "Read" in agent.allowed_tools
 
+    def test_allowed_tools_matches_contract(self, agent: CodeReviewerAgent) -> None:
+        """Test allowed tools matches US5 contract exactly.
+
+        US5 Contract: CodeReviewerAgent must have exactly Read, Glob, Grep, Bash.
+        Read-only tools for analysis, no Write or Edit permissions.
+        """
+        expected_tools = {"Read", "Glob", "Grep", "Bash"}
+        actual_tools = set(agent.allowed_tools)
+        assert actual_tools == expected_tools, (
+            f"CodeReviewerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+        # Ensure no write permissions
+        assert "Write" not in agent.allowed_tools
+        assert "Edit" not in agent.allowed_tools
+
 
 # =============================================================================
 # Constants Tests

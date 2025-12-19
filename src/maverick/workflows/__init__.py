@@ -28,18 +28,18 @@ except ImportError as e:
 
 try:
     from maverick.workflows.fly import (
-        FlyWorkflow,
         FlyConfig,
         FlyInputs,
+        FlyProgressEvent,
         FlyResult,
-        WorkflowStage,
-        WorkflowState,
-        FlyWorkflowStarted,
-        FlyStageStarted,
         FlyStageCompleted,
+        FlyStageStarted,
+        FlyWorkflow,
         FlyWorkflowCompleted,
         FlyWorkflowFailed,
-        FlyProgressEvent,
+        FlyWorkflowStarted,
+        WorkflowStage,
+        WorkflowState,
     )
 
     __all__.extend(
@@ -66,18 +66,18 @@ except ImportError as e:
 
 try:
     from maverick.workflows.refuel import (
-        RefuelWorkflow,
+        GitHubIssue,
+        IssueProcessingCompleted,
+        IssueProcessingResult,
+        IssueProcessingStarted,
+        IssueStatus,
+        RefuelCompleted,
         RefuelConfig,
         RefuelInputs,
-        RefuelResult,
-        GitHubIssue,
-        IssueStatus,
-        IssueProcessingResult,
-        RefuelStarted,
-        IssueProcessingStarted,
-        IssueProcessingCompleted,
-        RefuelCompleted,
         RefuelProgressEvent,
+        RefuelResult,
+        RefuelStarted,
+        RefuelWorkflow,
     )
 
     __all__.extend(
