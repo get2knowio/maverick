@@ -27,9 +27,6 @@ from maverick.models.implementation import (
     ValidationResult,
 )
 
-if TYPE_CHECKING:
-    from maverick.agents.result import AgentResult
-
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -100,11 +97,15 @@ After completing a task, output a JSON summary:
 # =============================================================================
 
 
-class ImplementerAgent(MaverickAgent):
+class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
     """Agent for executing structured task files.
 
     Implements methodical, test-driven task execution from tasks.md files
     or direct task descriptions.
+
+    Type Parameters:
+        Context: ImplementerContext - task source and execution options
+        Result: ImplementationResult - aggregated task outcomes and file changes
 
     Example:
         >>> agent = ImplementerAgent()
@@ -448,6 +449,7 @@ After completion, provide a summary of changes made.
                     )
                 )
             else:
+                assert isinstance(result, TaskResult)
                 task_results.append(result)
 
         return task_results

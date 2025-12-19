@@ -370,7 +370,7 @@ class TestExecuteMethod:
     async def test_execute_returns_review_result(
         self,
         agent: CodeReviewerAgent,
-        mock_agent_context: AgentContext,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test execute returns a ReviewResult on success."""
         # Mock all the internal methods
@@ -408,7 +408,7 @@ class TestExecuteMethod:
 
             mock_query.side_effect = async_gen
 
-            result = await agent.execute(mock_agent_context)
+            result = await agent.execute(mock_review_context)
 
             # Should return ReviewResult
             assert result is not None
@@ -436,7 +436,7 @@ class TestExecuteMethod:
     async def test_execute_handles_empty_diff(
         self,
         agent: CodeReviewerAgent,
-        mock_agent_context: AgentContext,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test execute handles empty diff gracefully."""
         with (
@@ -458,7 +458,7 @@ class TestExecuteMethod:
             }
             mock_conventions.return_value = ""
 
-            result = await agent.execute(mock_agent_context)
+            result = await agent.execute(mock_review_context)
 
             # Should succeed with empty result
             assert result.success is True
@@ -476,16 +476,9 @@ class TestReviewContextBuilding:
     async def test_uses_default_base_branch_when_not_specified(
         self,
         agent: CodeReviewerAgent,
-        tmp_path: Path,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test uses DEFAULT_BASE_BRANCH when not in extra params."""
-        context = AgentContext(
-            cwd=tmp_path,
-            branch="feature/test",
-            config=MagicMock(),
-            extra={},  # No base_branch specified
-        )
-
         with (
             patch.object(
                 agent, "_check_merge_conflicts", new_callable=AsyncMock
@@ -505,7 +498,7 @@ class TestReviewContextBuilding:
             }
             mock_conventions.return_value = ""
 
-            result = await agent.execute(context)
+            result = await agent.execute(mock_review_context)
 
             # Verify default base branch was used
             assert result.success is True
@@ -514,16 +507,9 @@ class TestReviewContextBuilding:
     async def test_uses_custom_base_branch_when_specified(
         self,
         agent: CodeReviewerAgent,
-        tmp_path: Path,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test uses custom base_branch from extra params."""
-        context = AgentContext(
-            cwd=tmp_path,
-            branch="feature/test",
-            config=MagicMock(),
-            extra={"base_branch": "develop"},
-        )
-
         with (
             patch.object(
                 agent, "_check_merge_conflicts", new_callable=AsyncMock
@@ -543,7 +529,7 @@ class TestReviewContextBuilding:
             }
             mock_conventions.return_value = ""
 
-            await agent.execute(context)
+            await agent.execute(mock_review_context)
 
             # The stats method should be called - we can verify context was built
             mock_stats.assert_called_once()

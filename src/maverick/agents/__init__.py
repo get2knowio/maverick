@@ -49,22 +49,22 @@ from maverick.agents.utils import extract_all_text, extract_text
 try:
     from maverick.agents.code_reviewer import CodeReviewerAgent
 except ImportError:
-    CodeReviewerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    CodeReviewerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.implementer import ImplementerAgent
 except ImportError:
-    ImplementerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    ImplementerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.issue_fixer import IssueFixerAgent
 except ImportError:
-    IssueFixerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    IssueFixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.fixer import FixerAgent
 except ImportError:
-    FixerAgent = None  # type: ignore[assignment]  # Not yet implemented
+    FixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.
@@ -73,15 +73,15 @@ AgentMessage = Any
 
 __all__: list[str] = [
     # Base class and constants
-    "MaverickAgent",
     "BUILTIN_TOOLS",
     "DEFAULT_MODEL",
+    "MaverickAgent",
     # Tool permission constants
-    "REVIEWER_TOOLS",
-    "IMPLEMENTER_TOOLS",
     "FIXER_TOOLS",
-    "ISSUE_FIXER_TOOLS",
     "GENERATOR_TOOLS",
+    "IMPLEMENTER_TOOLS",
+    "ISSUE_FIXER_TOOLS",
+    "REVIEWER_TOOLS",
     # Result types
     "AgentResult",
     "AgentUsage",
@@ -89,11 +89,11 @@ __all__: list[str] = [
     "AgentContext",
     # Registry
     "AgentRegistry",
-    "registry",
     "register",
+    "registry",
     # Utilities
-    "extract_text",
     "extract_all_text",
+    "extract_text",
     # Type alias
     "AgentMessage",
     # Submodules
@@ -102,13 +102,13 @@ __all__: list[str] = [
 
 # Conditionally add concrete agents to __all__ if they were successfully imported
 if CodeReviewerAgent is not None:
-    __all__.append("CodeReviewerAgent")
+    __all__ += ["CodeReviewerAgent"]
 
 if ImplementerAgent is not None:
-    __all__.append("ImplementerAgent")
+    __all__ += ["ImplementerAgent"]
 
 if IssueFixerAgent is not None:
-    __all__.append("IssueFixerAgent")
+    __all__ += ["IssueFixerAgent"]
 
 if FixerAgent is not None:
-    __all__.append("FixerAgent")
+    __all__ += ["FixerAgent"]

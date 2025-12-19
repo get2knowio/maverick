@@ -17,9 +17,6 @@ from maverick.exceptions import AgentError, GitHubError
 from maverick.models.implementation import ChangeType, FileChange, ValidationResult
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -98,11 +95,15 @@ After fixing, output a JSON summary:
 # =============================================================================
 
 
-class IssueFixerAgent(MaverickAgent):
+class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
     """Agent for resolving GitHub issues with minimal changes.
 
     Implements targeted bug fixes by analyzing issues, implementing
     minimal fixes, and verifying resolution.
+
+    Type Parameters:
+        Context: IssueFixerContext - issue source and execution options
+        Result: FixResult - fix outcome with verification status
 
     Example:
         >>> agent = IssueFixerAgent()

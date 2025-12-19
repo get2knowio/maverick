@@ -8,16 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.context import AgentContext
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.agents.tools import FIXER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError
-
-if TYPE_CHECKING:
-    from maverick.agents.context import AgentContext
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +56,16 @@ Output your result as JSON with these fields:
 # =============================================================================
 
 
-class FixerAgent(MaverickAgent):
+class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
     """Minimal agent for applying targeted validation fixes.
 
     This agent has the smallest tool set (Read, Write, Edit) and expects
     explicit file paths and error information. It does not search for files
     or investigate issues - it applies specific fixes to known locations.
+
+    Type Parameters:
+        Context: AgentContext - base context type (uses extra dict for prompts)
+        Result: AgentResult - base result type (success/failure with errors)
 
     Use Cases:
         - Fixing linting errors at specific line numbers
