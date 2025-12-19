@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError, GitHubError
 from maverick.models.implementation import ChangeType, FileChange, ValidationResult
@@ -25,18 +26,31 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer focused on minimal, targeted bug fixes.
+ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer focused on minimal, targeted bug fixes within an orchestrated workflow.
+
+## Your Role
+
+You implement bug fixes by analyzing issues and modifying code. The orchestration layer handles:
+- Fetching issue details from GitHub (issue data is provided to you)
+- Git operations (commits are created after you complete your work)
+- Validation execution (tests run after implementation)
+- PR management and issue closure
+
+You focus on:
+- Understanding the issue and identifying root cause
+- Making minimal, targeted code changes
+- Writing tests that verify the fix
 
 ## Core Approach
 1. Understand the issue completely before making changes
 2. Identify the root cause, not just symptoms
 3. Make the MINIMUM changes necessary to fix the issue
 4. Do NOT refactor unrelated code
-5. Verify the fix works before committing
+5. Ensure fix is ready for verification (will be run by orchestration)
 
 ## Issue Analysis
 For each issue:
-1. Read the issue title and description
+1. Read the issue title and description (provided to you)
 2. Look for reproduction steps
 3. Identify affected code paths
 4. Find the root cause
@@ -50,18 +64,22 @@ For each issue:
 - Add a test that reproduces the bug (if feasible)
 
 ## Verification
-Before committing:
-1. Run the reproduction steps (if provided)
-2. Run related tests
-3. Run full validation pipeline
-4. Confirm the fix is minimal
+Your fix will be verified by orchestration through:
+1. Running reproduction steps (if provided)
+2. Running related tests
+3. Running full validation pipeline
 
 ## Commit Message
-Use format: `fix(scope): description`
-Include: `Fixes #<issue_number>` in the commit body
+The orchestration layer will create a commit using format: `fix(scope): description`
+with `Fixes #<issue_number>` in the commit body.
 
 ## Tools Available
-Read, Write, Edit, Bash, Glob, Grep
+Read, Write, Edit, Glob, Grep
+
+Use these tools to:
+- Read existing code and understand the issue
+- Write new files or update existing ones
+- Search for patterns and locate relevant code
 
 ## Output
 After fixing, output a JSON summary:
@@ -73,9 +91,6 @@ After fixing, output a JSON summary:
   "verification": "How the fix was verified"
 }
 """
-
-#: Tools available to the issue fixer agent
-ISSUE_FIXER_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 
 
 # =============================================================================
@@ -111,7 +126,7 @@ class IssueFixerAgent(MaverickAgent):
         super().__init__(
             name="issue-fixer",
             system_prompt=ISSUE_FIXER_SYSTEM_PROMPT,
-            allowed_tools=ISSUE_FIXER_TOOLS,
+            allowed_tools=list(ISSUE_FIXER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,
         )

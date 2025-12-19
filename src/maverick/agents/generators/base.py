@@ -12,6 +12,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
+from maverick.agents.tools import GENERATOR_TOOLS
 from maverick.agents.utils import extract_text
 from maverick.exceptions import GeneratorError
 
@@ -50,8 +51,20 @@ class GeneratorAgent(ABC):
     """Abstract base class for all generator agents.
 
     Provides common infrastructure for single-shot text generation using
-    Claude Agent SDK's query() function. Generators use max_turns=1 and
-    no tools, making them lightweight and stateless.
+    Claude Agent SDK's query() function. Generators operate on context
+    provided in prompts and have no tools.
+
+    ## Generator Role
+
+    Generators are stateless text producers that:
+    - Receive all necessary context in their prompts
+    - Have no file access or command execution capabilities (no tools)
+    - Generate text in a single turn (max_turns=1)
+    - Are lightweight and focused on specific output formats
+
+    The orchestration layer provides all context (diffs, code snippets,
+    conventions, etc.) in the prompt. Generators do not fetch or retrieve
+    data themselves.
 
     Attributes:
         name: Unique identifier for the generator.
@@ -64,10 +77,11 @@ class GeneratorAgent(ABC):
             def __init__(self):
                 super().__init__(
                     name="my-generator",
-                    system_prompt="You generate helpful text.",
+                    system_prompt="You generate helpful text from provided context.",
                 )
 
             async def generate(self, context: dict[str, Any]) -> str:
+                # All context is provided in the prompt
                 prompt = f"Generate text for: {context['input']}"
                 return await self._query(prompt)
         ```
@@ -124,7 +138,7 @@ class GeneratorAgent(ABC):
             system_prompt=self._system_prompt,
             model=self._model,
             max_turns=MAX_TURNS,
-            allowed_tools=[],  # No tools for generators
+            allowed_tools=list(GENERATOR_TOOLS),  # Empty set - generators don't use tools
         )
 
     @abstractmethod
@@ -169,7 +183,7 @@ class GeneratorAgent(ABC):
                 system_prompt=system_prompt,
                 model=self._model,
                 max_turns=MAX_TURNS,
-                allowed_tools=[],
+                allowed_tools=list(GENERATOR_TOOLS),  # Empty set - generators don't use tools
             )
         else:
             options = self._options

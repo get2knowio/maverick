@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError
 
@@ -51,9 +52,6 @@ MAX_DIFF_FILES: int = 50
 #: Maximum tokens per review chunk (FR-021)
 MAX_TOKENS_PER_CHUNK: int = 50_000
 
-#: Read-only tools for code review (FR-006)
-ALLOWED_TOOLS: list[str] = ["Read", "Glob", "Grep", "Bash"]
-
 #: Default base branch for comparison
 DEFAULT_BASE_BRANCH: str = "main"
 
@@ -62,10 +60,25 @@ DEFAULT_BASE_BRANCH: str = "main"
 # System Prompt
 # =============================================================================
 
-SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development.
+SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development, analyzing pre-gathered code changes.
 
-Your role is to perform thorough, constructive code reviews that help maintain
-code quality and prevent defects before they reach production.
+## Your Role
+
+You analyze code changes that have been provided to you. The orchestration layer handles:
+- Retrieving git diffs (already gathered and provided to you)
+- Reading file contents (already gathered and provided to you)
+- Fetching convention guidelines (CLAUDE.md is provided if available)
+
+You focus on:
+- Analyzing the provided diff and file contents
+- Identifying issues across review dimensions (correctness, security, style, performance, testability)
+- Providing structured, actionable findings
+
+Do not attempt to:
+- Execute git commands (diffs are provided)
+- Run tests or validation (orchestration handles this)
+- Modify files (review only, no edits)
+- Create issues or PRs (findings are returned for orchestration to handle)
 
 ## Review Dimensions
 
@@ -225,7 +238,7 @@ class CodeReviewerAgent(MaverickAgent):
         super().__init__(
             name="code-reviewer",
             system_prompt=SYSTEM_PROMPT,
-            allowed_tools=ALLOWED_TOOLS,
+            allowed_tools=list(REVIEWER_TOOLS),
             model=model,
         )
 

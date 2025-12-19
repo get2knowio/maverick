@@ -17,9 +17,9 @@ import pytest
 
 from maverick.agents.implementer import (
     IMPLEMENTER_SYSTEM_PROMPT,
-    IMPLEMENTER_TOOLS,
     ImplementerAgent,
 )
+from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.exceptions import AgentError, TaskParseError
 from maverick.models.implementation import (
     ChangeType,
@@ -162,7 +162,8 @@ class TestImplementerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "implementer"
         assert agent.system_prompt == IMPLEMENTER_SYSTEM_PROMPT
-        assert agent.allowed_tools == IMPLEMENTER_TOOLS
+        # Compare as sets since allowed_tools is a list and IMPLEMENTER_TOOLS is a frozenset
+        assert set(agent.allowed_tools) == set(IMPLEMENTER_TOOLS)
 
     def test_custom_model(self) -> None:
         """Test agent accepts custom model parameter."""
@@ -185,6 +186,17 @@ class TestImplementerAgentInitialization:
         assert "conventional" in prompt.lower()
         assert "feat" in prompt.lower() or "fix" in prompt.lower()
 
+    def test_system_prompt_mentions_orchestration(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test system prompt mentions orchestration layer (T024).
+
+        Agent should understand it operates within an orchestration context
+        and should not attempt to execute validation itself.
+        """
+        prompt = agent.system_prompt
+        assert "orchestration" in prompt.lower() or "orchestrated" in prompt.lower()
+
     def test_allowed_tools_includes_required_tools(
         self, agent: ImplementerAgent
     ) -> None:
@@ -192,19 +204,45 @@ class TestImplementerAgentInitialization:
         assert "Read" in agent.allowed_tools
         assert "Write" in agent.allowed_tools
         assert "Edit" in agent.allowed_tools
-        assert "Bash" in agent.allowed_tools
+        # Bash removed per US3 - agents don't execute commands, orchestration does
         assert "Glob" in agent.allowed_tools
         assert "Grep" in agent.allowed_tools
 
     def test_allowed_tools_matches_contract(self, agent: ImplementerAgent) -> None:
-        """Test allowed tools matches US5 contract exactly.
+        """Test allowed tools matches US3 contract exactly.
 
-        US5 Contract: ImplementerAgent must have exactly Read, Write, Edit, Bash, Glob, Grep.
+        US3 Contract: ImplementerAgent must have exactly Read, Write, Edit, Glob, Grep.
+        Bash removed - orchestration layer handles command execution.
         """
-        expected_tools = {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
             f"ImplementerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
+    def test_allowed_tools_uses_centralized_constants(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test allowed tools uses IMPLEMENTER_TOOLS from maverick.agents.tools.
+
+        T010: Verify that ImplementerAgent uses the centralized IMPLEMENTER_TOOLS
+        constant from tools.py, not local definition. This enforces the orchestration
+        pattern where tool permissions are centrally managed.
+        """
+        from maverick.agents.tools import IMPLEMENTER_TOOLS as CENTRALIZED_TOOLS
+
+        # Agent's allowed_tools should match the centralized constant
+        expected_tools = set(CENTRALIZED_TOOLS)
+        actual_tools = set(agent.allowed_tools)
+
+        assert actual_tools == expected_tools, (
+            f"ImplementerAgent must use centralized IMPLEMENTER_TOOLS. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
+        # Ensure Bash is NOT in the centralized tools (per US1 contract)
+        assert "Bash" not in CENTRALIZED_TOOLS, (
+            "Bash should be removed from IMPLEMENTER_TOOLS per US1"
         )
 
 
@@ -221,18 +259,19 @@ class TestImplementerConstants:
         assert isinstance(IMPLEMENTER_SYSTEM_PROMPT, str)
         assert len(IMPLEMENTER_SYSTEM_PROMPT) > 100
 
-    def test_implementer_tools_is_list(self) -> None:
-        """Test IMPLEMENTER_TOOLS is a list of strings."""
-        assert isinstance(IMPLEMENTER_TOOLS, list)
+    def test_implementer_tools_is_frozenset(self) -> None:
+        """Test IMPLEMENTER_TOOLS is a frozenset of strings (centralized, immutable)."""
+        assert isinstance(IMPLEMENTER_TOOLS, frozenset)
         assert all(isinstance(tool, str) for tool in IMPLEMENTER_TOOLS)
-        assert len(IMPLEMENTER_TOOLS) >= 6
+        assert len(IMPLEMENTER_TOOLS) >= 5  # Without Bash
 
     def test_implementer_tools_contains_core_tools(self) -> None:
-        """Test IMPLEMENTER_TOOLS contains core development tools."""
+        """Test IMPLEMENTER_TOOLS contains core development tools (no Bash per US3)."""
         assert "Read" in IMPLEMENTER_TOOLS
         assert "Write" in IMPLEMENTER_TOOLS
         assert "Edit" in IMPLEMENTER_TOOLS
-        assert "Bash" in IMPLEMENTER_TOOLS
+        # Bash removed - orchestration layer handles command execution
+        assert "Bash" not in IMPLEMENTER_TOOLS
 
 
 # =============================================================================

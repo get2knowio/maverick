@@ -70,7 +70,7 @@ As a workflow orchestrator, I need a minimal FixerAgent specialized for applying
 
 ### Edge Cases
 
-- What happens when an agent encounters a task that would require tools it doesn't have? The agent should recognize the limitation and report what it cannot do, allowing the orchestration layer to handle the situation.
+- What happens when an agent attempts to use a tool not in its allowed set? The Claude Agent SDK automatically rejects the tool call; no custom error handling is required.
 - How does the system handle agents that previously relied on removed tools? System prompts must be updated to remove references to unavailable tools, and workflows must be refactored to provide necessary context upfront.
 - What happens if a GeneratorAgent needs to inspect code to generate accurate descriptions? The workflow must gather and provide all necessary code context in the prompt before invoking the generator.
 
@@ -78,8 +78,8 @@ As a workflow orchestrator, I need a minimal FixerAgent specialized for applying
 
 ### Functional Requirements
 
-- **FR-001**: System MUST define a ToolSet enum or constants module containing predefined tool permission sets
-- **FR-002**: ImplementerAgent MUST be configured with only Read, Write, Edit, MultiEdit, Glob, and Grep tools (no Bash)
+- **FR-001**: System MUST define a constants module (`maverick/agents/tools.py`) containing predefined tool permission sets as frozenset values
+- **FR-002**: ImplementerAgent MUST be configured with only Read, Write, Edit, Glob, and Grep tools (no Bash)
 - **FR-003**: CodeReviewerAgent MUST be configured with only Read, Glob, and Grep tools (read-only, no Bash)
 - **FR-004**: IssueFixerAgent MUST be configured with only Read, Write, Edit, Glob, and Grep tools (no Bash, no GitHub MCP tools)
 - **FR-005**: System MUST implement a new FixerAgent with only Read, Write, and Edit tools
@@ -87,10 +87,15 @@ As a workflow orchestrator, I need a minimal FixerAgent specialized for applying
 - **FR-007**: All agent system prompts MUST be updated to remove instructions about git commands, PR creation, and API calls
 - **FR-008**: All agent system prompts MUST include guidance stating that context is pre-gathered and the orchestration layer handles validation
 - **FR-009**: Workflows MUST be refactored to provide necessary context (git diffs, file contents, etc.) in agent prompts rather than expecting agents to gather it themselves
+- **FR-010**: System MUST include unit tests verifying each agent's `allowed_tools` matches its corresponding ToolSet constant
+
+### Scope Note
+
+FR-009 documents the architectural expectation but is considered satisfied by existing workflow implementations from spec-020. This feature focuses on agent-side tool permission enforcement. Workflow context provision is verified via existing workflow tests rather than new implementation tasks.
 
 ### Key Entities
 
-- **ToolSet**: A named collection of tool identifiers representing permissions for a category of agent operations (implementation, review, fix, generation)
+- **ToolSet**: A frozenset constant containing tool name strings, representing permissions for a category of agent operations (e.g., `IMPLEMENTER_TOOLS`, `REVIEWER_TOOLS`, `FIXER_TOOLS`)
 - **Agent**: An AI-powered component that performs a specific judgment task using its assigned tool set
 - **Orchestration Layer**: The Python code that manages agent execution, provides context, and handles all external system interactions
 
@@ -105,9 +110,19 @@ As a workflow orchestrator, I need a minimal FixerAgent specialized for applying
 - **SC-005**: Workflows successfully provide all necessary context to agents without agents needing to gather it themselves
 - **SC-006**: System maintains all existing functionality with agents operating under reduced permissions
 
+## Clarifications
+
+### Session 2025-12-19
+
+- Q: Are tool names (Read, Write, Edit, etc.) Claude Agent SDK tools, custom MCP tools, or something else? → A: Environment tools (Claude Code CLI tools)
+- Q: When an agent attempts to use a tool not in its allowed set, what should happen? → A: SDK rejects automatically (built-in behavior)
+- Q: How should the ToolSet definitions be implemented in code? → A: Constants module with frozenset values
+- Q: Should there be dedicated unit tests verifying each agent's tool set? → A: Yes, test each agent's allowed_tools matches the defined constant
+
 ## Assumptions
 
 - The Python orchestration layer already exists or will be implemented to handle git operations, GitHub API calls, and test execution (per spec 020)
 - The Claude Agent SDK supports restricting tools available to agents via the `allowed_tools` parameter
+- Tool names (Read, Write, Edit, MultiEdit, Glob, Grep, Bash) refer to Claude Code environment tools provided by the CLI
 - Workflows can be refactored to pre-gather context (git diffs, file contents) before invoking agents
 - Agents will cooperate with their constraints and not attempt to work around missing tools
