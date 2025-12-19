@@ -77,8 +77,8 @@ A developer encounters a validation failure (lint error, test failure, build err
 ### Edge Cases
 
 - What happens when input is empty or malformed? (All generators return clear error messages)
-- What happens when the Claude API is unavailable? (Generators raise appropriate exceptions)
-- How does the system handle very large inputs (e.g., massive diffs)? (Generators truncate or summarize appropriately)
+- What happens when the Claude API is unavailable? (Generators raise exception immediately on first API error; no internal retry—caller handles retry logic)
+- How does the system handle very large inputs (e.g., massive diffs)? (Generators truncate to size limits—100KB for diffs, 10KB for snippets—log a WARNING, and proceed with truncated input)
 - What happens when generated output doesn't match expected format? (Consumers handle gracefully)
 
 ## Requirements *(mandatory)*
@@ -100,6 +100,9 @@ A developer encounters a validation failure (lint error, test failure, build err
 - **FR-013**: All generators MUST be async (async generate() method)
 - **FR-014**: All generators MUST extract plain text from the Claude API response
 - **FR-015**: All generators MUST handle empty or invalid input gracefully with clear error messages
+- **FR-016**: All generators MUST log inputs/outputs at DEBUG level and errors at WARNING/ERROR level using standard Python logging
+- **FR-017**: All generators MUST truncate inputs exceeding size limits (100KB for diffs, 10KB for code snippets) and log a WARNING before proceeding
+- **FR-018**: All generators MUST raise exceptions immediately on API errors without internal retry. Generators are stateless single-shot operations; callers (workflows) implement retry with exponential backoff per Constitution IV.
 
 ### Key Entities
 
@@ -121,6 +124,15 @@ A developer encounters a validation failure (lint error, test failure, build err
 - **SC-006**: Generator failures provide clear error messages that help diagnose the issue 100% of the time
 - **SC-007**: All generators work correctly with the Claude Agent SDK's query() function (no tool-related errors)
 
+## Clarifications
+
+### Session 2025-12-18
+
+- Q: How should generator activity be logged/monitored? → A: Standard logging only (log inputs/outputs at DEBUG level, errors at WARNING/ERROR)
+- Q: What happens when input exceeds size limits (100KB diff, 10KB snippet)? → A: Truncate with warning (truncate input to limit, log warning, proceed with generation)
+- Q: Should generators retry on API failure or fail immediately? → A: Fail immediately (raise exception on first API error, let caller handle retry logic)
+- Q: How should generators handle potentially sensitive data in inputs? → A: Document dependency (generators assume upstream context builders filter secrets; document this assumption)
+
 ## Assumptions
 
 - The Claude Agent SDK's query() function is available and suitable for single-shot text generation
@@ -129,3 +141,4 @@ A developer encounters a validation failure (lint error, test failure, build err
 - Analysis types for CodeAnalyzer are limited to: explain, review, summarize (extensible in future if needed)
 - Generators are called synchronously by workflows at specific points, not used as autonomous agents
 - Maximum input sizes follow reasonable limits (e.g., diffs under 100KB, code snippets under 10KB)
+- Upstream context builders (e.g., from 018-context-builder) are responsible for detecting and filtering secrets from inputs before passing to generators; generators do not perform secret scanning

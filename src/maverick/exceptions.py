@@ -353,3 +353,559 @@ class ConfigError(MaverickError):
         self.field = field
         self.value = value
         super().__init__(message)
+
+
+class TaskParseError(AgentError):
+    """Exception for task file parsing failures.
+
+    Raised when a task file cannot be parsed, such as invalid syntax or missing
+    required fields.
+
+    Attributes:
+        message: Human-readable error message.
+        line_number: Line where error occurred (if known).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        line_number: int | None = None,
+    ) -> None:
+        """Initialize the TaskParseError.
+
+        Args:
+            message: Human-readable error message.
+            line_number: Line where error occurred.
+        """
+        self.line_number = line_number
+        super().__init__(message)
+
+
+class GitError(AgentError):
+    """Exception for git operation failures.
+
+    Raised when a git command fails, such as commit, stash, or branch operations.
+
+    Attributes:
+        message: Human-readable error message.
+        operation: Git operation that failed (e.g., "commit", "stash").
+        recoverable: True if error might be recoverable.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        operation: str | None = None,
+        recoverable: bool = False,
+    ) -> None:
+        """Initialize the GitError.
+
+        Args:
+            message: Human-readable error message.
+            operation: Git operation that failed.
+            recoverable: True if error might be recoverable.
+        """
+        self.operation = operation
+        self.recoverable = recoverable
+        super().__init__(message)
+
+
+class GitNotFoundError(GitError):
+    """Exception raised when git CLI is not installed or not in PATH.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    def __init__(self, message: str = "Git CLI not found") -> None:
+        """Initialize the GitNotFoundError.
+
+        Args:
+            message: Human-readable error message.
+        """
+        super().__init__(message, operation="git_check", recoverable=False)
+
+
+class NotARepositoryError(GitError):
+    """Exception raised when operating outside a git repository.
+
+    Attributes:
+        message: Human-readable error message.
+        path: Directory that is not a repo.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        path: Any = None,
+    ) -> None:
+        """Initialize the NotARepositoryError.
+
+        Args:
+            message: Human-readable error message.
+            path: Directory that is not a repo (Path object).
+        """
+        self.path = path
+        super().__init__(message, operation="repo_check", recoverable=False)
+
+
+class BranchExistsError(GitError):
+    """Exception raised when creating a branch that already exists.
+
+    Attributes:
+        message: Human-readable error message.
+        branch_name: Name of existing branch.
+    """
+
+    def __init__(self, message: str, branch_name: str) -> None:
+        """Initialize the BranchExistsError.
+
+        Args:
+            message: Human-readable error message.
+            branch_name: Name of existing branch.
+        """
+        self.branch_name = branch_name
+        super().__init__(message, operation="create_branch", recoverable=False)
+
+
+class MergeConflictError(GitError):
+    """Exception raised when pull results in merge conflicts.
+
+    Attributes:
+        message: Human-readable error message.
+        conflicted_files: Paths with conflicts.
+    """
+
+    def __init__(self, message: str, conflicted_files: tuple[str, ...] = ()) -> None:
+        """Initialize the MergeConflictError.
+
+        Args:
+            message: Human-readable error message.
+            conflicted_files: Paths with conflicts.
+        """
+        self.conflicted_files = conflicted_files
+        super().__init__(message, operation="pull", recoverable=True)
+
+
+class PushRejectedError(GitError):
+    """Exception raised when remote rejects a push.
+
+    Attributes:
+        message: Human-readable error message.
+        reason: Rejection reason from git.
+    """
+
+    def __init__(self, message: str, reason: str = "") -> None:
+        """Initialize the PushRejectedError.
+
+        Args:
+            message: Human-readable error message.
+            reason: Rejection reason from git.
+        """
+        self.reason = reason
+        super().__init__(message, operation="push", recoverable=True)
+
+
+class NothingToCommitError(GitError):
+    """Exception raised when attempting to commit with no staged changes.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    def __init__(self, message: str = "Nothing to commit") -> None:
+        """Initialize the NothingToCommitError.
+
+        Args:
+            message: Human-readable error message.
+        """
+        super().__init__(message, operation="commit", recoverable=False)
+
+
+class NoStashError(GitError):
+    """Exception raised when stash_pop is called with no stash entries.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    def __init__(self, message: str = "No stash entries found") -> None:
+        """Initialize the NoStashError.
+
+        Args:
+            message: Human-readable error message.
+        """
+        super().__init__(message, operation="stash_pop", recoverable=False)
+
+
+class CheckoutConflictError(GitError):
+    """Exception raised when checkout would overwrite uncommitted changes.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    def __init__(
+        self,
+        message: str = "Checkout would overwrite uncommitted changes",
+    ) -> None:
+        """Initialize the CheckoutConflictError.
+
+        Args:
+            message: Human-readable error message.
+        """
+        super().__init__(message, operation="checkout", recoverable=True)
+
+
+class GitHubError(AgentError):
+    """Exception for GitHub API/CLI failures.
+
+    Raised when GitHub operations fail, such as creating issues, PRs, or fetching data.
+
+    Attributes:
+        message: Human-readable error message.
+        issue_number: Issue number (if applicable).
+        retry_after: Seconds to wait for rate limit (if applicable).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        issue_number: int | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        """Initialize the GitHubError.
+
+        Args:
+            message: Human-readable error message.
+            issue_number: Issue number (if applicable).
+            retry_after: Seconds to wait for rate limit (if applicable).
+        """
+        self.issue_number = issue_number
+        self.retry_after = retry_after
+        super().__init__(message)
+
+
+class GitHubToolsError(AgentError):
+    """Exception for GitHub MCP tools initialization failures.
+
+    Raised when the GitHub tools MCP server cannot be created due to missing
+    prerequisites (gh CLI not installed, not authenticated, not in git repo).
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific prerequisite check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the GitHubToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific prerequisite check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class MaverickValidationError(AgentError):
+    """Exception for validation failures (format, lint, test).
+
+    Named MaverickValidationError to avoid conflict with Pydantic's ValidationError.
+    Raised when code validation steps fail, such as formatting, linting, or testing.
+
+    Attributes:
+        message: Human-readable error message.
+        step: Validation step that failed (e.g., "lint", "test").
+        output: Command output.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        step: str | None = None,
+        output: str | None = None,
+    ) -> None:
+        """Initialize the MaverickValidationError.
+
+        Args:
+            message: Human-readable error message.
+            step: Validation step that failed.
+            output: Command output.
+        """
+        self.step = step
+        self.output = output
+        super().__init__(message)
+
+
+class NotificationToolsError(AgentError):
+    """Exception for notification MCP tools initialization failures.
+
+    Raised when the notification tools MCP server cannot be created.
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the NotificationToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class GitToolsError(AgentError):
+    """Exception for git MCP tools initialization failures.
+
+    Raised when the git tools MCP server cannot be created due to missing
+    prerequisites (git not installed, not in git repo).
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific prerequisite check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the GitToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific prerequisite check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class ValidationToolsError(AgentError):
+    """Exception for validation MCP tools initialization failures.
+
+    Raised when the validation tools MCP server cannot be created.
+
+    Attributes:
+        message: Human-readable error message.
+        check_failed: The specific check that failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        check_failed: str | None = None,
+    ) -> None:
+        """Initialize the ValidationToolsError.
+
+        Args:
+            message: Human-readable error message.
+            check_failed: The specific check that failed.
+        """
+        self.check_failed = check_failed
+        super().__init__(message)
+
+
+class HookError(MaverickError):
+    """Base exception for hook-related errors.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    pass
+
+
+class SafetyHookError(HookError):
+    """Exception raised when a safety hook blocks an operation.
+
+    Attributes:
+        message: Human-readable error message.
+        tool_name: Name of the tool that was blocked.
+        blocked_pattern: Pattern that triggered the block.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        tool_name: str | None = None,
+        blocked_pattern: str | None = None,
+    ) -> None:
+        """Initialize the SafetyHookError.
+
+        Args:
+            message: Human-readable error message.
+            tool_name: Name of the tool that was blocked.
+            blocked_pattern: Pattern that triggered the block.
+        """
+        self.tool_name = tool_name
+        self.blocked_pattern = blocked_pattern
+        super().__init__(message)
+
+
+class HookConfigError(HookError):
+    """Exception raised for hook configuration errors.
+
+    Attributes:
+        message: Human-readable error message.
+        field: Optional field name that caused the error.
+        value: Optional value that failed validation.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        field: str | None = None,
+        value: Any = None,
+    ) -> None:
+        """Initialize the HookConfigError.
+
+        Args:
+            message: Human-readable error message.
+            field: Optional field name that caused the error.
+            value: Optional value that failed validation.
+        """
+        self.field = field
+        self.value = value
+        super().__init__(message)
+
+
+class RunnerError(MaverickError):
+    """Base exception for runner failures.
+
+    Attributes:
+        message: Human-readable error message.
+    """
+
+    pass
+
+
+class WorkingDirectoryError(RunnerError):
+    """Working directory does not exist or is not accessible.
+
+    Attributes:
+        message: Human-readable error message.
+        path: The path that was not found.
+    """
+
+    def __init__(self, message: str, path: Any = None) -> None:
+        """Initialize the WorkingDirectoryError.
+
+        Args:
+            message: Human-readable error message.
+            path: The path that was not found (Path object).
+        """
+        self.path = path
+        super().__init__(message)
+
+
+class CommandTimeoutError(RunnerError):
+    """Command execution exceeded timeout.
+
+    Attributes:
+        message: Human-readable error message.
+        timeout_seconds: The timeout that was exceeded.
+        command: The command that timed out.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        timeout_seconds: float | None = None,
+        command: list[str] | None = None,
+    ) -> None:
+        """Initialize the CommandTimeoutError.
+
+        Args:
+            message: Human-readable error message.
+            timeout_seconds: The timeout value that was exceeded.
+            command: The command that timed out.
+        """
+        self.timeout_seconds = timeout_seconds
+        self.command = command
+        super().__init__(message)
+
+
+class CommandNotFoundError(RunnerError):
+    """Executable not found in PATH.
+
+    Attributes:
+        message: Human-readable error message.
+        executable: The command that was not found.
+    """
+
+    def __init__(self, message: str, executable: str | None = None) -> None:
+        """Initialize the CommandNotFoundError.
+
+        Args:
+            message: Human-readable error message.
+            executable: The command that was not found.
+        """
+        self.executable = executable
+        super().__init__(message)
+
+
+class GitHubCLINotFoundError(RunnerError):
+    """GitHub CLI (gh) is not installed.
+
+    Provides installation instructions in the message.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the GitHubCLINotFoundError."""
+        super().__init__(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/"
+        )
+
+
+class GitHubAuthError(RunnerError):
+    """GitHub CLI is not authenticated.
+
+    Provides authentication instructions in the message.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the GitHubAuthError."""
+        super().__init__("GitHub CLI not authenticated. Run: gh auth login")
+
+
+class GeneratorError(AgentError):
+    """Exception for generator agent failures.
+
+    Raised when a generator agent fails during text generation. This includes
+    API errors, invalid input validation, and other generation failures.
+
+    Attributes:
+        message: Human-readable error message.
+        generator_name: Name of the generator that failed.
+        input_context: Sanitized context that caused the failure.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        generator_name: str | None = None,
+        input_context: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize the GeneratorError.
+
+        Args:
+            message: Human-readable error message.
+            generator_name: Name of the generator that failed.
+            input_context: Sanitized context that caused the failure.
+        """
+        self.generator_name = generator_name
+        self.input_context = input_context
+        super().__init__(message, agent_name=generator_name)
