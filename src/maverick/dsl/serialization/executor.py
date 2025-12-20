@@ -26,8 +26,11 @@ from maverick.dsl.serialization.errors import ReferenceResolutionError
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
+    BranchStepRecord,
     GenerateStepRecord,
+    ParallelStepRecord,
     PythonStepRecord,
+    SubWorkflowStepRecord,
     ValidateStepRecord,
     WorkflowFile,
 )
@@ -36,7 +39,13 @@ logger = logging.getLogger(__name__)
 
 # Type alias for step records
 StepRecordType = (
-    PythonStepRecord | AgentStepRecord | GenerateStepRecord | ValidateStepRecord
+    PythonStepRecord
+    | AgentStepRecord
+    | GenerateStepRecord
+    | ValidateStepRecord
+    | SubWorkflowStepRecord
+    | BranchStepRecord
+    | ParallelStepRecord
 )
 
 
@@ -266,6 +275,16 @@ class WorkflowFileExecutor:
             return await self._execute_generate_step(step, resolved_inputs, context)
         elif isinstance(step, ValidateStepRecord):
             return await self._execute_validate_step(step, resolved_inputs, context)
+        elif isinstance(step, SubWorkflowStepRecord):
+            return await self._execute_subworkflow_step(step, resolved_inputs, context)
+        elif isinstance(step, BranchStepRecord):
+            raise NotImplementedError(
+                f"Branch step execution not yet implemented (step: {step.name})"
+            )
+        elif isinstance(step, ParallelStepRecord):
+            raise NotImplementedError(
+                f"Parallel step execution not yet implemented (step: {step.name})"
+            )
         else:
             raise NotImplementedError(
                 f"Step type {step.type} not yet implemented in executor"
@@ -310,6 +329,13 @@ class WorkflowFileExecutor:
             else:
                 # Context is a string reference (context builder name)
                 resolved["_context_builder"] = step.context
+        elif isinstance(step, SubWorkflowStepRecord):
+            # Resolve inputs dict
+            for key, value in step.inputs.items():
+                if isinstance(value, str) and "${{" in value:
+                    resolved[key] = evaluator.evaluate_string(value)
+                else:
+                    resolved[key] = value
 
         return resolved
 
@@ -445,6 +471,66 @@ class WorkflowFileExecutor:
             f"Validation execution not yet implemented for step '{step.name}'"
         )
         return {"success": True, "stages": []}
+
+    async def _execute_subworkflow_step(
+        self,
+        step: SubWorkflowStepRecord,
+        resolved_inputs: dict[str, Any],
+        context: dict[str, Any],
+    ) -> Any:
+        """Execute a sub-workflow step.
+
+        Args:
+            step: SubWorkflowStepRecord containing workflow reference and inputs.
+            resolved_inputs: Resolved input values.
+            context: Execution context.
+
+        Returns:
+            Sub-workflow final output.
+
+        Raises:
+            ReferenceResolutionError: If workflow not found in registry.
+        """
+        # Look up workflow in registry
+        if not self._registry.workflows.has(step.workflow):
+            raise ReferenceResolutionError(
+                reference_type="workflow",
+                reference_name=step.workflow,
+                available_names=self._registry.workflows.list_names(),
+            )
+
+        workflow = self._registry.workflows.get(step.workflow)
+
+        # Merge resolved inputs with step's declared inputs
+        sub_inputs = {**step.inputs, **resolved_inputs}
+
+        # If workflow is a WorkflowFile, execute it with WorkflowFileExecutor
+        if isinstance(workflow, WorkflowFile):
+            sub_executor = WorkflowFileExecutor(
+                registry=self._registry,
+                config=self._config,
+            )
+            result = None
+            async for event in sub_executor.execute(workflow, inputs=sub_inputs):
+                if hasattr(event, "result"):
+                    result = event.result
+            return result
+
+        # If workflow is a decorated Python function, execute with WorkflowEngine
+        elif hasattr(workflow, "__workflow_def__"):
+            from maverick.dsl.engine import WorkflowEngine
+
+            engine = WorkflowEngine()
+            result = None
+            async for event in engine.execute(workflow, **sub_inputs):
+                if hasattr(event, "result"):
+                    result = event.result
+            return result
+
+        else:
+            raise TypeError(
+                f"Workflow '{step.workflow}' has unexpected type: {type(workflow)}"
+            )
 
     def get_result(self) -> WorkflowResult:
         """Get the final workflow result.

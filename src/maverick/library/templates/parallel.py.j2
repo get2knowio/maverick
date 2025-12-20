@@ -1,0 +1,46 @@
+"""Workflow: {{ name }}
+
+Generated: {{ date }}
+{% if description %}Description: {{ description }}{% endif %}
+{% if author %}Author: {{ author }}{% endif %}
+"""
+from __future__ import annotations
+
+from maverick.dsl import step, workflow
+
+
+@workflow(name="{{ name }}")
+def {{ name.replace('-', '_') }}_workflow(items: list):
+    """{{ description if description else 'Workflow demonstrating parallel step execution' }}.
+
+    Args:
+        items: Items to process in parallel.
+    """
+    # Parallel processing
+    parallel_result = yield step("parallel_processing").parallel(
+        steps=[
+            step(f"process_{i}").python(
+                action=process_item,
+                kwargs={"item": item},
+            )
+            for i, item in enumerate(items)
+        ]
+    )
+
+    # Combine results
+    combined = yield step("combine_results").python(
+        action=combine_results,
+        kwargs={"results": parallel_result},
+    )
+
+    return combined
+
+
+def process_item(item):
+    """Process a single item."""
+    return f"Processed: {item}"
+
+
+def combine_results(results: dict):
+    """Combine all results."""
+    return {"success": True, "results": list(results.values())}

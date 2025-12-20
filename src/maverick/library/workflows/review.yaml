@@ -1,0 +1,175 @@
+# ============================================================================
+# Review Workflow - Code Review Orchestration
+# ============================================================================
+#
+# Purpose:
+#   Orchestrates comprehensive code review for a pull request by combining
+#   automated CodeRabbit analysis with AI-powered agent review.
+#
+# Usage:
+#   maverick workflow run review --pr_number 123 --base_branch main
+#   maverick workflow run review  # Auto-detects PR from current branch
+#
+# Inputs:
+#   pr_number (integer, optional):
+#     PR number to review. If omitted, auto-detects PR from current branch
+#     by querying GitHub CLI for PRs associated with the current branch.
+#     Default: null (auto-detect)
+#
+#   base_branch (string, optional):
+#     Base branch for comparison when gathering context and reviewing changes.
+#     This determines what the PR changes are compared against.
+#     Default: "main"
+#
+# Steps Overview:
+#   1. gather_context: Collect PR metadata, changed files, and commits
+#   2. run_coderabbit: Execute CodeRabbit CLI for automated review (if available)
+#   3. agent_review: Perform AI-powered review using code_reviewer agent
+#   4. combine_results: Merge and format review findings from both sources
+#
+# Customization Points:
+#   - Modify gather_context to collect additional PR metadata (labels, assignees)
+#   - Add validation step before agent_review to check code quality gates
+#   - Extend combine_results to post review comments directly to PR
+#   - Add notification step to alert team of review completion
+#   - Configure agent_review context to include project-specific review guidelines
+#
+# Fragment Usage:
+#   This workflow does not use fragments but can be extended to use:
+#   - commit_and_push: If review suggests auto-fixable issues
+#   - create_pr_with_summary: If review triggers follow-up PRs
+#
+# Example Override (project-specific):
+#   Copy this file to .maverick/workflows/review.yaml and customize:
+#   - Change default base_branch to "develop"
+#   - Add custom validation stages
+#   - Integrate with project-specific review tools
+#
+# Related Workflows:
+#   - fly: Uses review as part of full development workflow
+#   - validate: Can be used before review to ensure code quality
+#
+# ============================================================================
+
+version: "1.0"
+name: review
+description: Code review orchestration workflow
+
+# Input Definitions
+inputs:
+  pr_number:
+    type: integer
+    required: false
+    default: null
+    description: |
+      PR number (auto-detect if omitted)
+
+      Auto-detection: If not specified, attempts to detect PR number from:
+      1. Current branch via GitHub CLI (gh pr list --head <branch>)
+      2. Queries GitHub API for PRs associated with the current branch
+      3. Selects the first matching PR if multiple exist
+
+  base_branch:
+    type: string
+    required: false
+    default: "main"
+    description: Base branch for comparison
+
+# Workflow Steps
+steps:
+  # --------------------------------------------------------------------------
+  # Step 1: Gather Context
+  # --------------------------------------------------------------------------
+  # Collect all relevant PR information including metadata, changed files,
+  # commit history, and diff content. This provides context for both
+  # CodeRabbit and the agent reviewer.
+  #
+  # Outputs:
+  #   - pr_metadata: PR title, description, author, labels
+  #   - changed_files: List of files modified in the PR
+  #   - commits: Commit messages and SHAs
+  #   - diff: Full diff content for review
+  #
+  # Implementation:
+  #   Uses GitHub CLI (gh) to fetch PR details. If pr_number is null,
+  #   queries for PRs on the current branch and selects the first match.
+  #
+  - name: gather_context
+    type: python
+    action: review.gather_pr_context
+    kwargs:
+      pr_number: ${{ inputs.pr_number }}
+      base_branch: ${{ inputs.base_branch }}
+
+  # --------------------------------------------------------------------------
+  # Step 2: Run CodeRabbit
+  # --------------------------------------------------------------------------
+  # Execute CodeRabbit CLI for automated code review if available in the
+  # environment. CodeRabbit provides static analysis, security scanning,
+  # and code quality checks.
+  #
+  # Outputs:
+  #   - coderabbit_findings: List of issues found by CodeRabbit
+  #   - coderabbit_available: Boolean indicating if CodeRabbit was run
+  #
+  # Implementation:
+  #   Checks for CodeRabbit CLI availability. If not found, sets
+  #   coderabbit_available=false and continues gracefully.
+  #
+  - name: run_coderabbit
+    type: python
+    action: review.run_coderabbit_review
+    kwargs:
+      pr_number: ${{ steps.gather_context.output.pr_number }}
+      context: ${{ steps.gather_context.output }}
+
+  # --------------------------------------------------------------------------
+  # Step 3: Agent Review
+  # --------------------------------------------------------------------------
+  # Perform AI-powered code review using the code_reviewer agent.
+  # The agent analyzes code for architecture, design patterns, best practices,
+  # maintainability, and adherence to project conventions.
+  #
+  # Outputs:
+  #   - review_comments: List of review findings with file/line context
+  #   - summary: High-level review summary
+  #   - recommendation: Approve, request changes, or comment
+  #
+  # Implementation:
+  #   Invokes code_reviewer agent with PR context including changed files,
+  #   diff content, and project conventions from CLAUDE.md.
+  #
+  - name: agent_review
+    type: agent
+    agent: code_reviewer
+    context:
+      pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
+      changed_files: ${{ steps.gather_context.output.changed_files }}
+      diff: ${{ steps.gather_context.output.diff }}
+      base_branch: ${{ inputs.base_branch }}
+      coderabbit_findings: ${{ steps.run_coderabbit.output.coderabbit_findings }}
+
+  # --------------------------------------------------------------------------
+  # Step 4: Combine Results
+  # --------------------------------------------------------------------------
+  # Merge review findings from CodeRabbit and agent review into a unified
+  # report. Deduplicates issues, prioritizes findings, and formats the
+  # final review output.
+  #
+  # Outputs:
+  #   - review_report: Formatted review report (markdown)
+  #   - issues: Consolidated list of issues with severity and location
+  #   - recommendation: Final review decision
+  #
+  # Implementation:
+  #   Combines coderabbit_findings and agent review_comments, removes
+  #   duplicates based on file/line/message similarity, and generates
+  #   a structured markdown report.
+  #
+  - name: combine_results
+    type: python
+    action: review.combine_review_results
+    kwargs:
+      agent_review: ${{ steps.agent_review.output }}
+      coderabbit_review: ${{ steps.run_coderabbit.output }}
+      pr_metadata: ${{ steps.gather_context.output.pr_metadata }}

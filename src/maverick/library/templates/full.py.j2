@@ -1,0 +1,64 @@
+"""Workflow: {{ name }}
+
+Generated: {{ date }}
+{% if description %}Description: {{ description }}{% endif %}
+{% if author %}Author: {{ author }}{% endif %}
+"""
+from __future__ import annotations
+
+from maverick.dsl import step, workflow
+
+
+@workflow(name="{{ name }}")
+def {{ name.replace('-', '_') }}_workflow(task_file: str = "tasks.md"):
+    """{{ description if description else 'Complete workflow with validation, review, and PR creation' }}.
+
+    Args:
+        task_file: Path to task file.
+    """
+    # Setup
+    setup_result = yield step("setup").python(
+        action=setup_workflow,
+        kwargs={"task_file": task_file},
+    )
+
+    # Implement
+    impl_result = yield step("implement").agent(
+        agent=get_implementer_agent(),
+    )
+
+    # Validate
+    val_result = yield step("validate").subworkflow(
+        workflow=validate_and_fix_workflow,
+    )
+
+    # Review
+    review_result = yield step("review").agent(
+        agent=get_code_reviewer_agent(),
+    )
+
+    # Create PR
+    pr_result = yield step("create_pr").subworkflow(
+        workflow=create_pr_with_summary_workflow,
+    )
+
+    return pr_result
+
+
+def setup_workflow(task_file: str):
+    """Set up workflow."""
+    return {"task_file": task_file}
+
+
+def get_implementer_agent():
+    """Get implementer agent."""
+    pass
+
+
+def get_code_reviewer_agent():
+    """Get code reviewer agent."""
+    pass
+
+
+validate_and_fix_workflow = None
+create_pr_with_summary_workflow = None

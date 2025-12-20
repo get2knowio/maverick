@@ -1,0 +1,257 @@
+# ==============================================================================
+# Commit and Push Fragment - Git Commit and Push with Message Generation
+# ==============================================================================
+#
+# The "commit_and_push" fragment handles the complete flow of committing changes
+# and pushing them to the remote repository. It automatically generates a
+# conventional commit message by analyzing the diff and recent commit history,
+# or uses a provided message if specified.
+#
+# This is a reusable fragment designed to be invoked as a subworkflow by other
+# workflows. It provides a consistent commit and push pattern across Maverick's
+# built-in workflows.
+#
+# WORKFLOW STAGES:
+#   1. Generate Message (conditional): Create commit message from git context
+#   2. Commit: Execute git commit with the message
+#   3. Push (conditional): Push changes to remote origin
+#
+# INPUTS:
+#   - message (string, optional): Commit message
+#       If provided, this message will be used directly for the commit.
+#       If omitted, the workflow will automatically generate a conventional
+#       commit message by analyzing:
+#       - Changed files and their diffs
+#       - Recent commit history for style consistency
+#       - Project context and task lists
+#       Example: "feat(library): add commit_and_push fragment"
+#
+#   - push (boolean, optional, default: true): Push after commit
+#       Controls whether to push changes to the remote repository after committing.
+#       Set to false to create local commits without pushing (useful for batching
+#       commits or testing).
+#       Example: false
+#
+# STEP INTENT:
+#   1. generate-message:
+#      - PURPOSE: Generate a conventional commit message if none provided
+#      - CONDITIONAL: Only runs when message input is not provided
+#      - OUTPUT: Commit message following conventional commits format
+#      - CONTEXT: Analyzes git diff, commit history, and project conventions
+#
+#   2. commit:
+#      - PURPOSE: Create git commit with message (generated or provided)
+#      - USES: Message from previous step or from inputs
+#      - OUTPUT: Commit SHA and status
+#      - INCLUDES: Co-author attribution for AI assistance
+#
+#   3. push:
+#      - PURPOSE: Push committed changes to remote origin
+#      - CONDITIONAL: Only runs when push input is true (default)
+#      - OUTPUT: Push status and remote branch information
+#
+# CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/commit_and_push.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/commit_and_push.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
+#
+#   1. Override the entire fragment in your project:
+#      Create `.maverick/workflows/commit_and_push.yaml` with your custom logic.
+#
+#   2. Provide explicit commit messages:
+#      When invoking this fragment, pass a message input to skip generation:
+#      ```yaml
+#      - name: commit-custom
+#        type: subworkflow
+#        workflow: commit-and-push
+#        inputs:
+#          message: "fix: resolve linting issues"
+#      ```
+#
+#   3. Disable push for local-only commits:
+#      ```yaml
+#      - name: commit-no-push
+#        type: subworkflow
+#        workflow: commit-and-push
+#        inputs:
+#          push: false
+#      ```
+#
+#   4. Customize commit message generation:
+#      Override the commit_message_generator generator agent to change message
+#      format, style, or content analysis logic.
+#
+#   5. Add pre-commit hooks or validation:
+#      Insert additional steps before the commit steps to enforce standards.
+#
+#   6. Change default push behavior:
+#      Override to always push, never push, or conditionally push based on branch.
+#
+# USED BY:
+#   - fly: Full spec-based development workflow
+#   - refuel: Tech-debt resolution workflow
+#   - quick_fix: Quick issue fix workflow
+#
+# EXAMPLE USAGE:
+#   # Auto-generate message and push
+#   - name: commit-and-push
+#     type: subworkflow
+#     workflow: commit-and-push
+#
+#   # Provide explicit message
+#   - name: commit-with-message
+#     type: subworkflow
+#     workflow: commit-and-push
+#     inputs:
+#       message: "docs: update README with new examples"
+#
+#   # Commit without pushing
+#   - name: commit-local
+#     type: subworkflow
+#     workflow: commit-and-push
+#     inputs:
+#       push: false
+#
+# ==============================================================================
+
+version: "1.0"
+name: commit-and-push
+description: Generate commit message, commit changes, and push
+
+# ------------------------------------------------------------------------------
+# Input Declarations
+# ------------------------------------------------------------------------------
+inputs:
+  message:
+    type: string
+    required: false
+    description: Commit message (auto-generate if omitted)
+
+  push:
+    type: boolean
+    required: false
+    default: true
+    description: Push after commit
+
+# ------------------------------------------------------------------------------
+# Fragment Steps
+# ------------------------------------------------------------------------------
+steps:
+  # ============================================================================
+  # Step 1: Generate Commit Message (Conditional)
+  # ============================================================================
+  # Automatically generate a conventional commit message if none was provided.
+  #
+  # CONDITIONAL: This step only runs when inputs.message is not provided.
+  # The condition expression ${{ not inputs.message }} evaluates to:
+  # - true when message is omitted or empty (triggers generation)
+  # - false when message is explicitly provided (skips generation)
+  #
+  # The commit_message_generator analyzes:
+  # - Git diff: Understanding what files changed and how
+  # - Recent commits: Learning the project's commit message style
+  # - Staged changes: Determining scope and nature of changes
+  # - Project context: Task lists, specs, and conventions (if available)
+  #
+  # The generator produces a conventional commit message following the format:
+  #   <type>(<scope>): <description>
+  #
+  #   [optional body]
+  #
+  #   [optional footer with Co-authored-by, etc.]
+  #
+  # Common types: feat, fix, docs, refactor, test, chore
+  #
+  # Context builder: commit_message_context
+  # - Includes: git diff, git log, staged files, project metadata
+  #
+  # Output: Generated commit message stored in step result
+  # ============================================================================
+  - name: generate_message
+    type: generate
+    generator: commit_message_generator
+    context: commit_message_context
+    when: ${{ not inputs.message }}
+
+  # ============================================================================
+  # Step 2a: Commit Changes (with provided message)
+  # ============================================================================
+  # Create a git commit using the explicitly provided message.
+  #
+  # CONDITIONAL: This step only runs when inputs.message is provided.
+  #
+  # The commit action:
+  # - Stages all current changes (git add .)
+  # - Creates a commit with the provided message
+  # - Includes Co-authored-by attribution for AI assistance
+  # - Returns commit SHA and status
+  #
+  # Output: Commit SHA, commit status, files committed
+  # ============================================================================
+  - name: commit_with_message
+    type: python
+    action: git_commit
+    kwargs:
+      message: ${{ inputs.message }}
+      add_all: true
+      include_attribution: true
+    when: ${{ inputs.message }}
+
+  # ============================================================================
+  # Step 2b: Commit Changes (with generated message)
+  # ============================================================================
+  # Create a git commit using the auto-generated message.
+  #
+  # CONDITIONAL: This step only runs when inputs.message was not provided
+  # (and thus generate_message step executed).
+  #
+  # The commit action:
+  # - Stages all current changes (git add .)
+  # - Creates a commit with the generated message
+  # - Includes Co-authored-by attribution for AI assistance
+  # - Returns commit SHA and status
+  #
+  # Output: Commit SHA, commit status, files committed
+  # ============================================================================
+  - name: commit_with_generated
+    type: python
+    action: git_commit
+    kwargs:
+      message: ${{ steps.generate_message.output }}
+      add_all: true
+      include_attribution: true
+    when: ${{ not inputs.message }}
+
+  # ============================================================================
+  # Step 3: Push to Remote (Conditional)
+  # ============================================================================
+  # Push committed changes to the remote origin repository.
+  #
+  # CONDITIONAL: This step only runs when inputs.push is true (default).
+  # The condition expression ${{ inputs.push }} evaluates the push input:
+  # - true (default): Executes the push
+  # - false: Skips the push (commit remains local only)
+  #
+  # The push action:
+  # - Pushes current branch to origin
+  # - Sets upstream if not already set
+  # - Reports push status and remote branch information
+  #
+  # Use cases for push=false:
+  # - Batching multiple commits before pushing
+  # - Testing commit message generation locally
+  # - Workflows that need additional steps before pushing
+  # - Manual push control scenarios
+  #
+  # Output: Push status, remote branch, upstream information
+  # ============================================================================
+  - name: push
+    type: python
+    action: git_push
+    kwargs:
+      set_upstream: true
+    when: ${{ inputs.push }}

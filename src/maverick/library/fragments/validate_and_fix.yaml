@@ -1,0 +1,205 @@
+# =============================================================================
+# Validate and Fix Fragment
+# =============================================================================
+#
+# Purpose:
+#   Reusable fragment implementing a validation-with-retry loop. Executes
+#   validation stages and automatically attempts fixes when failures occur,
+#   retrying validation up to a configurable maximum number of attempts.
+#
+# Inputs:
+#   - stages (array, optional, default: ["format", "lint", "typecheck", "test"])
+#     Array of validation stage names to execute. Each stage runs sequentially.
+#     Supported stages depend on your ValidationRunner configuration:
+#       - format: Code formatting (e.g., ruff format, black)
+#       - lint: Linting rules (e.g., ruff check, pylint)
+#       - typecheck: Type checking (e.g., mypy)
+#       - test: Test suite execution (e.g., pytest)
+#     You can provide a subset of stages or reorder them as needed.
+#
+#   - max_attempts (integer, optional, default: 3)
+#     Maximum number of fix-and-retry cycles. Must be >= 0.
+#     Set to 0 to disable the retry loop entirely (validation will run once).
+#     Set to 1+ to enable automatic fix attempts with the specified limit.
+#
+#   - fixer_agent (string, optional, default: "validation_fixer")
+#     Name of the agent to invoke for automatic fixes. This agent will:
+#       - Receive the validation failure details
+#       - Analyze the errors and apply fixes
+#       - Report which issues were addressed
+#     You can override this with a custom fixer agent name registered in
+#     your agent registry.
+#
+# Step Summary:
+#   1. run_validation: Execute initial validation with provided stages
+#   2. fix_loop: If validation fails and max_attempts > 0:
+#      - Calls fixer agent to analyze and fix issues
+#      - Re-runs validation stages
+#      - Repeats up to max_attempts times or until validation passes
+#   3. report: Generate final result with pass/fail status and metrics
+#
+# CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/validate_and_fix.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/validate_and_fix.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
+#   - Change validation stages (e.g., skip typecheck, add custom checks)
+#   - Adjust max_attempts for retries (0 = no retry, higher = more attempts)
+#   - Modify fix strategies by overriding or replacing fixer_agent
+#   - Provide custom stages array to run a subset of validation checks
+#   - Replace fixer_agent with a custom agent for specialized fix logic
+#   - Add pre-validation setup steps before run-validation
+#   - Add post-validation cleanup steps after report
+#   - Modify fix-loop branching to add custom failure handling
+#   - Change default validation stages for your project's tech stack
+#
+# Used By:
+#   - fly workflow (validate-and-fix stage)
+#   - refuel workflow (per-issue validation)
+#   - validate workflow (main validation logic)
+#
+# Example Usage (as subworkflow):
+#   - name: validate-with-fixes
+#     type: subworkflow
+#     workflow: validate-and-fix
+#     inputs:
+#       stages: ["format", "lint", "test"]
+#       max_attempts: 5
+#       fixer_agent: custom_fixer
+#
+# Example Usage (standalone):
+#   maverick workflow run validate_and_fix \
+#     --input stages='["format", "lint"]' \
+#     --input max_attempts=2
+#
+# =============================================================================
+
+version: "1.0"
+name: validate-and-fix
+description: Validation-with-retry loop
+
+inputs:
+  stages:
+    type: array
+    required: false
+    default: ["format", "lint", "typecheck", "test"]
+    description: Validation stages to execute in order
+
+  max_attempts:
+    type: integer
+    required: false
+    default: 3
+    description: Maximum fix-and-retry attempts (0 disables retry)
+
+  fixer_agent:
+    type: string
+    required: false
+    default: "validation_fixer"
+    description: Agent name for automatic fixes
+
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: Initial Validation Run
+  # ---------------------------------------------------------------------------
+  # Execute all requested validation stages sequentially. Each stage must
+  # pass for overall validation to succeed. If any stage fails, the result
+  # contains detailed error information including:
+  #   - Which stage failed
+  #   - Error messages and stack traces
+  #   - File paths and line numbers (when applicable)
+  #   - Suggested fixes (when available)
+  #
+  # This step yields progress updates for each stage as it executes, enabling
+  # real-time visibility in the TUI.
+  #
+  # Customization: You can modify the stages array when invoking this fragment
+  # to run a different set of checks, or override the ValidationRunner to add
+  # custom validation logic.
+  # ---------------------------------------------------------------------------
+  - name: run_validation
+    type: validate
+    stages: ${{ inputs.stages }}
+    retry: 0  # No automatic retry; retry handled by fix_loop
+
+  # ---------------------------------------------------------------------------
+  # Step 2: Fix Loop (Conditional)
+  # ---------------------------------------------------------------------------
+  # When validation fails and max_attempts > 0, enter a retry loop that:
+  #   1. Invokes the fixer agent to analyze failures and apply fixes
+  #   2. Re-runs validation to check if fixes resolved the issues
+  #   3. Repeats until validation passes or max_attempts is exhausted
+  #
+  # The fix loop is skipped when:
+  #   - Initial validation passed (all stages succeeded)
+  #   - max_attempts is set to 0 (retry disabled)
+  #
+  # The Python action handles the branching logic internally since the
+  # expression parser doesn't support comparison operators.
+  #
+  # Customization: Override this fragment to:
+  #   - Change fix logic (e.g., apply specific fixes per stage)
+  #   - Add pre-fix analysis or post-fix verification
+  #   - Implement custom retry strategies (e.g., exponential backoff)
+  #   - Integrate with external fix tools
+  # ---------------------------------------------------------------------------
+  - name: fix_loop
+    type: python
+    action: run_fix_retry_loop
+    kwargs:
+      stages: ${{ inputs.stages }}
+      max_attempts: ${{ inputs.max_attempts }}
+      fixer_agent: ${{ inputs.fixer_agent }}
+      validation_result: ${{ steps.run_validation.output }}
+
+  # ---------------------------------------------------------------------------
+  # Step 3: Generate Validation Report
+  # ---------------------------------------------------------------------------
+  # Produce a final summary of the validation-and-fix process, including:
+  #   - Overall pass/fail status (did validation ultimately succeed?)
+  #   - Per-stage results (which stages passed/failed)
+  #   - Number of fix attempts made (0 if validation passed initially)
+  #   - List of fixes applied by the fixer agent
+  #   - Remaining errors (if validation ultimately failed)
+  #   - Performance metrics (total time, time per stage)
+  #   - Suggestions for manual fixes (when auto-fix couldn't resolve issues)
+  #
+  # The report is structured as a dict with the following schema:
+  #   {
+  #     "passed": bool,           # Overall success status
+  #     "stages": [               # Per-stage results
+  #       {
+  #         "name": str,          # Stage name (e.g., "format")
+  #         "passed": bool,       # Stage success
+  #         "errors": [str],      # Error messages (if failed)
+  #         "duration_ms": int    # Execution time
+  #       }
+  #     ],
+  #     "attempts": int,          # Number of fix attempts made
+  #     "fixes_applied": [str],   # List of fixes applied
+  #     "remaining_errors": [str],# Errors that couldn't be auto-fixed
+  #     "suggestions": [str]      # Manual fix suggestions
+  #   }
+  #
+  # This report is returned as the fragment output and can be consumed by:
+  #   - Parent workflows (e.g., fly workflow's validate stage)
+  #   - TUI for display in validation results panels
+  #   - CLI for terminal output formatting
+  #   - Logging and metrics systems
+  #
+  # Customization: Replace this step with a custom report generator to:
+  #   - Change output format (e.g., JSON, markdown, HTML)
+  #   - Add additional metrics or analysis
+  #   - Integrate with external monitoring/reporting systems
+  #   - Customize success/failure criteria
+  # ---------------------------------------------------------------------------
+  - name: report
+    type: python
+    action: generate_validation_report
+    kwargs:
+      initial_result: ${{ steps.run_validation.output }}
+      fix_loop_result: ${{ steps.fix_loop.output }}
+      max_attempts: ${{ inputs.max_attempts }}
+      stages: ${{ inputs.stages }}
