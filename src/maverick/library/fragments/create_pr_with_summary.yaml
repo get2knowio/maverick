@@ -49,11 +49,20 @@
 #      - Returns PR URL and number for downstream use
 #
 # CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/create_pr_with_summary.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/create_pr_with_summary.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
 #   - Override pr_title_generator to customize title generation logic
 #   - Override pr_body_generator to customize PR body format and sections
 #   - Extend create-pr step to add labels, reviewers, or other PR metadata
 #   - Add pre-creation validation steps to enforce PR requirements
 #   - Add post-creation notification steps to announce PR creation
+#   - Change default base branch or draft status
+#   - Integrate with custom PR templates or organization policies
 #
 # USED BY:
 #   This fragment is invoked as a sub-workflow by:

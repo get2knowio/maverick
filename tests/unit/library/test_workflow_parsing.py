@@ -14,8 +14,16 @@ from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.schema import WorkflowFile
 
 
-# Path to built-in workflows directory
-WORKFLOWS_DIR = Path(__file__).parents[3] / "src" / "maverick" / "library" / "workflows"
+# Path to built-in workflows directory relative to this test file
+# Use importlib.resources for more robust path resolution
+try:
+    from importlib.resources import files
+
+    # Get the path to maverick.library.workflows package
+    WORKFLOWS_DIR = files("maverick.library") / "workflows"
+except (ImportError, TypeError):
+    # Fallback for older Python versions or when running from source
+    WORKFLOWS_DIR = Path(__file__).parents[3] / "src" / "maverick" / "library" / "workflows"
 
 
 # List of all built-in workflow files to test

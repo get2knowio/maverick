@@ -129,7 +129,7 @@ class TestBuiltinFragmentInfo:
 
     def test_fragment_info_fields_are_correct(self) -> None:
         """Test that VALIDATE_AND_FIX_FRAGMENT_INFO has correct fields."""
-        assert VALIDATE_AND_FIX_FRAGMENT_INFO.name == "validate_and_fix"
+        assert VALIDATE_AND_FIX_FRAGMENT_INFO.name == "validate-and-fix"
         assert VALIDATE_AND_FIX_FRAGMENT_INFO.description == "Validation-with-retry loop"
         assert isinstance(VALIDATE_AND_FIX_FRAGMENT_INFO.inputs, tuple)
         assert isinstance(VALIDATE_AND_FIX_FRAGMENT_INFO.used_by, tuple)
@@ -157,7 +157,7 @@ class TestBuiltinConstants:
 
     def test_builtin_workflows_contains_expected_workflows(self) -> None:
         """Test that BUILTIN_WORKFLOWS contains all expected workflow names."""
-        expected = {"fly", "refuel", "review", "validate", "quick_fix"}
+        expected = {"fly", "refuel", "review", "validate", "quick-fix"}
         assert BUILTIN_WORKFLOWS == expected
 
     def test_builtin_workflows_is_immutable(self) -> None:
@@ -171,7 +171,7 @@ class TestBuiltinConstants:
 
     def test_builtin_fragments_contains_expected_fragments(self) -> None:
         """Test that BUILTIN_FRAGMENTS contains all expected fragment names."""
-        expected = {"validate_and_fix", "commit_and_push", "create_pr_with_summary"}
+        expected = {"validate-and-fix", "commit-and-push", "create-pr-with-summary"}
         assert BUILTIN_FRAGMENTS == expected
 
     def test_builtin_fragments_is_immutable(self) -> None:
@@ -183,7 +183,7 @@ class TestBuiltinConstants:
         """Test that membership checks work correctly on frozensets."""
         assert "fly" in BUILTIN_WORKFLOWS
         assert "unknown" not in BUILTIN_WORKFLOWS
-        assert "validate_and_fix" in BUILTIN_FRAGMENTS
+        assert "validate-and-fix" in BUILTIN_FRAGMENTS
         assert "unknown" not in BUILTIN_FRAGMENTS
 
 
@@ -244,7 +244,7 @@ class TestListWorkflows:
         """Test that all expected workflows are in the list."""
         workflows = library.list_workflows()
         workflow_names = {wf.name for wf in workflows}
-        expected = {"fly", "refuel", "review", "validate", "quick_fix"}
+        expected = {"fly", "refuel", "review", "validate", "quick-fix"}
         assert workflow_names == expected
 
     def test_workflow_info_objects_match_constants(self, library: BuiltinLibrary) -> None:
@@ -256,7 +256,7 @@ class TestListWorkflows:
         assert workflow_dict["refuel"] == REFUEL_WORKFLOW_INFO
         assert workflow_dict["review"] == REVIEW_WORKFLOW_INFO
         assert workflow_dict["validate"] == VALIDATE_WORKFLOW_INFO
-        assert workflow_dict["quick_fix"] == QUICK_FIX_WORKFLOW_INFO
+        assert workflow_dict["quick-fix"] == QUICK_FIX_WORKFLOW_INFO
 
 
 # =============================================================================
@@ -291,7 +291,7 @@ class TestListFragments:
         """Test that all expected fragments are in the list."""
         fragments = library.list_fragments()
         fragment_names = {frag.name for frag in fragments}
-        expected = {"validate_and_fix", "commit_and_push", "create_pr_with_summary"}
+        expected = {"validate-and-fix", "commit-and-push", "create-pr-with-summary"}
         assert fragment_names == expected
 
     def test_fragment_info_objects_match_constants(self, library: BuiltinLibrary) -> None:
@@ -299,9 +299,9 @@ class TestListFragments:
         fragments = library.list_fragments()
         fragment_dict = {frag.name: frag for frag in fragments}
 
-        assert fragment_dict["validate_and_fix"] == VALIDATE_AND_FIX_FRAGMENT_INFO
-        assert fragment_dict["commit_and_push"] == COMMIT_AND_PUSH_FRAGMENT_INFO
-        assert fragment_dict["create_pr_with_summary"] == CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO
+        assert fragment_dict["validate-and-fix"] == VALIDATE_AND_FIX_FRAGMENT_INFO
+        assert fragment_dict["commit-and-push"] == COMMIT_AND_PUSH_FRAGMENT_INFO
+        assert fragment_dict["create-pr-with-summary"] == CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO
 
 
 # =============================================================================
@@ -323,7 +323,7 @@ class TestHasWorkflow:
         assert library.has_workflow("refuel") is True
         assert library.has_workflow("review") is True
         assert library.has_workflow("validate") is True
-        assert library.has_workflow("quick_fix") is True
+        assert library.has_workflow("quick-fix") is True
 
     def test_returns_false_for_invalid_workflow_names(self, library: BuiltinLibrary) -> None:
         """Test that has_workflow returns False for invalid workflow names."""
@@ -333,8 +333,8 @@ class TestHasWorkflow:
 
     def test_returns_false_for_fragment_names(self, library: BuiltinLibrary) -> None:
         """Test that has_workflow returns False for fragment names."""
-        assert library.has_workflow("validate_and_fix") is False
-        assert library.has_workflow("commit_and_push") is False
+        assert library.has_workflow("validate-and-fix") is False
+        assert library.has_workflow("commit-and-push") is False
 
 
 # =============================================================================
@@ -352,9 +352,9 @@ class TestHasFragment:
 
     def test_returns_true_for_valid_fragment_names(self, library: BuiltinLibrary) -> None:
         """Test that has_fragment returns True for all valid fragment names."""
-        assert library.has_fragment("validate_and_fix") is True
-        assert library.has_fragment("commit_and_push") is True
-        assert library.has_fragment("create_pr_with_summary") is True
+        assert library.has_fragment("validate-and-fix") is True
+        assert library.has_fragment("commit-and-push") is True
+        assert library.has_fragment("create-pr-with-summary") is True
 
     def test_returns_false_for_invalid_fragment_names(self, library: BuiltinLibrary) -> None:
         """Test that has_fragment returns False for invalid fragment names."""
@@ -413,7 +413,7 @@ class TestGetWorkflowPath:
     def test_raises_key_error_for_fragment_name(self, library: BuiltinLibrary) -> None:
         """Test that get_workflow_path raises KeyError for fragment names."""
         with pytest.raises(KeyError, match="Unknown built-in workflow"):
-            library.get_workflow_path("validate_and_fix")
+            library.get_workflow_path("validate-and-fix")
 
 
 # =============================================================================
@@ -431,18 +431,18 @@ class TestGetFragmentPath:
 
     def test_returns_path_object_for_valid_fragment(self, library: BuiltinLibrary) -> None:
         """Test that get_fragment_path returns a Path object."""
-        path = library.get_fragment_path("validate_and_fix")
+        path = library.get_fragment_path("validate-and-fix")
         assert isinstance(path, Path)
 
     def test_path_points_to_yaml_file(self, library: BuiltinLibrary) -> None:
         """Test that returned path points to a .yaml file."""
-        path = library.get_fragment_path("validate_and_fix")
+        path = library.get_fragment_path("validate-and-fix")
         assert path.suffix == ".yaml"
         assert path.name == "validate_and_fix.yaml"
 
     def test_path_exists(self, library: BuiltinLibrary) -> None:
         """Test that returned path points to an existing file."""
-        path = library.get_fragment_path("validate_and_fix")
+        path = library.get_fragment_path("validate-and-fix")
         # Note: Path may be a resource path, so we check if it can be resolved
         assert path is not None
 
@@ -485,8 +485,7 @@ class TestGetWorkflow:
     def test_workflow_file_has_correct_name(self, library: BuiltinLibrary) -> None:
         """Test that returned WorkflowFile has correct name attribute.
 
-        Note: The name in the YAML file may use hyphens while the lookup
-        key uses underscores (e.g., "quick_fix" -> "quick-fix").
+        Note: Both the lookup key and YAML file use hyphens (kebab-case).
         """
         workflow = library.get_workflow("fly")
         assert workflow.name == "fly"
@@ -564,7 +563,7 @@ class TestGetFragment:
     def test_returns_workflow_file_for_valid_fragment(self, library: BuiltinLibrary) -> None:
         """Test that get_fragment returns a WorkflowFile object for valid fragments."""
         # Try each fragment - at least commit_and_push should work
-        for fragment_name in ["commit_and_push", "create_pr_with_summary"]:
+        for fragment_name in ["commit-and-push", "create-pr-with-summary"]:
             try:
                 fragment = library.get_fragment(fragment_name)
                 assert isinstance(fragment, WorkflowFile)
@@ -576,12 +575,11 @@ class TestGetFragment:
     def test_fragment_file_has_correct_name(self, library: BuiltinLibrary) -> None:
         """Test that returned WorkflowFile has correct name attribute.
 
-        Note: The name in the YAML file may use hyphens while the lookup
-        key uses underscores (e.g., "commit_and_push" -> "commit-and-push").
+        Note: Both the lookup key and YAML file use hyphens (kebab-case).
         """
         # Use commit-and-push as it's likely to parse successfully
         try:
-            fragment = library.get_fragment("commit_and_push")
+            fragment = library.get_fragment("commit-and-push")
             # YAML uses hyphens per schema requirements
             assert fragment.name == "commit-and-push"
         except Exception:
@@ -590,7 +588,7 @@ class TestGetFragment:
     def test_fragment_file_has_description(self, library: BuiltinLibrary) -> None:
         """Test that returned WorkflowFile has a description."""
         try:
-            fragment = library.get_fragment("commit_and_push")
+            fragment = library.get_fragment("commit-and-push")
             assert isinstance(fragment.description, str)
             assert len(fragment.description) > 0
         except Exception:
@@ -599,7 +597,7 @@ class TestGetFragment:
     def test_fragment_file_has_version(self, library: BuiltinLibrary) -> None:
         """Test that returned WorkflowFile has a version."""
         try:
-            fragment = library.get_fragment("commit_and_push")
+            fragment = library.get_fragment("commit-and-push")
             assert isinstance(fragment.version, str)
             # Version should match pattern like "1.0"
             assert "." in fragment.version
@@ -609,7 +607,7 @@ class TestGetFragment:
     def test_fragment_file_has_steps(self, library: BuiltinLibrary) -> None:
         """Test that returned WorkflowFile has steps."""
         try:
-            fragment = library.get_fragment("commit_and_push")
+            fragment = library.get_fragment("commit-and-push")
             assert isinstance(fragment.steps, list)
             assert len(fragment.steps) > 0
         except Exception:
@@ -684,14 +682,14 @@ class TestBuiltinLibraryIntegration:
         """
         # Get fragment info from list
         fragments = library.list_fragments()
-        commit_push_info = next(frag for frag in fragments if frag.name == "commit_and_push")
+        commit_push_info = next(frag for frag in fragments if frag.name == "commit-and-push")
 
         # Load actual fragment (use one that's likely to parse successfully)
         try:
             commit_push_fragment = library.get_fragment("commit_and_push")
 
             # Verify fragment loaded successfully
-            assert commit_push_info.name == "commit_and_push"
+            assert commit_push_info.name == "commit-and-push"
             assert commit_push_fragment.name == "commit-and-push"
         except Exception:
             pytest.skip("Fragment file has validation errors")
@@ -730,10 +728,10 @@ class TestBuiltinLibraryIntegration:
 
         Note: Some fragments may have YAML validation errors.
         """
-        path = library.get_fragment_path("commit_and_push")
+        path = library.get_fragment_path("commit-and-push")
 
         try:
-            fragment = library.get_fragment("commit_and_push")
+            fragment = library.get_fragment("commit-and-push")
 
             # Path should reference the same fragment (file name uses underscores)
             assert "commit_and_push" in str(path) or "commit-and-push" in str(path)

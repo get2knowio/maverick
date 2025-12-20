@@ -78,7 +78,13 @@ inputs:
   task_file:
     type: string
     required: false
-    description: Path to tasks.md (auto-detect if omitted)
+    description: |
+      Path to tasks.md (auto-detect if omitted)
+
+      Auto-detection: If not specified, searches for tasks.md in:
+      1. specs/<branch-name>/tasks.md
+      2. .specify/<branch-name>/tasks.md
+      3. Current directory (./tasks.md)
 
   skip_review:
     type: boolean

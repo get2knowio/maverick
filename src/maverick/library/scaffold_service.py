@@ -36,7 +36,15 @@ class ScaffoldService:
     """
 
     def __init__(self) -> None:
-        """Initialize the scaffold service with Jinja2 environment."""
+        """Initialize the scaffold service with Jinja2 environment.
+
+        Raises:
+            ValueError: If template directory does not exist.
+        """
+        template_dir = Path(__file__).parent / "templates"
+        if not template_dir.exists():
+            raise ValueError(f"Template directory not found: {template_dir}")
+
         self.env = Environment(
             loader=PackageLoader("maverick.library", "templates"),
             autoescape=False,  # Don't escape workflow code

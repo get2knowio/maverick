@@ -1482,7 +1482,7 @@ def workflow_viz(
     "fmt",
     type=click.Choice(["yaml", "python"]),
     default="yaml",
-    help="Output format.",
+    help="Output format (default: yaml).",
 )
 @click.option(
     "-o",
@@ -1535,6 +1535,10 @@ def workflow_new(
         basic    - Simple linear workflow with few steps
         full     - Complete workflow with validation/review/PR
         parallel - Demonstrates parallel step interface
+
+    Notes:
+        Default format is YAML.
+        Default output directory is .maverick/workflows/.
 
     Examples:
         maverick workflow new my-workflow

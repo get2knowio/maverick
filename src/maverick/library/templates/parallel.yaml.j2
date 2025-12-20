@@ -6,6 +6,35 @@
 # Generated: {{ date }}
 {% if description %}# Description: {{ description }}{% endif %}
 {% if author %}# Author: {{ author }}{% endif %}
+#
+# ABOUT PARALLEL EXECUTION:
+#   The `parallel` step type executes multiple sub-steps concurrently, which is
+#   useful for independent operations that can run simultaneously. Parallel
+#   execution can significantly reduce workflow execution time when you have
+#   multiple I/O-bound or CPU-independent tasks.
+#
+#   WHEN TO USE PARALLEL:
+#   - Processing multiple independent items (files, issues, API calls)
+#   - Running non-conflicting validation checks simultaneously
+#   - Executing multiple agent tasks that don't share mutable state
+#   - Performing batch operations on distinct resources
+#
+#   WHEN NOT TO USE PARALLEL:
+#   - Steps that modify shared state or files
+#   - Operations with dependencies between items
+#   - Steps that must execute in a specific order
+#   - Resource-limited operations (e.g., rate-limited APIs)
+#
+#   COMBINING RESULTS:
+#   After parallel execution completes, results from all iterations are
+#   collected in the step output. You can access them using:
+#     ${{ '{{ steps.parallel_step_name.output }}' }}
+#
+#   The output is an array where each element corresponds to one iteration's
+#   result. Use a subsequent step to aggregate, filter, or transform the
+#   parallel results.
+#
+# ==============================================================================
 
 version: "1.0"
 name: {{ name }}
@@ -17,6 +46,14 @@ inputs:
     description: Items to process in parallel
 
 steps:
+  # ==========================================================================
+  # Example 1: Basic Parallel Processing
+  # ==========================================================================
+  # Process each item in the input list concurrently. Each iteration receives
+  # one item from the list and executes the same set of sub-steps.
+  #
+  # Use case: Processing multiple files, API endpoints, or independent tasks
+  # ==========================================================================
   - name: parallel_processing
     type: parallel
     for_each: ${{ '{{ inputs.items }}' }}
@@ -24,7 +61,53 @@ steps:
       - name: process_item
         type: python
         action: process_item
+        kwargs:
+          item: ${{ '{{ item }}' }}  # Current iteration's item
 
+  # ==========================================================================
+  # Example 2: Combining Parallel Results
+  # ==========================================================================
+  # After parallel execution, aggregate the results from all iterations.
+  # The parallel step output is an array containing each iteration's result.
+  #
+  # Common aggregation patterns:
+  # - Merge: Combine all results into a single structure
+  # - Filter: Select results matching certain criteria
+  # - Reduce: Calculate summary statistics (count, sum, etc.)
+  # - Report: Generate a summary report from all results
+  # ==========================================================================
   - name: combine_results
     type: python
     action: combine_results
+    kwargs:
+      parallel_results: ${{ '{{ steps.parallel_processing.output }}' }}
+
+  # ==========================================================================
+  # Example 3: Conditional Parallel Execution
+  # ==========================================================================
+  # Use the `when` clause to conditionally execute parallel steps based on
+  # runtime conditions (e.g., only when there are items to process).
+  # ==========================================================================
+  - name: conditional_parallel
+    type: parallel
+    for_each: ${{ '{{ inputs.items }}' }}
+    when: ${{ '{{ inputs.items | length > 0 }}' }}
+    steps:
+      - name: validate_item
+        type: python
+        action: validate_item
+        kwargs:
+          item: ${{ '{{ item }}' }}
+
+  # ==========================================================================
+  # Example 4: Parallel with Error Handling
+  # ==========================================================================
+  # Generate a report of any failures that occurred during parallel execution.
+  # The workflow engine tracks which iterations succeeded/failed, and you can
+  # inspect errors in the output.
+  # ==========================================================================
+  - name: report_failures
+    type: python
+    action: report_parallel_failures
+    kwargs:
+      results: ${{ '{{ steps.parallel_processing.output }}' }}

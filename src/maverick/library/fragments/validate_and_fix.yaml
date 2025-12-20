@@ -38,14 +38,23 @@
 #      - Repeats up to max_attempts times or until validation passes
 #   3. report: Generate final result with pass/fail status and metrics
 #
-# Customization Points:
-#   - Override this fragment in your project to change fix logic
+# CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/validate_and_fix.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/validate_and_fix.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
+#   - Change validation stages (e.g., skip typecheck, add custom checks)
+#   - Adjust max_attempts for retries (0 = no retry, higher = more attempts)
+#   - Modify fix strategies by overriding or replacing fixer_agent
 #   - Provide custom stages array to run a subset of validation checks
-#   - Adjust max_attempts to control retry behavior (0 = no retry)
 #   - Replace fixer_agent with a custom agent for specialized fix logic
 #   - Add pre-validation setup steps before run-validation
 #   - Add post-validation cleanup steps after report
 #   - Modify fix-loop branching to add custom failure handling
+#   - Change default validation stages for your project's tech stack
 #
 # Used By:
 #   - fly workflow (validate-and-fix stage)

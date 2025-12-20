@@ -23,14 +23,14 @@ BUILTIN_WORKFLOWS = frozenset({
     "refuel",    # FR-005: Tech-debt resolution
     "review",    # FR-006: Code review orchestration
     "validate",  # FR-007: Validation with optional fixes
-    "quick_fix", # FR-008: Quick issue fix
+    "quick-fix", # FR-008: Quick issue fix
 })
 
 # Reusable fragments (FR-009)
 BUILTIN_FRAGMENTS = frozenset({
-    "validate_and_fix",       # FR-010: Validation-with-retry loop
-    "commit_and_push",        # FR-011: Generate commit, commit, push
-    "create_pr_with_summary", # FR-012: Generate PR body, create PR
+    "validate-and-fix",       # FR-010: Validation-with-retry loop
+    "commit-and-push",        # FR-011: Generate commit, commit, push
+    "create-pr-with-summary", # FR-012: Generate PR body, create PR
 })
 
 
@@ -121,7 +121,7 @@ VALIDATE_WORKFLOW_INFO = BuiltinWorkflowInfo(
 )
 
 QUICK_FIX_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="quick_fix",
+    name="quick-fix",
     description="Quick issue fix workflow",
     inputs=(
         ("issue_number", "integer", True, "GitHub issue number"),
@@ -136,7 +136,7 @@ QUICK_FIX_WORKFLOW_INFO = BuiltinWorkflowInfo(
 
 
 VALIDATE_AND_FIX_FRAGMENT_INFO = BuiltinFragmentInfo(
-    name="validate_and_fix",
+    name="validate-and-fix",
     description="Validation-with-retry loop",
     inputs=(
         (
@@ -152,24 +152,24 @@ VALIDATE_AND_FIX_FRAGMENT_INFO = BuiltinFragmentInfo(
 )
 
 COMMIT_AND_PUSH_FRAGMENT_INFO = BuiltinFragmentInfo(
-    name="commit_and_push",
+    name="commit-and-push",
     description="Generate commit message, commit changes, and push",
     inputs=(
         ("message", "string", False, "Commit message (auto-generate if omitted)"),
         ("push", "boolean", False, "Push after commit (default: true)"),
     ),
-    used_by=("fly", "refuel", "quick_fix"),
+    used_by=("fly", "refuel", "quick-fix"),
 )
 
 CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO = BuiltinFragmentInfo(
-    name="create_pr_with_summary",
+    name="create-pr-with-summary",
     description="Generate PR body and create pull request",
     inputs=(
         ("base_branch", "string", False, "PR base branch (default: main)"),
         ("draft", "boolean", False, "Create as draft PR (default: false)"),
         ("title", "string", False, "PR title (auto-generate if omitted)"),
     ),
-    used_by=("fly", "refuel", "quick_fix"),
+    used_by=("fly", "refuel", "quick-fix"),
 )
 
 
@@ -306,14 +306,14 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
         "refuel": REFUEL_WORKFLOW_INFO,
         "review": REVIEW_WORKFLOW_INFO,
         "validate": VALIDATE_WORKFLOW_INFO,
-        "quick_fix": QUICK_FIX_WORKFLOW_INFO,
+        "quick-fix": QUICK_FIX_WORKFLOW_INFO,
     }
 
     # Mapping of fragment names to info objects
     _FRAGMENT_INFO_MAP = {
-        "validate_and_fix": VALIDATE_AND_FIX_FRAGMENT_INFO,
-        "commit_and_push": COMMIT_AND_PUSH_FRAGMENT_INFO,
-        "create_pr_with_summary": CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO,
+        "validate-and-fix": VALIDATE_AND_FIX_FRAGMENT_INFO,
+        "commit-and-push": COMMIT_AND_PUSH_FRAGMENT_INFO,
+        "create-pr-with-summary": CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO,
     }
 
     def list_workflows(self) -> list[BuiltinWorkflowInfo]:
@@ -336,9 +336,7 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
         """Load a built-in workflow by name.
 
         Args:
-            name: Workflow name (e.g., "fly", "refuel", "quick_fix").
-                  Can use underscores (Python-style) which will be converted
-                  to hyphens for YAML name lookup.
+            name: Workflow name (e.g., "fly", "refuel", "quick-fix").
 
         Returns:
             Parsed WorkflowFile.
@@ -353,9 +351,9 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from maverick.dsl.serialization.parser import parse_workflow
 
-        # Convert name to filename (e.g., "quick_fix" -> "quick_fix.yaml")
-        # Note: filenames use underscores, YAML names use hyphens
-        filename = f"{name}.yaml"
+        # Convert name to filename (e.g., "quick-fix" -> "quick_fix.yaml")
+        # Note: Python constants use hyphens (kebab-case), filenames use underscores
+        filename = f"{name.replace('-', '_')}.yaml"
         yaml_path = files("maverick.library.workflows").joinpath(filename)
         yaml_content = yaml_path.read_text(encoding="utf-8")
 
@@ -365,9 +363,7 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
         """Load a built-in fragment by name.
 
         Args:
-            name: Fragment name (e.g., "validate_and_fix", "commit_and_push").
-                  Can use underscores (Python-style) which will be converted
-                  to hyphens for YAML name lookup.
+            name: Fragment name (e.g., "validate-and-fix", "commit-and-push").
 
         Returns:
             Parsed WorkflowFile.
@@ -382,9 +378,9 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from maverick.dsl.serialization.parser import parse_workflow
 
-        # Convert name to filename (e.g., "validate_and_fix" -> "validate_and_fix.yaml")
-        # Note: filenames use underscores, YAML names use hyphens
-        filename = f"{name}.yaml"
+        # Convert name to filename (e.g., "validate-and-fix" -> "validate_and_fix.yaml")
+        # Note: Python constants use hyphens (kebab-case), filenames use underscores
+        filename = f"{name.replace('-', '_')}.yaml"
         yaml_path = files("maverick.library.fragments").joinpath(filename)
         yaml_content = yaml_path.read_text(encoding="utf-8")
 
@@ -407,7 +403,8 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from importlib.resources import files
 
-        filename = f"{name}.yaml"
+        # Convert name to filename (e.g., "quick-fix" -> "quick_fix.yaml")
+        filename = f"{name.replace('-', '_')}.yaml"
         yaml_path = files("maverick.library.workflows").joinpath(filename)
 
         # Convert to Path object (importlib.resources returns a Traversable)
@@ -430,7 +427,8 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from importlib.resources import files
 
-        filename = f"{name}.yaml"
+        # Convert name to filename (e.g., "validate-and-fix" -> "validate_and_fix.yaml")
+        filename = f"{name.replace('-', '_')}.yaml"
         yaml_path = files("maverick.library.fragments").joinpath(filename)
 
         # Convert to Path object (importlib.resources returns a Traversable)

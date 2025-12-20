@@ -61,7 +61,13 @@ inputs:
     type: integer
     required: false
     default: null
-    description: PR number (auto-detect if omitted)
+    description: |
+      PR number (auto-detect if omitted)
+
+      Auto-detection: If not specified, attempts to detect PR number from:
+      1. Current branch via GitHub CLI (gh pr list --head <branch>)
+      2. Queries GitHub API for PRs associated with the current branch
+      3. Selects the first matching PR if multiple exist
 
   base_branch:
     type: string

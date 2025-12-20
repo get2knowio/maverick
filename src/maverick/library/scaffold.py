@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -120,20 +121,9 @@ class ScaffoldResult:
 
 
 class ScaffoldError(Exception):
-    """Base exception for scaffolding errors.
+    """Base exception for scaffolding errors."""
 
-    Attributes:
-        message: Error message.
-    """
-
-    def __init__(self, message: str) -> None:
-        """Initialize scaffold error.
-
-        Args:
-            message: Error message.
-        """
-        self.message = message
-        super().__init__(message)
+    pass
 
 
 class InvalidNameError(ScaffoldError):
@@ -257,10 +247,17 @@ class ScaffoldService:
         Args:
             template_dir: Directory containing Jinja2 templates.
                          If None, uses package templates directory.
+
+        Raises:
+            ValueError: If template directory does not exist.
         """
         if template_dir is None:
             # Use package templates directory
             template_dir = Path(__file__).parent / "templates"
+
+        # Validate template directory exists early
+        if not template_dir.exists():
+            raise ValueError(f"Template directory not found: {template_dir}")
 
         self._template_dir = template_dir
 
@@ -387,8 +384,6 @@ class ScaffoldService:
         Raises:
             TemplateRenderError: If template file not found or rendering fails.
         """
-        from datetime import datetime
-
         import jinja2
 
         # Get template path

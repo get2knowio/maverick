@@ -50,8 +50,14 @@
 #      - CONDITIONAL: Only runs when push input is true (default)
 #      - OUTPUT: Push status and remote branch information
 #
-# CUSTOMIZATION GUIDANCE:
-#   This fragment can be customized in several ways:
+# CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/commit_and_push.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/commit_and_push.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
 #
 #   1. Override the entire fragment in your project:
 #      Create `.maverick/workflows/commit_and_push.yaml` with your custom logic.
@@ -78,6 +84,12 @@
 #   4. Customize commit message generation:
 #      Override the commit_message_generator generator agent to change message
 #      format, style, or content analysis logic.
+#
+#   5. Add pre-commit hooks or validation:
+#      Insert additional steps before the commit steps to enforce standards.
+#
+#   6. Change default push behavior:
+#      Override to always push, never push, or conditionally push based on branch.
 #
 # USED BY:
 #   - fly: Full spec-based development workflow

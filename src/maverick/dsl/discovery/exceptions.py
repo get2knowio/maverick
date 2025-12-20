@@ -8,20 +8,9 @@ from pathlib import Path
 
 
 class WorkflowDiscoveryError(Exception):
-    """Base exception for discovery errors.
+    """Base exception for discovery errors."""
 
-    Attributes:
-        message: The error message.
-    """
-
-    def __init__(self, message: str) -> None:
-        """Initialize discovery error.
-
-        Args:
-            message: The error message.
-        """
-        self.message = message
-        super().__init__(message)
+    pass
 
 
 class WorkflowConflictError(WorkflowDiscoveryError):

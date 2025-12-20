@@ -563,6 +563,22 @@ def test_create_scaffold_service_with_custom_template_dir(
     assert service._template_dir == custom_template_dir
 
 
+def test_create_scaffold_service_raises_value_error_for_missing_template_dir(
+    tmp_path: Path,
+):
+    """Test that ScaffoldService raises ValueError if template directory doesn't exist."""
+    # Create a path to a non-existent directory
+    missing_dir = tmp_path / "nonexistent" / "templates"
+
+    # Should raise ValueError with clear error message
+    with pytest.raises(ValueError) as exc_info:
+        ScaffoldService(template_dir=missing_dir)
+
+    # Verify error message contains the path
+    assert "Template directory not found" in str(exc_info.value)
+    assert str(missing_dir) in str(exc_info.value)
+
+
 # =============================================================================
 # Test Template Rendering - All Templates
 # =============================================================================
