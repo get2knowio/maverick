@@ -15,6 +15,9 @@ from maverick.exceptions import AgentNotFoundError, DuplicateAgentError
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
 
+# Type alias for any MaverickAgent instance (with any context/result types)
+MaverickAgentType = type["MaverickAgent[Any, Any]"]
+
 
 class AgentRegistry:
     """Registry for discovering and instantiating agents (FR-010).
@@ -48,13 +51,13 @@ class AgentRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty registry."""
-        self._agents: dict[str, type[MaverickAgent]] = {}
+        self._agents: dict[str, MaverickAgentType] = {}
 
     def register(
         self,
         name: str,
-        cls: type[MaverickAgent] | None = None,
-    ) -> type[MaverickAgent] | Callable[[type[MaverickAgent]], type[MaverickAgent]]:
+        cls: MaverickAgentType | None = None,
+    ) -> MaverickAgentType | Callable[[MaverickAgentType], MaverickAgentType]:
         """Register an agent class (FR-011).
 
         Can be used as a decorator or called directly. When used as a decorator,
@@ -85,7 +88,7 @@ class AgentRegistry:
         """
         if cls is None:
             # Used as a decorator: @registry.register("name")
-            def decorator(agent_cls: type[MaverickAgent]) -> type[MaverickAgent]:
+            def decorator(agent_cls: MaverickAgentType) -> MaverickAgentType:
                 self._register_impl(name, agent_cls)
                 return agent_cls
 
@@ -95,7 +98,7 @@ class AgentRegistry:
             self._register_impl(name, cls)
             return cls
 
-    def _register_impl(self, name: str, cls: type[MaverickAgent]) -> None:
+    def _register_impl(self, name: str, cls: MaverickAgentType) -> None:
         """Internal implementation of registration logic.
 
         Args:
@@ -109,7 +112,7 @@ class AgentRegistry:
             raise DuplicateAgentError(name)
         self._agents[name] = cls
 
-    def get(self, name: str) -> type[MaverickAgent]:
+    def get(self, name: str) -> MaverickAgentType:
         """Look up an agent class by name (FR-012).
 
         Args:
@@ -145,7 +148,7 @@ class AgentRegistry:
         """
         return sorted(self._agents.keys())
 
-    def create(self, name: str, **kwargs: Any) -> MaverickAgent:
+    def create(self, name: str, **kwargs: Any) -> "MaverickAgent[Any, Any]":
         """Instantiate an agent by name.
 
         Args:
@@ -181,7 +184,7 @@ registry = AgentRegistry()
 def register(
     name: str,
     registry: AgentRegistry | None = None,  # noqa: A002  # intentionally shadows global
-) -> Callable[[type[MaverickAgent]], type[MaverickAgent]]:
+) -> Callable[[MaverickAgentType], MaverickAgentType]:
     """Decorator for registering agent classes.
 
     Args:
@@ -201,7 +204,7 @@ def register(
     # Use module-level registry if not provided (via globals to avoid shadowing)
     reg = registry if registry is not None else globals()["registry"]
 
-    def decorator(cls: type[MaverickAgent]) -> type[MaverickAgent]:
+    def decorator(cls: MaverickAgentType) -> MaverickAgentType:
         reg._register_impl(name, cls)
         return cls
 

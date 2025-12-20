@@ -9,13 +9,23 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 if TYPE_CHECKING:
     from claude_agent_sdk import Message
 
     from maverick.agents.context import AgentContext
     from maverick.agents.result import AgentResult, AgentUsage
+
+# =============================================================================
+# Type Variables for Generic MaverickAgent
+# =============================================================================
+
+# Note: These TypeVars are not bound to AgentContext/AgentResult because
+# specialized agents use domain-specific context and result types
+# (e.g., ReviewContext, ImplementerContext, FixResult, etc.)
+TContext = TypeVar("TContext", contravariant=True)
+TResult = TypeVar("TResult", covariant=True)
 
 # =============================================================================
 # Constants
@@ -42,8 +52,11 @@ BUILTIN_TOOLS: frozenset[str] = frozenset(
 #: Default Claude model for agents
 DEFAULT_MODEL: str = "claude-sonnet-4-5-20250929"
 
+#: Permission mode type for Claude SDK
+PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+
 #: Default permission mode for Claude SDK
-DEFAULT_PERMISSION_MODE: str = "acceptEdits"
+DEFAULT_PERMISSION_MODE: PermissionMode = "acceptEdits"
 
 
 # =============================================================================
@@ -51,14 +64,21 @@ DEFAULT_PERMISSION_MODE: str = "acceptEdits"
 # =============================================================================
 
 
-class MaverickAgent(ABC):
+class MaverickAgent(ABC, Generic[TContext, TResult]):
     """Abstract base class for all Maverick agents (FR-001).
 
     This class wraps Claude Agent SDK interactions and provides a standardized
     interface for agent creation. Concrete agents inherit from this class and
     implement the execute() method.
 
+    This is a generic class parameterized by context and result types to ensure
+    type safety and prevent Liskov Substitution Principle (LSP) violations.
+
     Agents know HOW to do tasks. Workflows know WHEN to do them.
+
+    Type Parameters:
+        TContext: The context type this agent accepts (contravariant).
+        TResult: The result type this agent returns (covariant).
 
     Attributes:
         name: Unique identifier for the agent.
@@ -69,7 +89,7 @@ class MaverickAgent(ABC):
 
     Example:
         ```python
-        class GreeterAgent(MaverickAgent):
+        class GreeterAgent(MaverickAgent[AgentContext, AgentResult]):
             def __init__(self):
                 super().__init__(
                     name="greeter",
@@ -285,16 +305,16 @@ class MaverickAgent(ABC):
         )
 
     @abstractmethod
-    async def execute(self, context: AgentContext) -> AgentResult:
+    async def execute(self, context: TContext) -> TResult:
         """Execute the agent task (FR-004).
 
         Subclasses must implement this method to define the agent's behavior.
 
         Args:
-            context: Runtime context (cwd, branch, config).
+            context: Runtime context (type varies by agent specialization).
 
         Returns:
-            Structured result with success, output, metadata, errors, usage.
+            Structured result (type varies by agent specialization).
 
         Raises:
             AgentError: Wrapped SDK errors (no automatic retries per FR-007).

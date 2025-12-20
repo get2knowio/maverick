@@ -5,6 +5,16 @@
 **Status**: Draft  
 **Input**: User description: "this is spec 023: Create a spec for flow control constructs in the Maverick workflow DSL."
 
+## Clarifications
+
+### Session 2025-12-20
+
+- Q: When a `.when(predicate)` predicate raises an exception or returns a non-boolean value, how should the system behave? → A: Treat exceptions as false (skip step) and log a warning; fail on non-boolean returns.
+- Q: When a branch predicate references a prior step result that doesn't exist (e.g., because that step was skipped), how should the system behave? → A: Treat missing step results as `None`; predicates can handle defensively.
+- Q: When a workflow resumes from a checkpoint but required inputs have changed since the checkpoint was saved, how should the system behave? → A: Detect input changes and fail with a clear mismatch error.
+- Q: When a rollback action fails during the rollback phase, should the system continue attempting remaining rollbacks or stop immediately? → A: Continue all rollbacks; collect and report all errors at the end.
+- Q: When a `.parallel([...])` construct contains duplicate step names, when should this be detected and how should it be handled? → A: Fail immediately when the parallel step is yielded (before execution).
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -70,13 +80,14 @@ As a workflow author, I can iterate over collections, express a parallel-review 
 
 ### Edge Cases
 
-- A `.when(...)` predicate raises an error or returns a non-boolean value.
+- A `.when(...)` predicate raises an exception → step is skipped (treated as false) and a warning is logged.
+- A `.when(...)` predicate returns a non-boolean value → workflow fails with a type error.
 - A branch step has no matching branch option.
-- A branch predicate depends on a prior step result that does not exist (e.g., due to conditional skip).
+- A branch predicate depends on a prior step result that does not exist (e.g., due to conditional skip) → missing results are treated as `None`; predicates should handle defensively.
 - A retry-enabled step exhausts all attempts without succeeding.
-- A rollback action fails while rolling back after workflow failure.
-- A workflow resumes from a checkpoint but required inputs have changed since the checkpoint was saved.
-- A `.parallel([...])` construct contains duplicate step names or an invalid step definition.
+- A rollback action fails while rolling back after workflow failure → continue executing remaining rollbacks; collect and report all rollback errors at the end.
+- A workflow resumes from a checkpoint but required inputs have changed since the checkpoint was saved → resume fails with a clear input mismatch error.
+- A `.parallel([...])` construct contains duplicate step names → fail immediately when the parallel step is yielded (before any child step executes).
 
 ## Requirements *(mandatory)*
 
@@ -92,13 +103,16 @@ As a workflow author, I can iterate over collections, express a parallel-review 
 - **FR-003**: The step DSL MUST support conditional execution via `.when(predicate)` on any step definition.
 - **FR-004**: When a `.when(predicate)` condition evaluates to false, the step MUST be treated as skipped: the underlying operation MUST NOT run, and the workflow MUST continue to the next yielded step.
 - **FR-005**: When a step is skipped via `.when(...)`, the workflow MUST still record a step result with `success=true` and a standardized skipped marker output so skipped steps can be distinguished from executed steps.
+- **FR-005a**: When a `.when(predicate)` raises an exception, the step MUST be treated as skipped (predicate evaluated to false), a warning MUST be logged, and execution MUST continue.
+- **FR-005b**: When a `.when(predicate)` returns a non-boolean value, the workflow MUST fail immediately with a type error indicating the predicate must return a boolean.
 
 #### Branching
 
 - **FR-006**: The step DSL MUST support branching via `.branch((predicate, step), ...)` to choose exactly one step to execute from a list of options.
 - **FR-007**: Branching MUST evaluate options in the declared order and select the first option whose predicate evaluates to true.
 - **FR-008**: If no branch predicate evaluates to true, the branch step MUST fail the workflow with a clear error.
-- **FR-009**: A branch step MUST return an output that includes (at minimum) the selected option identity and the selected step’s output.
+- **FR-009**: A branch step MUST return an output that includes (at minimum) the selected option identity and the selected step's output.
+- **FR-009a**: When a predicate (in `.when(...)` or `.branch(...)`) accesses a step result that does not exist (e.g., the step was skipped or never executed), the result lookup MUST return `None` rather than raising an error; predicates are responsible for handling missing results defensively.
 
 #### Retry and loops
 
@@ -110,6 +124,7 @@ As a workflow author, I can iterate over collections, express a parallel-review 
 
 - **FR-013**: The step DSL MUST expose a `.parallel(steps)` interface that accepts a collection of step definitions and returns a composite output containing per-step outcomes in a stable, input-order-preserving structure.
 - **FR-014**: The initial release MAY execute `.parallel(...)` steps sequentially, but the interface and results MUST be compatible with future concurrent execution without changing user-facing behavior.
+- **FR-014a**: When a `.parallel([...])` construct is yielded, the execution engine MUST validate that all child step names are unique and MUST fail immediately with a clear error if duplicates are detected (before any child step executes).
 
 #### Step-level error handling
 
@@ -121,6 +136,7 @@ As a workflow author, I can iterate over collections, express a parallel-review 
 
 - **FR-018**: The step DSL MUST support `.with_rollback(rollback)` to register a rollback action for a step that is eligible to run if the workflow later fails after the step has successfully completed.
 - **FR-019**: When a workflow run ends unsuccessfully, the execution engine MUST attempt rollbacks for all eligible steps in reverse execution order (best-effort), and the workflow result MUST surface rollback failures in its error reporting.
+- **FR-019a**: If a rollback action fails, the execution engine MUST continue attempting remaining rollbacks rather than stopping; all rollback errors MUST be collected and included in the final workflow result.
 
 #### Early exit and failure exit
 
@@ -133,6 +149,8 @@ As a workflow author, I can iterate over collections, express a parallel-review 
 - **FR-023**: The workflow runtime MUST support resuming execution from a checkpoint via `Workflow.resume(checkpoint_id)` (or equivalent interface), continuing after the checkpoint and restoring previously recorded results.
 - **FR-024**: The system MUST provide a `CheckpointStore` interface with operations to save, load, and clear checkpoint data for a workflow run.
 - **FR-025**: The default checkpoint store MUST persist checkpoints as JSON files under `.maverick/checkpoints/` (or equivalent documented path) so resumability works without additional configuration.
+- **FR-025a**: Checkpoint data MUST include a hash of the workflow inputs at the time of checkpointing.
+- **FR-025b**: When resuming from a checkpoint, the runtime MUST compare the current workflow inputs against the stored input hash and MUST fail with a clear mismatch error if they differ.
 
 ### Assumptions
 

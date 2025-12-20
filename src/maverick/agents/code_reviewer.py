@@ -13,16 +13,16 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError
 
 if TYPE_CHECKING:
-    from maverick.agents.context import AgentContext
-    from maverick.agents.result import AgentResult, AgentUsage
-    from maverick.models.review import UsageStats
+    from maverick.agents.result import AgentUsage
+    from maverick.models.review import ReviewContext, ReviewResult, UsageStats
 
 # Try to import review models (handle gracefully if not ready yet)
 try:
@@ -51,9 +51,6 @@ MAX_DIFF_FILES: int = 50
 #: Maximum tokens per review chunk (FR-021)
 MAX_TOKENS_PER_CHUNK: int = 50_000
 
-#: Read-only tools for code review (FR-006)
-ALLOWED_TOOLS: list[str] = ["Read", "Glob", "Grep", "Bash"]
-
 #: Default base branch for comparison
 DEFAULT_BASE_BRANCH: str = "main"
 
@@ -62,10 +59,25 @@ DEFAULT_BASE_BRANCH: str = "main"
 # System Prompt
 # =============================================================================
 
-SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development.
+SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development, analyzing pre-gathered code changes.
 
-Your role is to perform thorough, constructive code reviews that help maintain
-code quality and prevent defects before they reach production.
+## Your Role
+
+You analyze code changes that have been provided to you. The orchestration layer handles:
+- Retrieving git diffs (already gathered and provided to you)
+- Reading file contents (already gathered and provided to you)
+- Fetching convention guidelines (CLAUDE.md is provided if available)
+
+You focus on:
+- Analyzing the provided diff and file contents
+- Identifying issues across review dimensions (correctness, security, style, performance, testability)
+- Providing structured, actionable findings
+
+Do not attempt to:
+- Execute git commands (diffs are provided)
+- Run tests or validation (orchestration handles this)
+- Modify files (review only, no edits)
+- Create issues or PRs (findings are returned for orchestration to handle)
 
 ## Review Dimensions
 
@@ -182,7 +194,7 @@ If CLAUDE.md is not available, apply general Python best practices.
 # =============================================================================
 
 
-class CodeReviewerAgent(MaverickAgent):
+class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
     """Agent for automated code review of feature branches (FR-001).
 
     This agent analyzes git diffs between a feature branch and base branch,
@@ -190,7 +202,11 @@ class CodeReviewerAgent(MaverickAgent):
     testability issues. It uses read-only tools and returns structured findings.
 
     The agent follows the principle of least privilege by only using read-only
-    tools (Read, Glob, Grep, Bash) and never modifying code during review.
+    tools (Read, Glob, Grep) and never modifying code during review.
+
+    Type Parameters:
+        Context: ReviewContext - specialized context with branch and file filtering
+        Result: ReviewResult - structured review findings with severity categorization
 
     Attributes:
         name: Always "code-reviewer"
@@ -225,11 +241,11 @@ class CodeReviewerAgent(MaverickAgent):
         super().__init__(
             name="code-reviewer",
             system_prompt=SYSTEM_PROMPT,
-            allowed_tools=ALLOWED_TOOLS,
+            allowed_tools=list(REVIEWER_TOOLS),
             model=model,
         )
 
-    async def execute(self, context: AgentContext) -> AgentResult:
+    async def execute(self, context: ReviewContext) -> ReviewResult:
         """Execute code review on the specified branch (FR-004).
 
         This method orchestrates the code review process:
@@ -241,13 +257,10 @@ class CodeReviewerAgent(MaverickAgent):
         6. Returns ReviewResult with findings and metadata
 
         Args:
-            context: Runtime context with cwd, branch, config, and extra params.
-                     Expected extra params:
-                     - base_branch: Base branch for comparison (default: main)
-                     - file_list: Optional list of files to review
+            context: ReviewContext with branch, base_branch, file_list, and cwd.
 
         Returns:
-            AgentResult with ReviewResult as structured output.
+            ReviewResult with structured findings and metadata.
 
         Raises:
             AgentError: If git operations fail, merge conflicts exist,
@@ -265,20 +278,15 @@ class CodeReviewerAgent(MaverickAgent):
             - FR-021: Auto-chunks if approaching token limits
         """
         # Import here to avoid circular dependency
-        from maverick.models.review import ReviewContext, ReviewResult, ReviewSeverity
+        from maverick.models.review import ReviewResult, ReviewSeverity
 
         # Track timing and timestamp for metadata (T044)
         start_time = time.time()
         start_timestamp = datetime.now(timezone.utc).isoformat()
 
         try:
-            # Build ReviewContext from AgentContext
-            review_context = ReviewContext(
-                branch=context.branch or "HEAD",
-                base_branch=context.extra.get("base_branch", DEFAULT_BASE_BRANCH),
-                file_list=context.extra.get("file_list"),
-                cwd=context.cwd,
-            )
+            # Use the provided ReviewContext directly
+            review_context = context
 
             # 1. Check for merge conflicts (T022)
             has_conflicts = await self._check_merge_conflicts(review_context)
@@ -396,7 +404,7 @@ class CodeReviewerAgent(MaverickAgent):
                     chunk_prompt = self._build_review_prompt(chunk_diff, conventions)
 
                     # Review the chunk
-                    chunk_messages = []
+                    chunk_messages: list[Any] = []
                     async for msg in self.query(chunk_prompt, cwd=review_context.cwd):
                         chunk_messages.append(msg)
 
@@ -407,7 +415,7 @@ class CodeReviewerAgent(MaverickAgent):
 
                 findings = all_findings
                 # messages not used for chunked review (no single usage to track)
-                messages = []
+                messages: list[Any] = []
             else:
                 # Single review without chunking
                 # 9. Build the review prompt
@@ -532,7 +540,7 @@ class CodeReviewerAgent(MaverickAgent):
                 error_code=error_code,
             ) from e
 
-    async def _get_diff_stats(self, context: ReviewContext) -> dict:
+    async def _get_diff_stats(self, context: ReviewContext) -> dict[str, Any]:
         """Get diff statistics without full content (FR-008).
 
         Uses `git diff --numstat` to quickly retrieve metadata about changed
@@ -1006,7 +1014,7 @@ class CodeReviewerAgent(MaverickAgent):
             duration_ms=duration_ms,
         )
 
-    def _should_truncate(self, diff_stats: dict) -> bool:
+    def _should_truncate(self, diff_stats: dict[str, Any]) -> bool:
         """Check if diff exceeds size limits (T037, FR-017).
 
         Args:
@@ -1031,7 +1039,7 @@ class CodeReviewerAgent(MaverickAgent):
     def _truncate_files(
         self,
         files: list[str],
-        diff_stats: dict,
+        diff_stats: dict[str, Any],
     ) -> tuple[list[str], str]:
         """Truncate file list and generate notice (T038, FR-017).
 
