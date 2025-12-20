@@ -1,0 +1,39 @@
+# ==============================================================================
+# Full Workflow Template - Complete Workflow with Validation, Review, and PR
+# ==============================================================================
+#
+# Workflow: {{ name }}
+# Generated: {{ date }}
+{% if description %}# Description: {{ description }}{% endif %}
+{% if author %}# Author: {{ author }}{% endif %}
+
+version: "1.0"
+name: {{ name }}
+description: {{ description if description else "Complete workflow with validation, review, and PR creation" }}
+
+inputs:
+  task_file:
+    type: string
+    required: false
+    default: "tasks.md"
+
+steps:
+  - name: setup
+    type: python
+    action: setup_workflow
+
+  - name: implement
+    type: agent
+    agent: implementer_agent
+
+  - name: validate
+    type: subworkflow
+    workflow: validate-and-fix
+
+  - name: review
+    type: agent
+    agent: code_reviewer_agent
+
+  - name: create_pr
+    type: subworkflow
+    workflow: create-pr-with-summary

@@ -26,12 +26,12 @@
 
 **Purpose**: Project initialization and module structure
 
-- [ ] T001 Create discovery module structure in src/maverick/dsl/discovery/__init__.py
-- [ ] T002 [P] Create library module structure in src/maverick/library/__init__.py
-- [ ] T003 [P] Create workflows submodule in src/maverick/library/workflows/__init__.py
-- [ ] T004 [P] Create fragments submodule in src/maverick/library/fragments/__init__.py
-- [ ] T005 [P] Create templates submodule in src/maverick/library/templates/__init__.py
-- [ ] T006 Add jinja2 dependency to pyproject.toml
+- [X] T001 Create discovery module structure in src/maverick/dsl/discovery/__init__.py
+- [X] T002 [P] Create library module structure in src/maverick/library/__init__.py
+- [X] T003 [P] Create workflows submodule in src/maverick/library/workflows/__init__.py
+- [X] T004 [P] Create fragments submodule in src/maverick/library/fragments/__init__.py
+- [X] T005 [P] Create templates submodule in src/maverick/library/templates/__init__.py
+- [X] T006 Add jinja2 dependency to pyproject.toml
 
 ---
 
@@ -41,20 +41,20 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement WorkflowSource enum in src/maverick/dsl/discovery/models.py
-- [ ] T008 Implement WorkflowMetadata dataclass in src/maverick/dsl/discovery/models.py
-- [ ] T009 Implement DiscoveredWorkflow dataclass in src/maverick/dsl/discovery/models.py
-- [ ] T010 [P] Implement SkippedWorkflow dataclass in src/maverick/dsl/discovery/models.py
-- [ ] T011 [P] Implement WorkflowConflict dataclass in src/maverick/dsl/discovery/models.py
-- [ ] T012 Implement DiscoveryResult dataclass with workflow_names, fragment_names, get_workflow, get_fragment in src/maverick/dsl/discovery/models.py
-- [ ] T013 Implement WorkflowDiscoveryError and WorkflowConflictError exceptions in src/maverick/dsl/discovery/exceptions.py
-- [ ] T014 [P] Implement ScaffoldError, InvalidNameError, OutputExistsError, TemplateRenderError in src/maverick/library/exceptions.py
-- [ ] T015 [P] Implement TemplateType and TemplateFormat enums in src/maverick/library/scaffold.py
-- [ ] T016 [P] Implement TemplateInfo, ScaffoldRequest, and ScaffoldResult dataclasses in src/maverick/library/scaffold.py
-- [ ] T017 [P] Implement BuiltinWorkflowInfo and BuiltinFragmentInfo dataclasses in src/maverick/library/builtins.py
-- [ ] T018 Export all models from src/maverick/dsl/discovery/__init__.py
-- [ ] T019 Export all models from src/maverick/library/__init__.py
-- [ ] T019a Verify existing SubWorkflowStep (from spec 022/023) resolves fragment names from DiscoveryResult; if not supported, extend WorkflowFileExecutor to lookup fragments by name during execution
+- [X] T007 Implement WorkflowSource enum in src/maverick/dsl/discovery/models.py
+- [X] T008 Implement WorkflowMetadata dataclass in src/maverick/dsl/discovery/models.py
+- [X] T009 Implement DiscoveredWorkflow dataclass in src/maverick/dsl/discovery/models.py
+- [X] T010 [P] Implement SkippedWorkflow dataclass in src/maverick/dsl/discovery/models.py
+- [X] T011 [P] Implement WorkflowConflict dataclass in src/maverick/dsl/discovery/models.py
+- [X] T012 Implement DiscoveryResult dataclass with workflow_names, fragment_names, get_workflow, get_fragment in src/maverick/dsl/discovery/models.py
+- [X] T013 Implement WorkflowDiscoveryError and WorkflowConflictError exceptions in src/maverick/dsl/discovery/exceptions.py
+- [X] T014 [P] Implement ScaffoldError, InvalidNameError, OutputExistsError, TemplateRenderError in src/maverick/library/scaffold.py
+- [X] T015 [P] Implement TemplateType and TemplateFormat enums in src/maverick/library/scaffold.py
+- [X] T016 [P] Implement TemplateInfo, ScaffoldRequest, and ScaffoldResult dataclasses in src/maverick/library/scaffold.py
+- [X] T017 [P] Implement BuiltinWorkflowInfo and BuiltinFragmentInfo dataclasses in src/maverick/library/builtins.py
+- [X] T018 Export all models from src/maverick/dsl/discovery/__init__.py
+- [X] T019 Export all models from src/maverick/library/__init__.py
+- [X] T019a Verify existing SubWorkflowStep (from spec 022/023) resolves fragment names from DiscoveryResult; if not supported, extend WorkflowFileExecutor to lookup fragments by name during execution
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -68,21 +68,21 @@
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Create fly.yaml workflow definition in src/maverick/library/workflows/fly.yaml with init, implement, validate/fix loop, commit, review, create_pr steps; include header comments describing purpose, all inputs with types/defaults, step intent, and customization guidance per FR-003
-- [ ] T021 [P] [US1] Create refuel.yaml workflow definition in src/maverick/library/workflows/refuel.yaml with fetch_issues, branch, fix, validate, commit, pr steps
-- [ ] T022 [P] [US1] Create review.yaml workflow definition in src/maverick/library/workflows/review.yaml with gather_context, run_coderabbit, agent_review, combine_results steps
-- [ ] T023 [P] [US1] Create validate.yaml workflow definition in src/maverick/library/workflows/validate.yaml with run_validation, fix loop, report steps
-- [ ] T024 [P] [US1] Create quick_fix.yaml workflow definition in src/maverick/library/workflows/quick_fix.yaml with fetch_issue, branch, fix, validate, commit, pr steps
-- [ ] T025 [US1] Create validate_and_fix.yaml fragment in src/maverick/library/fragments/validate_and_fix.yaml with stages, max_attempts, fixer_agent inputs
-- [ ] T026 [P] [US1] Create commit_and_push.yaml fragment in src/maverick/library/fragments/commit_and_push.yaml with message, push inputs
-- [ ] T027 [P] [US1] Create create_pr_with_summary.yaml fragment in src/maverick/library/fragments/create_pr_with_summary.yaml with base_branch, draft, title inputs
-- [ ] T027a [US1] Verify all 5 workflow YAML files and 3 fragment YAML files include inline documentation: purpose header, input descriptions, step-by-step comments, and customization guidance per FR-003
-- [ ] T028 [US1] Implement BuiltinLibrary class in src/maverick/library/builtins.py with list_workflows, list_fragments, get_workflow, get_fragment, get_workflow_path, get_fragment_path, has_workflow, has_fragment
-- [ ] T029 [US1] Implement create_builtin_library factory function in src/maverick/library/builtins.py
-- [ ] T030 [US1] Add BUILTIN_WORKFLOWS and BUILTIN_FRAGMENTS constants to src/maverick/library/builtins.py
-- [ ] T031 [US1] Add FLY_WORKFLOW_INFO, REFUEL_WORKFLOW_INFO, REVIEW_WORKFLOW_INFO, VALIDATE_WORKFLOW_INFO, QUICK_FIX_WORKFLOW_INFO to src/maverick/library/builtins.py
-- [ ] T032 [US1] Add VALIDATE_AND_FIX_FRAGMENT_INFO, COMMIT_AND_PUSH_FRAGMENT_INFO, CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO to src/maverick/library/builtins.py
-- [ ] T033 [US1] Write unit tests for BuiltinLibrary in tests/unit/library/test_builtins.py
+- [X] T020 [US1] Create fly.yaml workflow definition in src/maverick/library/workflows/fly.yaml with init, implement, validate/fix loop, commit, review, create_pr steps; include header comments describing purpose, all inputs with types/defaults, step intent, and customization guidance per FR-003
+- [X] T021 [P] [US1] Create refuel.yaml workflow definition in src/maverick/library/workflows/refuel.yaml with fetch_issues, branch, fix, validate, commit, pr steps
+- [X] T022 [P] [US1] Create review.yaml workflow definition in src/maverick/library/workflows/review.yaml with gather_context, run_coderabbit, agent_review, combine_results steps
+- [X] T023 [P] [US1] Create validate.yaml workflow definition in src/maverick/library/workflows/validate.yaml with run_validation, fix loop, report steps
+- [X] T024 [P] [US1] Create quick_fix.yaml workflow definition in src/maverick/library/workflows/quick_fix.yaml with fetch_issue, branch, fix, validate, commit, pr steps
+- [X] T025 [US1] Create validate_and_fix.yaml fragment in src/maverick/library/fragments/validate_and_fix.yaml with stages, max_attempts, fixer_agent inputs
+- [X] T026 [P] [US1] Create commit_and_push.yaml fragment in src/maverick/library/fragments/commit_and_push.yaml with message, push inputs
+- [X] T027 [P] [US1] Create create_pr_with_summary.yaml fragment in src/maverick/library/fragments/create_pr_with_summary.yaml with base_branch, draft, title inputs
+- [X] T027a [US1] Verify all 5 workflow YAML files and 3 fragment YAML files include inline documentation: purpose header, input descriptions, step-by-step comments, and customization guidance per FR-003
+- [X] T028 [US1] Implement BuiltinLibrary class in src/maverick/library/builtins.py with list_workflows, list_fragments, get_workflow, get_fragment, get_workflow_path, get_fragment_path, has_workflow, has_fragment
+- [X] T029 [US1] Implement create_builtin_library factory function in src/maverick/library/builtins.py
+- [X] T030 [US1] Add BUILTIN_WORKFLOWS and BUILTIN_FRAGMENTS constants to src/maverick/library/builtins.py
+- [X] T031 [US1] Add FLY_WORKFLOW_INFO, REFUEL_WORKFLOW_INFO, REVIEW_WORKFLOW_INFO, VALIDATE_WORKFLOW_INFO, QUICK_FIX_WORKFLOW_INFO to src/maverick/library/builtins.py
+- [X] T032 [US1] Add VALIDATE_AND_FIX_FRAGMENT_INFO, COMMIT_AND_PUSH_FRAGMENT_INFO, CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO to src/maverick/library/builtins.py
+- [X] T033 [US1] Write unit tests for BuiltinLibrary in tests/unit/library/test_builtins.py
 
 **Checkpoint**: User Story 1 complete - built-in workflows discoverable and accessible
 
@@ -96,17 +96,17 @@
 
 ### Implementation for User Story 2
 
-- [ ] T034 [US2] Implement WorkflowLocator class in src/maverick/dsl/discovery/locator.py with scan method for finding workflow YAML files
-- [ ] T035 [US2] Implement WorkflowLoader class in src/maverick/dsl/discovery/loader.py with load_metadata and load_full methods
-- [ ] T036 [US2] Implement DefaultWorkflowDiscovery class in src/maverick/dsl/discovery/registry.py with discover, get_builtin_path, get_user_path, get_project_path methods
-- [ ] T037 [US2] Implement precedence logic in DefaultWorkflowDiscovery (project > user > builtin)
-- [ ] T038 [US2] Implement conflict detection for same-name workflows at same precedence level
-- [ ] T039 [US2] Implement skip-and-continue logic for invalid/unreadable workflow files
-- [ ] T040 [US2] Implement create_discovery factory function in src/maverick/dsl/discovery/__init__.py
-- [ ] T041 [US2] Write unit tests for WorkflowLocator in tests/unit/dsl/discovery/test_locator.py
-- [ ] T042 [P] [US2] Write unit tests for WorkflowLoader in tests/unit/dsl/discovery/test_loader.py
-- [ ] T043 [US2] Write unit tests for DefaultWorkflowDiscovery in tests/unit/dsl/discovery/test_registry.py
-- [ ] T044 [US2] Write integration test for override precedence in tests/integration/test_workflow_discovery.py
+- [X] T034 [US2] Implement WorkflowLocator class in src/maverick/dsl/discovery/locator.py with scan method for finding workflow YAML files
+- [X] T035 [US2] Implement WorkflowLoader class in src/maverick/dsl/discovery/loader.py with load_metadata and load_full methods
+- [X] T036 [US2] Implement DefaultWorkflowDiscovery class in src/maverick/dsl/discovery/registry.py with discover, get_builtin_path, get_user_path, get_project_path methods
+- [X] T037 [US2] Implement precedence logic in DefaultWorkflowDiscovery (project > user > builtin)
+- [X] T038 [US2] Implement conflict detection for same-name workflows at same precedence level
+- [X] T039 [US2] Implement skip-and-continue logic for invalid/unreadable workflow files
+- [X] T040 [US2] Implement create_discovery factory function in src/maverick/dsl/discovery/__init__.py
+- [X] T041 [US2] Write unit tests for WorkflowLocator in tests/unit/dsl/discovery/test_locator.py
+- [X] T042 [P] [US2] Write unit tests for WorkflowLoader in tests/unit/dsl/discovery/test_loader.py
+- [X] T043 [US2] Write unit tests for DefaultWorkflowDiscovery in tests/unit/dsl/discovery/test_registry.py
+- [X] T044 [US2] Write integration test for override precedence in tests/integration/test_workflow_discovery.py
 
 **Checkpoint**: User Story 2 complete - override precedence working
 
@@ -120,21 +120,21 @@
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Create basic.yaml.j2 template in src/maverick/library/templates/basic.yaml.j2 with linear workflow structure
-- [ ] T046 [P] [US3] Create full.yaml.j2 template in src/maverick/library/templates/full.yaml.j2 with validation, review, PR patterns
-- [ ] T047 [P] [US3] Create parallel.yaml.j2 template in src/maverick/library/templates/parallel.yaml.j2 demonstrating parallel step interface
-- [ ] T048 [P] [US3] Create basic.py.j2 template in src/maverick/library/templates/basic.py.j2 for Python variant
-- [ ] T049 [P] [US3] Create full.py.j2 template in src/maverick/library/templates/full.py.j2 for Python variant
-- [ ] T050 [P] [US3] Create parallel.py.j2 template in src/maverick/library/templates/parallel.py.j2 for Python variant
-- [ ] T052 [US3] Implement DefaultTemplateScaffolder class in src/maverick/library/scaffold.py with list_templates, preview, scaffold, get_template_path methods
-- [ ] T053 [US3] Implement validate_workflow_name function in src/maverick/library/scaffold.py
-- [ ] T054 [US3] Implement get_default_output_dir function in src/maverick/library/scaffold.py
-- [ ] T055 [US3] Implement create_scaffolder factory function in src/maverick/library/scaffold.py
-- [ ] T056 [US3] Extend workflow CLI group with new subcommand in src/maverick/cli/workflow.py
-- [ ] T057 [US3] Implement maverick workflow new command with --template, --format, --output-dir options
-- [ ] T058 [US3] Write unit tests for DefaultTemplateScaffolder in tests/unit/library/test_templates.py
-- [ ] T059 [US3] Write unit tests for validate_workflow_name in tests/unit/library/test_scaffold.py
-- [ ] T060 [US3] Write integration test for maverick workflow new command in tests/integration/test_workflow_new.py
+- [X] T045 [US3] Create basic.yaml.j2 template in src/maverick/library/templates/basic.yaml.j2 with linear workflow structure
+- [X] T046 [P] [US3] Create full.yaml.j2 template in src/maverick/library/templates/full.yaml.j2 with validation, review, PR patterns
+- [X] T047 [P] [US3] Create parallel.yaml.j2 template in src/maverick/library/templates/parallel.yaml.j2 demonstrating parallel step interface
+- [X] T048 [P] [US3] Create basic.py.j2 template in src/maverick/library/templates/basic.py.j2 for Python variant
+- [X] T049 [P] [US3] Create full.py.j2 template in src/maverick/library/templates/full.py.j2 for Python variant
+- [X] T050 [P] [US3] Create parallel.py.j2 template in src/maverick/library/templates/parallel.py.j2 for Python variant
+- [X] T052 [US3] Implement DefaultTemplateScaffolder class in src/maverick/library/scaffold.py with list_templates, preview, scaffold, get_template_path methods
+- [X] T053 [US3] Implement validate_workflow_name function in src/maverick/library/scaffold.py
+- [X] T054 [US3] Implement get_default_output_dir function in src/maverick/library/scaffold.py
+- [X] T055 [US3] Implement create_scaffolder factory function in src/maverick/library/scaffold.py
+- [X] T056 [US3] Extend workflow CLI group with new subcommand in src/maverick/cli/workflow.py
+- [X] T057 [US3] Implement maverick workflow new command with --template, --format, --output-dir options
+- [X] T058 [US3] Write unit tests for DefaultTemplateScaffolder in tests/unit/library/test_templates.py
+- [X] T059 [US3] Write unit tests for validate_workflow_name in tests/unit/library/test_scaffold.py
+- [X] T060 [US3] Write integration test for maverick workflow new command in tests/integration/test_workflow_new.py
 
 **Checkpoint**: User Story 3 complete - template scaffolding working
 
@@ -144,11 +144,11 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T061 [P] Verify all YAML workflow files parse correctly with existing WorkflowFile schema
-- [ ] T062 Integrate WorkflowDiscovery with application startup: call discover() when CLI/TUI initializes, populate workflow registry, and use DiscoveryResult for workflow list/show/run commands per FR-014
-- [ ] T063 Add source information display to maverick workflow show output
-- [ ] T064 [P] Verify discovery performance < 500ms for test suite with 100 workflow files
-- [ ] T065 Run quickstart.md validation scenarios manually
+- [X] T061 [P] Verify all YAML workflow files parse correctly with existing WorkflowFile schema
+- [X] T062 Integrate WorkflowDiscovery with application startup: call discover() when CLI/TUI initializes, populate workflow registry, and use DiscoveryResult for workflow list/show/run commands per FR-014
+- [X] T063 Add source information display to maverick workflow show output
+- [X] T064 [P] Verify discovery performance < 500ms for test suite with 100 workflow files
+- [X] T065 Run quickstart.md validation scenarios manually
 
 ---
 

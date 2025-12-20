@@ -1,0 +1,130 @@
+# =============================================================================
+# Refuel Workflow - Tech-Debt Resolution
+# =============================================================================
+#
+# PURPOSE:
+#   Automates the process of resolving technical debt by fetching issues with
+#   a specified label, analyzing them for conflicts, fixing them in parallel
+#   or sequentially, validating changes, and creating pull requests.
+#
+# WORKFLOW STEPS:
+#   1. Fetch issues with the specified label from GitHub
+#   2. Analyze and select up to N non-conflicting issues to process
+#   3. For each selected issue (in parallel or sequential):
+#      a. Create a feature branch
+#      b. Fix the issue using the issue fixer agent
+#      c. Validate and fix code (format, lint, typecheck, test)
+#      d. Commit changes and push to remote
+#      e. Create pull request with auto-generated summary
+#   4. Report summary of all processed issues
+#
+# INPUTS:
+#   - label (string, optional, default: "tech-debt")
+#     The GitHub issue label to filter issues for processing.
+#     Example: "tech-debt", "refactor", "cleanup"
+#
+#   - limit (integer, optional, default: 5)
+#     Maximum number of issues to process in a single workflow run.
+#     Prevents overwhelming the system with too many concurrent operations.
+#
+#   - parallel (boolean, optional, default: true)
+#     Whether to process issues in parallel or sequentially.
+#     Parallel processing is faster but may cause conflicts if issues touch
+#     the same files. Set to false for safer sequential processing.
+#
+# CUSTOMIZATION:
+#   - Adjust validation stages by overriding the validate_and_fix fragment
+#   - Customize issue selection logic by modifying the analyze-issues step
+#   - Change commit message format by overriding the commit_and_push fragment
+#   - Modify PR creation behavior by overriding the create_pr_with_summary fragment
+#   - Add pre/post hooks by adding conditional steps with when clauses
+#
+# EXAMPLE USAGE:
+#   # Use default settings (tech-debt label, 5 issues max, parallel)
+#   maverick workflow run refuel
+#
+#   # Process "refactor" labeled issues sequentially
+#   maverick workflow run refuel -i label=refactor -i parallel=false
+#
+#   # Process up to 10 "cleanup" issues
+#   maverick workflow run refuel -i label=cleanup -i limit=10
+#
+# =============================================================================
+
+version: "1.0"
+name: refuel
+description: Tech-debt resolution workflow
+
+# Input parameter declarations
+inputs:
+  label:
+    type: string
+    required: false
+    default: "tech-debt"
+    description: Issue label to filter for processing
+
+  limit:
+    type: integer
+    required: false
+    default: 5
+    description: Maximum number of issues to process
+
+  parallel:
+    type: boolean
+    required: false
+    default: true
+    description: Process issues in parallel (true) or sequentially (false)
+
+# Workflow execution steps
+steps:
+  # Step 1: Fetch issues from GitHub with the specified label
+  # Uses a Python action to call the GitHub API and retrieve open issues
+  - name: fetch_issues
+    type: python
+    action: fetch_github_issues
+    kwargs:
+      label: ${{ inputs.label }}
+      limit: ${{ inputs.limit }}
+      state: open
+
+  # Step 2: Analyze issues for conflicts and select the best candidates
+  # Uses an agent to identify non-conflicting issues that can be safely fixed
+  # in parallel without causing merge conflicts
+  - name: analyze_issues
+    type: agent
+    agent: issue_analyzer
+    context:
+      issues: ${{ steps.fetch_issues.output }}
+      max_parallel: ${{ inputs.parallel }}
+
+  # Step 3: Process issues using Python action
+  # The Python action will handle iteration and parallel/sequential execution
+  - name: process_issues
+    type: python
+    action: process_selected_issues
+    when: ${{ inputs.parallel }}
+    kwargs:
+      issues: ${{ steps.analyze_issues.output.selected_issues }}
+      parallel: ${{ inputs.parallel }}
+
+  # Step 3 (alternate): Process issues sequentially when parallel=false
+  # Iterates through selected issues one at a time
+  - name: process_issues_sequential
+    type: python
+    action: process_selected_issues
+    when: ${{ not inputs.parallel }}
+    kwargs:
+      issues: ${{ steps.analyze_issues.output.selected_issues }}
+      parallel: false
+
+  # Step 4: Generate summary report
+  # Aggregates results from all processed issues and reports status
+  - name: report_summary
+    type: python
+    action: generate_refuel_summary
+    kwargs:
+      parallel_result: ${{ steps.process_issues.output }}
+      sequential_result: ${{ steps.process_issues_sequential.output }}
+      total_requested: ${{ inputs.limit }}
+      label: ${{ inputs.label }}
+      parallel_mode: ${{ inputs.parallel }}

@@ -17,6 +17,7 @@ from maverick.cli.context import CLIContext, ExitCode, async_command
 from maverick.cli.output import OutputFormat, format_error, format_json, format_table
 from maverick.cli.validators import check_dependencies, check_git_auth
 from maverick.config import load_config
+from maverick.dsl.discovery import DiscoveryResult, create_discovery
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.visualization import to_ascii, to_mermaid
 from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
@@ -1004,6 +1005,23 @@ def config_validate(ctx: click.Context, config_file: Path | None) -> None:
         raise SystemExit(ExitCode.FAILURE) from e
 
 
+def _get_discovery_result(ctx: click.Context) -> DiscoveryResult:
+    """Get or create workflow discovery result.
+
+    Runs discovery on first call and caches result in CLI context.
+
+    Args:
+        ctx: Click context.
+
+    Returns:
+        DiscoveryResult from workflow discovery.
+    """
+    if "discovery_result" not in ctx.obj:
+        discovery = create_discovery()
+        ctx.obj["discovery_result"] = discovery.discover()
+    return ctx.obj["discovery_result"]
+
+
 @cli.group()
 @click.option(
     "--registry",
@@ -1037,65 +1055,65 @@ def workflow(
     default="table",
     help="Output format.",
 )
+@click.option(
+    "--source",
+    type=click.Choice(["all", "builtin", "user", "project"]),
+    default="all",
+    help="Filter by source location.",
+)
 @click.pass_context
-def workflow_list(ctx: click.Context, fmt: str) -> None:
-    """List all workflows in the workflows directory.
+def workflow_list(ctx: click.Context, fmt: str, source: str) -> None:
+    """List all discovered workflows.
 
-    Scans for workflow YAML files in .workflows/ or ./workflows/ directory
-    and displays their metadata.
+    Discovers workflows from builtin, user, and project locations with
+    override precedence (project > user > builtin).
 
     Examples:
         maverick workflow list
         maverick workflow list --format json
-        maverick workflow list --format yaml
+        maverick workflow list --source builtin
     """
     import yaml
 
     logger = logging.getLogger(__name__)
 
     try:
-        # Look for workflows directory
-        workflow_dirs = [Path(".workflows"), Path("workflows")]
-        workflow_dir = None
+        # Run discovery (FR-014: call discover() when CLI initializes)
+        discovery_result = _get_discovery_result(ctx)
 
-        for dir_path in workflow_dirs:
-            if dir_path.exists() and dir_path.is_dir():
-                workflow_dir = dir_path
-                break
+        # Filter workflows by source if specified
+        if source == "all":
+            discovered_workflows = discovery_result.workflows
+        else:
+            source_filter = source
+            discovered_workflows = tuple(
+                w for w in discovery_result.workflows if w.source == source_filter
+            )
 
-        if workflow_dir is None:
-            click.echo("No workflows directory found (.workflows/ or workflows/)")
+        if not discovered_workflows:
+            if source != "all":
+                click.echo(f"No workflows found from source '{source}'")
+            else:
+                click.echo("No workflows discovered")
             raise SystemExit(ExitCode.SUCCESS)
 
-        # Find all YAML files
-        workflow_files = list(workflow_dir.glob("*.yaml")) + list(
-            workflow_dir.glob("*.yml")
-        )
-
-        if not workflow_files:
-            click.echo(f"No workflow files found in {workflow_dir}/")
-            raise SystemExit(ExitCode.SUCCESS)
-
-        # Parse each workflow file
+        # Build output data with source information
         workflows = []
-        for file_path in workflow_files:
-            try:
-                content = file_path.read_text()
-                workflow_obj = parse_workflow(content, validate_only=True)
-                workflows.append(
-                    {
-                        "name": workflow_obj.name,
-                        "description": workflow_obj.description or "(no description)",
-                        "version": workflow_obj.version,
-                        "file": str(file_path),
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to parse {file_path}: {e}")
+        for dw in discovered_workflows:
+            wf = dw.workflow
+            workflows.append(
+                {
+                    "name": wf.name,
+                    "description": wf.description or "(no description)",
+                    "version": wf.version,
+                    "source": dw.source,
+                    "file": str(dw.file_path),
+                    "overrides": [str(p) for p in dw.overrides] if dw.overrides else [],
+                }
+            )
 
-        if not workflows:
-            click.echo("No valid workflow files found")
-            raise SystemExit(ExitCode.SUCCESS)
+        # Sort by name
+        workflows.sort(key=lambda w: w["name"])
 
         # Format output
         if fmt == "json":
@@ -1103,12 +1121,21 @@ def workflow_list(ctx: click.Context, fmt: str) -> None:
         elif fmt == "yaml":
             click.echo(yaml.dump(workflows, default_flow_style=False, sort_keys=False))
         else:
-            # Table format
-            headers = ["Name", "Version", "Description"]
+            # Table format with source column
+            headers = ["Name", "Version", "Source", "Description"]
             rows = [
-                [wf["name"], wf["version"], wf["description"]] for wf in workflows
+                [wf["name"], wf["version"], wf["source"], wf["description"][:40]]
+                for wf in workflows
             ]
             click.echo(format_table(headers, rows))
+
+            # Show discovery stats
+            click.echo()
+            time_ms = discovery_result.discovery_time_ms
+            click.echo(f"Discovered {len(workflows)} workflow(s) in {time_ms:.0f}ms")
+            if discovery_result.skipped:
+                skipped_count = len(discovery_result.skipped)
+                click.echo(f"Skipped {skipped_count} file(s) with errors")
 
     except SystemExit:
         raise
@@ -1125,9 +1152,11 @@ def workflow_list(ctx: click.Context, fmt: str) -> None:
 def workflow_show(ctx: click.Context, name: str) -> None:
     """Display workflow metadata, inputs, and steps.
 
-    NAME can be either a workflow name (from registry) or a file path.
+    NAME can be either a workflow name (from discovery) or a file path.
+    Shows source information and any overrides.
 
     Examples:
+        maverick workflow show fly
         maverick workflow show my-workflow
         maverick workflow show ./workflows/my-workflow.yaml
     """
@@ -1136,44 +1165,71 @@ def workflow_show(ctx: click.Context, name: str) -> None:
     try:
         # Determine if name is a file path or workflow name
         name_path = Path(name)
+        discovered_workflow = None
+        workflow_obj = None
+        source_info = None
+        file_path = None
+        overrides = []
 
         if name_path.exists():
-            # It's a file path
-            workflow_file = name_path
+            # It's a file path - parse directly
+            file_path = name_path
+            content = file_path.read_text()
+            workflow_obj = parse_workflow(content, validate_only=True)
+            source_info = "file"
         else:
-            # Try to find in workflows directory
-            workflow_dirs = [Path(".workflows"), Path("workflows")]
-            workflow_file = None
+            # Look up in discovery (FR-014: use DiscoveryResult for workflow show)
+            discovery_result = _get_discovery_result(ctx)
+            discovered_workflow = discovery_result.get_workflow(name)
 
-            for dir_path in workflow_dirs:
-                potential_files = [
-                    dir_path / f"{name}.yaml",
-                    dir_path / f"{name}.yml",
-                ]
-                for potential_file in potential_files:
-                    if potential_file.exists():
-                        workflow_file = potential_file
-                        break
-                if workflow_file:
-                    break
+            if discovered_workflow is None:
+                # Show available workflows in error message
+                available = discovery_result.workflow_names
+                if available:
+                    available_str = ", ".join(available[:5])
+                    if len(available) > 5:
+                        available_str += f", ... ({len(available)} total)"
+                    suggestion = f"Available workflows: {available_str}"
+                else:
+                    suggestion = (
+                        "No workflows discovered. "
+                        "Check your workflow directories."
+                    )
 
-            if workflow_file is None:
                 error_msg = format_error(
                     f"Workflow '{name}' not found",
-                    suggestion=(
-                        "Run 'maverick workflow list' to see available workflows"
-                    ),
+                    suggestion=suggestion,
                 )
                 click.echo(error_msg, err=True)
                 raise SystemExit(ExitCode.FAILURE)
 
-        # Parse workflow
-        content = workflow_file.read_text()
-        workflow_obj = parse_workflow(content, validate_only=True)
+            workflow_obj = discovered_workflow.workflow
+            source_info = discovered_workflow.source
+            file_path = discovered_workflow.file_path
+            overrides = list(discovered_workflow.overrides)
 
-        # Display workflow information
+        # Display workflow information with source (T063)
         click.echo(f"Workflow: {workflow_obj.name}")
         click.echo(f"Version: {workflow_obj.version}")
+
+        # T063: Add source information display
+        if source_info:
+            source_label = {
+                "builtin": "Built-in (packaged with Maverick)",
+                "user": "User (~/.config/maverick/workflows/)",
+                "project": "Project (.maverick/workflows/)",
+                "file": "Direct file path",
+            }.get(source_info, source_info)
+            click.echo(f"Source: {source_label}")
+
+        if file_path:
+            click.echo(f"File: {file_path}")
+
+        if overrides:
+            click.echo(f"Overrides: {len(overrides)} workflow(s)")
+            for override_path in overrides:
+                click.echo(f"  - {override_path}")
+
         if workflow_obj.description:
             click.echo(f"Description: {workflow_obj.description}")
         click.echo()
@@ -1341,10 +1397,10 @@ def workflow_viz(
 ) -> None:
     """Generate ASCII or Mermaid diagram of workflow.
 
-    NAME_OR_FILE can be either a workflow name or a file path.
+    NAME_OR_FILE can be either a workflow name (from discovery) or a file path.
 
     Examples:
-        maverick workflow viz my-workflow
+        maverick workflow viz fly
         maverick workflow viz my-workflow.yaml --format mermaid
         maverick workflow viz my-workflow --output diagram.md
         maverick workflow viz my-workflow --format mermaid --direction LR
@@ -1354,40 +1410,39 @@ def workflow_viz(
     try:
         # Determine if name_or_file is a file path or workflow name
         name_path = Path(name_or_file)
+        workflow_obj = None
 
         if name_path.exists():
-            # It's a file path
-            workflow_file = name_path
+            # It's a file path - parse directly
+            content = name_path.read_text()
+            workflow_obj = parse_workflow(content, validate_only=True)
         else:
-            # Try to find in workflows directory
-            workflow_dirs = [Path(".workflows"), Path("workflows")]
-            workflow_file = None
+            # Look up in discovery (FR-014: use DiscoveryResult for workflow viz)
+            discovery_result = _get_discovery_result(ctx)
+            discovered_workflow = discovery_result.get_workflow(name_or_file)
 
-            for dir_path in workflow_dirs:
-                potential_files = [
-                    dir_path / f"{name_or_file}.yaml",
-                    dir_path / f"{name_or_file}.yml",
-                ]
-                for potential_file in potential_files:
-                    if potential_file.exists():
-                        workflow_file = potential_file
-                        break
-                if workflow_file:
-                    break
+            if discovered_workflow is not None:
+                workflow_obj = discovered_workflow.workflow
+            else:
+                # Show available workflows in error message
+                available = discovery_result.workflow_names
+                if available:
+                    available_str = ", ".join(available[:5])
+                    if len(available) > 5:
+                        available_str += f", ... ({len(available)} total)"
+                    suggestion = f"Available workflows: {available_str}"
+                else:
+                    suggestion = (
+                        "No workflows discovered. "
+                        "Check your workflow directories."
+                    )
 
-            if workflow_file is None:
                 error_msg = format_error(
                     f"Workflow '{name_or_file}' not found",
-                    suggestion=(
-                        "Run 'maverick workflow list' to see available workflows"
-                    ),
+                    suggestion=suggestion,
                 )
                 click.echo(error_msg, err=True)
                 raise SystemExit(ExitCode.FAILURE)
-
-        # Parse workflow
-        content = workflow_file.read_text()
-        workflow_obj = parse_workflow(content, validate_only=True)
 
         # Generate diagram
         if fmt == "mermaid":
@@ -1408,6 +1463,170 @@ def workflow_viz(
     except Exception as e:
         logger.exception("Unexpected error in workflow viz command")
         error_msg = format_error(f"Failed to generate diagram: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@workflow.command("new")
+@click.argument("name")
+@click.option(
+    "-t",
+    "--template",
+    type=click.Choice(["basic", "full", "parallel"]),
+    default="basic",
+    help="Template type.",
+)
+@click.option(
+    "-f",
+    "--format",
+    "fmt",
+    type=click.Choice(["yaml", "python"]),
+    default="yaml",
+    help="Output format.",
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output directory (default: .maverick/workflows/).",
+)
+@click.option(
+    "-d",
+    "--description",
+    default="",
+    help="Workflow description.",
+)
+@click.option(
+    "-a",
+    "--author",
+    default="",
+    help="Workflow author.",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing file.",
+)
+@click.option(
+    "--preview",
+    is_flag=True,
+    default=False,
+    help="Preview generated content without writing.",
+)
+@click.pass_context
+def workflow_new(
+    ctx: click.Context,
+    name: str,
+    template: str,
+    fmt: str,
+    output_dir: Path | None,
+    description: str,
+    author: str,
+    overwrite: bool,
+    preview: bool,
+) -> None:
+    """Create a new workflow from a template.
+
+    NAME is the workflow name (must be lowercase with hyphens).
+
+    Templates:
+        basic    - Simple linear workflow with few steps
+        full     - Complete workflow with validation/review/PR
+        parallel - Demonstrates parallel step interface
+
+    Examples:
+        maverick workflow new my-workflow
+        maverick workflow new my-workflow --template full
+        maverick workflow new my-workflow --format python
+        maverick workflow new my-workflow --output-dir ./workflows
+        maverick workflow new my-workflow --preview
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from maverick.library import (
+            InvalidNameError,
+            OutputExistsError,
+            ScaffoldRequest,
+            TemplateFormat,
+            TemplateRenderError,
+            TemplateType,
+            create_scaffold_service,
+            get_default_output_dir,
+        )
+
+        # Create scaffold service
+        service = create_scaffold_service()
+
+        # Determine output directory
+        if output_dir is None:
+            output_dir = get_default_output_dir()
+
+        # Create request
+        request = ScaffoldRequest(
+            name=name,
+            template=TemplateType(template),
+            format=TemplateFormat(fmt),
+            output_dir=output_dir,
+            description=description,
+            author=author,
+            overwrite=overwrite,
+        )
+
+        # Preview or scaffold
+        if preview:
+            result = service.preview(request)
+            if result.success and result.content:
+                click.echo(f"# Preview: {request.output_path}")
+                click.echo()
+                click.echo(result.content)
+            else:
+                error_msg = format_error(result.error or "Preview failed")
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+        else:
+            result = service.scaffold(request)
+            if result.success and result.output_path:
+                click.echo(f"Created workflow: {result.output_path}")
+                click.echo()
+                click.echo("Next steps:")
+                click.echo("  1. Edit the workflow file to add your steps")
+                out_path = result.output_path
+                click.echo(f"  2. Validate: maverick workflow validate {out_path}")
+                click.echo(f"  3. Run: maverick workflow run {out_path}")
+            else:
+                error_msg = format_error(result.error or "Scaffold failed")
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+    except InvalidNameError as e:
+        error_msg = format_error(
+            f"Invalid workflow name: {e.name}",
+            suggestion=e.reason,
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except OutputExistsError as e:
+        error_msg = format_error(
+            f"Output file already exists: {e.path}",
+            suggestion="Use --overwrite to replace existing file",
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except TemplateRenderError as e:
+        error_msg = format_error(
+            f"Failed to render template: {e.cause}",
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except Exception as e:
+        logger.exception("Unexpected error in workflow new command")
+        error_msg = format_error(f"Failed to create workflow: {e}")
         click.echo(error_msg, err=True)
         raise SystemExit(ExitCode.FAILURE) from e
 
@@ -1442,14 +1661,15 @@ async def workflow_run(
     input_file: Path | None,
     dry_run: bool,
 ) -> None:
-    """Execute workflow from file or registered workflow.
+    """Execute workflow from file or discovered workflow.
 
-    NAME_OR_FILE can be either a workflow name or a file path.
+    NAME_OR_FILE can be either a workflow name (from discovery) or a file path.
+    Uses discovery to find workflows from builtin, user, or project locations.
 
     Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
 
     Examples:
-        maverick workflow run my-workflow
+        maverick workflow run fly
         maverick workflow run my-workflow -i branch=main -i dry_run=true
         maverick workflow run my-workflow.yaml --input-file inputs.json
         maverick workflow run my-workflow --dry-run
@@ -1463,40 +1683,42 @@ async def workflow_run(
     try:
         # Determine if name_or_file is a file path or workflow name
         name_path = Path(name_or_file)
+        workflow_file = None
+        workflow_obj = None
 
         if name_path.exists():
-            # It's a file path
+            # It's a file path - parse directly
             workflow_file = name_path
+            content = workflow_file.read_text()
+            workflow_obj = parse_workflow(content, validate_only=True)
         else:
-            # Try to find in workflows directory
-            workflow_dirs = [Path(".workflows"), Path("workflows")]
-            workflow_file = None
+            # Look up in discovery (FR-014: use DiscoveryResult for workflow run)
+            discovery_result = _get_discovery_result(ctx)
+            discovered_workflow = discovery_result.get_workflow(name_or_file)
 
-            for dir_path in workflow_dirs:
-                potential_files = [
-                    dir_path / f"{name_or_file}.yaml",
-                    dir_path / f"{name_or_file}.yml",
-                ]
-                for potential_file in potential_files:
-                    if potential_file.exists():
-                        workflow_file = potential_file
-                        break
-                if workflow_file:
-                    break
+            if discovered_workflow is not None:
+                workflow_obj = discovered_workflow.workflow
+                workflow_file = discovered_workflow.file_path
+            else:
+                # Show available workflows in error message
+                available = discovery_result.workflow_names
+                if available:
+                    available_str = ", ".join(available[:5])
+                    if len(available) > 5:
+                        available_str += f", ... ({len(available)} total)"
+                    suggestion = f"Available workflows: {available_str}"
+                else:
+                    suggestion = (
+                        "No workflows discovered. "
+                        "Check your workflow directories."
+                    )
 
-            if workflow_file is None:
                 error_msg = format_error(
                     f"Workflow '{name_or_file}' not found",
-                    suggestion=(
-                        "Run 'maverick workflow list' to see available workflows"
-                    ),
+                    suggestion=suggestion,
                 )
                 click.echo(error_msg, err=True)
                 raise SystemExit(ExitCode.FAILURE)
-
-        # Parse workflow
-        content = workflow_file.read_text()
-        workflow_obj = parse_workflow(content, validate_only=True)
 
         # Parse inputs
         input_dict = {}
@@ -1558,9 +1780,8 @@ async def workflow_run(
         from maverick.dsl.serialization import ComponentRegistry, WorkflowFileExecutor
 
         # Display workflow header
-        click.echo(
-            click.style(f"Executing workflow: {workflow_obj.name}", fg="cyan", bold=True)
-        )
+        wf_name = workflow_obj.name
+        click.echo(click.style(f"Executing workflow: {wf_name}", fg="cyan", bold=True))
         click.echo(f"Version: {click.style(workflow_obj.version, fg='white')}")
 
         # Display input summary
@@ -1580,7 +1801,6 @@ async def workflow_run(
         # Track step progress
         step_index = 0
         total_steps = len(workflow_obj.steps)
-        step_start_time = 0.0
 
         # Execute workflow and display progress
         try:
@@ -1591,7 +1811,6 @@ async def workflow_run(
 
                 elif isinstance(event, StepStarted):
                     step_index += 1
-                    step_start_time = event.timestamp
 
                     # Step type icon mapping
                     type_icons = {
@@ -1603,11 +1822,10 @@ async def workflow_run(
                     icon = type_icons.get(event.step_type.value, "●")
 
                     # Display step start with progress counter
-                    step_header = f"[{step_index}/{total_steps}] {icon} {event.step_name}"
-                    click.echo(
-                        f"{click.style(step_header, fg='blue')} ({event.step_type.value})... ",
-                        nl=False,
-                    )
+                    step_name = event.step_name
+                    step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
+                    styled = click.style(step_header, fg="blue")
+                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
 
                 elif isinstance(event, StepCompleted):
                     # Calculate duration
@@ -1631,12 +1849,12 @@ async def workflow_run(
 
                     if event.success:
                         summary_header = click.style(
-                            f"Workflow completed successfully", fg="green", bold=True
+                            "Workflow completed successfully", fg="green", bold=True
                         )
                         click.echo(f"{summary_header} in {total_sec:.2f}s")
                     else:
                         summary_header = click.style(
-                            f"Workflow failed", fg="red", bold=True
+                            "Workflow failed", fg="red", bold=True
                         )
                         click.echo(f"{summary_header} after {total_sec:.2f}s")
 
@@ -1646,11 +1864,9 @@ async def workflow_run(
             # Display summary
             click.echo()
             completed_steps = sum(1 for step in result.step_results if step.success)
-            failed_steps = len(result.step_results) - completed_steps
 
-            click.echo(
-                f"Steps: {click.style(str(completed_steps), fg='green')}/{total_steps} completed"
-            )
+            styled_completed = click.style(str(completed_steps), fg="green")
+            click.echo(f"Steps: {styled_completed}/{total_steps} completed")
 
             if result.success:
                 # Display final output (truncated if too long)

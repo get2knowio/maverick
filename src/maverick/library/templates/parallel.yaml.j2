@@ -1,0 +1,30 @@
+# ==============================================================================
+# Parallel Workflow Template - Demonstrates Parallel Step Execution
+# ==============================================================================
+#
+# Workflow: {{ name }}
+# Generated: {{ date }}
+{% if description %}# Description: {{ description }}{% endif %}
+{% if author %}# Author: {{ author }}{% endif %}
+
+version: "1.0"
+name: {{ name }}
+description: {{ description if description else "Workflow demonstrating parallel step execution" }}
+
+inputs:
+  items:
+    type: list
+    description: Items to process in parallel
+
+steps:
+  - name: parallel_processing
+    type: parallel
+    for_each: ${{ '{{ inputs.items }}' }}
+    steps:
+      - name: process_item
+        type: python
+        action: process_item
+
+  - name: combine_results
+    type: python
+    action: combine_results
