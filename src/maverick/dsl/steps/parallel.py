@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class ParallelStep(StepDefinition):
     """Step that executes multiple steps (initially sequential).
 
-    Child step names must be unique. Validated before any execution.
+    Child step names must be unique. Validated at construction time.
 
     Attributes:
         name: Step name for the parallel group.
@@ -35,6 +35,23 @@ class ParallelStep(StepDefinition):
     step_type: StepType
     children: tuple[StepDefinition, ...]
 
+    def __post_init__(self) -> None:
+        """Validate unique child step names.
+
+        Raises:
+            ValueError: If duplicate child step names are found.
+        """
+        names = [child.name for child in self.children]
+        if len(names) != len(set(names)):
+            # Find the duplicate name for better error message
+            seen = set()
+            for name in names:
+                if name in seen:
+                    raise ValueError(
+                        f"Parallel step '{self.name}' contains duplicate child step name: '{name}'"
+                    )
+                seen.add(name)
+
     async def execute(self, context: WorkflowContext) -> StepResult:
         """Execute all child steps sequentially.
 
@@ -45,19 +62,6 @@ class ParallelStep(StepDefinition):
             StepResult with ParallelResult output.
         """
         start_time = time.perf_counter()
-
-        # FR-014a: validate unique names before execution
-        names = [child.name for child in self.children]
-        if len(names) != len(set(names)):
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            return StepResult(
-                name=self.name,
-                step_type=self.step_type,
-                success=False,
-                output=None,
-                duration_ms=duration_ms,
-                error="Parallel step contains duplicate child step names",
-            )
 
         child_results: list[StepResult] = []
         for child in self.children:

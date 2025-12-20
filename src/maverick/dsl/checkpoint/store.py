@@ -74,15 +74,32 @@ class FileCheckpointStore:
                 Default: .maverick/checkpoints/
         """
         if base_path is None:
-            base_path = Path(".maverick/checkpoints")
-        self._base_path = Path(base_path)
+            self._base_path = Path(".maverick/checkpoints")
+        else:
+            self._base_path = Path(base_path)
+        # Clean up any orphaned temp files from previous crashes
+        self._cleanup_temp_files()
+
+    def _cleanup_temp_files(self) -> None:
+        """Remove any leftover .json.tmp files from interrupted saves."""
+        if self._base_path.exists():
+            for tmp_file in self._base_path.rglob("*.json.tmp"):
+                try:
+                    tmp_file.unlink()
+                except OSError:
+                    pass
 
     async def save(
         self,
         workflow_id: str,
         data: CheckpointData,
     ) -> None:
-        """Save checkpoint with atomic write."""
+        """Save checkpoint with atomic write.
+
+        Note: Uses synchronous file I/O for simplicity. Checkpoint files are small
+        (<10KB) and local file operations complete in microseconds, making the
+        overhead of async wrappers unnecessary.
+        """
         dir_path = self._base_path / workflow_id
         dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -98,9 +115,12 @@ class FileCheckpointStore:
             with os.fdopen(fd, "w") as f:
                 f.write(content)
             os.rename(tmp_path, str(file_path))
-        except Exception:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+        except (OSError, IOError) as e:
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except OSError:
+                pass  # Ignore cleanup errors
             raise
 
     async def load(

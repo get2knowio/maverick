@@ -11,19 +11,28 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+# First 16 characters of SHA-256 provides sufficient uniqueness for workflow inputs
+# (64 bits = ~10^19 possible values, virtually zero collision probability)
+INPUTS_HASH_LENGTH = 16
+
 
 def compute_inputs_hash(inputs: dict[str, Any]) -> str:
     """Compute deterministic hash of workflow inputs.
 
     Args:
-        inputs: Workflow input parameters.
+        inputs: Workflow input parameters. Must be JSON-serializable.
 
     Returns:
         16-character hex hash of the inputs.
+
+    Raises:
+        TypeError: If inputs contain non-JSON-serializable values.
     """
-    # Sort keys for determinism
-    serialized = json.dumps(inputs, sort_keys=True, default=str)
-    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+    try:
+        serialized = json.dumps(inputs, sort_keys=True)
+    except TypeError as e:
+        raise TypeError(f"Workflow inputs must be JSON-serializable: {e}") from e
+    return hashlib.sha256(serialized.encode()).hexdigest()[:INPUTS_HASH_LENGTH]
 
 
 @dataclass(frozen=True, slots=True)

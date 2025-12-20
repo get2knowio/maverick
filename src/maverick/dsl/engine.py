@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator, Callable, Generator
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.steps.checkpoint import CheckpointStep
 from maverick.dsl.types import StepType
 from maverick.exceptions import DuplicateStepNameError
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowEngine:
@@ -172,6 +175,7 @@ class WorkflowEngine:
             # Save checkpoint if this is a checkpoint step
             if isinstance(step, CheckpointStep) and step_result.success:
                 actual_workflow_id = workflow_id or workflow_name
+                logger.debug(f"Saving checkpoint for step '{step.name}' (workflow_id={actual_workflow_id})")
                 await self._save_checkpoint(
                     workflow_name=workflow_name,
                     workflow_id=actual_workflow_id,
@@ -179,6 +183,7 @@ class WorkflowEngine:
                     inputs=inputs,
                     step_results=step_results,
                 )
+                logger.info(f"Checkpoint saved for step '{step.name}'")
                 yield CheckpointSaved(
                     step_name=step.name,
                     workflow_id=actual_workflow_id,
@@ -278,6 +283,8 @@ class WorkflowEngine:
         workflow_def: WorkflowDefinition = workflow_func.__workflow_def__  # type: ignore[attr-defined]
         workflow_name = workflow_def.name
 
+        logger.info(f"Resuming workflow '{workflow_name}' from checkpoint '{checkpoint.checkpoint_id}'")
+
         # Restore step results from checkpoint
         restored_results: dict[str, StepResult] = {}
         for sr_dict in checkpoint.step_results:
@@ -369,6 +376,7 @@ class WorkflowEngine:
 
             # Save checkpoint if this is a checkpoint step
             if isinstance(step, CheckpointStep) and step_result.success:
+                logger.debug(f"Saving checkpoint for step '{step.name}' (workflow_id={workflow_id})")
                 await self._save_checkpoint(
                     workflow_name=workflow_name,
                     workflow_id=workflow_id,
@@ -376,6 +384,7 @@ class WorkflowEngine:
                     inputs=inputs,
                     step_results=step_results,
                 )
+                logger.info(f"Checkpoint saved for step '{step.name}'")
                 yield CheckpointSaved(
                     step_name=step.name,
                     workflow_id=workflow_id,
@@ -470,6 +479,7 @@ class WorkflowEngine:
         # Execute in reverse order (most recent first)
         for registration in reversed(context._pending_rollbacks):
             yield RollbackStarted(step_name=registration.step_name)
+            logger.debug(f"Executing rollback for step '{registration.step_name}'")
 
             error_msg: str | None = None
             try:
@@ -478,6 +488,7 @@ class WorkflowEngine:
                     await result
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
+                logger.error(f"Rollback failed for step '{registration.step_name}': {error_msg}")
                 yield RollbackError(
                     step_name=registration.step_name,
                     error=error_msg,

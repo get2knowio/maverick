@@ -92,13 +92,17 @@ class RetryStep(StepDefinition):
         )
 
     def _calculate_delay(self, attempt: int) -> float:
-        """Calculate delay for next retry attempt.
+        """Calculate delay for next retry attempt using exponential backoff.
+
+        Uses the formula: min(backoff_base * 2^(attempt-1), backoff_max)
+        When jitter is enabled, delay is randomized: delay * (0.5 + random())
 
         Args:
-            attempt: Current attempt number (1-based).
+            attempt: Current attempt number (1-based, starting from 1).
 
         Returns:
-            Delay in seconds with optional jitter.
+            Delay in seconds with jitter applied if enabled.
+            Value is always capped at backoff_max (default 60 seconds).
         """
         # Exponential backoff: base * 2^(attempt-1), capped at max
         delay: float = min(self.backoff_base * (2 ** (attempt - 1)), self.backoff_max)

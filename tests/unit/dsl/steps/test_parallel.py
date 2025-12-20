@@ -84,28 +84,24 @@ class TestParallelStep:
         assert workflow_context.results["s2"].output == "r2"
 
     # T072: parallel detects duplicate names
-    async def test_parallel_duplicate_names_fails(
-        self, workflow_context: WorkflowContext
-    ) -> None:
-        """Parallel step should fail if children have duplicate names."""
+    def test_parallel_duplicate_names_fails(self) -> None:
+        """Parallel step should raise ValueError if children have duplicate names."""
         from maverick.dsl.steps.parallel import ParallelStep
 
         step1 = MockStep(name="duplicate", output="r1")
         step2 = MockStep(name="duplicate", output="r2")
-        parallel = ParallelStep(
-            name="parallel_group",
-            step_type=StepType.PARALLEL,
-            children=(step1, step2),
-        )
-        result = await parallel.execute(workflow_context)
 
-        # Should fail before any execution
-        assert not result.success
-        assert result.error is not None
-        assert "duplicate" in result.error.lower()
+        # Should raise ValueError at construction time
+        with pytest.raises(ValueError) as exc_info:
+            ParallelStep(
+                name="parallel_group",
+                step_type=StepType.PARALLEL,
+                children=(step1, step2),
+            )
 
-        # No children should have executed
-        assert "duplicate" not in workflow_context.results
+        # Check error message includes the duplicate name
+        assert "duplicate" in str(exc_info.value)
+        assert "parallel_group" in str(exc_info.value)
 
     async def test_parallel_fail_fast(
         self, workflow_context: WorkflowContext

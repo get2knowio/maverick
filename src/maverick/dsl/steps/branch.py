@@ -7,6 +7,7 @@ conditional selection between multiple step options.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,8 @@ from maverick.dsl.types import Predicate, StepType
 
 if TYPE_CHECKING:
     from maverick.dsl.context import WorkflowContext
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +95,12 @@ class BranchStep(StepDefinition):
                         duration_ms=duration_ms,
                         error=inner_result.error,
                     )
-            except Exception:
+            except Exception as e:
                 # Predicate raised exception - try next branch
+                logger.debug(
+                    f"Branch '{self.name}' option {i} predicate raised "
+                    f"{type(e).__name__}: {e}, trying next option"
+                )
                 continue
 
         # No matching branch - fail workflow (FR-008)
