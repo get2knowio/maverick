@@ -9,8 +9,8 @@ is complete. They define the expected behavior of the decorator.
 
 from __future__ import annotations
 
-import inspect
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 import pytest
 

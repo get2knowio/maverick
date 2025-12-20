@@ -61,12 +61,14 @@ class TestStepType:
     def test_enum_iteration(self) -> None:
         """Test that all enum values can be iterated."""
         all_types = list(StepType)
-        assert len(all_types) == 5
+        assert len(all_types) == 7
         assert StepType.PYTHON in all_types
         assert StepType.AGENT in all_types
         assert StepType.GENERATE in all_types
         assert StepType.VALIDATE in all_types
         assert StepType.SUBWORKFLOW in all_types
+        assert StepType.BRANCH in all_types
+        assert StepType.PARALLEL in all_types
 
     def test_enum_membership(self) -> None:
         """Test enum membership checks."""

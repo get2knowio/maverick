@@ -470,16 +470,16 @@ class TestGenerateStepExecuteExceptionHandling:
         assert result.duration_ms >= 0
 
     @pytest.mark.asyncio
-    async def test_execute_returns_failed_result_when_context_builder_references_missing_step(
+    async def test_execute_succeeds_when_context_builder_references_missing_step(
         self,
     ) -> None:
-        """Test failed StepResult when builder references missing step."""
+        """Test that missing step returns None (FR-009a), allowing graceful handling."""
         generator = MockGeneratorAgent()
 
         async def context_builder(ctx: WorkflowContext) -> dict[str, Any]:
-            # Try to access a step that doesn't exist
+            # get_step_output returns None for missing steps (FR-009a)
             output = ctx.get_step_output("non_existent_step")
-            return {"prompt": str(output)}
+            return {"prompt": str(output)}  # Will be "None"
 
         step = GenerateStep(
             name="test-generate",
@@ -489,14 +489,11 @@ class TestGenerateStepExecuteExceptionHandling:
 
         workflow_context = WorkflowContext(inputs={}, results={})
 
-        # Should return failed StepResult with KeyError in error message
+        # Should succeed since get_step_output returns None instead of raising
         result = await step.execute(workflow_context)
 
-        assert result.success is False
-        assert result.output is None
-        assert result.error is not None
-        assert "KeyError" in result.error
-        assert "test-generate" in result.error
+        assert result.success is True
+        assert result.output is not None  # Generator produces output
 
     @pytest.mark.asyncio
     async def test_execute_handles_generator_returning_non_string(self) -> None:

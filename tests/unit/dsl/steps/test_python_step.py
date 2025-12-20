@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from maverick.dsl import PythonStep, StepType, WorkflowContext, StepResult
+from maverick.dsl import PythonStep, StepResult, StepType, WorkflowContext
 
 
 class TestPythonStepCreation:

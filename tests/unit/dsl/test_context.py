@@ -5,8 +5,6 @@ Tests for the WorkflowContext dataclass used for runtime state management.
 
 from __future__ import annotations
 
-import pytest
-
 from maverick.dsl import StepResult, StepType, WorkflowContext
 
 
@@ -92,15 +90,15 @@ class TestWorkflowContext:
         assert context.get_step_output("step1") == "output1"
         assert context.get_step_output("step2") == {"key": "value"}
 
-    def test_get_step_output_raises_keyerror_for_missing_step(self) -> None:
-        """Test get_step_output raises KeyError when step not found."""
+    def test_get_step_output_returns_none_for_missing_step(self) -> None:
+        """Test get_step_output returns None when step not found (FR-009a)."""
         context = WorkflowContext(inputs={})
 
-        with pytest.raises(KeyError, match="Step 'nonexistent' not found in results"):
-            context.get_step_output("nonexistent")
+        # Per FR-009a, get_step_output returns None for missing steps
+        assert context.get_step_output("nonexistent") is None
 
-    def test_get_step_output_raises_keyerror_with_other_steps_present(self) -> None:
-        """Test get_step_output raises KeyError for missing step even with other steps."""
+    def test_get_step_output_returns_none_with_other_steps_present(self) -> None:
+        """Test get_step_output returns None for missing step even with other steps."""
         step1 = StepResult(
             name="step1",
             step_type=StepType.PYTHON,
@@ -114,8 +112,8 @@ class TestWorkflowContext:
             results={"step1": step1},
         )
 
-        with pytest.raises(KeyError, match="Step 'step2' not found in results"):
-            context.get_step_output("step2")
+        # Per FR-009a, get_step_output returns None for missing steps
+        assert context.get_step_output("step2") is None
 
     def test_results_dict_can_be_modified(self) -> None:
         """Test that the results dict can be modified after creation."""
@@ -150,9 +148,8 @@ class TestWorkflowContext:
         """Test that modifying results dict affects get_step_output."""
         context = WorkflowContext(inputs={})
 
-        # Initially, getting output should raise KeyError
-        with pytest.raises(KeyError):
-            context.get_step_output("new_step")
+        # Initially, getting output returns None (FR-009a)
+        assert context.get_step_output("new_step") is None
 
         # Add a result
         step = StepResult(
@@ -164,7 +161,7 @@ class TestWorkflowContext:
         )
         context.results["new_step"] = step
 
-        # Now it should work
+        # Now it should return the output
         assert context.get_step_output("new_step") == "new_output"
 
     def test_inputs_dict_is_accessible(self) -> None:
