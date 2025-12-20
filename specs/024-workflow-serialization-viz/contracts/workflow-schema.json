@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://maverick.dev/schemas/workflow/v1.0",
+  "title": "Maverick Workflow Schema v1.0",
+  "description": "Schema for Maverick workflow definition files (YAML/JSON)",
+  "type": "object",
+  "required": ["version", "name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Schema version in major.minor format",
+      "examples": ["1.0", "1.1"]
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "description": "Workflow identifier (lowercase, alphanumeric, dashes)",
+      "examples": ["feature-implementation", "code-review"]
+    },
+    "description": {
+      "type": "string",
+      "default": "",
+      "description": "Human-readable workflow description"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/InputDefinition"
+      },
+      "description": "Named input parameter declarations"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/StepRecord"
+      },
+      "description": "Ordered list of workflow steps"
+    }
+  },
+  "$defs": {
+    "InputDefinition": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "boolean", "float", "object", "array"],
+          "description": "Input value type"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether input is required"
+        },
+        "default": {
+          "description": "Default value if not provided (type must match)"
+        },
+        "description": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable input description"
+        }
+      }
+    },
+    "StepRecord": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]{0,63}$",
+          "description": "Unique step name within workflow"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["python", "agent", "generate", "validate", "subworkflow", "branch", "parallel"],
+          "description": "Step type discriminator"
+        },
+        "when": {
+          "type": "string",
+          "description": "Condition expression for conditional execution"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "python" } } },
+          "then": { "$ref": "#/$defs/PythonStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "agent" } } },
+          "then": { "$ref": "#/$defs/AgentStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "generate" } } },
+          "then": { "$ref": "#/$defs/GenerateStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "validate" } } },
+          "then": { "$ref": "#/$defs/ValidateStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "subworkflow" } } },
+          "then": { "$ref": "#/$defs/SubWorkflowStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "branch" } } },
+          "then": { "$ref": "#/$defs/BranchStep" }
+        },
+        {
+          "if": { "properties": { "type": { "const": "parallel" } } },
+          "then": { "$ref": "#/$defs/ParallelStep" }
+        }
+      ]
+    },
+    "PythonStep": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Fully qualified function name or registry key"
+        },
+        "args": {
+          "type": "array",
+          "default": [],
+          "description": "Positional arguments (may contain expressions)"
+        },
+        "kwargs": {
+          "type": "object",
+          "default": {},
+          "description": "Keyword arguments (may contain expressions)"
+        }
+      }
+    },
+    "AgentStep": {
+      "type": "object",
+      "required": ["agent", "context"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "Agent registry name"
+        },
+        "context": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string" }
+          ],
+          "description": "Static context dict or context builder name"
+        }
+      }
+    },
+    "GenerateStep": {
+      "type": "object",
+      "required": ["generator", "context"],
+      "properties": {
+        "generator": {
+          "type": "string",
+          "description": "Generator registry name"
+        },
+        "context": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string" }
+          ],
+          "description": "Static context dict or context builder name"
+        }
+      }
+    },
+    "ValidateStep": {
+      "type": "object",
+      "properties": {
+        "stages": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "string" }
+          ],
+          "description": "Validation stages or config key"
+        },
+        "retry": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3,
+          "description": "Maximum retry attempts"
+        },
+        "on_failure": {
+          "$ref": "#/$defs/StepRecord",
+          "description": "Step to execute before retry"
+        }
+      }
+    },
+    "SubWorkflowStep": {
+      "type": "object",
+      "required": ["workflow"],
+      "properties": {
+        "workflow": {
+          "type": "string",
+          "description": "Workflow registry name or file path"
+        },
+        "inputs": {
+          "type": "object",
+          "default": {},
+          "description": "Input values for sub-workflow"
+        }
+      }
+    },
+    "BranchStep": {
+      "type": "object",
+      "required": ["options"],
+      "properties": {
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/BranchOption"
+          },
+          "description": "Ordered condition-step pairs"
+        }
+      }
+    },
+    "BranchOption": {
+      "type": "object",
+      "required": ["when", "step"],
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "type": "string",
+          "description": "Condition expression"
+        },
+        "step": {
+          "$ref": "#/$defs/StepRecord",
+          "description": "Step to execute if condition true"
+        }
+      }
+    },
+    "ParallelStep": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/StepRecord"
+          },
+          "description": "Steps to execute in parallel"
+        }
+      }
+    }
+  }
+}
