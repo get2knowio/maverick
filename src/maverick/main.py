@@ -14,9 +14,11 @@ from maverick import __version__
 from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.context import AgentContext
 from maverick.cli.context import CLIContext, ExitCode, async_command
-from maverick.cli.output import OutputFormat, format_error, format_json
+from maverick.cli.output import OutputFormat, format_error, format_json, format_table
 from maverick.cli.validators import check_dependencies, check_git_auth
 from maverick.config import load_config
+from maverick.dsl.serialization.parser import parse_workflow
+from maverick.dsl.visualization import to_ascii, to_mermaid
 from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
 from maverick.models.review import ReviewResult
 from maverick.workflows.fly import FlyInputs, FlyWorkflow
@@ -998,6 +1000,697 @@ def config_validate(ctx: click.Context, config_file: Path | None) -> None:
 
     except Exception as e:
         error_msg = format_error(f"Error validating config: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@cli.group()
+@click.option(
+    "--registry",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to custom registry file.",
+)
+@click.option(
+    "--lenient/--no-lenient",
+    default=False,
+    help="Lenient mode for unknown references.",
+)
+@click.pass_context
+def workflow(
+    ctx: click.Context,
+    registry: Path | None,
+    lenient: bool,
+) -> None:
+    """Manage DSL workflows."""
+    # Store workflow-specific options in context for subcommands
+    ctx.ensure_object(dict)
+    ctx.obj["workflow_registry"] = registry
+    ctx.obj["workflow_lenient"] = lenient
+
+
+@workflow.command("list")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "json", "yaml"]),
+    default="table",
+    help="Output format.",
+)
+@click.pass_context
+def workflow_list(ctx: click.Context, fmt: str) -> None:
+    """List all workflows in the workflows directory.
+
+    Scans for workflow YAML files in .workflows/ or ./workflows/ directory
+    and displays their metadata.
+
+    Examples:
+        maverick workflow list
+        maverick workflow list --format json
+        maverick workflow list --format yaml
+    """
+    import yaml
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Look for workflows directory
+        workflow_dirs = [Path(".workflows"), Path("workflows")]
+        workflow_dir = None
+
+        for dir_path in workflow_dirs:
+            if dir_path.exists() and dir_path.is_dir():
+                workflow_dir = dir_path
+                break
+
+        if workflow_dir is None:
+            click.echo("No workflows directory found (.workflows/ or workflows/)")
+            raise SystemExit(ExitCode.SUCCESS)
+
+        # Find all YAML files
+        workflow_files = list(workflow_dir.glob("*.yaml")) + list(
+            workflow_dir.glob("*.yml")
+        )
+
+        if not workflow_files:
+            click.echo(f"No workflow files found in {workflow_dir}/")
+            raise SystemExit(ExitCode.SUCCESS)
+
+        # Parse each workflow file
+        workflows = []
+        for file_path in workflow_files:
+            try:
+                content = file_path.read_text()
+                workflow_obj = parse_workflow(content, validate_only=True)
+                workflows.append(
+                    {
+                        "name": workflow_obj.name,
+                        "description": workflow_obj.description or "(no description)",
+                        "version": workflow_obj.version,
+                        "file": str(file_path),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to parse {file_path}: {e}")
+
+        if not workflows:
+            click.echo("No valid workflow files found")
+            raise SystemExit(ExitCode.SUCCESS)
+
+        # Format output
+        if fmt == "json":
+            click.echo(format_json(workflows))
+        elif fmt == "yaml":
+            click.echo(yaml.dump(workflows, default_flow_style=False, sort_keys=False))
+        else:
+            # Table format
+            headers = ["Name", "Version", "Description"]
+            rows = [
+                [wf["name"], wf["version"], wf["description"]] for wf in workflows
+            ]
+            click.echo(format_table(headers, rows))
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in workflow list command")
+        error_msg = format_error(f"Failed to list workflows: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@workflow.command("show")
+@click.argument("name")
+@click.pass_context
+def workflow_show(ctx: click.Context, name: str) -> None:
+    """Display workflow metadata, inputs, and steps.
+
+    NAME can be either a workflow name (from registry) or a file path.
+
+    Examples:
+        maverick workflow show my-workflow
+        maverick workflow show ./workflows/my-workflow.yaml
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Determine if name is a file path or workflow name
+        name_path = Path(name)
+
+        if name_path.exists():
+            # It's a file path
+            workflow_file = name_path
+        else:
+            # Try to find in workflows directory
+            workflow_dirs = [Path(".workflows"), Path("workflows")]
+            workflow_file = None
+
+            for dir_path in workflow_dirs:
+                potential_files = [
+                    dir_path / f"{name}.yaml",
+                    dir_path / f"{name}.yml",
+                ]
+                for potential_file in potential_files:
+                    if potential_file.exists():
+                        workflow_file = potential_file
+                        break
+                if workflow_file:
+                    break
+
+            if workflow_file is None:
+                error_msg = format_error(
+                    f"Workflow '{name}' not found",
+                    suggestion=(
+                        "Run 'maverick workflow list' to see available workflows"
+                    ),
+                )
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+        # Parse workflow
+        content = workflow_file.read_text()
+        workflow_obj = parse_workflow(content, validate_only=True)
+
+        # Display workflow information
+        click.echo(f"Workflow: {workflow_obj.name}")
+        click.echo(f"Version: {workflow_obj.version}")
+        if workflow_obj.description:
+            click.echo(f"Description: {workflow_obj.description}")
+        click.echo()
+
+        # Display inputs
+        if workflow_obj.inputs:
+            click.echo("Inputs:")
+            for input_name, input_def in workflow_obj.inputs.items():
+                required_str = "required" if input_def.required else "optional"
+                default_str = (
+                    f", default: {input_def.default}"
+                    if input_def.default is not None
+                    else ""
+                )
+                desc_str = (
+                    f" - {input_def.description}" if input_def.description else ""
+                )
+                click.echo(
+                    f"  {input_name} ({input_def.type.value}, "
+                    f"{required_str}{default_str}){desc_str}"
+                )
+            click.echo()
+
+        # Display steps
+        click.echo(f"Steps ({len(workflow_obj.steps)}):")
+        for i, step in enumerate(workflow_obj.steps, 1):
+            click.echo(f"  {i}. {step.name} ({step.type.value})")
+            if step.when:
+                click.echo(f"     when: {step.when}")
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in workflow show command")
+        error_msg = format_error(f"Failed to show workflow: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@workflow.command("validate")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--strict/--no-strict",
+    default=True,
+    help="Strict mode checks all references exist.",
+)
+@click.pass_context
+def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
+    """Validate workflow YAML syntax and schema.
+
+    Checks workflow file for syntax errors, schema violations, and optionally
+    validates that all component references exist.
+
+    Examples:
+        maverick workflow validate my-workflow.yaml
+        maverick workflow validate my-workflow.yaml --no-strict
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from maverick.dsl.serialization.errors import (
+            ReferenceResolutionError,
+            UnsupportedVersionError,
+            WorkflowParseError,
+        )
+        from maverick.dsl.serialization.registry import ComponentRegistry
+
+        # Read workflow file
+        content = file.read_text()
+
+        # Parse workflow
+        registry = None
+        if strict:
+            # Create a registry for reference resolution
+            # In strict mode, we want to catch reference errors
+            registry = ComponentRegistry(strict=True)
+            # TODO: Load actual components from registry file if provided
+
+        workflow_obj = parse_workflow(
+            content, registry=registry, validate_only=not strict
+        )
+
+        # If we get here, validation succeeded
+        click.echo(f"Workflow '{workflow_obj.name}' is valid.")
+        click.echo(f"  Version: {workflow_obj.version}")
+        click.echo(f"  Steps: {len(workflow_obj.steps)}")
+        click.echo(f"  Inputs: {len(workflow_obj.inputs)}")
+
+        if not strict:
+            click.echo("\nNote: Reference resolution skipped (use --strict to enable)")
+
+    except WorkflowParseError as e:
+        error_details = []
+        if e.line_number:
+            error_details.append(f"Line: {e.line_number}")
+
+        error_msg = format_error(
+            f"Workflow parsing failed: {e.message}",
+            details=error_details,
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except UnsupportedVersionError as e:
+        error_msg = format_error(
+            f"Unsupported workflow version: {e.requested_version}",
+            suggestion=f"Use one of: {', '.join(e.supported_versions)}",
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except ReferenceResolutionError as e:
+        error_details = [
+            f"Reference type: {e.reference_type}",
+            f"Reference name: {e.reference_name}",
+        ]
+        if e.available_names:
+            error_details.append(f"Available: {', '.join(e.available_names[:5])}")
+
+        error_msg = format_error(
+            "Unresolved component reference",
+            details=error_details,
+            suggestion="Register the component or use --no-strict to skip validation",
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in workflow validate command")
+        error_msg = format_error(f"Failed to validate workflow: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@workflow.command("viz")
+@click.argument("name_or_file")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["ascii", "mermaid"]),
+    default="ascii",
+    help="Diagram format.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output file (stdout if not specified).",
+)
+@click.option(
+    "--direction",
+    type=click.Choice(["TD", "LR"]),
+    default="TD",
+    help="Mermaid diagram direction (TD=top-down, LR=left-right).",
+)
+@click.pass_context
+def workflow_viz(
+    ctx: click.Context,
+    name_or_file: str,
+    fmt: str,
+    output: Path | None,
+    direction: str,
+) -> None:
+    """Generate ASCII or Mermaid diagram of workflow.
+
+    NAME_OR_FILE can be either a workflow name or a file path.
+
+    Examples:
+        maverick workflow viz my-workflow
+        maverick workflow viz my-workflow.yaml --format mermaid
+        maverick workflow viz my-workflow --output diagram.md
+        maverick workflow viz my-workflow --format mermaid --direction LR
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Determine if name_or_file is a file path or workflow name
+        name_path = Path(name_or_file)
+
+        if name_path.exists():
+            # It's a file path
+            workflow_file = name_path
+        else:
+            # Try to find in workflows directory
+            workflow_dirs = [Path(".workflows"), Path("workflows")]
+            workflow_file = None
+
+            for dir_path in workflow_dirs:
+                potential_files = [
+                    dir_path / f"{name_or_file}.yaml",
+                    dir_path / f"{name_or_file}.yml",
+                ]
+                for potential_file in potential_files:
+                    if potential_file.exists():
+                        workflow_file = potential_file
+                        break
+                if workflow_file:
+                    break
+
+            if workflow_file is None:
+                error_msg = format_error(
+                    f"Workflow '{name_or_file}' not found",
+                    suggestion=(
+                        "Run 'maverick workflow list' to see available workflows"
+                    ),
+                )
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+        # Parse workflow
+        content = workflow_file.read_text()
+        workflow_obj = parse_workflow(content, validate_only=True)
+
+        # Generate diagram
+        if fmt == "mermaid":
+            diagram = to_mermaid(workflow_obj, direction=direction)
+        else:
+            # ASCII format
+            diagram = to_ascii(workflow_obj, width=80)
+
+        # Output diagram
+        if output:
+            output.write_text(diagram)
+            click.echo(f"Diagram written to {output}")
+        else:
+            click.echo(diagram)
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in workflow viz command")
+        error_msg = format_error(f"Failed to generate diagram: {e}")
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+@workflow.command("run")
+@click.argument("name_or_file")
+@click.option(
+    "-i",
+    "--input",
+    "inputs",
+    multiple=True,
+    help="Input parameter (KEY=VALUE format).",
+)
+@click.option(
+    "--input-file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Load inputs from JSON/YAML file.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show execution plan without running.",
+)
+@click.pass_context
+@async_command
+async def workflow_run(
+    ctx: click.Context,
+    name_or_file: str,
+    inputs: tuple[str, ...],
+    input_file: Path | None,
+    dry_run: bool,
+) -> None:
+    """Execute workflow from file or registered workflow.
+
+    NAME_OR_FILE can be either a workflow name or a file path.
+
+    Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
+
+    Examples:
+        maverick workflow run my-workflow
+        maverick workflow run my-workflow -i branch=main -i dry_run=true
+        maverick workflow run my-workflow.yaml --input-file inputs.json
+        maverick workflow run my-workflow --dry-run
+    """
+    import json
+
+    import yaml
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Determine if name_or_file is a file path or workflow name
+        name_path = Path(name_or_file)
+
+        if name_path.exists():
+            # It's a file path
+            workflow_file = name_path
+        else:
+            # Try to find in workflows directory
+            workflow_dirs = [Path(".workflows"), Path("workflows")]
+            workflow_file = None
+
+            for dir_path in workflow_dirs:
+                potential_files = [
+                    dir_path / f"{name_or_file}.yaml",
+                    dir_path / f"{name_or_file}.yml",
+                ]
+                for potential_file in potential_files:
+                    if potential_file.exists():
+                        workflow_file = potential_file
+                        break
+                if workflow_file:
+                    break
+
+            if workflow_file is None:
+                error_msg = format_error(
+                    f"Workflow '{name_or_file}' not found",
+                    suggestion=(
+                        "Run 'maverick workflow list' to see available workflows"
+                    ),
+                )
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+        # Parse workflow
+        content = workflow_file.read_text()
+        workflow_obj = parse_workflow(content, validate_only=True)
+
+        # Parse inputs
+        input_dict = {}
+
+        # Load from file first
+        if input_file:
+            input_content = input_file.read_text()
+            if input_file.suffix == ".json":
+                input_dict = json.loads(input_content)
+            else:
+                # Assume YAML
+                input_dict = yaml.safe_load(input_content)
+
+        # Parse KEY=VALUE inputs (override file inputs)
+        for input_str in inputs:
+            if "=" not in input_str:
+                error_msg = format_error(
+                    f"Invalid input format: {input_str}",
+                    suggestion="Use KEY=VALUE format (e.g., -i branch=main)",
+                )
+                click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+            key, value = input_str.split("=", 1)
+
+            # Try to parse value as JSON for proper type handling
+            try:
+                parsed_value = json.loads(value)
+            except json.JSONDecodeError:
+                # Keep as string
+                parsed_value = value
+
+            input_dict[key] = parsed_value
+
+        # Show execution plan for dry run
+        if dry_run:
+            click.echo(f"Dry run: Would execute workflow '{workflow_obj.name}'")
+            click.echo(f"  Version: {workflow_obj.version}")
+            click.echo(f"  Steps: {len(workflow_obj.steps)}")
+            if input_dict:
+                click.echo("  Inputs:")
+                for key, value in input_dict.items():
+                    click.echo(f"    {key} = {value}")
+            click.echo("\nExecution plan:")
+            for i, step in enumerate(workflow_obj.steps, 1):
+                click.echo(f"  {i}. {step.name} ({step.type.value})")
+                if step.when:
+                    click.echo(f"     when: {step.when}")
+            click.echo("\nNo actions performed (dry run mode).")
+            raise SystemExit(ExitCode.SUCCESS)
+
+        # Execute workflow using WorkflowFileExecutor
+        from maverick.dsl.events import (
+            StepCompleted,
+            StepStarted,
+            WorkflowCompleted,
+            WorkflowStarted,
+        )
+        from maverick.dsl.serialization import ComponentRegistry, WorkflowFileExecutor
+
+        # Display workflow header
+        click.echo(
+            click.style(f"Executing workflow: {workflow_obj.name}", fg="cyan", bold=True)
+        )
+        click.echo(f"Version: {click.style(workflow_obj.version, fg='white')}")
+
+        # Display input summary
+        if input_dict:
+            input_summary = ", ".join(
+                f"{k}={click.style(str(v), fg='yellow')}" for k, v in input_dict.items()
+            )
+            click.echo(f"Inputs: {input_summary}")
+        else:
+            click.echo("Inputs: (none)")
+        click.echo()
+
+        # Create registry and executor
+        registry = ComponentRegistry()
+        executor = WorkflowFileExecutor(registry=registry)
+
+        # Track step progress
+        step_index = 0
+        total_steps = len(workflow_obj.steps)
+        step_start_time = 0.0
+
+        # Execute workflow and display progress
+        try:
+            async for event in executor.execute(workflow_obj, inputs=input_dict):
+                if isinstance(event, WorkflowStarted):
+                    # Already displayed header above
+                    pass
+
+                elif isinstance(event, StepStarted):
+                    step_index += 1
+                    step_start_time = event.timestamp
+
+                    # Step type icon mapping
+                    type_icons = {
+                        "python": "⚙",
+                        "agent": "🤖",
+                        "generate": "✍",
+                        "validate": "✓",
+                    }
+                    icon = type_icons.get(event.step_type.value, "●")
+
+                    # Display step start with progress counter
+                    step_header = f"[{step_index}/{total_steps}] {icon} {event.step_name}"
+                    click.echo(
+                        f"{click.style(step_header, fg='blue')} ({event.step_type.value})... ",
+                        nl=False,
+                    )
+
+                elif isinstance(event, StepCompleted):
+                    # Calculate duration
+                    duration_sec = event.duration_ms / 1000
+
+                    if event.success:
+                        # Success indicator
+                        status_msg = click.style("✓", fg="green", bold=True)
+                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                        click.echo(f"{status_msg} {duration_msg}")
+                    else:
+                        # Failure indicator
+                        status_msg = click.style("✗", fg="red", bold=True)
+                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                        click.echo(f"{status_msg} {duration_msg}")
+
+                elif isinstance(event, WorkflowCompleted):
+                    # Workflow summary
+                    click.echo()
+                    total_sec = event.total_duration_ms / 1000
+
+                    if event.success:
+                        summary_header = click.style(
+                            f"Workflow completed successfully", fg="green", bold=True
+                        )
+                        click.echo(f"{summary_header} in {total_sec:.2f}s")
+                    else:
+                        summary_header = click.style(
+                            f"Workflow failed", fg="red", bold=True
+                        )
+                        click.echo(f"{summary_header} after {total_sec:.2f}s")
+
+            # Get final result
+            result = executor.get_result()
+
+            # Display summary
+            click.echo()
+            completed_steps = sum(1 for step in result.step_results if step.success)
+            failed_steps = len(result.step_results) - completed_steps
+
+            click.echo(
+                f"Steps: {click.style(str(completed_steps), fg='green')}/{total_steps} completed"
+            )
+
+            if result.success:
+                # Display final output (truncated if too long)
+                if result.final_output is not None:
+                    output_str = str(result.final_output)
+                    if len(output_str) > 200:
+                        output_str = output_str[:197] + "..."
+                    click.echo(f"Final output: {click.style(output_str, fg='white')}")
+                raise SystemExit(ExitCode.SUCCESS)
+            else:
+                # Find and display the failed step
+                failed_step = result.failed_step
+                if failed_step:
+                    click.echo()
+                    error_msg = format_error(
+                        f"Step '{failed_step.name}' failed",
+                        details=[failed_step.error] if failed_step.error else None,
+                        suggestion="Check the step configuration and try again.",
+                    )
+                    click.echo(error_msg, err=True)
+                raise SystemExit(ExitCode.FAILURE)
+
+        except Exception as exec_error:
+            logger.exception("Error during workflow execution")
+            error_msg = format_error(
+                f"Workflow execution failed: {exec_error}",
+                suggestion="Check logs for details.",
+            )
+            click.echo(error_msg, err=True)
+            raise SystemExit(ExitCode.FAILURE) from exec_error
+
+    except KeyboardInterrupt:
+        click.echo("\n\nInterrupted by user.", err=True)
+        raise SystemExit(ExitCode.INTERRUPTED) from None
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in workflow run command")
+        error_msg = format_error(f"Failed to run workflow: {e}")
         click.echo(error_msg, err=True)
         raise SystemExit(ExitCode.FAILURE) from e
 
