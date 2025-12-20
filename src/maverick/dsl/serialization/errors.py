@@ -160,6 +160,47 @@ class UnsupportedVersionError(WorkflowSerializationError):
         super().__init__(message, file_path)
 
 
+class DuplicateComponentError(WorkflowSerializationError):
+    """Exception raised when attempting to register a component with a duplicate name.
+
+    Raised when a component (action, agent, generator, etc.) is registered with
+    a name that is already in use. This is distinct from ReferenceResolutionError
+    which handles lookup failures.
+
+    Attributes:
+        message: Human-readable error message.
+        component_type: Type of component (e.g., "action", "generator", "workflow").
+        component_name: Name that was already registered.
+
+    Examples:
+        ```python
+        raise DuplicateComponentError(
+            component_type="action",
+            component_name="validate_files",
+        )
+        ```
+    """
+
+    def __init__(
+        self,
+        component_type: str,
+        component_name: str,
+    ) -> None:
+        """Initialize the DuplicateComponentError.
+
+        Args:
+            component_type: Type of component (e.g., "action", "generator").
+            component_name: Name that was already registered.
+        """
+        self.component_type = component_type
+        self.component_name = component_name
+        message = (
+            f"Duplicate {component_type} registration: "
+            f"'{component_name}' is already registered"
+        )
+        super().__init__(message)
+
+
 class ReferenceResolutionError(WorkflowSerializationError):
     """Exception raised when a reference to an unknown component cannot be resolved.
 

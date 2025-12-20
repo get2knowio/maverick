@@ -377,9 +377,13 @@ class ASCIIGenerator:
         # Calculate available width for content
         available_width = self.width - 4  # Account for "│ " and " │"
 
-        # Truncate if too long (simple approach)
+        # Truncate if too long using textwrap for Unicode-safe truncation
         if len(content) > available_width:
-            content = content[: available_width - 3] + "..."
+            import textwrap
+
+            content = textwrap.shorten(
+                content, width=available_width, placeholder="..."
+            )
 
         # Pad to width
         padded = content.ljust(available_width)

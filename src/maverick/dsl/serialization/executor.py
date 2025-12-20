@@ -379,12 +379,11 @@ class WorkflowFileExecutor:
                 available_names=self._registry.generators.list_names(),
             )
 
-        # TODO: Implement agent execution once agent registry is populated
-        # For now, log and return None
-        logger.warning(
-            f"Agent execution not yet implemented for agent '{step.agent}'"
+        # Agent execution requires integration with Claude Agent SDK
+        raise NotImplementedError(
+            f"Agent execution not yet implemented for agent '{step.agent}'. "
+            "Register agent implementations in the generator registry."
         )
-        return None
 
     async def _execute_generate_step(
         self,
@@ -414,12 +413,12 @@ class WorkflowFileExecutor:
                 available_names=self._registry.generators.list_names(),
             )
 
-        # TODO: Implement generator execution once generator registry is populated
-        # For now, log and return empty string
-        logger.warning(
-            f"Generator execution not yet implemented for generator '{step.generator}'"
+        # Generator execution requires integration with Claude Agent SDK
+        raise NotImplementedError(
+            f"Generator execution not yet implemented for generator "
+            f"'{step.generator}'. Register generator implementations "
+            "in the generator registry."
         )
-        return ""
 
     async def _execute_validate_step(
         self,

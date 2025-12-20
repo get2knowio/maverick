@@ -64,25 +64,38 @@ class WorkflowParser(Protocol):
 
 ```python
 def parse_workflow(
-    source: str | Path | dict[str, Any],
+    yaml_content: str,
     registry: ComponentRegistry | None = None,
-    strict: bool = True,
-) -> tuple[WorkflowDefinition, list[StepDefinition]]:
-    """Parse and resolve workflow from source.
+    validate_only: bool = False,
+) -> WorkflowFile:
+    """Parse and resolve workflow from YAML source.
+
+    Orchestrates the complete workflow parsing pipeline:
+    1. Parse YAML to dict
+    2. Validate against Pydantic schema
+    3. Validate version
+    4. Extract and validate expressions
+    5. Resolve component references (optional)
 
     Args:
-        source: YAML string, file path, or dict.
-        registry: Component registry for reference resolution.
-            If None, uses default global registries.
-        strict: If True (default), fail on unresolved references.
-            If False, defer resolution errors (FR-016a).
+        yaml_content: YAML string to parse.
+        registry: Optional component registry for reference resolution.
+            If None, reference resolution is skipped.
+        validate_only: If True, skip reference resolution even if registry
+            is provided. Useful for syntax-only validation.
 
     Returns:
-        Tuple of (WorkflowDefinition, list of StepDefinition objects).
+        Fully validated WorkflowFile instance (Pydantic model).
 
     Raises:
-        WorkflowParseError: If parsing fails.
-        ReferenceResolutionError: If strict=True and references unresolved.
+        WorkflowParseError: For YAML syntax or schema validation errors.
+        UnsupportedVersionError: For unsupported workflow versions.
+        ExpressionSyntaxError: For invalid expression syntax.
+        ReferenceResolutionError: For unresolved references (when registry provided).
+
+    Note:
+        WorkflowFile is distinct from WorkflowDefinition (used by @workflow decorator).
+        WorkflowFile is the Pydantic model for YAML/JSON file-based workflows.
     """
     ...
 ```

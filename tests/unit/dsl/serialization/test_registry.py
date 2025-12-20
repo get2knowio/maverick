@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from maverick.dsl.serialization.errors import ReferenceResolutionError
+from maverick.dsl.serialization.errors import DuplicateComponentError, ReferenceResolutionError
 from maverick.dsl.serialization.registry import (
     ActionRegistry,
     ComponentRegistry,
@@ -125,7 +125,7 @@ def test_action_registry_duplicate_error(action_reg: ActionRegistry) -> None:
 
     action_reg.register("duplicate", action_one)
 
-    with pytest.raises(ReferenceResolutionError) as exc_info:
+    with pytest.raises(DuplicateComponentError) as exc_info:
         action_reg.register("duplicate", action_two)
 
     assert "duplicate" in str(exc_info.value).lower()
@@ -208,7 +208,7 @@ def test_generator_registry_duplicate_error(
 
     generator_reg.register("duplicate", GenOne)
 
-    with pytest.raises(ReferenceResolutionError) as exc_info:
+    with pytest.raises(DuplicateComponentError) as exc_info:
         generator_reg.register("duplicate", GenTwo)
 
     assert "duplicate" in str(exc_info.value).lower()
@@ -300,7 +300,7 @@ def test_context_builder_registry_duplicate_error(
 
     context_builder_reg.register("duplicate", builder_one)
 
-    with pytest.raises(ReferenceResolutionError) as exc_info:
+    with pytest.raises(DuplicateComponentError) as exc_info:
         context_builder_reg.register("duplicate", builder_two)
 
     assert "duplicate" in str(exc_info.value).lower()
@@ -383,7 +383,7 @@ def test_workflow_registry_duplicate_error(workflow_reg: WorkflowRegistry) -> No
 
     workflow_reg.register("duplicate", WorkflowOne)
 
-    with pytest.raises(ReferenceResolutionError) as exc_info:
+    with pytest.raises(DuplicateComponentError) as exc_info:
         workflow_reg.register("duplicate", WorkflowTwo)
 
     assert "duplicate" in str(exc_info.value).lower()

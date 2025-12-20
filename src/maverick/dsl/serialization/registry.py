@@ -16,7 +16,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
-from maverick.dsl.serialization.errors import ReferenceResolutionError
+from maverick.dsl.serialization.errors import (
+    DuplicateComponentError,
+    ReferenceResolutionError,
+)
 
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
@@ -141,13 +144,12 @@ class ActionRegistry:
             component: Action callable to register.
 
         Raises:
-            ReferenceResolutionError: If an action with this name is already registered.
+            DuplicateComponentError: If an action with this name is already registered.
         """
         if name in self._actions:
-            raise ReferenceResolutionError(
-                reference_type="action",
-                reference_name=name,
-                available_names=list(self._actions.keys()),
+            raise DuplicateComponentError(
+                component_type="action",
+                component_name=name,
             )
         self._actions[name] = component
 
@@ -297,14 +299,13 @@ class GeneratorRegistry:
             component: Generator class to register.
 
         Raises:
-            ReferenceResolutionError: If a generator with this name is already
+            DuplicateComponentError: If a generator with this name is already
                 registered.
         """
         if name in self._generators:
-            raise ReferenceResolutionError(
-                reference_type="generator",
-                reference_name=name,
-                available_names=list(self._generators.keys()),
+            raise DuplicateComponentError(
+                component_type="generator",
+                component_name=name,
             )
         self._generators[name] = component
 
@@ -455,14 +456,13 @@ class ContextBuilderRegistry:
             component: Context builder function to register.
 
         Raises:
-            ReferenceResolutionError: If a context builder with this name is
+            DuplicateComponentError: If a context builder with this name is
                 already registered.
         """
         if name in self._builders:
-            raise ReferenceResolutionError(
-                reference_type="context_builder",
-                reference_name=name,
-                available_names=list(self._builders.keys()),
+            raise DuplicateComponentError(
+                component_type="context_builder",
+                component_name=name,
             )
         self._builders[name] = component
 
@@ -613,14 +613,13 @@ class WorkflowRegistry:
             component: Workflow definition to register.
 
         Raises:
-            ReferenceResolutionError: If a workflow with this name is already
+            DuplicateComponentError: If a workflow with this name is already
                 registered.
         """
         if name in self._workflows:
-            raise ReferenceResolutionError(
-                reference_type="workflow",
-                reference_name=name,
-                available_names=list(self._workflows.keys()),
+            raise DuplicateComponentError(
+                component_type="workflow",
+                component_name=name,
             )
         self._workflows[name] = component
 

@@ -32,12 +32,24 @@ structural correctness before execution.
 
 from __future__ import annotations
 
+from maverick.dsl.serialization.editor import (
+    EditorStepView,
+    PropertySchema,
+    StepAddedEvent,
+    StepRemovedEvent,
+    StepUpdatedEvent,
+    WorkflowEditorInterface,
+    WorkflowLoadedEvent,
+    WorkflowValidatedEvent,
+)
 from maverick.dsl.serialization.errors import (
+    DuplicateComponentError,
     ReferenceResolutionError,
     UnsupportedVersionError,
     WorkflowParseError,
     WorkflowSerializationError,
 )
+from maverick.dsl.serialization.executor import WorkflowFileExecutor
 from maverick.dsl.serialization.parser import (
     extract_expressions,
     parse_workflow,
@@ -76,19 +88,8 @@ from maverick.dsl.serialization.schema import (
     ValidationWarning,
     WorkflowFile,
 )
-from maverick.dsl.types import StepType
 from maverick.dsl.serialization.writer import WorkflowWriter
-from maverick.dsl.serialization.editor import (
-    EditorStepView,
-    PropertySchema,
-    StepAddedEvent,
-    StepRemovedEvent,
-    StepUpdatedEvent,
-    WorkflowEditorInterface,
-    WorkflowLoadedEvent,
-    WorkflowValidatedEvent,
-)
-from maverick.dsl.serialization.executor import WorkflowFileExecutor
+from maverick.dsl.types import StepType
 
 __all__ = [
     # Enums
@@ -118,6 +119,7 @@ __all__ = [
     "WorkflowParseError",
     "UnsupportedVersionError",
     "ReferenceResolutionError",
+    "DuplicateComponentError",
     # Registries
     "ActionRegistry",
     "GeneratorRegistry",

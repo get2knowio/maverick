@@ -283,6 +283,12 @@ class WorkflowFile(BaseModel):
         - version: Must match pattern ^\\d+\\.\\d+$
         - name: Must match pattern ^[a-z][a-z0-9-]{0,63}$
         - steps: At least one step required; step names must be unique
+
+    Convenience Methods:
+        - to_dict(): Convert workflow to dictionary representation (FR-001)
+        - to_yaml(): Convert workflow to YAML string (FR-002)
+        - from_dict(): Create workflow from dictionary (FR-003)
+        - from_yaml(): Create workflow from YAML string (FR-004)
     """
 
     version: str = Field(..., pattern=r"^\d+\.\d+$")
@@ -300,6 +306,90 @@ class WorkflowFile(BaseModel):
             duplicates = {name for name in names if names.count(name) > 1}
             raise ValueError(f"Duplicate step names in workflow: {duplicates}")
         return v
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert workflow to dictionary representation (FR-001).
+
+        Returns:
+            Dictionary suitable for JSON/YAML serialization.
+
+        Example:
+            >>> workflow = WorkflowFile(version="1.0", name="test", steps=[...])
+            >>> data = workflow.to_dict()
+            >>> data["version"]
+            "1.0"
+        """
+        # Import here to avoid circular imports
+        from maverick.dsl.serialization.writer import WorkflowWriter
+
+        return WorkflowWriter().to_dict(self)
+
+    def to_yaml(self) -> str:
+        """Convert workflow to YAML string (FR-002).
+
+        Returns:
+            YAML representation of the workflow.
+
+        Example:
+            >>> workflow = WorkflowFile(version="1.0", name="test", steps=[...])
+            >>> yaml_str = workflow.to_yaml()
+            >>> print(yaml_str)
+            version: "1.0"
+            name: test
+            ...
+        """
+        # Import here to avoid circular imports
+        from maverick.dsl.serialization.writer import WorkflowWriter
+
+        return WorkflowWriter().to_yaml(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowFile:
+        """Create workflow from dictionary (FR-003).
+
+        Args:
+            data: Dictionary containing workflow definition.
+
+        Returns:
+            Validated WorkflowFile instance.
+
+        Raises:
+            pydantic.ValidationError: If validation fails.
+
+        Example:
+            >>> data = {"version": "1.0", "name": "test", "steps": [...]}
+            >>> workflow = WorkflowFile.from_dict(data)
+        """
+        return cls.model_validate(data)
+
+    @classmethod
+    def from_yaml(cls, yaml_content: str) -> WorkflowFile:
+        """Create workflow from YAML string (FR-004).
+
+        Args:
+            yaml_content: YAML string containing workflow definition.
+
+        Returns:
+            Validated WorkflowFile instance.
+
+        Raises:
+            WorkflowParseError: If YAML parsing or validation fails.
+
+        Example:
+            >>> yaml_str = '''
+            ... version: "1.0"
+            ... name: test
+            ... steps:
+            ...   - name: step1
+            ...     type: python
+            ...     action: my_action
+            ... '''
+            >>> workflow = WorkflowFile.from_yaml(yaml_str)
+        """
+        # Import here to avoid circular imports
+        from maverick.dsl.serialization.parser import parse_workflow
+
+        return parse_workflow(yaml_content)
 
 
 # =============================================================================

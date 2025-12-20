@@ -25,6 +25,8 @@ Classes:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from maverick.dsl.visualization.ascii import ASCIIGenerator
 from maverick.dsl.visualization.graph import (
     EdgeType,
@@ -34,6 +36,9 @@ from maverick.dsl.visualization.graph import (
     WorkflowGraphBuilder,
 )
 from maverick.dsl.visualization.mermaid import MermaidGenerator
+
+if TYPE_CHECKING:
+    from maverick.dsl.serialization.schema import WorkflowFile
 
 __all__ = [
     "ASCIIGenerator",
@@ -49,7 +54,7 @@ __all__ = [
 
 
 def to_mermaid(
-    workflow: "WorkflowFile",
+    workflow: WorkflowFile,
     direction: str = "TD",
 ) -> str:
     """Generate Mermaid flowchart from a workflow definition.
@@ -83,7 +88,7 @@ def to_mermaid(
 
 
 def to_ascii(
-    workflow: "WorkflowFile",
+    workflow: WorkflowFile,
     width: int = 60,
 ) -> str:
     """Generate ASCII diagram from a workflow definition.
@@ -112,7 +117,3 @@ def to_ascii(
     """
     generator = ASCIIGenerator(width=width)
     return generator.generate(workflow)
-
-
-# Type hint import for runtime (avoid circular import)
-from maverick.dsl.serialization.schema import WorkflowFile  # noqa: E402
