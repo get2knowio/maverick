@@ -6,9 +6,10 @@ including version output, help text, and exit codes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
-from pathlib import Path
 
 
 @pytest.fixture
@@ -19,9 +20,8 @@ def cli_runner() -> CliRunner:
 
 def test_version_output(cli_runner: CliRunner) -> None:
     """Test that --version outputs the correct version string."""
-    from maverick.main import cli
-
     from maverick import __version__
+    from maverick.main import cli
 
     result = cli_runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
@@ -59,10 +59,11 @@ def test_default_verbosity_warning_level(
     cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test that default verbosity is WARNING level (no -v flags)."""
-    import os
     import logging
-    import maverick.main
+    import os
     from unittest.mock import MagicMock
+
+    import maverick.main
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -91,10 +92,11 @@ def test_single_verbose_info_level(
     cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test that -v flag sets INFO level logging."""
-    import os
     import logging
-    import maverick.main
+    import os
     from unittest.mock import MagicMock
+
+    import maverick.main
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -122,10 +124,11 @@ def test_double_verbose_debug_level(
     cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test that -vv flag sets DEBUG level logging."""
-    import os
     import logging
-    import maverick.main
+    import os
     from unittest.mock import MagicMock
+
+    import maverick.main
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -156,10 +159,11 @@ def test_verbosity_from_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that verbosity can be set via config file."""
-    import os
     import logging
-    import maverick.main
+    import os
     from unittest.mock import MagicMock
+
+    import maverick.main
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)

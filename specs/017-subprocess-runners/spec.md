@@ -93,13 +93,25 @@ A workflow wants to run CodeRabbit code review on changed files and receive stru
 
 ### Edge Cases
 
-- What happens when a command produces extremely large output (>100MB)?
-- How does the system handle commands that ignore SIGTERM and require SIGKILL?
-- What happens when the working directory specified doesn't exist?
-- How are environment variables handled - inherit from parent or isolated?
-- What happens when `gh` CLI is installed but not authenticated?
-- How does validation handle stages with no stdout (silent success)?
-- What happens when CodeRabbit produces malformed JSON output?
+- ~~What happens when a command produces extremely large output (>100MB)?~~ → Resolved: Stream-only mode, never buffer in memory
+- ~~How does the system handle commands that ignore SIGTERM and require SIGKILL?~~ → Resolved: SIGTERM + 2s grace period + SIGKILL escalation
+- ~~What happens when the working directory specified doesn't exist?~~ → Resolved: Fail immediately with WorkingDirectoryError
+- ~~How are environment variables handled - inherit from parent or isolated?~~ → Resolved: Merge mode - inherit by default, allow add/override
+- ~~What happens when `gh` CLI is installed but not authenticated?~~ → Resolved: Fail-fast on first use, raise GitHubAuthError
+- ~~How does validation handle stages with no stdout (silent success)?~~ → Resolved: Empty stdout with returncode 0 = stage passed; StageResult.output will be empty string
+- ~~What happens when CodeRabbit produces malformed JSON output?~~ → Resolved: Log warning, return CodeRabbitResult with empty findings list, raw_output preserved for debugging
+
+## Clarifications
+
+### Session 2025-12-18
+
+- Q: How should the system handle commands with extremely large output (>100MB)? → A: Stream-only mode - always stream large output, never buffer entirely in memory
+- Q: Should callers be able to pass custom environment variables to commands? → A: Merge mode - inherit parent env by default, allow caller to add/override specific variables
+- Q: How should the system handle commands that ignore SIGTERM during timeout? → A: Escalate to SIGKILL - send SIGTERM, wait 2s grace period, then SIGKILL if still running
+- Q: When should the system detect and report `gh` CLI authentication issues? → A: Fail-fast on first use - check auth status once when GitHubCLIRunner is first used, raise GitHubAuthError immediately
+- Q: How should the system handle a non-existent working directory? → A: Fail immediately - raise WorkingDirectoryError before attempting command execution
+- Q: How does validation handle stages with no stdout (silent success)? → A: Empty stdout with returncode 0 indicates success. StageResult.output will be an empty string, and StageResult.passed will be true.
+- Q: What happens when CodeRabbit produces malformed JSON output? → A: Graceful degradation - log a warning, return CodeRabbitResult with empty findings list, preserve raw_output for debugging. Do not raise an exception.
 
 ## Requirements *(mandatory)*
 
@@ -110,10 +122,11 @@ A workflow wants to run CodeRabbit code review on changed files and receive stru
 - **FR-001**: System MUST execute arbitrary commands passed as a list of strings (no shell interpretation by default)
 - **FR-002**: System MUST capture returncode, stdout, stderr, and execution duration for every command
 - **FR-003**: System MUST support a configurable timeout with default of 300 seconds
-- **FR-004**: System MUST terminate commands that exceed their timeout and mark results as timed_out
-- **FR-005**: System MUST support specifying a working directory for command execution
+- **FR-004**: System MUST terminate commands that exceed their timeout using graceful escalation: send SIGTERM, wait 2 second grace period, then SIGKILL if process still running; mark results as timed_out
+- **FR-005**: System MUST support specifying a working directory for command execution; MUST validate directory exists before execution and raise WorkingDirectoryError if not found
 - **FR-006**: System MUST provide async streaming of stdout lines for long-running commands
-- **FR-007**: System MUST handle commands with large output without memory exhaustion (streaming or truncation)
+- **FR-007**: System MUST handle commands with large output (>100MB) via streaming only - never buffer entire output in memory; callers must use streaming API for large-output commands
+- **FR-007a**: System MUST inherit parent process environment variables by default and allow callers to add or override specific variables via an optional env parameter
 
 #### ValidationRunner
 
@@ -133,7 +146,7 @@ A workflow wants to run CodeRabbit code review on changed files and receive stru
 - **FR-018**: System MUST fetch individual pull requests with all metadata including mergeable status
 - **FR-019**: System MUST fetch PR check statuses (CI results) for a given PR
 - **FR-020**: System MUST raise GitHubCLINotFoundError if `gh` command is not available
-- **FR-021**: System MUST raise appropriate errors if `gh` is not authenticated
+- **FR-021**: System MUST check `gh` authentication status on first use of GitHubCLIRunner and raise GitHubAuthError immediately if not authenticated (fail-fast pattern)
 
 #### CodeRabbitRunner
 

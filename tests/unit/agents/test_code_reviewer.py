@@ -15,25 +15,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from maverick.agents.code_reviewer import (
-    ALLOWED_TOOLS,
-    CodeReviewerAgent,
     DEFAULT_BASE_BRANCH,
     MAX_DIFF_FILES,
     MAX_DIFF_LINES,
     MAX_TOKENS_PER_CHUNK,
     SYSTEM_PROMPT,
+    CodeReviewerAgent,
 )
+from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.agents.context import AgentContext
 from maverick.agents.result import AgentUsage
 from maverick.exceptions import AgentError
 from maverick.models.review import (
     ReviewContext,
-    ReviewFinding,
-    ReviewResult,
     ReviewSeverity,
     UsageStats,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -129,7 +126,7 @@ class TestCodeReviewerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "code-reviewer"
         assert agent.system_prompt == SYSTEM_PROMPT
-        assert agent.allowed_tools == ALLOWED_TOOLS
+        assert set(agent.allowed_tools) == set(REVIEWER_TOOLS)
 
     def test_custom_model(self) -> None:
         """Test agent accepts custom model parameter."""
@@ -146,13 +143,71 @@ class TestCodeReviewerAgentInitialization:
         assert "style" in prompt.lower() or "Style" in prompt
         assert "performance" in prompt.lower() or "Performance" in prompt
 
-    def test_allowed_tools_includes_bash(self, agent: CodeReviewerAgent) -> None:
-        """Test allowed tools includes Bash for git operations."""
-        assert "Bash" in agent.allowed_tools
+    def test_system_prompt_mentions_pre_gathered_context(
+        self, agent: CodeReviewerAgent
+    ) -> None:
+        """Test system prompt mentions pre-gathered context (T025).
+
+        Agent should understand that diffs and file contents are provided
+        by the orchestration layer, not retrieved by the agent itself.
+        """
+        prompt = agent.system_prompt
+        assert "pre-gathered" in prompt.lower() or "provided" in prompt.lower() or "orchestration" in prompt.lower()
+
+    def test_allowed_tools_excludes_bash(self, agent: CodeReviewerAgent) -> None:
+        """Test allowed tools excludes Bash (orchestration layer handles commands)."""
+        assert "Bash" not in agent.allowed_tools
 
     def test_allowed_tools_includes_read(self, agent: CodeReviewerAgent) -> None:
         """Test allowed tools includes Read for file reading."""
         assert "Read" in agent.allowed_tools
+
+    def test_allowed_tools_matches_contract(self, agent: CodeReviewerAgent) -> None:
+        """Test allowed tools matches US1 contract exactly.
+
+        US1 Contract: CodeReviewerAgent must have exactly Read, Glob, Grep (no Bash).
+        Read-only tools for analysis, no Write or Edit permissions.
+        Bash removed per orchestration pattern - workflows handle command execution.
+        """
+        expected_tools = {"Read", "Glob", "Grep"}
+        actual_tools = set(agent.allowed_tools)
+        assert actual_tools == expected_tools, (
+            f"CodeReviewerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+        )
+        # Ensure no write permissions
+        assert "Write" not in agent.allowed_tools
+        assert "Edit" not in agent.allowed_tools
+        # Ensure no Bash (orchestration handles commands)
+        assert "Bash" not in agent.allowed_tools
+
+    def test_allowed_tools_uses_centralized_constants(
+        self, agent: CodeReviewerAgent
+    ) -> None:
+        """Test allowed tools uses REVIEWER_TOOLS from maverick.agents.tools.
+
+        T011: Verify that CodeReviewerAgent uses the centralized REVIEWER_TOOLS
+        constant from tools.py, not local definition. This enforces the orchestration
+        pattern where tool permissions are centrally managed.
+        """
+        from maverick.agents.tools import REVIEWER_TOOLS as CENTRALIZED_TOOLS
+
+        # Agent's allowed_tools should match the centralized constant
+        expected_tools = set(CENTRALIZED_TOOLS)
+        actual_tools = set(agent.allowed_tools)
+
+        assert actual_tools == expected_tools, (
+            f"CodeReviewerAgent must use centralized REVIEWER_TOOLS. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
+        )
+
+        # Ensure Bash is NOT in the centralized tools (per US1 contract)
+        assert "Bash" not in CENTRALIZED_TOOLS, (
+            "Bash should be removed from REVIEWER_TOOLS per US1"
+        )
+
+        # Ensure no write tools (read-only agent)
+        assert "Write" not in CENTRALIZED_TOOLS
+        assert "Edit" not in CENTRALIZED_TOOLS
 
 
 # =============================================================================
@@ -315,7 +370,7 @@ class TestExecuteMethod:
     async def test_execute_returns_review_result(
         self,
         agent: CodeReviewerAgent,
-        mock_agent_context: AgentContext,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test execute returns a ReviewResult on success."""
         # Mock all the internal methods
@@ -353,7 +408,7 @@ class TestExecuteMethod:
 
             mock_query.side_effect = async_gen
 
-            result = await agent.execute(mock_agent_context)
+            result = await agent.execute(mock_review_context)
 
             # Should return ReviewResult
             assert result is not None
@@ -381,7 +436,7 @@ class TestExecuteMethod:
     async def test_execute_handles_empty_diff(
         self,
         agent: CodeReviewerAgent,
-        mock_agent_context: AgentContext,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test execute handles empty diff gracefully."""
         with (
@@ -403,7 +458,7 @@ class TestExecuteMethod:
             }
             mock_conventions.return_value = ""
 
-            result = await agent.execute(mock_agent_context)
+            result = await agent.execute(mock_review_context)
 
             # Should succeed with empty result
             assert result.success is True
@@ -421,16 +476,9 @@ class TestReviewContextBuilding:
     async def test_uses_default_base_branch_when_not_specified(
         self,
         agent: CodeReviewerAgent,
-        tmp_path: Path,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test uses DEFAULT_BASE_BRANCH when not in extra params."""
-        context = AgentContext(
-            cwd=tmp_path,
-            branch="feature/test",
-            config=MagicMock(),
-            extra={},  # No base_branch specified
-        )
-
         with (
             patch.object(
                 agent, "_check_merge_conflicts", new_callable=AsyncMock
@@ -450,7 +498,7 @@ class TestReviewContextBuilding:
             }
             mock_conventions.return_value = ""
 
-            result = await agent.execute(context)
+            result = await agent.execute(mock_review_context)
 
             # Verify default base branch was used
             assert result.success is True
@@ -459,16 +507,9 @@ class TestReviewContextBuilding:
     async def test_uses_custom_base_branch_when_specified(
         self,
         agent: CodeReviewerAgent,
-        tmp_path: Path,
+        mock_review_context: ReviewContext,
     ) -> None:
         """Test uses custom base_branch from extra params."""
-        context = AgentContext(
-            cwd=tmp_path,
-            branch="feature/test",
-            config=MagicMock(),
-            extra={"base_branch": "develop"},
-        )
-
         with (
             patch.object(
                 agent, "_check_merge_conflicts", new_callable=AsyncMock
@@ -488,7 +529,7 @@ class TestReviewContextBuilding:
             }
             mock_conventions.return_value = ""
 
-            await agent.execute(context)
+            await agent.execute(mock_review_context)
 
             # The stats method should be called - we can verify context was built
             mock_stats.assert_called_once()
