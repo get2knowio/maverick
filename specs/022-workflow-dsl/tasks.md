@@ -19,10 +19,10 @@
 
 **Purpose**: Project initialization and basic structure for the DSL module
 
-- [ ] T001 Create dsl module structure with `__init__.py` in `src/maverick/dsl/__init__.py`
-- [ ] T002 Create steps subpackage structure with `__init__.py` in `src/maverick/dsl/steps/__init__.py`
-- [ ] T003 [P] Create test directories `tests/unit/dsl/` and `tests/unit/dsl/steps/` with `__init__.py` files
-- [ ] T004 [P] Create integration test directory `tests/integration/dsl/` with `__init__.py`
+- [X] T001 Create dsl module structure with `__init__.py` in `src/maverick/dsl/__init__.py`
+- [X] T002 Create steps subpackage structure with `__init__.py` in `src/maverick/dsl/steps/__init__.py`
+- [X] T003 [P] Create test directories `tests/unit/dsl/` and `tests/unit/dsl/steps/` with `__init__.py` files
+- [X] T004 [P] Create integration test directory `tests/integration/dsl/` with `__init__.py`
 
 ---
 
@@ -32,22 +32,22 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement `StepType` enum in `src/maverick/dsl/types.py` (PYTHON, AGENT, GENERATE, VALIDATE, SUBWORKFLOW)
-- [ ] T006 [P] Implement `WorkflowParameter` frozen dataclass in `src/maverick/dsl/decorator.py` (name, annotation, default, kind)
-- [ ] T007 [P] Implement `WorkflowDefinition` frozen dataclass in `src/maverick/dsl/decorator.py` (name, description, parameters, func)
-- [ ] T008 Implement `StepResult` frozen dataclass in `src/maverick/dsl/results.py` with `__post_init__` validation and `to_dict()` method
-- [ ] T009 Implement `WorkflowResult` frozen dataclass in `src/maverick/dsl/results.py` with `to_dict()` and `failed_step` property
-- [ ] T010 Implement `SubWorkflowInvocationResult` frozen dataclass in `src/maverick/dsl/results.py` with `to_dict()` method
-- [ ] T011 Implement `WorkflowContext` dataclass in `src/maverick/dsl/context.py` with `get_step_output()` method
-- [ ] T012 Implement `StepDefinition` abstract base class in `src/maverick/dsl/steps/base.py` with `execute()` and `to_dict()` abstract methods
-- [ ] T013 Implement progress event dataclasses in `src/maverick/dsl/events.py` (StepStarted, StepCompleted, WorkflowStarted, WorkflowCompleted)
-- [ ] T014 Implement error hierarchy in `src/maverick/exceptions.py` (WorkflowError, DuplicateStepNameError, StagesNotFoundError, ContextBuilderError)
-- [ ] T015 [P] Write unit tests for `StepType` enum in `tests/unit/dsl/test_types.py`
-- [ ] T016 [P] Write unit tests for `StepResult` in `tests/unit/dsl/test_results.py`
-- [ ] T017 [P] Write unit tests for `WorkflowResult` in `tests/unit/dsl/test_results.py`
-- [ ] T018 [P] Write unit tests for `WorkflowContext` in `tests/unit/dsl/test_context.py`
-- [ ] T019 [P] Write unit tests for progress events in `tests/unit/dsl/test_events.py`
-- [ ] T020 Update public exports in `src/maverick/dsl/__init__.py` with foundational types
+- [X] T005 Implement `StepType` enum in `src/maverick/dsl/types.py` (PYTHON, AGENT, GENERATE, VALIDATE, SUBWORKFLOW)
+- [X] T006 [P] Implement `WorkflowParameter` frozen dataclass in `src/maverick/dsl/decorator.py` (name, annotation, default, kind)
+- [X] T007 [P] Implement `WorkflowDefinition` frozen dataclass in `src/maverick/dsl/decorator.py` (name, description, parameters, func)
+- [X] T008 Implement `StepResult` frozen dataclass in `src/maverick/dsl/results.py` with `__post_init__` validation and `to_dict()` method
+- [X] T009 Implement `WorkflowResult` frozen dataclass in `src/maverick/dsl/results.py` with `to_dict()` and `failed_step` property
+- [X] T010 Implement `SubWorkflowInvocationResult` frozen dataclass in `src/maverick/dsl/results.py` with `to_dict()` method
+- [X] T011 Implement `WorkflowContext` dataclass in `src/maverick/dsl/context.py` with `get_step_output()` method
+- [X] T012 Implement `StepDefinition` abstract base class in `src/maverick/dsl/steps/base.py` with `execute()` and `to_dict()` abstract methods
+- [X] T013 Implement progress event dataclasses in `src/maverick/dsl/events.py` (StepStarted, StepCompleted, WorkflowStarted, WorkflowCompleted)
+- [X] T014 Implement error hierarchy in `src/maverick/exceptions.py` (WorkflowError, DuplicateStepNameError, StagesNotFoundError, ContextBuilderError)
+- [X] T015 [P] Write unit tests for `StepType` enum in `tests/unit/dsl/test_types.py`
+- [X] T016 [P] Write unit tests for `StepResult` in `tests/unit/dsl/test_results.py`
+- [X] T017 [P] Write unit tests for `WorkflowResult` in `tests/unit/dsl/test_results.py`
+- [X] T018 [P] Write unit tests for `WorkflowContext` in `tests/unit/dsl/test_context.py`
+- [X] T019 [P] Write unit tests for progress events in `tests/unit/dsl/test_events.py`
+- [X] T020 Update public exports in `src/maverick/dsl/__init__.py` with foundational types
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -63,24 +63,24 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T021 [P] [US1] Write unit tests for `@workflow` decorator in `tests/unit/dsl/test_decorator.py` - test signature capture, validation
-- [ ] T022 [P] [US1] Write unit tests for `step()` builder function in `tests/unit/dsl/test_builder.py` - test StepBuilder creation
-- [ ] T023 [P] [US1] Write unit tests for `PythonStep` in `tests/unit/dsl/steps/test_python_step.py` - test execute() and to_dict()
-- [ ] T024 [P] [US1] Write unit tests for `WorkflowEngine` in `tests/unit/dsl/test_engine.py` - test basic execution with Python steps
-- [ ] T025 [US1] Write integration test for two-step workflow execution in `tests/integration/dsl/test_workflow_execution.py`
+- [X] T021 [P] [US1] Write unit tests for `@workflow` decorator in `tests/unit/dsl/test_decorator.py` - test signature capture, validation
+- [X] T022 [P] [US1] Write unit tests for `step()` builder function in `tests/unit/dsl/test_builder.py` - test StepBuilder creation
+- [X] T023 [P] [US1] Write unit tests for `PythonStep` in `tests/unit/dsl/steps/test_python_step.py` - test execute() and to_dict()
+- [X] T024 [P] [US1] Write unit tests for `WorkflowEngine` in `tests/unit/dsl/test_engine.py` - test basic execution with Python steps
+- [X] T025 [US1] Write integration test for two-step workflow execution in `tests/integration/dsl/test_workflow_execution.py`
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Implement `@workflow` decorator in `src/maverick/dsl/decorator.py` with signature inspection using `inspect.signature()`
-- [ ] T027 [US1] Implement `StepBuilder` class in `src/maverick/dsl/builder.py` with `python()` method only
-- [ ] T028 [US1] Implement `step(name)` factory function in `src/maverick/dsl/builder.py`
-- [ ] T029 [US1] Implement `PythonStep` class in `src/maverick/dsl/steps/python.py` with `execute()` and `to_dict()` methods
-- [ ] T030 [US1] Implement `WorkflowEngine` class in `src/maverick/dsl/engine.py` with generator-based execution loop using `send()` pattern
-- [ ] T031 [US1] Implement duplicate step name detection in `WorkflowEngine` per FR-005
-- [ ] T032 [US1] Implement final output logic in `WorkflowEngine` per FR-021 (explicit return vs last step output)
-- [ ] T033 [US1] Implement progress event emission in `WorkflowEngine` per FR-019
-- [ ] T034 [US1] Update step exports in `src/maverick/dsl/steps/__init__.py` with PythonStep
-- [ ] T035 [US1] Update public exports in `src/maverick/dsl/__init__.py` with workflow, step, WorkflowEngine
+- [X] T026 [US1] Implement `@workflow` decorator in `src/maverick/dsl/decorator.py` with signature inspection using `inspect.signature()`
+- [X] T027 [US1] Implement `StepBuilder` class in `src/maverick/dsl/builder.py` with `python()` method only
+- [X] T028 [US1] Implement `step(name)` factory function in `src/maverick/dsl/builder.py`
+- [X] T029 [US1] Implement `PythonStep` class in `src/maverick/dsl/steps/python.py` with `execute()` and `to_dict()` methods
+- [X] T030 [US1] Implement `WorkflowEngine` class in `src/maverick/dsl/engine.py` with generator-based execution loop using `send()` pattern
+- [X] T031 [US1] Implement duplicate step name detection in `WorkflowEngine` per FR-005
+- [X] T032 [US1] Implement final output logic in `WorkflowEngine` per FR-021 (explicit return vs last step output)
+- [X] T033 [US1] Implement progress event emission in `WorkflowEngine` per FR-019
+- [X] T034 [US1] Update step exports in `src/maverick/dsl/steps/__init__.py` with PythonStep
+- [X] T035 [US1] Update public exports in `src/maverick/dsl/__init__.py` with workflow, step, WorkflowEngine
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -94,21 +94,21 @@
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T036 [P] [US2] Write unit tests for `AgentStep` in `tests/unit/dsl/steps/test_agent_step.py` - test execute() with static and callable context
-- [ ] T037 [P] [US2] Write unit tests for `GenerateStep` in `tests/unit/dsl/steps/test_generate_step.py` - test execute() with static and callable context
-- [ ] T038 [P] [US2] Write unit tests for context builder resolution in `tests/unit/dsl/steps/test_agent_step.py` - test _resolve_context() method
-- [ ] T039 [P] [US2] Write unit tests for context builder failure handling in `tests/unit/dsl/steps/test_agent_step.py`
-- [ ] T040 [US2] Write integration test for agent workflow execution in `tests/integration/dsl/test_workflow_execution.py`
+- [X] T036 [P] [US2] Write unit tests for `AgentStep` in `tests/unit/dsl/steps/test_agent_step.py` - test execute() with static and callable context
+- [X] T037 [P] [US2] Write unit tests for `GenerateStep` in `tests/unit/dsl/steps/test_generate_step.py` - test execute() with static and callable context
+- [X] T038 [P] [US2] Write unit tests for context builder resolution in `tests/unit/dsl/steps/test_agent_step.py` - test _resolve_context() method
+- [X] T039 [P] [US2] Write unit tests for context builder failure handling in `tests/unit/dsl/steps/test_agent_step.py`
+- [X] T040 [US2] Write integration test for agent workflow execution in `tests/integration/dsl/test_workflow_execution.py`
 
 ### Implementation for User Story 2
 
-- [ ] T041 [US2] Add `ContextBuilder` type alias in `src/maverick/dsl/types.py`
-- [ ] T042 [US2] Implement `AgentStep` class in `src/maverick/dsl/steps/agent.py` with `_resolve_context()`, `execute()`, and `to_dict()` methods
-- [ ] T043 [US2] Implement `GenerateStep` class in `src/maverick/dsl/steps/generate.py` with `_resolve_context()`, `execute()`, and `to_dict()` methods
-- [ ] T044 [US2] Add `agent()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
-- [ ] T045 [US2] Add `generate()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
-- [ ] T046 [US2] Update step exports in `src/maverick/dsl/steps/__init__.py` with AgentStep, GenerateStep
-- [ ] T047 [US2] Update public exports in `src/maverick/dsl/__init__.py` with AgentStep, GenerateStep
+- [X] T041 [US2] Add `ContextBuilder` type alias in `src/maverick/dsl/types.py`
+- [X] T042 [US2] Implement `AgentStep` class in `src/maverick/dsl/steps/agent.py` with `_resolve_context()`, `execute()`, and `to_dict()` methods
+- [X] T043 [US2] Implement `GenerateStep` class in `src/maverick/dsl/steps/generate.py` with `_resolve_context()`, `execute()`, and `to_dict()` methods
+- [X] T044 [US2] Add `agent()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
+- [X] T045 [US2] Add `generate()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
+- [X] T046 [US2] Update step exports in `src/maverick/dsl/steps/__init__.py` with AgentStep, GenerateStep
+- [X] T047 [US2] Update public exports in `src/maverick/dsl/__init__.py` with AgentStep, GenerateStep
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -122,20 +122,20 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T048 [P] [US3] Write unit tests for `ValidateStep` in `tests/unit/dsl/steps/test_validate_step.py` - test execute() with stages resolution
-- [ ] T049 [P] [US3] Write unit tests for retry logic in `tests/unit/dsl/steps/test_validate_step.py` - test retry=0, retry=1, retry=N scenarios
-- [ ] T050 [P] [US3] Write unit tests for on-failure step execution in `tests/unit/dsl/steps/test_validate_step.py`
-- [ ] T051 [P] [US3] Write unit tests for `SubWorkflowStep` in `tests/unit/dsl/steps/test_subworkflow_step.py` - test execute() and to_dict()
-- [ ] T052 [US3] Write integration test for validate-retry-fix workflow in `tests/integration/dsl/test_workflow_execution.py`
+- [X] T048 [P] [US3] Write unit tests for `ValidateStep` in `tests/unit/dsl/steps/test_validate_step.py` - test execute() with stages resolution
+- [X] T049 [P] [US3] Write unit tests for retry logic in `tests/unit/dsl/steps/test_validate_step.py` - test retry=0, retry=1, retry=N scenarios
+- [X] T050 [P] [US3] Write unit tests for on-failure step execution in `tests/unit/dsl/steps/test_validate_step.py`
+- [X] T051 [P] [US3] Write unit tests for `SubWorkflowStep` in `tests/unit/dsl/steps/test_subworkflow_step.py` - test execute() and to_dict()
+- [X] T052 [US3] Write integration test for validate-retry-fix workflow in `tests/integration/dsl/test_workflow_execution.py`
 
 ### Implementation for User Story 3
 
-- [ ] T053 [US3] Implement `ValidateStep` class in `src/maverick/dsl/steps/validate.py` with stages resolution, retry loop, and on-failure execution
-- [ ] T054 [US3] Implement `SubWorkflowStep` class in `src/maverick/dsl/steps/subworkflow.py` with nested workflow execution
-- [ ] T055 [US3] Add `validate()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
-- [ ] T056 [US3] Add `subworkflow()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
-- [ ] T057 [US3] Update step exports in `src/maverick/dsl/steps/__init__.py` with ValidateStep, SubWorkflowStep
-- [ ] T058 [US3] Update public exports in `src/maverick/dsl/__init__.py` with ValidateStep, SubWorkflowStep
+- [X] T053 [US3] Implement `ValidateStep` class in `src/maverick/dsl/steps/validate.py` with stages resolution, retry loop, and on-failure execution
+- [X] T054 [US3] Implement `SubWorkflowStep` class in `src/maverick/dsl/steps/subworkflow.py` with nested workflow execution
+- [X] T055 [US3] Add `validate()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
+- [X] T056 [US3] Add `subworkflow()` method to `StepBuilder` in `src/maverick/dsl/builder.py`
+- [X] T057 [US3] Update step exports in `src/maverick/dsl/steps/__init__.py` with ValidateStep, SubWorkflowStep
+- [X] T058 [US3] Update public exports in `src/maverick/dsl/__init__.py` with ValidateStep, SubWorkflowStep
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -145,11 +145,11 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T059 [P] Add comprehensive docstrings to all public classes and functions per Google-style format
-- [ ] T060 [P] Run type checker (mypy) on `src/maverick/dsl/` and fix any issues
-- [ ] T061 [P] Run linter (ruff) on `src/maverick/dsl/` and fix any issues
-- [ ] T062 Run full test suite and ensure all tests pass
-- [ ] T063 Validate quickstart.md examples work correctly with implemented DSL
+- [X] T059 [P] Add comprehensive docstrings to all public classes and functions per Google-style format
+- [X] T060 [P] Run type checker (mypy) on `src/maverick/dsl/` and fix any issues
+- [X] T061 [P] Run linter (ruff) on `src/maverick/dsl/` and fix any issues
+- [X] T062 Run full test suite and ensure all tests pass
+- [X] T063 Validate quickstart.md examples work correctly with implemented DSL
 
 ---
 
