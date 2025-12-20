@@ -97,13 +97,15 @@ As a workflow author, I can scaffold a new workflow using provided templates so 
 - **FR-010**: The `validate_and_fix` fragment MUST support inputs: `stages`, `max_attempts`, `fixer_agent` and MUST implement a validation-with-retry loop; it MUST be used by `fly`, `refuel`, and `validate`.
 - **FR-011**: The `commit_and_push` fragment MUST generate a commit message, commit changes, and push; it MUST be used by `fly`, `refuel`, and `quick_fix`.
 - **FR-012**: The `create_pr_with_summary` fragment MUST generate a PR body and create a PR; it MUST support inputs: `base_branch`, `draft` and MUST be used by `fly`, `refuel`, and `quick_fix`.
+- **FR-012a**: Workflow fragments MUST follow the same override precedence as workflows (project > user > built-in), allowing users to customize common patterns.
 
 #### Workflow locations and discovery
 
-- **FR-013**: The system MUST support workflow discovery from three locations: built-in library, user-defined workflows, and project-specific workflows.
+- **FR-013**: The system MUST support workflow discovery from three locations: built-in library (packaged with Maverick), user-defined workflows (`~/.config/maverick/workflows/`), and project-specific workflows (`.maverick/workflows/` in project root).
 - **FR-014**: The system MUST scan all workflow locations on startup and register discovered workflows in the workflow registry.
 - **FR-015**: When workflows share the same name, later definitions MUST override earlier by precedence order: project > user > built-in.
-- **FR-016**: If two workflows of the same name exist at the same precedence level, the system MUST fail discovery with a clear error or apply a deterministic tie-breaker and report which one was selected.
+- **FR-016**: If two workflows of the same name exist at the same precedence level, the system MUST fail discovery with a clear error listing both conflicting file paths.
+- **FR-016a**: If a workflow file is unreadable or invalid during discovery, the system MUST log a warning with the file path and error details, skip the file, and continue discovering remaining workflows.
 
 #### Workflow templates (scaffolding)
 
@@ -112,7 +114,7 @@ As a workflow author, I can scaffold a new workflow using provided templates so 
 - **FR-019**: The `basic` template MUST generate a single linear workflow with a small number of Python/agent steps and explanatory documentation.
 - **FR-020**: The `full` template MUST generate a complete workflow that includes validation, review, and PR creation patterns and explanatory documentation.
 - **FR-021**: The `parallel` template MUST generate a workflow that demonstrates the parallel step interface and explanatory documentation.
-- **FR-022**: Workflow scaffolding MUST support generating either a Python workflow file or a YAML workflow file based on a user-provided option.
+- **FR-022**: Workflow scaffolding MUST support generating either a Python workflow file or a YAML workflow file based on a user-provided option; YAML MUST be the default format when unspecified.
 - **FR-023**: Generated workflows MUST be placed in the project workflow directory by default.
 
 ### Assumptions
@@ -136,3 +138,13 @@ As a workflow author, I can scaffold a new workflow using provided templates so 
 - **SC-002**: Workflow discovery deterministically applies override precedence (project > user > built-in) and surfaces which workflow definition is active for a given name.
 - **SC-003**: Users can scaffold a new workflow from each template (`basic`, `full`, `parallel`) in under 1 minute and immediately validate or run the generated workflow after filling required inputs.
 - **SC-004**: Built-in workflow sources serve as effective examples: a user can create a custom workflow by modifying a generated template and successfully run it with minimal trial-and-error (measured by completion in ≤2 edit-run iterations for a basic workflow).
+
+## Clarifications
+
+### Session 2025-12-20
+
+- Q: When two workflows share the same name at the same precedence level, should discovery fail with an error or apply a deterministic tie-breaker? → A: Fail discovery with clear error listing conflicting files.
+- Q: What should be the default format for workflow scaffolding when the user doesn't specify Python or YAML? → A: YAML as default.
+- Q: Can users override built-in workflow fragments with their own versions? → A: Yes, fragments use same override precedence (project > user > built-in).
+- Q: Where should user-defined workflows be stored? → A: `~/.config/maverick/workflows/` (XDG-consistent).
+- Q: What should happen when discovery encounters an invalid or unreadable workflow file? → A: Log warning with file path and error, skip file, continue discovery.
