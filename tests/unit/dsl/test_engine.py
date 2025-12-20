@@ -9,20 +9,17 @@ is complete. They define the expected behavior of the engine.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
 import pytest
 
 from maverick.dsl import (
-    workflow,
-    step,
+    StepCompleted,
+    StepStarted,
+    StepType,
+    WorkflowCompleted,
     WorkflowEngine,
     WorkflowStarted,
-    StepStarted,
-    StepCompleted,
-    WorkflowCompleted,
-    StepType,
+    step,
+    workflow,
 )
 from maverick.exceptions import DuplicateStepNameError
 

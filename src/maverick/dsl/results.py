@@ -12,7 +12,24 @@ from typing import TYPE_CHECKING, Any
 from maverick.dsl.types import StepType
 
 if TYPE_CHECKING:
-    pass
+    from maverick.dsl.types import RollbackAction
+
+
+@dataclass(frozen=True, slots=True)
+class SkipMarker:
+    """Marker indicating step was skipped.
+
+    Attributes:
+        reason: Why the step was skipped.
+            - "predicate_false": .when() predicate returned False
+            - "predicate_exception": .when() predicate raised exception
+            - "error_skipped": .skip_on_error() converted failure to skip
+    """
+
+    reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"skipped": True, "reason": self.reason}
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +125,7 @@ class WorkflowResult:
         step_results: Ordered tuple of all step results.
         total_duration_ms: Total execution time.
         final_output: Workflow's final output.
+        rollback_errors: Errors from rollback execution (if any).
     """
 
     workflow_name: str
@@ -115,6 +133,7 @@ class WorkflowResult:
     step_results: tuple[StepResult, ...]
     total_duration_ms: int
     final_output: Any
+    rollback_errors: tuple[RollbackError, ...] = ()
 
     def __post_init__(self) -> None:
         """Validate invariants."""
@@ -133,6 +152,7 @@ class WorkflowResult:
             "step_results": [sr.to_dict() for sr in self.step_results],
             "total_duration_ms": self.total_duration_ms,
             "final_output": str(self.final_output),
+            "rollback_errors": [re.to_dict() for re in self.rollback_errors],
         }
 
     @property
@@ -146,6 +166,11 @@ class WorkflowResult:
             if not result.success:
                 return result
         return None
+
+    @property
+    def had_rollback_failures(self) -> bool:
+        """True if any rollback actions failed."""
+        return len(self.rollback_errors) > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,3 +199,95 @@ class SubWorkflowInvocationResult:
             "success": self.workflow_result.success,
             "step_count": len(self.workflow_result.step_results),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RollbackError:
+    """Error from a failed rollback action.
+
+    Attributes:
+        step_name: Name of the step whose rollback failed.
+        error: Human-readable error message.
+    """
+
+    step_name: str
+    error: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"step_name": self.step_name, "error": self.error}
+
+
+@dataclass(frozen=True, slots=True)
+class RollbackRegistration:
+    """A registered rollback action for a completed step.
+
+    Attributes:
+        step_name: Name of the step this rollback compensates.
+        action: Callable to execute during rollback.
+    """
+
+    step_name: str
+    action: RollbackAction
+
+
+@dataclass(frozen=True, slots=True)
+class BranchResult:
+    """Output of a branch step execution.
+
+    Attributes:
+        selected_index: Zero-based index of the selected branch option.
+        selected_step_name: Name of the step that was executed.
+        inner_output: Output from the executed step.
+    """
+
+    selected_index: int
+    selected_step_name: str
+    inner_output: Any
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for logging/persistence."""
+        return {
+            "selected_index": self.selected_index,
+            "selected_step_name": self.selected_step_name,
+            "inner_output": str(self.inner_output),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelResult:
+    """Output of a parallel step execution.
+
+    Attributes:
+        child_results: Tuple of StepResult objects in input order.
+    """
+
+    child_results: tuple[StepResult, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for logging/persistence."""
+        return {
+            "child_count": len(self.child_results),
+            "children": [r.to_dict() for r in self.child_results],
+            "all_success": all(r.success for r in self.child_results),
+        }
+
+    def __getitem__(self, index: int) -> StepResult:
+        """Access child result by index."""
+        return self.child_results[index]
+
+    def get_output(self, step_name: str) -> Any:
+        """Get child step output by name.
+
+        Args:
+            step_name: Name of child step.
+
+        Returns:
+            Output from the named child step.
+
+        Raises:
+            KeyError: If step_name not found in children.
+        """
+        for result in self.child_results:
+            if result.name == step_name:
+                return result.output
+        raise KeyError(f"Child step '{step_name}' not found")

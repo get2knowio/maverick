@@ -159,6 +159,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A (no persistence changes) (021-agent-tool-permissions)
 - Python 3.10+ (with `from __future__ import annotations`) + Pydantic (BaseModel for configuration/results), dataclasses (frozen/slots for events), asyncio (async workflow execution), Claude Agent SDK (for agent/generate steps) (022-workflow-dsl)
 - N/A (in-memory state during workflow execution; results are returned to caller) (022-workflow-dsl)
+- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, pydantic, asyncio (stdlib), pathlib (stdlib), hashlib (stdlib), json (stdlib) (023-dsl-flow-control)
+- JSON files under `.maverick/checkpoints/` for checkpoint persistence (023-dsl-flow-control)
 
 ## Recent Changes
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI

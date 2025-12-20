@@ -79,5 +79,58 @@ class WorkflowCompleted:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass(frozen=True, slots=True)
+class RollbackStarted:
+    """Event emitted when rollback execution begins.
+
+    Attributes:
+        step_name: Name of the step whose rollback is being executed.
+        timestamp: Unix timestamp when rollback started (defaults to current time).
+    """
+
+    step_name: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class RollbackCompleted:
+    """Event emitted when a rollback completes.
+
+    Attributes:
+        step_name: Name of the step whose rollback completed.
+        success: Whether the rollback executed without error.
+        error: Error message if rollback failed.
+        timestamp: Unix timestamp when rollback completed (defaults to current time).
+    """
+
+    step_name: str
+    success: bool
+    error: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class CheckpointSaved:
+    """Event emitted when a checkpoint is saved.
+
+    Attributes:
+        step_name: Name of the checkpoint step.
+        workflow_id: Unique identifier for this workflow run.
+        timestamp: Unix timestamp when checkpoint was saved (defaults to current time).
+    """
+
+    step_name: str
+    workflow_id: str
+    timestamp: float = field(default_factory=time.time)
+
+
 # Type alias for all progress events
-ProgressEvent = StepStarted | StepCompleted | WorkflowStarted | WorkflowCompleted
+ProgressEvent = (
+    StepStarted
+    | StepCompleted
+    | WorkflowStarted
+    | WorkflowCompleted
+    | RollbackStarted
+    | RollbackCompleted
+    | CheckpointSaved
+)

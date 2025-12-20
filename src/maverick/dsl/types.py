@@ -26,9 +26,15 @@ class StepType(str, Enum):
     GENERATE = "generate"
     VALIDATE = "validate"
     SUBWORKFLOW = "subworkflow"
+    BRANCH = "branch"
+    PARALLEL = "parallel"
 
 
 # Type alias for context builder functions
 # Context builders are async functions that accept a WorkflowContext and return
 # a dictionary of values to be merged into the context for step execution
 ContextBuilder = Callable[["WorkflowContext"], Awaitable[dict[str, Any]]]
+
+# Type aliases for flow control
+Predicate = Callable[["WorkflowContext"], bool | Awaitable[bool]]
+RollbackAction = Callable[["WorkflowContext"], None | Awaitable[None]]

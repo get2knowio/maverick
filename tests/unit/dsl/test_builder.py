@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from maverick.dsl import step, PythonStep, StepType
+from maverick.dsl import PythonStep, StepType, step
 
 
 class TestStepBuilderFunction:

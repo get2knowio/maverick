@@ -25,7 +25,7 @@ Example:
 from __future__ import annotations
 
 # Builder
-from maverick.dsl.builder import StepBuilder, step
+from maverick.dsl.builder import StepBuilder, branch, parallel, step
 
 # Context
 from maverick.dsl.context import WorkflowContext
@@ -40,9 +40,21 @@ from maverick.dsl.decorator import (
 # Engine
 from maverick.dsl.engine import WorkflowEngine
 
+# Errors (DSL-specific)
+from maverick.dsl.errors import (
+    CheckpointNotFoundError,
+    InputMismatchError,
+)
+from maverick.dsl.errors import (
+    DSLWorkflowError as WorkflowError,
+)
+
 # Events
 from maverick.dsl.events import (
+    CheckpointSaved,
     ProgressEvent,
+    RollbackCompleted,
+    RollbackStarted,
     StepCompleted,
     StepStarted,
     WorkflowCompleted,
@@ -51,6 +63,10 @@ from maverick.dsl.events import (
 
 # Results
 from maverick.dsl.results import (
+    BranchResult,
+    ParallelResult,
+    RollbackError,
+    SkipMarker,
     StepResult,
     SubWorkflowInvocationResult,
     WorkflowResult,
@@ -59,23 +75,41 @@ from maverick.dsl.results import (
 # Steps
 from maverick.dsl.steps import (
     AgentStep,
+    BranchOption,
+    BranchStep,
+    CheckpointStep,
+    ConditionalStep,
+    ErrorHandlerStep,
     GenerateStep,
+    ParallelStep,
     PythonStep,
+    RetryStep,
+    RollbackStep,
     StepDefinition,
     SubWorkflowStep,
     ValidateStep,
 )
 
 # Types
-from maverick.dsl.types import ContextBuilder, StepType
+from maverick.dsl.types import ContextBuilder, Predicate, RollbackAction, StepType
 
 __all__: list[str] = [
     # Types
     "ContextBuilder",
+    "Predicate",
+    "RollbackAction",
     "StepType",
     # Context
     "WorkflowContext",
+    # Errors
+    "WorkflowError",
+    "CheckpointNotFoundError",
+    "InputMismatchError",
     # Results
+    "BranchResult",
+    "ParallelResult",
+    "RollbackError",
+    "SkipMarker",
     "StepResult",
     "WorkflowResult",
     "SubWorkflowInvocationResult",
@@ -86,8 +120,21 @@ __all__: list[str] = [
     "GenerateStep",
     "ValidateStep",
     "SubWorkflowStep",
+    # Flow control steps (User Story 1)
+    "ConditionalStep",
+    "BranchStep",
+    "BranchOption",
+    "ParallelStep",
+    # Reliability steps (User Story 2)
+    "RetryStep",
+    "ErrorHandlerStep",
+    "RollbackStep",
+    # Resumability steps (User Story 3)
+    "CheckpointStep",
     # Builder
     "step",
+    "branch",
+    "parallel",
     "StepBuilder",
     # Engine
     "WorkflowEngine",
@@ -96,6 +143,9 @@ __all__: list[str] = [
     "StepCompleted",
     "WorkflowStarted",
     "WorkflowCompleted",
+    "RollbackStarted",
+    "RollbackCompleted",
+    "CheckpointSaved",
     "ProgressEvent",
     # Decorator
     "workflow",
