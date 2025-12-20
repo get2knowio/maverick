@@ -89,16 +89,17 @@ As a user running Maverick, I can list workflows, view workflow details, validat
 
 #### Workflow file schema
 
-- **FR-006**: The workflow file format MUST include workflow metadata (`name`, optional `description`) and a `version` field for schema versioning.
+- **FR-006**: The workflow file format MUST include workflow metadata (`name`, optional `description`) and a `version` field for schema versioning using semantic versioning (major.minor format).
+- **FR-006a**: The parser MUST accept any workflow with the same major version; minor version changes MUST be backwards compatible.
 - **FR-007**: The workflow file format MUST allow declaring workflow inputs with: name, type, required-ness, optional default value, and a human-readable description.
 - **FR-008**: The workflow file format MUST allow declaring an ordered list of steps, each with a unique step name and a step type.
-- **FR-009**: Step definitions MUST support the core workflow step types (Python, Agent, Generate, Validate, Sub-workflow) and must be extensible for future step types.
+- **FR-009**: Step definitions MUST support the core workflow step types (Python, Agent, Generate, Validate, Sub-workflow, Branch, Parallel) and must be extensible for future step types.
 - **FR-010**: Step definitions MUST support optional conditional execution via a `when` field that is evaluated at runtime.
 
 #### Expressions
 
 - **FR-011**: The workflow file format MUST support expressions to reference runtime values, including workflow inputs and prior step outputs.
-- **FR-012**: Expressions MUST support: referencing inputs, referencing step outputs, referencing nested fields in outputs, simple boolean negation, and referencing configuration values.
+- **FR-012**: Expressions MUST support: referencing inputs, referencing step outputs, referencing nested fields in outputs, and simple boolean negation.
 - **FR-013**: If an expression references a missing input/step/field, the workflow MUST fail validation (for statically detectable cases) or fail execution with a clear error (for runtime-only cases).
 
 #### Registries and reference resolution
@@ -106,6 +107,7 @@ As a user running Maverick, I can list workflows, view workflow details, validat
 - **FR-014**: The system MUST provide a registry to resolve workflow file references for actions, agents, generators, and context builders by name.
 - **FR-015**: When parsing a workflow file, the system MUST validate that all referenced names are registered (or provide a clear error indicating which references are missing).
 - **FR-016**: Reference resolution MUST build a workflow object that is functionally equivalent to an in-code workflow definition using the same step types and behaviors.
+- **FR-016a**: Registry resolution MUST fail-fast by default when a referenced name is not registered; the system MUST support an optional "lenient" mode for development/testing that defers resolution errors.
 
 #### Parsing and validation
 
@@ -149,6 +151,14 @@ As a user running Maverick, I can list workflows, view workflow details, validat
 - **Visualization Output**: A diagram string (Mermaid or ASCII) representing steps and control-flow edges for a workflow.
 - **Workflow Editor Interface**: A defined interface contract for future interactive editing of workflow definitions.
 
+## Clarifications
+
+### Session 2025-12-20
+
+- Q: What happens if registry resolution fails or a component becomes unavailable after initial validation? → A: Fail-fast with optional fallback: default fail-fast at registration time, but allow a "lenient" mode for dev/testing scenarios.
+- Q: What are the performance expectations for parsing/validation of workflow files? → A: Validation should complete within 2 seconds for workflows up to 100 steps, with a warning if exceeded.
+- Q: What versioning strategy should be used for schema evolution? → A: Semantic versioning (major.minor): backwards compatible within minor versions; breaking changes require major version bump.
+
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
@@ -157,3 +167,4 @@ As a user running Maverick, I can list workflows, view workflow details, validat
 - **SC-002**: For an invalid workflow file, validation errors identify the failing field(s) and include enough context for a user to correct the file on the first attempt (measured by successful correction in a single edit cycle for common error types).
 - **SC-003**: Diagram generation produces correct diagrams for workflows with at least 50 steps, including conditionals and validate/fix loops, within 1 second on a typical developer machine.
 - **SC-004**: CLI users can validate, visualize, and run a YAML-defined workflow using only the CLI, without writing Python code, in a single session.
+- **SC-005**: Workflow parsing and validation completes within 2 seconds for workflows up to 100 steps; if exceeded, the system logs a warning but continues.

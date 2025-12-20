@@ -5,6 +5,15 @@
 **Status**: Draft
 **Input**: User description: "Create testing infrastructure for Maverick including unit tests, integration tests, and CI configuration"
 
+## Clarifications
+
+### Session 2025-12-17
+
+- Q: How should Claude Agent SDK responses be mocked in tests? → A: Predefined response sequences - fixtures return canned responses in order
+- Q: What should be explicitly out of scope? → A: Performance/load testing, mutation testing, visual regression testing
+- Q: How should CI test results be reported on PRs? → A: GitHub check annotations only (inline failure comments in PR diff)
+- Q: What should be the default timeout for async tests? → A: 30 seconds - balanced for most async operations
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Run Unit Tests Locally (Priority: P1)
@@ -74,7 +83,7 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 ### Edge Cases
 
 - What happens when a test fixture fails to initialize? Tests using that fixture should fail with a clear fixture error message.
-- How does the system handle flaky async tests? Tests should use proper async utilities and timeouts to avoid intermittent failures.
+- How does the system handle flaky async tests? Tests should use proper async utilities with a default 30-second timeout to avoid intermittent failures.
 - What happens when CI times out? Workflow should have appropriate timeout limits and fail gracefully with partial results.
 - How are tests that require external services handled? Such tests should be marked for skip unless the service is available.
 
@@ -84,7 +93,7 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 
 #### Test Fixtures
 
-- **FR-001**: System MUST provide a mock Claude Agent SDK client fixture that simulates agent responses without making real API calls
+- **FR-001**: System MUST provide a mock Claude Agent SDK client fixture that simulates agent responses using predefined response sequences (canned responses returned in order) without making real API calls
 - **FR-002**: System MUST provide sample configuration object fixtures matching `MaverickConfig` schema
 - **FR-003**: System MUST provide mock GitHub CLI response fixtures for common operations (PR creation, issue listing, status checks)
 - **FR-004**: System MUST provide sample agent response/message fixtures representing typical agent outputs
@@ -94,6 +103,7 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 - **FR-005**: System MUST provide a utility to capture and collect all items from async generators for assertion
 - **FR-006**: System MUST provide utilities to assert on `AgentResult` contents including status, messages, and errors
 - **FR-007**: System MUST provide utilities to validate MCP tool responses against expected schemas
+- **FR-026**: System MUST configure pytest-asyncio with a default 30-second timeout for async tests
 
 #### Test Organization
 
@@ -119,6 +129,7 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 - **FR-021**: CI workflow MUST run pytest with coverage reporting as a required step
 - **FR-022**: CI workflow MUST fail if code coverage falls below 80%
 - **FR-023**: CI workflow MUST be defined in `.github/workflows/test.yml`
+- **FR-025**: CI workflow MUST report test failures via GitHub check annotations (inline in PR diff)
 
 #### Example Tests
 
@@ -127,7 +138,7 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 ### Key Entities
 
 - **Test Fixture**: A reusable test setup component that provides mock objects, sample data, or test utilities. Attributes include scope (function, class, module, session) and dependencies on other fixtures.
-- **Mock Client**: A simulated Claude Agent SDK client that returns predefined responses. Attributes include configurable response patterns and call tracking.
+- **Mock Client**: A simulated Claude Agent SDK client that returns predefined response sequences in order. Attributes include ordered response queue, call tracking for verification, and optional per-method response configuration.
 - **Test Suite**: A collection of related tests organized by component type. Attributes include path location and test markers.
 - **CI Workflow**: A GitHub Actions workflow definition. Attributes include triggers, job matrix, and steps.
 
@@ -150,3 +161,9 @@ As a developer adding new functionality, I want reusable test fixtures so I can 
 - GitHub Actions is the CI/CD platform (repository is on GitHub)
 - The Claude Agent SDK provides mockable interfaces or can be effectively mocked
 - Ruff and mypy are already configured or will be configured as part of this work
+
+## Out of Scope
+
+- **Performance/load testing**: Stress testing, benchmarking, and load testing infrastructure
+- **Mutation testing**: Tools like mutmut for testing test quality
+- **Visual regression testing**: Screenshot comparison or visual diff testing

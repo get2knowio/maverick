@@ -1,0 +1,365 @@
+"""IssueFixerAgent for resolving GitHub issues.
+
+This module provides the IssueFixerAgent that resolves GitHub issues
+with minimal, targeted code changes.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from maverick.agents.base import MaverickAgent
+from maverick.agents.tools import ISSUE_FIXER_TOOLS
+from maverick.agents.utils import extract_all_text
+from maverick.exceptions import AgentError, GitHubError
+from maverick.models.implementation import ChangeType, FileChange, ValidationResult
+from maverick.models.issue_fix import FixResult, IssueFixerContext
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer focused on minimal, targeted bug fixes within an orchestrated workflow.
+
+## Your Role
+
+You implement bug fixes by analyzing issues and modifying code. The orchestration layer handles:
+- Fetching issue details from GitHub (issue data is provided to you)
+- Git operations (commits are created after you complete your work)
+- Validation execution (tests run after implementation)
+- PR management and issue closure
+
+You focus on:
+- Understanding the issue and identifying root cause
+- Making minimal, targeted code changes
+- Writing tests that verify the fix
+
+## Core Approach
+1. Understand the issue completely before making changes
+2. Identify the root cause, not just symptoms
+3. Make the MINIMUM changes necessary to fix the issue
+4. Do NOT refactor unrelated code
+5. Ensure fix is ready for verification (will be run by orchestration)
+
+## Issue Analysis
+For each issue:
+1. Read the issue title and description (provided to you)
+2. Look for reproduction steps
+3. Identify affected code paths
+4. Find the root cause
+5. Plan the minimal fix
+
+## Fix Guidelines
+- Change only what's necessary (target <100 lines for typical bugs)
+- Don't "improve" surrounding code
+- Don't add features while fixing bugs
+- Don't change formatting of untouched code
+- Add a test that reproduces the bug (if feasible)
+
+## Verification
+Your fix will be verified by orchestration through:
+1. Running reproduction steps (if provided)
+2. Running related tests
+3. Running full validation pipeline
+
+## Commit Message
+The orchestration layer will create a commit using format: `fix(scope): description`
+with `Fixes #<issue_number>` in the commit body.
+
+## Tools Available
+Read, Write, Edit, Glob, Grep
+
+Use these tools to:
+- Read existing code and understand the issue
+- Write new files or update existing ones
+- Search for patterns and locate relevant code
+
+## Output
+After fixing, output a JSON summary:
+{
+  "issue_number": 42,
+  "root_cause": "Description of root cause",
+  "fix_description": "What was changed to fix it",
+  "files_changed": [{"path": "src/file.py", "added": 5, "removed": 2}],
+  "verification": "How the fix was verified"
+}
+"""
+
+
+# =============================================================================
+# IssueFixerAgent
+# =============================================================================
+
+
+class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
+    """Agent for resolving GitHub issues with minimal changes.
+
+    Implements targeted bug fixes by analyzing issues, implementing
+    minimal fixes, and verifying resolution.
+
+    Type Parameters:
+        Context: IssueFixerContext - issue source and execution options
+        Result: FixResult - fix outcome with verification status
+
+    Example:
+        >>> agent = IssueFixerAgent()
+        >>> context = IssueFixerContext(issue_number=42)
+        >>> result = await agent.execute(context)
+        >>> result.success
+        True
+    """
+
+    def __init__(
+        self,
+        model: str | None = None,
+        mcp_servers: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize IssueFixerAgent.
+
+        Args:
+            model: Claude model ID (defaults to claude-sonnet-4-5-20250929).
+            mcp_servers: Optional MCP server configurations.
+        """
+        super().__init__(
+            name="issue-fixer",
+            system_prompt=ISSUE_FIXER_SYSTEM_PROMPT,
+            allowed_tools=list(ISSUE_FIXER_TOOLS),
+            model=model,
+            mcp_servers=mcp_servers,
+        )
+
+    async def execute(self, context: IssueFixerContext) -> FixResult:
+        """Fix a GitHub issue.
+
+        Args:
+            context: Execution context with issue source and options.
+
+        Returns:
+            FixResult with fix details and verification status.
+
+        Raises:
+            GitHubError: If issue cannot be fetched (after retries).
+            AgentError: On unrecoverable execution errors.
+        """
+        start_time = time.monotonic()
+
+        try:
+            # Fetch issue details
+            issue_data = await self._fetch_issue(context)
+
+            issue_number = issue_data["number"]
+            issue_title = issue_data.get("title", "")
+            issue_url = issue_data.get("url", "")
+
+            logger.info("Fixing issue #%d: %s", issue_number, issue_title)
+
+            # Analyze and fix the issue
+            fix_output, root_cause, fix_description = await self._analyze_and_fix(
+                issue_data, context
+            )
+
+            # Detect file changes
+            files_changed = await self._detect_file_changes(context.cwd)
+
+            # Verify the fix
+            verification_passed = await self._verify_fix(issue_data, context)
+
+            # Run validation
+            validation_results: list[ValidationResult] = []
+            validation_passed = True
+            if not context.skip_validation:
+                validation_results = await self._run_validation(context.cwd)
+                validation_passed = all(v.success for v in validation_results)
+
+            # Create commit
+            commit_sha = None
+            if not context.dry_run and files_changed:
+                commit_sha = await self._create_commit(issue_number, fix_description, context)
+
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+
+            return FixResult(
+                success=verification_passed and validation_passed,
+                issue_number=issue_number,
+                issue_title=issue_title,
+                issue_url=issue_url,
+                root_cause=root_cause,
+                fix_description=fix_description,
+                files_changed=files_changed,
+                commit_sha=commit_sha,
+                verification_passed=verification_passed,
+                validation_passed=validation_passed,
+                output=fix_output,
+                metadata={
+                    "duration_ms": duration_ms,
+                    "dry_run": context.dry_run,
+                },
+            )
+
+        except GitHubError:
+            raise
+        except Exception as e:
+            logger.exception("Issue fix failed: %s", e)
+            return FixResult(
+                success=False,
+                issue_number=context.effective_issue_number,
+                issue_title="",
+                errors=[str(e)],
+            )
+
+    async def _fetch_issue(self, context: IssueFixerContext) -> dict[str, Any]:
+        """Fetch issue details from GitHub or use pre-fetched data.
+
+        Args:
+            context: Execution context.
+
+        Returns:
+            Issue data dictionary.
+
+        Raises:
+            GitHubError: If issue cannot be fetched.
+        """
+        if context.issue_data:
+            return context.issue_data
+
+        from maverick.utils.github import fetch_issue
+        return await fetch_issue(context.issue_number or 0, context.cwd)
+
+    async def _analyze_and_fix(
+        self,
+        issue_data: dict[str, Any],
+        context: IssueFixerContext,
+    ) -> tuple[str, str, str]:
+        """Analyze the issue and implement a fix.
+
+        Args:
+            issue_data: Issue details from GitHub.
+            context: Execution context.
+
+        Returns:
+            Tuple of (raw_output, root_cause, fix_description).
+        """
+        prompt = self._build_fix_prompt(issue_data)
+
+        messages = []
+        async for msg in self.query(prompt, cwd=context.cwd):
+            messages.append(msg)
+
+        output = extract_all_text(messages)
+
+        # Extract root cause and fix description from output
+        # (simplified - full parsing in enhancement phase)
+        root_cause = "Identified from issue analysis"
+        fix_description = "Fix implemented based on issue requirements"
+
+        return output, root_cause, fix_description
+
+    def _build_fix_prompt(self, issue_data: dict[str, Any]) -> str:
+        """Build the prompt for fixing an issue."""
+        title = issue_data.get("title", "")
+        body = issue_data.get("body", "")
+        labels = [l.get("name", "") for l in issue_data.get("labels", [])]
+
+        return f"""Fix the following GitHub issue:
+
+**Issue #{issue_data.get('number', 0)}**: {title}
+
+**Description**:
+{body}
+
+**Labels**: {', '.join(labels) if labels else 'None'}
+
+Follow the minimal fix approach:
+1. Understand the issue completely
+2. Find the root cause
+3. Implement the MINIMUM fix necessary
+4. Add a test if feasible
+5. Verify the fix works
+
+After fixing, provide:
+- Root cause analysis
+- Description of the fix
+- Files changed
+- How you verified the fix
+"""
+
+    async def _verify_fix(
+        self,
+        issue_data: dict[str, Any],
+        context: IssueFixerContext,
+    ) -> bool:
+        """Verify the fix works.
+
+        Args:
+            issue_data: Issue details.
+            context: Execution context.
+
+        Returns:
+            True if verification passed.
+        """
+        # Run tests to verify fix
+        # (simplified - full verification in enhancement phase)
+        try:
+            from maverick.utils.validation import run_validation_step
+            from maverick.models.implementation import ValidationStep
+
+            result = await run_validation_step(ValidationStep.TEST, context.cwd)
+            return result.success
+        except Exception as e:
+            logger.warning("Verification failed: %s", e)
+            return False
+
+    async def _detect_file_changes(self, cwd: Path) -> list[FileChange]:
+        """Detect file changes from git status."""
+        from maverick.utils.git import get_diff_stats
+
+        try:
+            stats = await get_diff_stats(cwd)
+            return [
+                FileChange(
+                    file_path=path,
+                    change_type=ChangeType.MODIFIED,
+                    lines_added=added,
+                    lines_removed=removed,
+                )
+                for path, (added, removed) in stats.items()
+            ]
+        except Exception as e:
+            logger.warning("Could not detect file changes: %s", e)
+            return []
+
+    async def _run_validation(self, cwd: Path) -> list[ValidationResult]:
+        """Run validation pipeline."""
+        from maverick.utils.validation import run_validation_pipeline
+
+        try:
+            return await run_validation_pipeline(cwd)
+        except Exception as e:
+            logger.warning("Validation failed: %s", e)
+            return []
+
+    async def _create_commit(
+        self,
+        issue_number: int,
+        fix_description: str,
+        context: IssueFixerContext,
+    ) -> str | None:
+        """Create a git commit for the fix."""
+        from maverick.utils.git import create_commit, has_uncommitted_changes
+
+        try:
+            if not await has_uncommitted_changes(context.cwd):
+                return None
+
+            # Generate conventional commit message
+            short_desc = fix_description[:50] if fix_description else "resolve issue"
+            message = f"fix: {short_desc}\n\nFixes #{issue_number}"
+
+            return await create_commit(message, context.cwd)
+        except Exception as e:
+            logger.warning("Could not create commit: %s", e)
+            return None

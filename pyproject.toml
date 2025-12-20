@@ -26,7 +26,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "anthropic-claude-code-sdk>=0.1.0",
+    "aiofiles>=23.0.0,<25",
+    "claude-agent-sdk>=0.1.0",
     "click>=8.1.0,<9",
     "pydantic>=2.0,<3",
     "pydantic-settings>=2.0,<3",
@@ -42,6 +43,7 @@ test = [
     "pytest>=7.0.0,<8",
     "pytest-asyncio>=0.21.0,<1",
     "pytest-cov>=4.0.0,<5",
+    "pytest-timeout>=2.0.0,<3",
 ]
 lint = [
     "ruff>=0.1.0,<1",
@@ -73,6 +75,9 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports are OK in __init__.py (re-exports)
+
 [tool.mypy]
 strict = true
 python_version = "3.10"
@@ -89,7 +94,9 @@ strict_equality = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -99,7 +106,9 @@ addopts = [
     "--cov=maverick",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "--timeout=30",
 ]
+timeout = 30  # 30-second default timeout for async tests (FR-026)
 
 [tool.coverage.run]
 source = ["src/maverick"]

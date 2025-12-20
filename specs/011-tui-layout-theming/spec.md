@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create a spec for the core Textual TUI layout and theming for Maverick"
 
+## Clarifications
+
+### Session 2025-12-16
+
+- Q: How many recent workflows should be displayed on the home screen? → A: 10 most recent workflows
+- Q: What is the log panel buffer size limit? → A: 1,000 lines
+- Q: What is the minimum supported terminal size? → A: 80×24 (standard terminal)
+- Q: What should the sidebar display when no workflow is active? → A: Navigation menu (Home, Workflows, Settings, etc.)
+- Q: What keybinding toggles the log panel? → A: Ctrl+L
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Launching the Application (Priority: P1)
@@ -65,9 +75,9 @@ A developer wants to see detailed output from agents during workflow execution. 
 
 **Acceptance Scenarios**:
 
-1. **Given** the log panel is collapsed, **When** the user presses the toggle key, **Then** the log panel expands showing agent output
+1. **Given** the log panel is collapsed, **When** the user presses Ctrl+L, **Then** the log panel expands showing agent output
 2. **Given** the log panel is expanded, **When** agents produce output, **Then** the output appears in real-time in the log panel
-3. **Given** the log panel is expanded, **When** the user presses the toggle key, **Then** the log panel collapses freeing screen space
+3. **Given** the log panel is expanded, **When** the user presses Ctrl+L, **Then** the log panel collapses freeing screen space
 
 ---
 
@@ -96,7 +106,7 @@ A developer accesses the settings screen to configure application preferences. T
 
 **Acceptance Scenarios**:
 
-1. **Given** the user is on any screen, **When** they access the settings shortcut, **Then** they navigate to the config screen
+1. **Given** the user is on any screen, **When** they press Ctrl+, (comma), **Then** they navigate to the config screen
 2. **Given** the user is on the config screen, **When** they modify a setting, **Then** the change is immediately reflected in the interface
 
 ---
@@ -111,18 +121,18 @@ A developer returns to the application and wants to quickly access a recently-ru
 
 **Acceptance Scenarios**:
 
-1. **Given** the user has run workflows previously, **When** they view the home screen, **Then** they see a list of recent workflow runs
+1. **Given** the user has run workflows previously, **When** they view the home screen, **Then** they see a list of the 10 most recent workflow runs (ordered by last run date)
 2. **Given** recent workflows are displayed, **When** the user selects one, **Then** they see details about that workflow run
 
 ---
 
 ### Edge Cases
 
-- What happens when the terminal window is resized to a very small size?
-  - The layout should gracefully adapt or display a minimum size warning
+- What happens when the terminal window is resized below the minimum supported size (80×24)?
+  - The layout should display a minimum size warning overlay until the terminal is resized to at least 80×24
 - What happens when a workflow stage fails?
   - The stage indicator should show an error state (red) and the workflow should continue if possible
-- What happens when agent output exceeds the log panel buffer?
+- What happens when agent output exceeds the log panel buffer (1,000 lines)?
   - Older output should scroll off while maintaining performance
 - What happens when the user presses an unbound key?
   - No action should occur; the application should not crash or display errors
@@ -135,7 +145,7 @@ A developer returns to the application and wants to quickly access a recently-ru
 
 - **FR-001**: System MUST provide a MaverickApp class as the main application entry point
 - **FR-002**: System MUST display a header component showing the application name, current workflow name (if any), and elapsed time
-- **FR-003**: System MUST display a sidebar component showing workflow stages with status indicators
+- **FR-003**: System MUST display a sidebar component that shows navigation menu (Home, Workflows, Settings) when no workflow is active, and workflow stages with status indicators during workflow execution
 - **FR-004**: System MUST display a main content area that changes based on the current screen context
 - **FR-005**: System MUST display a collapsible log panel for streaming agent output
 - **FR-006**: System MUST display a footer component showing available keybindings and current status
@@ -191,4 +201,4 @@ A developer returns to the application and wants to quickly access a recently-ru
 - Users have basic familiarity with keyboard-driven terminal applications
 - The Textual framework provides the underlying rendering and event handling infrastructure
 - Widget implementations (specific content within each screen) will be developed in subsequent specifications
-- The default keybindings follow common terminal application conventions (Escape to cancel, Ctrl+P for palette)
+- The default keybindings follow common terminal application conventions (Escape to cancel, Ctrl+P for palette, Ctrl+L for log panel toggle)
