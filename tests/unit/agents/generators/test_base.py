@@ -198,6 +198,34 @@ class TestQuery:
         assert "Second part" in result
 
     @pytest.mark.asyncio
+    async def test_query_handles_multiple_messages(self) -> None:
+        """Test that _query concatenates text from multiple messages."""
+        generator = ConcreteGenerator()
+
+        # Mock messages
+        mock_msg1 = MagicMock()
+        mock_msg1.content = [MagicMock(text="Part 1")]
+        mock_msg1.content[0].__class__.__name__ = "TextBlock"
+        type(mock_msg1).__name__ = "AssistantMessage"
+
+        mock_msg2 = MagicMock()
+        mock_msg2.content = [MagicMock(text="Part 2")]
+        mock_msg2.content[0].__class__.__name__ = "TextBlock"
+        type(mock_msg2).__name__ = "AssistantMessage"
+
+        async def mock_iter(*args: Any, **kwargs: Any) -> Any:
+            yield mock_msg1
+            yield mock_msg2
+
+        with patch(
+            "maverick.agents.generators.base.query",
+            side_effect=mock_iter,
+        ):
+            result = await generator._query("prompt")
+
+        assert result == "Part 1\nPart 2"
+
+    @pytest.mark.asyncio
     async def test_query_wraps_expected_errors_in_generator_error(self) -> None:
         """Test that expected SDK errors are wrapped in GeneratorError."""
         generator = ConcreteGenerator()

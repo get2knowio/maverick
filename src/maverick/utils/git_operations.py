@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,29 @@ from maverick.exceptions import (
     NothingToCommitError,
     PushRejectedError,
 )
+
+# =============================================================================
+# Constants & Validators
+# =============================================================================
+
+_INVALID_BRANCH_CHARS = re.compile(r'[~^: ?*\[\]\\]')
+
+
+def _validate_branch_name(name: str) -> None:
+    """Validate branch name according to git ref rules.
+
+    Raises:
+        ValueError: If branch name is invalid.
+    """
+    if not name or name.isspace():
+        raise ValueError("Branch name cannot be empty")
+    if name.startswith("-") or name.endswith("."):
+        raise ValueError(f"Invalid branch name: {name}")
+    if _INVALID_BRANCH_CHARS.search(name):
+        raise ValueError(f"Branch name contains invalid characters: {name}")
+    if ".." in name or name.endswith(".lock"):
+        raise ValueError(f"Invalid branch name: {name}")
+
 
 # =============================================================================
 # Value Objects (Return Types)
@@ -338,8 +362,10 @@ class GitOperations:
             GitNotFoundError: If git is not installed.
             NotARepositoryError: If not in a git repository.
             BranchExistsError: If branch already exists.
+            ValueError: If branch name is invalid.
         """
         self._check_repository()
+        _validate_branch_name(name)
 
         # Check if branch exists
         result = self._run(["branch", "--list", name])
@@ -365,8 +391,10 @@ class GitOperations:
             NotARepositoryError: If not in a git repository.
             CheckoutConflictError: If uncommitted changes would be overwritten.
             GitError: If branch doesn't exist or checkout fails.
+            ValueError: If branch name is invalid.
         """
         self._check_repository()
+        _validate_branch_name(branch)
 
         result = self._run(["checkout", branch], check=False)
         if result.returncode != 0:
