@@ -8,16 +8,13 @@ from __future__ import annotations
 
 import pytest
 
+from maverick.dsl.events import (
+    StepStarted,
+)
 from maverick.dsl.serialization import (
     ComponentRegistry,
     WorkflowFileExecutor,
     parse_workflow,
-)
-from maverick.dsl.events import (
-    StepCompleted,
-    StepStarted,
-    WorkflowCompleted,
-    WorkflowStarted,
 )
 
 
