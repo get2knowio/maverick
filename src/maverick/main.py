@@ -34,16 +34,18 @@ def create_registered_registry(strict: bool = False) -> "ComponentRegistry":
     """Create a ComponentRegistry with all built-in components registered.
 
     This function creates a new ComponentRegistry and registers all built-in
-    actions, agents, generators, and context builders so they can be resolved
-    by workflows.
+    actions, agents, generators, context builders, and discovered workflows
+    so they can be resolved by workflows.
 
     Args:
         strict: If True, create registry in strict mode (reference resolution
             errors will be raised immediately).
 
     Returns:
-        ComponentRegistry with all built-in components registered.
+        ComponentRegistry with all built-in components and discovered
+        workflows registered.
     """
+    from maverick.dsl.discovery import load_workflows_into_registry
     from maverick.dsl.serialization.registry import ComponentRegistry
 
     registry = ComponentRegistry(strict=strict)
@@ -53,6 +55,9 @@ def create_registered_registry(strict: bool = False) -> "ComponentRegistry":
     register_all_agents(registry)
     register_all_generators(registry)
     register_all_context_builders(registry)
+
+    # Register all discovered workflows and fragments
+    load_workflows_into_registry(registry)
 
     return registry
 
