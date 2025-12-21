@@ -736,6 +736,7 @@ class WorkflowFileExecutor:
         """Execute a parallel step.
 
         Executes multiple steps concurrently using asyncio.gather.
+        If for_each is specified, executes steps once per item in the iteration list.
 
         Args:
             step: ParallelStepRecord containing steps to execute in parallel.
@@ -743,15 +744,78 @@ class WorkflowFileExecutor:
             context: Execution context.
 
         Returns:
-            Dictionary containing results from all parallel steps.
+            Dictionary containing results from all parallel steps or iterations.
         """
-        # Create tasks for all steps
-        tasks = [self._execute_step(s, context) for s in step.steps]
+        if step.for_each:
+            # Execute steps for each item in the iteration list
+            return await self._execute_parallel_for_each(step, context)
+        else:
+            # Execute steps in parallel once
+            tasks = [self._execute_step(s, context) for s in step.steps]
 
-        # Execute in parallel with exception handling
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Execute in parallel with exception handling
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return {"results": results}
+            return {"results": results}
+
+    async def _execute_parallel_for_each(
+        self,
+        step: ParallelStepRecord,
+        context: dict[str, Any],
+    ) -> Any:
+        """Execute parallel steps for each item in a list.
+
+        Args:
+            step: ParallelStepRecord with for_each expression.
+            context: Execution context.
+
+        Returns:
+            Dictionary with results from all iterations.
+
+        Raises:
+            TypeError: If for_each expression doesn't evaluate to a list.
+        """
+        # Evaluate the for_each expression to get the list of items
+        evaluator = ExpressionEvaluator(
+            inputs=context.get("inputs", {}),
+            step_outputs=context.get("steps", {}),
+        )
+
+        # Parse and evaluate the for_each expression
+        expr = parse_expression(step.for_each)
+        items = evaluator.evaluate(expr)
+
+        # Validate that items is a list or tuple
+        if not isinstance(items, (list, tuple)):
+            raise TypeError(
+                f"for_each expression must evaluate to a list or tuple, "
+                f"got {type(items).__name__} (step: {step.name})"
+            )
+
+        # Create tasks for each item
+        tasks = []
+        for item in items:
+            # Create a copy of the context with the current item
+            # Add 'item' to a special scope that can be accessed in expressions
+            item_context = context.copy()
+            # Add the item to the context in a way that expressions can access it
+            # We'll store it in the inputs for simplicity, but with a reserved name
+            item_context_inputs = item_context.get("inputs", {}).copy()
+            item_context_inputs["item"] = item
+            item_context["inputs"] = item_context_inputs
+
+            # Create tasks for all steps in this iteration
+            iteration_tasks = [
+                self._execute_step(s, item_context) for s in step.steps
+            ]
+
+            # Each iteration's task is itself a gather of all steps in parallel
+            tasks.append(asyncio.gather(*iteration_tasks, return_exceptions=True))
+
+        # Execute all iterations in parallel
+        iteration_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        return {"results": iteration_results}
 
     def get_result(self) -> WorkflowResult:
         """Get the final workflow result.

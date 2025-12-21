@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -173,7 +173,7 @@ class ValidateStepRecord(StepRecord):
     type: Literal[StepType.VALIDATE] = StepType.VALIDATE
     stages: list[str] | str
     retry: int = Field(default=3, ge=0)
-    on_failure: "StepRecordUnion | None" = None
+    on_failure: StepRecordUnion | None = None
 
 
 class SubWorkflowStepRecord(StepRecord):
@@ -203,7 +203,7 @@ class BranchOptionRecord(BaseModel):
 
     when: str = Field(..., min_length=1)
     # Forward reference - resolved via model_rebuild after StepRecordUnion is defined
-    step: "StepRecordUnion"
+    step: StepRecordUnion
 
 
 class BranchStepRecord(StepRecord):
@@ -226,14 +226,22 @@ class ParallelStepRecord(StepRecord):
 
     Fields:
         steps: Steps to execute in parallel (names must be unique)
+        for_each: Optional expression evaluating to a list for iteration.
+            When provided, steps are executed once per item in the list,
+            with the current item available as 'item' in expressions.
     """
 
     type: Literal[StepType.PARALLEL] = StepType.PARALLEL
-    steps: list["StepRecordUnion"] = Field(..., min_length=1)
+    steps: list[StepRecordUnion] = Field(..., min_length=1)
+    for_each: str | None = Field(
+        None, description="Optional expression evaluating to a list for iteration"
+    )
 
     @field_validator("steps")
     @classmethod
-    def validate_unique_step_names(cls, v: list["StepRecordUnion"]) -> list["StepRecordUnion"]:
+    def validate_unique_step_names(
+        cls, v: list[StepRecordUnion]
+    ) -> list[StepRecordUnion]:
         """Ensure all parallel step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):
@@ -250,15 +258,13 @@ class ParallelStepRecord(StepRecord):
 # This allows BranchOptionRecord.step and ParallelStepRecord.steps to reference
 # the full union type including themselves
 StepRecordUnion = Annotated[
-    Union[
-        PythonStepRecord,
-        AgentStepRecord,
-        GenerateStepRecord,
-        ValidateStepRecord,
-        SubWorkflowStepRecord,
-        BranchStepRecord,
-        ParallelStepRecord,
-    ],
+    PythonStepRecord
+    | AgentStepRecord
+    | GenerateStepRecord
+    | ValidateStepRecord
+    | SubWorkflowStepRecord
+    | BranchStepRecord
+    | ParallelStepRecord,
     Field(discriminator="type"),
 ]
 
@@ -299,7 +305,9 @@ class WorkflowFile(BaseModel):
 
     @field_validator("steps")
     @classmethod
-    def validate_unique_step_names(cls, v: list[StepRecordUnion]) -> list[StepRecordUnion]:
+    def validate_unique_step_names(
+        cls, v: list[StepRecordUnion]
+    ) -> list[StepRecordUnion]:
         """Ensure all top-level step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):
