@@ -1,685 +1,1030 @@
 # Contributing to Maverick
 
-Thank you for contributing to Maverick! This guide explains the architecture and how to extend the workflow system.
+Thank you for contributing to Maverick! This guide explains the project architecture, how to set up your development environment, and how to extend the system.
 
 ## Table of Contents
 
+- [Getting Started](#getting-started)
+- [Development Setup](#development-setup)
 - [Architecture Overview](#architecture-overview)
-- [Three-Layer Design](#three-layer-design)
-- [Adding New Step Types](#adding-new-step-types)
-- [Adding New Workflow Steps](#adding-new-workflow-steps)
-- [Extending Workflows](#extending-workflows)
+- [Key Concepts](#key-concepts)
+- [Creating Custom Agents](#creating-custom-agents)
+- [Creating Custom Workflows](#creating-custom-workflows)
 - [Testing Guidelines](#testing-guidelines)
 - [Code Style](#code-style)
+- [Pull Request Process](#pull-request-process)
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Git
+- GitHub CLI (`gh`)
+- Claude API key (set `ANTHROPIC_API_KEY` environment variable)
+- Optional: `uv` for faster dependency management
+
+### Quick Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/get2knowio/maverick.git
+cd maverick
+
+# Install dependencies (using uv - recommended)
+uv pip install -e ".[dev]"
+
+# Or using pip
+pip install -e ".[dev]"
+
+# Verify installation
+maverick --version
+
+# Run tests
+pytest
+
+# Run linting
+ruff check .
+ruff format --check .
+
+# Run type checking
+mypy src/maverick
+```
+
+## Development Setup
+
+### Environment Configuration
+
+1. **API Keys**: Set your Claude API key:
+   ```bash
+   export ANTHROPIC_API_KEY=your-api-key-here
+   ```
+
+2. **GitHub Authentication**: Ensure GitHub CLI is authenticated:
+   ```bash
+   gh auth status
+   gh auth login  # if not authenticated
+   ```
+
+3. **Project Configuration**: Initialize a local config file:
+   ```bash
+   maverick config init
+   # Edit maverick.yaml as needed
+   ```
+
+### Running Locally
+
+```bash
+# Run in development mode
+python -m maverick --help
+
+# Run specific commands
+python -m maverick fly my-branch --dry-run
+python -m maverick status
+
+# Run with verbose logging
+python -m maverick -vv fly my-branch
+
+# Run TUI in development
+python -m maverick.tui.app  # if TUI entry point exists
+```
+
+### Development Workflow
+
+1. Create a feature branch from `main`
+2. Make your changes following the code style guidelines
+3. Add tests for new functionality
+4. Run tests and linting locally
+5. Commit with clear, descriptive messages
+6. Open a pull request
 
 ## Architecture Overview
 
-Maverick separates workflow concerns into three distinct layers:
+Maverick follows a layered architecture with clear separation of concerns:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 1: Step Description (What)                       │
-│  - makeShellStep(), makeOpencodeStep(), etc.            │
-│  - Returns plain data objects                           │
+│  CLI/TUI Layer (User Interface)                         │
+│  - Click commands (main.py)                             │
+│  - Textual TUI (tui/)                                   │
+│  - User input validation                                │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 2: Step Execution (How)                          │
-│  - executeStep(), executeSteps()                        │
-│  - Centralized logging, timing, capture                 │
+│  Workflow Layer (Orchestration)                         │
+│  - FlyWorkflow, RefuelWorkflow (workflows/)             │
+│  - DSL-based workflow execution (dsl/)                  │
+│  - State management and sequencing                      │
+│  - Progress reporting as async generators              │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 3: Workflow Orchestration (When/Why)             │
-│  - runWorkflow(), buildPhaseSteps(), etc.               │
-│  - High-level flow control and business logic           │
+│  Agent Layer (AI Decision Making)                       │
+│  - MaverickAgent base class (agents/base.py)            │
+│  - Concrete agents (CodeReviewerAgent, etc.)            │
+│  - Claude Agent SDK integration                         │
+│  - System prompts and tool selection                    │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  Tool Layer (External Integration)                      │
+│  - MCP tools (tools/)                                   │
+│  - GitHub operations, git commands                      │
+│  - Validation runners, notifications                    │
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Three-Layer Design
+### Directory Structure
 
-### Layer 1: Step Description Types
-
-**Location**: Step factory modules in `src/steps/`
-
-**Purpose**: Define *what* a step is—pure data describing the command, its arguments, and metadata.
-
-**Two flavors**:
-
-1. **Generic step types** (`shell.mjs`, `opencode.mjs`, `coderabbit.mjs`): Low-level building blocks that wrap commands with minimal logic. You provide the executable, args, and options.
-
-2. **Domain-specific step types** (`speckit.mjs`): High-level workflow steps that encapsulate complete domain logic including executables, parameters, AND prompts. These represent reusable workflow patterns.
-
-**Characteristics**:
-- Returns plain JavaScript objects
-- No side effects or I/O
-- Easily serializable (useful for UI, debugging, persistence)
-- Contains: `id`, `kind`, `label`, `cmd`, `args`, `cwd`, `captureTo`
-
-**Example**:
-
-```javascript
-export function makeShellStep(id, cmd, args = [], opts = {}) {
-  return {
-    id,
-    kind: 'shell',
-    label: opts.label || id,
-    cmd,
-    args,
-    cwd: opts.cwd,
-    env: opts.env,
-    captureTo: opts.captureTo,
-  }
-}
+```
+src/maverick/
+├── __init__.py          # Version info, public API
+├── main.py              # CLI entry point (Click)
+├── config.py            # Pydantic configuration models
+├── exceptions.py        # Exception hierarchy
+│
+├── agents/              # AI agent implementations
+│   ├── base.py          # MaverickAgent ABC
+│   ├── code_reviewer.py # Code review agent
+│   ├── implementer.py   # Task implementation agent
+│   └── issue_fixer.py   # Issue fixing agent
+│
+├── workflows/           # Workflow orchestration
+│   ├── fly.py           # FlyWorkflow (spec-based dev)
+│   └── refuel.py        # RefuelWorkflow (tech debt)
+│
+├── dsl/                 # Workflow DSL
+│   ├── events.py        # Event types
+│   ├── executor.py      # DSL execution engine
+│   ├── serialization/   # YAML workflow parsing
+│   └── visualization/   # Workflow diagrams
+│
+├── tools/               # MCP tool definitions
+│   ├── github.py        # GitHub API tools
+│   ├── git.py           # Git operations
+│   └── validation.py    # Code validation tools
+│
+├── hooks/               # Agent safety/logging hooks
+│   └── safety.py        # Rate limiting, cost tracking
+│
+├── tui/                 # Textual UI components
+│   ├── app.py           # Main TUI application
+│   ├── screens/         # Screen definitions
+│   └── widgets/         # Reusable UI widgets
+│
+├── models/              # Pydantic data models
+│   ├── review.py        # Review result models
+│   ├── implementation.py # Implementation models
+│   └── validation.py    # Validation models
+│
+├── runners/             # Command execution
+│   ├── command.py       # Generic command runner
+│   ├── git.py           # Git command wrapper
+│   └── github.py        # GitHub CLI wrapper
+│
+└── utils/               # Shared utilities
+    ├── git_operations.py # Git helpers
+    ├── task_parser.py    # Task markdown parsing
+    └── context.py        # Context building
 ```
 
-### Layer 2: Step Execution
+## Key Concepts
 
-**Location**: `src/workflow-core.mjs` (Step Execution section)
+### Agents
 
-**Purpose**: Define *how* to execute a step descriptor—logging, timing, output capture, error handling.
+Agents are autonomous AI-powered components that know **HOW** to perform specific tasks. They encapsulate:
 
-**Characteristics**:
-- Takes a step descriptor + execution context
-- Handles all I/O and side effects
-- Centralized location for execution concerns (retries, timeouts, etc.)
-- Uses underlying primitives: `run()`, `runWithProgress()`, `runAndCapture()`
+- **System Prompts**: Instructions that define the agent's expertise and behavior
+- **Tool Selection**: Which MCP tools the agent can use (least privilege principle)
+- **Claude SDK Integration**: Stateful multi-turn interactions or one-shot queries
+- **Output Structuring**: Converting raw AI responses into typed results
 
-**Example**:
+**Base Class**: All agents inherit from `MaverickAgent` (abstract base class)
 
-```javascript
-export async function executeStep(step, { logger, verbose } = {}) {
-  const { cmd, args = [], cwd, captureTo, label, id } = step
-  const tag = label || id || cmd
+```python
+from maverick.agents.base import MaverickAgent
+from maverick.agents.context import AgentContext
 
-  if (verbose) logger(`Starting step ${tag}: ${cmd} ${args.join(' ')}`)
-
-  if (captureTo) {
-    return runAndCapture(cmd, args, { cwd, teeToFile: captureTo })
-  } else {
-    return runWithProgress(cmd, args, {
-      logger: verbose ? logger : () => {},
-      label: tag,
-      opts: { cwd },
-      showExec: false,
-    })
-  }
-}
+class MyAgent(MaverickAgent):
+    """Custom agent for specific task."""
+    
+    async def execute(self, context: AgentContext) -> MyResult:
+        """Execute the agent's task.
+        
+        Args:
+            context: Agent execution context with config, branch, etc.
+            
+        Returns:
+            MyResult: Structured result object
+        """
+        # Implementation here
+        pass
 ```
 
-### Layer 3: Workflow Orchestration
+### Workflows
 
-**Location**: `src/workflow-core.mjs` (Step Builders section + `runWorkflow`)
+Workflows orchestrate **WHAT** tasks to do and **WHEN** to do them. They:
 
-**Purpose**: Define *when* and *why* steps run—business logic, iteration, phase management.
+- **Sequence Operations**: Define the order of agent executions
+- **Manage State**: Track progress and handle partial failures
+- **Yield Progress**: Emit events as async generators for real-time UI updates
+- **Handle Errors**: Implement retry logic and graceful degradation
 
-**Characteristics**:
-- Builds step descriptors using Layer 1 functions
-- Executes steps using Layer 2 functions
-- Manages workflow state (parsing tasks, checking completion, iteration)
-- Contains domain-specific logic (what happens in a review phase, fix phase, etc.)
+**Key Workflows**:
+- `FlyWorkflow`: Complete spec-based feature development
+- `RefuelWorkflow`: Automated tech-debt resolution
 
-**Example**:
+```python
+from maverick.workflows.base import Workflow, WorkflowInputs, WorkflowResult
 
-```javascript
-function buildReviewSteps({ projectRoot, outDir, reviewModel, coderabbitPath, reviewPath }) {
-  const steps = []
+async def my_workflow(inputs: MyInputs) -> AsyncGenerator[Event, None]:
+    """Custom workflow implementation."""
+    yield WorkflowStarted(...)
+    
+    # Execute agents
+    agent_result = await my_agent.execute(context)
+    yield AgentCompleted(...)
+    
+    # Final result
+    yield WorkflowCompleted(success=True, ...)
+```
+
+### MCP Tools
+
+Tools wrap external systems and provide a safe, structured interface for agents:
+
+- **GitHub Operations**: PR creation, issue management, repository queries
+- **Git Commands**: Branch management, commits, diffs
+- **Validation**: Code formatting, linting, testing
+- **Notifications**: Push notifications via ntfy
+
+Tools follow the Model Context Protocol (MCP) specification and are defined with the `@tool` decorator:
+
+```python
+from claude_agent_sdk import tool
+
+@tool
+async def my_custom_tool(param: str) -> str:
+    """Tool description for the AI.
+    
+    Args:
+        param: Parameter description
+        
+    Returns:
+        Result description
+    """
+    # Implementation
+    return result
+```
+
+### Workflow DSL
+
+The DSL (Domain-Specific Language) allows defining workflows in YAML:
+
+```yaml
+name: my-workflow
+version: 1.0.0
+description: Custom workflow example
+
+inputs:
+  branch:
+    type: string
+    required: true
+    description: Target branch name
+
+steps:
+  - name: validate-branch
+    type: python
+    code: |
+      if not inputs["branch"].startswith("feature/"):
+          raise ValueError("Branch must start with 'feature/'")
   
-  steps.push(
-    makeCoderabbitStep('coderabbit-review', ['review', '--prompt-only'], {
-      cwd: projectRoot,
-      captureTo: coderabbitPath,
-    })
-  )
-  
-  steps.push(
-    makeOpencodeStep('opencode-review', reviewPrompt, {
-      model: reviewModel,
-      cwd: projectRoot,
-      captureTo: reviewPath,
-    })
-  )
-  
-  return steps
-}
+  - name: run-tests
+    type: agent
+    agent: test-runner
+    inputs:
+      branch: ${{ inputs.branch }}
 ```
 
-## Adding New Step Types
+### Configuration
 
-### Generic vs Domain-Specific Steps
+Configuration follows a layered approach with Pydantic models:
 
-Before creating a new step type, decide which flavor you need:
+1. **Defaults**: Built-in sensible defaults
+2. **User Config**: `~/.config/maverick/config.yaml`
+3. **Project Config**: `./maverick.yaml`
+4. **CLI Arguments**: Highest precedence
 
-**Generic steps** (like `makeShellStep`, `makeOpencodeStep`):
-- Thin wrappers around commands
-- User provides most/all arguments and options
-- Reusable across many contexts
-- Example: `makeShellStep('deploy', 'kubectl', ['apply', '-f', 'deployment.yaml'])`
+```python
+from maverick.config import MaverickConfig, load_config
 
-**Domain-specific steps** (like `opencodeImplementPhase`, `coderabbitReview`):
-- Encapsulate complete workflow patterns
-- Embed domain knowledge (prompts, flags, conventions)
-- Higher-level, purpose-built for specific use cases
-- Example: `opencodeImplementPhase('2A', { cwd, model })` (prompt is built-in)
+# Load merged configuration
+config = load_config()
 
-### Adding a Generic Step Type
-
-To add support for a new type of command (e.g., `docker`, `terraform`, `ansible`):
-
-### 1. Create a Step Factory (Layer 1)
-
-Create a new file `src/steps/docker.mjs`:
-
-```javascript
-// src/steps/docker.mjs
-import { makeStep } from './core.mjs'
-
-/**
- * Create a docker command step descriptor.
- * @param {string} id - Unique step identifier
- * @param {string[]} args - Docker command arguments
- * @param {object} opts - Additional options (cwd, label, captureTo, env)
- */
-export function makeDockerStep(id, args = [], opts = {}) {
-  return makeStep({
-    id,
-    kind: 'docker',
-    cmd: 'docker',
-    args,
-    cwd: opts.cwd,
-    env: opts.env,
-    label: opts.label,
-    captureTo: opts.captureTo,
-  })
-}
+# Access config values (type-safe)
+max_tokens = config.model.max_tokens
+timeout = config.validation.timeout_seconds
 ```
 
-### 2. Add DSL Helper (Optional)
+### Async-First Design
 
-Add to the same file (`src/steps/docker.mjs`):
+Everything in Maverick is async to support:
 
-```javascript
-/**
- * Convenience helper to create a docker step with minimal syntax.
- */
-export function dockerStep(id, args = [], opts = {}) {
-  return makeDockerStep(id, args, opts)
-}
+- **Concurrent Agent Execution**: Run multiple agents in parallel
+- **Responsive TUI**: Update UI during long-running operations
+- **Efficient I/O**: Non-blocking external API calls
+
+```python
+import asyncio
+
+# Async functions use await
+result = await agent.execute(context)
+
+# Async generators yield values
+async for event in workflow.execute(inputs):
+    print(f"Event: {event}")
+
+# Parallel execution with asyncio.gather
+results = await asyncio.gather(
+    agent1.execute(ctx1),
+    agent2.execute(ctx2),
+    agent3.execute(ctx3),
+)
 ```
 
-### 3. Update executeStep (If Needed)
+## Creating Custom Agents
 
-If your new step type requires special execution logic (beyond what `runWithProgress` and `runAndCapture` provide), update `executeStep()` in `src/steps/core.mjs`:
+### Step 1: Define Your Agent Class
 
-```javascript
-export async function executeStep(step, { logger, verbose } = {}) {
-  const { cmd, args = [], cwd, captureTo, label, id, kind } = step
-  const tag = label || id || cmd
+Create a new file in `src/maverick/agents/`:
 
-  if (verbose) logger(`Starting step ${tag}: ${cmd} ${args.join(' ')}`)
+```python
+from __future__ import annotations
 
-  // Special handling for docker steps
-  if (kind === 'docker') {
-    // Custom execution logic here
-    return runDockerWithSpecialHandling(cmd, args, { cwd, logger, verbose })
-  }
+from maverick.agents.base import MaverickAgent
+from maverick.agents.context import AgentContext
+from maverick.models.custom import CustomResult  # Define your result model
+from claude_agent_sdk import ClaudeSDKClient
 
-  if (captureTo) {
-    return runAndCapture(cmd, args, { cwd, teeToFile: captureTo })
-  } else {
-    return runWithProgress(cmd, args, {
-      logger: verbose ? logger : () => {},
-      label: tag,
-      opts: { cwd },
-      showExec: false,
-    })
-  }
-}
+class MyCustomAgent(MaverickAgent):
+    """Agent that performs a specific task.
+    
+    This agent uses Claude to analyze code and suggest improvements
+    based on project-specific conventions.
+    """
+    
+    def __init__(self) -> None:
+        """Initialize the agent."""
+        super().__init__()
+        self._client: ClaudeSDKClient | None = None
+    
+    async def execute(self, context: AgentContext) -> CustomResult:
+        """Execute the agent's task.
+        
+        Args:
+            context: Execution context with branch, config, etc.
+            
+        Returns:
+            CustomResult with findings and suggestions.
+            
+        Raises:
+            AgentError: If execution fails.
+        """
+        # Build system prompt
+        system_prompt = self._build_system_prompt(context)
+        
+        # Create Claude SDK client with allowed tools
+        self._client = ClaudeSDKClient(
+            model=context.config.model.model_id,
+            max_tokens=context.config.model.max_tokens,
+            system=system_prompt,
+            allowed_tools=["read_file", "search_code"],  # Least privilege
+        )
+        
+        # Execute with Claude
+        response = await self._client.run(
+            "Analyze the codebase for improvements"
+        )
+        
+        # Parse and structure the response
+        return self._parse_response(response)
+    
+    def _build_system_prompt(self, context: AgentContext) -> str:
+        """Build the system prompt for Claude."""
+        return f"""You are an expert code analyzer.
+        
+        Repository: {context.config.github.repo}
+        Branch: {context.branch}
+        
+        Analyze code and suggest improvements following the project's
+        conventions in CLAUDE.md.
+        """
+    
+    def _parse_response(self, response: str) -> CustomResult:
+        """Parse Claude's response into structured result."""
+        # Implementation to extract findings
+        return CustomResult(
+            findings=[],
+            summary="Analysis complete",
+            success=True,
+        )
 ```
 
-### 4. Use in Workflow
+### Step 2: Define Result Model
 
-Import and use in your workflow (e.g., `src/workflows/myWorkflow.mjs`):
+Create result models in `src/maverick/models/`:
 
-```javascript
-import { dockerStep } from '../steps/docker.mjs'
-import { executeSteps } from '../steps/core.mjs'
+```python
+from __future__ import annotations
 
-const steps = [
-  dockerStep('build-image', ['build', '-t', 'myapp:latest', '.'], { cwd: projectRoot }),
-  dockerStep('run-container', ['run', '-d', '-p', '8080:8080', 'myapp:latest']),
-]
+from pydantic import BaseModel, Field
 
-await executeSteps(steps, { logger, verbose })
+class CustomFinding(BaseModel):
+    """A single finding from the agent."""
+    
+    file: str = Field(..., description="File path")
+    line: int | None = Field(None, description="Line number")
+    message: str = Field(..., description="Finding message")
+    suggestion: str | None = Field(None, description="Suggested fix")
+
+class CustomResult(BaseModel):
+    """Result from MyCustomAgent."""
+    
+    findings: list[CustomFinding] = Field(default_factory=list)
+    summary: str = Field(..., description="Summary of analysis")
+    success: bool = Field(..., description="Whether execution succeeded")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 ```
 
-### Adding a Domain-Specific Step Type
+### Step 3: Add Tests
 
-To add a reusable workflow pattern that encapsulates prompts and conventions:
+Create tests in `tests/agents/`:
 
-#### 1. Add to an Existing Domain Module or Create New One
+```python
+import pytest
+from maverick.agents.custom import MyCustomAgent
+from maverick.agents.context import AgentContext
+from maverick.config import MaverickConfig
 
-If adding to `src/steps/speckit.mjs`:
-
-```javascript
-/**
- * Create an opencode step that refactors code based on a style guide.
- * 
- * @param {string} styleGuide - Path to style guide document
- * @param {object} opts - Options
- * @param {string} opts.cwd - Working directory
- * @param {string} opts.model - Model to use
- * @returns {object} Step descriptor
- */
-export function opencodeRefactorToStyle(styleGuide, opts = {}) {
-  const { cwd, model = 'github-copilot/claude-sonnet-4.5' } = opts
-  
-  const prompt = [
-    `Read the style guide at ${styleGuide}.`,
-    'Refactor all code in the repository to match the style guide.',
-    'Maintain functionality while improving consistency, readability, and idioms.',
-    'Make incremental commits with descriptive messages.',
-  ].join(' ')
-  
-  const args = ['run', '--model', model, prompt]
-  
-  return makeStep({
-    id: 'opencode-refactor-style',
-    kind: 'opencode-refactor',
-    cmd: 'opencode',
-    args,
-    cwd,
-    label: 'refactor-to-style-guide',
-  })
-}
-```
-
-Or create a new domain module `src/steps/cicd.mjs`:
-
-```javascript
-// steps/cicd.mjs
-import { makeStep } from './core.mjs'
-
-export function terraformPlan(opts = {}) {
-  const { cwd, outFile = 'tfplan' } = opts
-  
-  return makeStep({
-    id: 'terraform-plan',
-    kind: 'terraform-plan',
-    cmd: 'terraform',
-    args: ['plan', '-out', outFile],
-    cwd,
-    label: 'terraform-plan',
-  })
-}
-
-export function terraformApply(opts = {}) {
-  const { cwd, planFile = 'tfplan' } = opts
-  
-  return makeStep({
-    id: 'terraform-apply',
-    kind: 'terraform-apply',
-    cmd: 'terraform',
-    args: ['apply', planFile],
-    cwd,
-    label: 'terraform-apply',
-  })
-}
-```
-
-#### 2. Use in Workflows
-
-```javascript
-import { opencodeRefactorToStyle } from '../steps/speckit.mjs'
-import { terraformPlan, terraformApply } from '../steps/cicd.mjs'
-
-const steps = [
-  opencodeRefactorToStyle('docs/STYLE_GUIDE.md', { cwd: projectRoot }),
-  terraformPlan({ cwd: infraDir }),
-  terraformApply({ cwd: infraDir }),
-]
-
-await executeSteps(steps, { logger, verbose })
-```
-
-**Key principle**: Domain-specific steps should encode "best practices" or "standard patterns" so users don't have to remember complex prompts or flag combinations.
-
-#### When to Use Each Approach
-
-**Use generic steps** when:
-- You need fine-grained control over arguments
-- The command varies significantly across use cases
-- You're prototyping a new workflow pattern
-
-**Use domain-specific steps** when:
-- You have a proven workflow pattern you want to reuse
-- The prompt/arguments follow consistent conventions
-- You want to hide complexity from workflow authors
-
-**Example comparison**:
-
-```javascript
-// Generic approach - full control, more verbose
-import { makeOpencodeStep } from '../steps/opencode.mjs'
-
-const reviewPrompt = [
-  'Perform a standalone, senior-level code review...',
-  'Use spec.md, plan.md, and tasks.md...',
-  // 5+ lines of prompt
-].join(' ')
-
-const step = makeOpencodeStep('review', reviewPrompt, {
-  model: 'github-copilot/claude-sonnet-4.5',
-  cwd: projectRoot,
-  captureTo: 'review.md',
-})
-
-// Domain-specific approach - concise, encapsulates best practices
-import { opencodeReview } from '../steps/speckit.mjs'
-
-const step = opencodeReview({
-  cwd: projectRoot,
-  captureTo: 'review.md',
-  model: 'github-copilot/claude-sonnet-4.5',
-})
-```
-
-## Adding New Workflow Steps
-
-To add a new step to an existing workflow:
-
-### 1. Identify the Appropriate Builder Function
-
-Find the step builder function that constructs the phase you want to modify:
-
-- `buildPhaseSteps()` - Implementation phase steps
-- `buildReviewSteps()` - Review phase steps  
-- `buildFixStep()` - Fix phase step
-
-### 2. Add Your Step to the Builder
-
-Edit the appropriate workflow file (e.g., `src/workflows/default.mjs`):
-
-```javascript
-import { makeShellStep } from '../steps/shell.mjs'
-
-function buildReviewSteps({ projectRoot, outDir, reviewModel, coderabbitPath, reviewPath }) {
-  const steps = []
-  
-  // Existing steps...
-  steps.push(makeCoderabbitStep(...))
-  steps.push(makeOpencodeStep(...))
-  
-  // NEW: Add static analysis step
-  steps.push(
-    makeShellStep(
-      'eslint-analysis',
-      'eslint',
-      ['.', '--format', 'json', '--output-file', path.join(outDir, 'eslint.json')],
-      { cwd: projectRoot, label: 'eslint-static-analysis' }
+@pytest.mark.asyncio
+async def test_custom_agent_success():
+    """Test successful agent execution."""
+    agent = MyCustomAgent()
+    context = AgentContext(
+        branch="feature/test",
+        cwd=Path.cwd(),
+        config=MaverickConfig(),  # Use defaults
     )
-  )
-  
-  return steps
-}
+    
+    result = await agent.execute(context)
+    
+    assert result.success
+    assert isinstance(result.findings, list)
+    assert result.summary
 ```
 
-### 3. Update Workflow Orchestration (If Needed)
+## Creating Custom Workflows
 
-If your new step introduces new dependencies or requires special handling:
+### Option 1: Python Workflow
 
-```javascript
-// In runWorkflow()...
+Create a new workflow in `src/maverick/workflows/`:
 
-// Build and execute review steps (skip if files already exist)
-const reviewSteps = buildReviewSteps({ projectRoot, outDir, reviewModel, coderabbitPath, reviewPath })
+```python
+from __future__ import annotations
 
-for (const step of reviewSteps) {
-  // Custom skip logic for your new step
-  if (step.id === 'eslint-analysis' && await fileExists(path.join(outDir, 'eslint.json'))) {
-    if (verbose) logger('eslint.json exists; skipping eslint analysis')
-    continue
-  }
-  
-  // Check if output file exists (skip if it does)
-  if (step.captureTo && await fileExists(step.captureTo)) {
-    if (verbose) logger(`${step.captureTo} exists; skipping ${step.id}`)
-    continue
-  }
-  
-  await executeStep(step, { logger, verbose })
-  
-  // Sleep after each review step
-  if (verbose) logger(`Waiting ${PHASE_SLEEP_SECONDS}s before next step...`)
-  await new Promise(resolve => setTimeout(resolve, PHASE_SLEEP_SECONDS * 1000))
-}
+from dataclasses import dataclass
+from typing import AsyncGenerator
+
+from pydantic import BaseModel, Field
+
+from maverick.workflows.base import WorkflowEvent
+
+@dataclass(frozen=True)
+class MyWorkflowStarted(WorkflowEvent):
+    """Workflow started event."""
+    total_steps: int
+
+@dataclass(frozen=True)
+class MyWorkflowCompleted(WorkflowEvent):
+    """Workflow completed event."""
+    success: bool
+    summary: str
+
+class MyWorkflowInputs(BaseModel):
+    """Inputs for MyWorkflow."""
+    
+    param1: str = Field(..., description="First parameter")
+    param2: int = Field(default=10, description="Second parameter")
+
+class MyWorkflow:
+    """Custom workflow implementation."""
+    
+    async def execute(
+        self, inputs: MyWorkflowInputs
+    ) -> AsyncGenerator[WorkflowEvent, None]:
+        """Execute the workflow.
+        
+        Args:
+            inputs: Workflow inputs
+            
+        Yields:
+            WorkflowEvent instances for progress tracking
+        """
+        yield MyWorkflowStarted(total_steps=3)
+        
+        # Step 1: Do something
+        yield StepStarted(step_name="step-1")
+        # ... implementation ...
+        yield StepCompleted(step_name="step-1", success=True)
+        
+        # Step 2: Do something else
+        yield StepStarted(step_name="step-2")
+        # ... implementation ...
+        yield StepCompleted(step_name="step-2", success=True)
+        
+        # Final result
+        yield MyWorkflowCompleted(
+            success=True,
+            summary="Workflow completed successfully"
+        )
 ```
 
-## Extending Workflows
+### Option 2: DSL-Based Workflow
 
-To create an entirely new workflow (e.g., for a different use case):
+Create a YAML workflow file in `.maverick/workflows/`:
 
-### 1. Create a New Workflow Function
+```yaml
+name: my-workflow
+version: 1.0.0
+description: Example custom workflow
 
-Create a new file `src/workflows/deployment.mjs`:
-
-```javascript
-import { shellStep, dockerStep } from '../steps/shell.mjs'
-import { executeSteps } from '../steps/core.mjs'
-
-export async function runDeploymentWorkflow({
-  environment,
-  dockerImage,
-  verbose = false,
-  logger = m => console.log(m)
-}) {
-  const steps = [
-    shellStep('git-fetch', 'git', ['fetch', 'origin', 'main']),
-    shellStep('git-checkout', 'git', ['checkout', 'main']),
-    dockerStep('docker-pull', ['pull', dockerImage]),
-    dockerStep('docker-deploy', ['stack', 'deploy', '--compose-file', 'docker-compose.yml', 'myapp']),
-    shellStep('health-check', 'curl', ['-f', `https://${environment}.example.com/health`]),
-  ]
+inputs:
+  branch:
+    type: string
+    required: true
+    description: Branch to process
   
-  await executeSteps(steps, { logger, verbose }, { sleepBetween: 5 })
-}
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: Run without making changes
+
+steps:
+  - name: validate-inputs
+    type: python
+    code: |
+      if not inputs["branch"]:
+          raise ValueError("Branch is required")
+      print(f"Processing branch: {inputs['branch']}")
+  
+  - name: analyze-code
+    type: agent
+    agent: code-analyzer
+    inputs:
+      branch: ${{ inputs.branch }}
+    when: ${{ inputs.dry_run == false }}
+  
+  - name: create-report
+    type: generate
+    template: report-template
+    inputs:
+      findings: ${{ steps.analyze-code.output.findings }}
 ```
 
-### 2. Create a New CLI Entry Point
+Run with:
 
-Add `src/deploy.mjs`:
-
-```javascript
-#!/usr/bin/env node
-import { Listr } from 'listr2'
-import meow from 'meow'
-import { runDeploymentWorkflow } from './workflows/deployment.mjs'
-
-async function main() {
-  const cli = meow(`
-    Usage
-      $ maverick-deploy [environment] [options]
-
-    Options
-      --image, -i        Docker image to deploy
-      --verbose, -v      Enable verbose logging
-  `, {
-    importMeta: import.meta,
-    flags: {
-      image: { type: 'string', shortFlag: 'i' },
-      verbose: { type: 'boolean', shortFlag: 'v', default: false }
-    }
-  })
-
-  const environment = cli.input[0] || 'staging'
-  
-  await runDeploymentWorkflow({
-    environment,
-    dockerImage: cli.flags.image,
-    verbose: cli.flags.verbose,
-    logger: m => console.log(m)
-  })
-}
-
-main().catch(err => {
-  console.error('Deployment failed:', err)
-  process.exit(1)
-})
-```
-
-### 3. Update package.json
-
-```json
-{
-  "bin": {
-    "maverick": "src/workflow.mjs",
-    "maverick-deploy": "src/deploy.mjs"
-  }
-}
+```bash
+maverick workflow run my-workflow -i branch=feature/test
 ```
 
 ## Testing Guidelines
 
-### Unit Testing Step Factories
+Maverick follows a test-first approach with comprehensive test coverage.
 
-Test that step factories produce correct descriptors:
+### Running Tests
 
-```javascript
-import { test } from 'node:test'
-import assert from 'node:assert'
-import { makeShellStep } from '../src/steps/shell.mjs'
+```bash
+# Run all tests
+pytest
 
-test('makeShellStep creates valid descriptor', () => {
-  const step = makeShellStep('test-id', 'echo', ['hello'], { cwd: '/tmp' })
-  
-  assert.equal(step.id, 'test-id')
-  assert.equal(step.kind, 'shell')
-  assert.equal(step.cmd, 'echo')
-  assert.deepEqual(step.args, ['hello'])
-  assert.equal(step.cwd, '/tmp')
-})
+# Run specific test file
+pytest tests/agents/test_code_reviewer.py
+
+# Run with coverage
+pytest --cov=maverick --cov-report=html
+
+# Run only async tests
+pytest -m asyncio
+
+# Run with verbose output
+pytest -vv
+
+# Run fast tests only (skip slow integration tests)
+pytest -m "not slow"
 ```
 
-### Integration Testing Step Execution
+### Writing Tests
 
-Test that steps execute correctly (use mocks for expensive operations):
+#### Unit Tests for Agents
 
-```javascript
-import { executeStep } from '../src/steps/core.mjs'
-import { makeShellStep } from '../src/steps/shell.mjs'
+```python
+import pytest
+from pathlib import Path
+from maverick.agents.code_reviewer import CodeReviewerAgent
+from maverick.agents.context import AgentContext
+from maverick.config import MaverickConfig
 
-test('executeStep runs command with correct context', async () => {
-  const logs = []
-  const step = makeShellStep('test', 'echo', ['test'])
-  
-  await executeStep(step, { 
-    logger: m => logs.push(m), 
-    verbose: true 
-  })
-  
-  assert(logs.some(l => l.includes('Starting step test')))
-})
+@pytest.fixture
+def agent_context():
+    """Create a test agent context."""
+    return AgentContext(
+        branch="test-branch",
+        cwd=Path.cwd(),
+        config=MaverickConfig(),
+    )
+
+@pytest.mark.asyncio
+async def test_code_reviewer_success(agent_context, mocker):
+    """Test successful code review execution."""
+    # Mock Claude SDK
+    mock_client = mocker.patch("maverick.agents.code_reviewer.ClaudeSDKClient")
+    mock_client.return_value.run = mocker.AsyncMock(
+        return_value="Review complete. No issues found."
+    )
+    
+    agent = CodeReviewerAgent()
+    result = await agent.execute(agent_context)
+    
+    assert result.success
+    assert result.files_reviewed >= 0
+    assert result.summary
 ```
 
-### End-to-End Workflow Testing
+#### Integration Tests for Workflows
 
-Create fixture `tasks.md` files and test full workflow execution:
+```python
+@pytest.mark.asyncio
+@pytest.mark.slow
+async def test_fly_workflow_execution(tmp_path):
+    """Test FlyWorkflow execution end-to-end."""
+    # Setup test repository
+    repo_path = tmp_path / "test-repo"
+    repo_path.mkdir()
+    # ... initialize git repo, create tasks.md ...
+    
+    workflow = FlyWorkflow()
+    inputs = FlyInputs(
+        branch_name="test-branch",
+        task_file=repo_path / "tasks.md",
+    )
+    
+    # Collect events
+    events = []
+    async for event in workflow.execute(inputs):
+        events.append(event)
+    
+    # Verify workflow completed
+    assert any(isinstance(e, FlyCompleted) for e in events)
+```
 
-```javascript
-import { runDefaultWorkflow } from '../src/workflows/default.mjs'
+#### TUI Tests
 
-test('runDefaultWorkflow completes all phases', async () => {
-  const result = await runDefaultWorkflow({
-    branch: 'test-branch',
-    phases: mockPhases,
-    tasksPath: './fixtures/test-tasks.md',
-    verbose: false,
-    logger: () => {}
-  })
-  
-  // Assert expected outcomes
-})
+```python
+from textual.pilot import Pilot
+from maverick.tui.app import MaverickApp
+
+@pytest.mark.asyncio
+async def test_tui_home_screen():
+    """Test TUI home screen rendering."""
+    app = MaverickApp()
+    
+    async with app.run_test() as pilot:
+        # Verify initial screen
+        assert app.screen.title == "Maverick"
+        
+        # Simulate user input
+        await pilot.press("q")  # Quit
+        
+        # Verify app closed
+        assert not app.is_running
+```
+
+### Test Organization
+
+```
+tests/
+├── agents/              # Agent tests
+│   ├── test_code_reviewer.py
+│   ├── test_implementer.py
+│   └── test_issue_fixer.py
+├── workflows/           # Workflow tests
+│   ├── test_fly.py
+│   └── test_refuel.py
+├── tools/               # Tool tests
+│   ├── test_github.py
+│   └── test_git.py
+├── tui/                 # TUI tests
+│   ├── test_app.py
+│   └── test_widgets.py
+├── conftest.py          # Shared fixtures
+└── fixtures/            # Test data files
+```
+
+### Mocking External Dependencies
+
+Always mock external dependencies to keep tests fast and deterministic:
+
+```python
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+@pytest.fixture
+def mock_github_cli(mocker):
+    """Mock GitHub CLI commands."""
+    return mocker.patch("subprocess.run")
+
+@pytest.fixture
+def mock_claude_sdk(mocker):
+    """Mock Claude Agent SDK client."""
+    mock = mocker.patch("claude_agent_sdk.ClaudeSDKClient")
+    mock.return_value.run = AsyncMock(return_value="Success")
+    return mock
+
+@pytest.mark.asyncio
+async def test_with_mocks(mock_github_cli, mock_claude_sdk):
+    """Test using mocked dependencies."""
+    # Your test here
+    pass
 ```
 
 ## Code Style
 
-### General Principles
+Maverick follows strict code style guidelines enforced by automated tools.
 
-1. **Pure functions where possible**: Keep Layer 1 (step factories) side-effect-free
-2. **Single Responsibility**: Each function should do one thing well
-3. **Explicit over implicit**: Prefer named parameters over positional when more than 2 args
-4. **Document public APIs**: Use JSDoc for all exported functions
-5. **Error handling**: Let errors bubble up; handle at orchestration layer
+### Style Rules
+
+| Aspect | Convention | Example |
+|--------|-----------|---------|
+| Line Length | 88 characters (Black compatible) | - |
+| Imports | Sorted with isort (groups: stdlib, third-party, first-party) | - |
+| Quotes | Double quotes for strings | `"hello world"` |
+| Type Hints | Required for all public functions | `def foo(x: int) -> str:` |
+| Docstrings | Google style, required for public APIs | See below |
+| Naming | See naming conventions table | - |
 
 ### Naming Conventions
 
-- **Step factories**: `make*Step` (e.g., `makeShellStep`)
-- **DSL helpers**: `*Step` (e.g., `shellStep`)
-- **Execution functions**: `execute*` or `run*` (e.g., `executeStep`, `runWorkflow`)
-- **Builder functions**: `build*Steps` (e.g., `buildPhaseSteps`)
-- **Internal helpers**: Plain descriptive names (e.g., `fileExists`, `parsePhases`)
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Classes | PascalCase | `CodeReviewerAgent`, `FlyWorkflow` |
+| Functions | snake_case | `execute_review`, `create_pr` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT` |
+| Private | Leading underscore | `_build_prompt`, `_validate` |
+| Type Aliases | PascalCase | `AgentResult`, `WorkflowEvent` |
 
-### File Organization
+### Docstring Format
 
-**`src/steps/core.mjs`**:
-- Step descriptor factory (`makeStep`)
-- Step execution (`executeStep`, `executeSteps`)
-- Execution primitives (`run`, `runAndCapture`, `runWithProgress`)
+Use Google-style docstrings for all public classes and functions:
 
-**`src/steps/shell.mjs`**:
-- `makeShellStep`, `shellStep`
-
-**`src/steps/opencode.mjs`**:
-- `makeOpencodeStep`, `opencodeStep`
-
-**`src/steps/coderabbit.mjs`**:
-- `makeCoderabbitStep`, `coderabbitStep`
-
-**`src/steps/speckit.mjs`** (domain-specific workflow steps):
-- `opencodeImplementPhase` - Implement tasks for a specific phase
-- `coderabbitReview` - CodeRabbit review with --prompt-only
-- `opencodeReview` - Opencode senior-level code review
-- `opencodeFix` - Address issues from review feedback
-
-**`src/tasks/markdown.mjs`**:
-- `parsePhases` - Parse markdown task files
-- `fileExists` - Check file existence
-- Internal helpers for task extraction and counting
-
-**`src/workflows/default.mjs`**:
-- Constants (`PHASE_SLEEP_SECONDS`)
-- Step builders (`buildPhaseSteps`, `buildReviewSteps`, `buildFixStep`)
-- Workflow orchestration (`runDefaultWorkflow`)
-
-**`src/workflow.mjs`** (CLI entry point):
-- CLI argument parsing with `meow`
-- Task list setup with Listr2
-- Workflow invocation
-
-### JSDoc Standards
-
-All exported functions must have JSDoc comments:
-
-```javascript
-/**
- * Create a shell command step descriptor.
- * @param {string} id - Unique step identifier
- * @param {string} cmd - Command executable
- * @param {string[]} args - Command arguments
- * @param {object} opts - Additional options (cwd, env, label, captureTo)
- * @returns {object} Step descriptor
- */
-export function makeShellStep(id, cmd, args = [], opts = {}) {
-  // ...
-}
+```python
+def execute_task(
+    task_id: str,
+    config: TaskConfig,
+    timeout: int = 300,
+) -> TaskResult:
+    """Execute a single task with the given configuration.
+    
+    This function orchestrates the execution of a task by:
+    1. Validating the task ID exists
+    2. Loading task configuration
+    3. Running the task with the specified agent
+    4. Collecting and structuring results
+    
+    Args:
+        task_id: Unique identifier for the task to execute. Must be
+            a valid task ID from the project's task registry.
+        config: Configuration object containing execution parameters
+            such as timeout, retry policy, and agent selection.
+        timeout: Maximum execution time in seconds. Defaults to 300.
+            If exceeded, the task is terminated and marked as failed.
+    
+    Returns:
+        TaskResult containing:
+            - success: Whether the task completed successfully
+            - output: Task output data
+            - duration: Execution time in milliseconds
+            - error: Error message if failed (None otherwise)
+    
+    Raises:
+        TaskNotFoundError: If the task_id does not exist in the registry.
+        ExecutionError: If the task fails during execution.
+        TimeoutError: If execution exceeds the timeout limit.
+    
+    Example:
+        >>> config = TaskConfig(agent="implementer", retry=3)
+        >>> result = execute_task("TASK-123", config, timeout=600)
+        >>> if result.success:
+        ...     print(f"Task completed in {result.duration}ms")
+    """
+    # Implementation here
+    pass
 ```
 
-## Questions?
+### Import Organization
 
-If you have questions or need clarification on any of these patterns:
+Organize imports in this order:
 
-1. Check the existing code for examples
-2. Look at how similar step types are implemented
-3. Open an issue for discussion
+```python
+# Future imports (first)
+from __future__ import annotations
 
-Thank you for contributing to Maverick!
+# Standard library imports
+import asyncio
+import logging
+from pathlib import Path
+from typing import Any, AsyncGenerator
+
+# Third-party imports
+import click
+from pydantic import BaseModel, Field
+from claude_agent_sdk import ClaudeSDKClient
+
+# First-party imports (maverick modules)
+from maverick.agents.base import MaverickAgent
+from maverick.config import MaverickConfig
+from maverick.exceptions import AgentError
+```
+
+### Type Hints
+
+Complete type hints are mandatory:
+
+```python
+from __future__ import annotations
+
+from typing import Any, AsyncGenerator, Protocol
+
+# Good: Complete type hints
+async def process_items(
+    items: list[str],
+    config: dict[str, Any],
+) -> AsyncGenerator[str, None]:
+    """Process items asynchronously."""
+    for item in items:
+        yield item
+
+# Good: Use Protocol for interfaces
+class AgentProtocol(Protocol):
+    """Protocol for agent implementations."""
+    
+    async def execute(self, context: AgentContext) -> AgentResult:
+        """Execute the agent."""
+        ...
+
+# Good: Use TypeAlias for complex types
+EventStream: TypeAlias = AsyncGenerator[WorkflowEvent, None]
+```
+
+### Code Quality Tools
+
+Run these before committing:
+
+```bash
+# Format code
+ruff format .
+
+# Check linting
+ruff check .
+
+# Auto-fix linting issues
+ruff check --fix .
+
+# Type checking
+mypy src/maverick
+
+# Run all checks
+ruff format . && ruff check --fix . && mypy src/maverick && pytest
+```
+
+### Pre-commit Hook (Optional)
+
+Add a `.git/hooks/pre-commit` script:
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Running pre-commit checks..."
+
+# Format
+echo "→ Formatting code..."
+ruff format .
+
+# Lint
+echo "→ Linting..."
+ruff check --fix .
+
+# Type check
+echo "→ Type checking..."
+mypy src/maverick
+
+# Test
+echo "→ Running tests..."
+pytest -x --tb=short
+
+echo "✓ All checks passed!"
+```
+
+Make it executable:
+```bash
+chmod +x .git/hooks/pre-commit
+```
+
+## Pull Request Process
+
+### Before Opening a PR
+
+1. **Create a feature branch** from `main`:
+   ```bash
+   git checkout -b feature/my-feature
+   ```
+
+2. **Make focused changes**: Keep PRs small and focused on a single feature/fix
+
+3. **Add tests**: All new code must have tests
+
+4. **Run all checks**:
+   ```bash
+   ruff format . && ruff check --fix . && mypy src/maverick && pytest
+   ```
+
+5. **Update documentation**: If adding features, update README.md and CONTRIBUTING.md
+
+6. **Commit with clear messages**:
+   ```bash
+   git commit -m "Add code review agent with retry logic"
+   ```
+
+### PR Guidelines
+
+- **Title**: Clear, descriptive summary (e.g., "Add parallel task execution to FlyWorkflow")
+- **Description**: Explain what and why (not how - that's in the code)
+- **Link issues**: Reference related issues with "Fixes #123" or "Relates to #456"
+- **Request review**: Tag relevant reviewers
+
+### PR Description Template
+
+```markdown
+## Summary
+Brief description of changes.
+
+## Motivation
+Why is this change needed? What problem does it solve?
+
+## Changes
+- Added X feature
+- Fixed Y bug
+- Refactored Z component
+
+## Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests pass
+- [ ] Manual testing completed
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] All tests pass
+- [ ] Documentation updated
+- [ ] No new warnings from linter/type checker
+```
+
+### Review Process
+
+1. **Automated checks**: CI runs tests, linting, type checking
+2. **Code review**: At least one approval required
+3. **Address feedback**: Make requested changes
+4. **Squash and merge**: Keep main branch history clean
+
+### Constitution Compliance
+
+All PRs are reviewed for compliance with [.specify/memory/constitution.md](.specify/memory/constitution.md).
+
+Key points:
+- ✅ Async-first design
+- ✅ Proper separation of concerns (Agents/Workflows/TUI/Tools)
+- ✅ Dependency injection
+- ✅ Graceful error handling with retries
+- ✅ Complete type hints
+- ✅ Tests for all new code
+
+## Getting Help
+
+- **Questions**: Open a discussion on GitHub
+- **Bugs**: Open an issue with reproduction steps
+- **Features**: Open an issue describing the use case
+- **Architecture**: Read [.specify/memory/constitution.md](.specify/memory/constitution.md)
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.
