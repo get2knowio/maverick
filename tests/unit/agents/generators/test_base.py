@@ -70,20 +70,26 @@ class TestGeneratorAgentConstruction:
 class TestGeneratorAgentProperties:
     """Tests for GeneratorAgent property immutability."""
 
-    def test_name_property_is_immutable(self) -> None:
-        """Test that name property returns the set value."""
+    def test_name_property_is_read_only(self) -> None:
+        """Test that name property cannot be set."""
         generator = ConcreteGenerator(name="test-name")
         assert generator.name == "test-name"
+        with pytest.raises(AttributeError):
+            generator.name = "new-name"  # type: ignore[misc]
 
-    def test_system_prompt_property_is_immutable(self) -> None:
-        """Test that system_prompt property returns the set value."""
+    def test_system_prompt_property_is_read_only(self) -> None:
+        """Test that system_prompt property cannot be set."""
         generator = ConcreteGenerator(system_prompt="Test prompt.")
         assert generator.system_prompt == "Test prompt."
+        with pytest.raises(AttributeError):
+            generator.system_prompt = "New prompt"  # type: ignore[misc]
 
-    def test_model_property_is_immutable(self) -> None:
-        """Test that model property returns the set value."""
+    def test_model_property_is_read_only(self) -> None:
+        """Test that model property cannot be set."""
         generator = ConcreteGenerator(model="custom-model")
         assert generator.model == "custom-model"
+        with pytest.raises(AttributeError):
+            generator.model = "new-model"  # type: ignore[misc]
 
 
 class TestTruncateInput:

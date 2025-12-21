@@ -91,7 +91,7 @@ Workflows need to fit context within token limits while preserving the most impo
 
 - What happens when a file path in the context doesn't exist? Return empty content with metadata indicating the file was missing.
 - How does the system handle binary files in changed_files? Skip binary files and note them in metadata.
-- What happens when git operations fail? Propagate the error from GitOperations; context builders don't handle git failures.
+- What happens when git operations fail? Handle git errors gracefully by logging a warning and returning default values (empty strings, empty lists). This ensures workflows can continue with partial context rather than failing entirely.
 - How are very long lines handled? Lines exceeding 2000 characters are truncated with "..." appended.
 - What happens when truncation removes all meaningful content? Include minimum context (first/last N lines) and clearly indicate severe truncation in metadata.
 

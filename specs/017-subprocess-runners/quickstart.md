@@ -107,24 +107,24 @@ async def main():
     stages = [
         ValidationStage(
             name="format",
-            command=["ruff", "format", "--check", "."],
+            command=("ruff", "format", "--check", "."),
             fixable=True,
-            fix_command=["ruff", "format", "."],
+            fix_command=("ruff", "format", "."),
         ),
         ValidationStage(
             name="lint",
-            command=["ruff", "check", "."],
+            command=("ruff", "check", "."),
             fixable=True,
-            fix_command=["ruff", "check", "--fix", "."],
+            fix_command=("ruff", "check", "--fix", "."),
         ),
         ValidationStage(
             name="typecheck",
-            command=["mypy", "src/"],
+            command=("mypy", "src/"),
             fixable=False,  # Type errors need manual fixing
         ),
         ValidationStage(
             name="test",
-            command=["pytest", "tests/"],
+            command=("pytest", "tests/"),
             timeout_seconds=600.0,  # Tests may take longer
         ),
     ]
