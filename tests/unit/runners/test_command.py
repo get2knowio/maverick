@@ -93,21 +93,6 @@ class TestCommandRunner:
             mock_process.terminate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_command_not_found(self) -> None:
-        """Test handling of command not found.
-
-        T023: Verify error handling when the command executable doesn't exist.
-        The runner should handle FileNotFoundError gracefully and return
-        a result with non-zero returncode and success=False.
-        """
-        # Real behavior when command doesn't exist
-        runner = CommandRunner()
-        result = await runner.run(["nonexistent_command_xyz_123"])
-
-        assert result.returncode != 0
-        assert not result.success
-
-    @pytest.mark.asyncio
     async def test_working_directory_validation(self) -> None:
         """Test WorkingDirectoryError raised for missing directory.
 
@@ -440,3 +425,48 @@ class TestCommandRunner:
             assert result.success
             # Verify the full output is available
             assert len(result.stdout.split("\n")) == num_lines
+
+    @pytest.mark.asyncio
+    async def test_wait_reports_timeout_from_stream(self, mock_process: MagicMock) -> None:
+        """Test wait() reports timeout state from stream()."""
+        mock_process.stdout = AsyncMock()
+        mock_process.stdout.readline.return_value = b""
+        mock_process.stderr = AsyncMock()
+        mock_process.stderr.readline.return_value = b""
+        mock_process.wait = AsyncMock()
+        mock_process.terminate = MagicMock()
+        mock_process.kill = MagicMock()
+
+        # We need the timeout monitor to actually run and set the flag
+        # So we don't mock sleep, but use a very short timeout
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
+            runner = CommandRunner(timeout=0.01)
+            # Make the stream task "hang" slightly longer than timeout
+            async def delayed_readline():
+                await asyncio.sleep(0.05)
+                return b""
+            mock_process.stdout.readline.side_effect = delayed_readline
+            
+            async for _ in runner.stream(["long", "command"]):
+                pass
+
+            result = await runner.wait()
+            # If timing is tricky, we can force the internal state for this unit test
+            # but ideally the integration logic holds.
+            # Let's trust the loop.
+            assert result.timed_out is True
+
+    @pytest.mark.asyncio
+    async def test_run_raises_command_not_found_error(self) -> None:
+        """Test run() raises CommandNotFoundError when command not found."""
+        from maverick.exceptions import CommandNotFoundError
+
+        # We must mock create_subprocess_exec to raise FileNotFoundError
+        # because "nonexistent_command" might not actually be run if we rely on system
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+            runner = CommandRunner()
+            with pytest.raises(CommandNotFoundError) as exc_info:
+                await runner.run(["nonexistent_command"])
+
+            assert "nonexistent_command" in str(exc_info.value)
+            assert exc_info.value.executable == "nonexistent_command"

@@ -167,12 +167,7 @@ def mock_github_issue() -> MagicMock:
 def temp_task_file(tmp_path: Path) -> Path:
     """Create a temporary task file."""
     task_file = tmp_path / "tasks.md"
-    task_file.write_text("""# Tasks
-
-- [ ] T001 Create module
-- [ ] T002 Add tests
-- [x] T003 Write docs
-""")
+    task_file.write_text("# Tasks\n\n- [ ] T001 Create module\n- [ ] T002 Add tests\n- [x] T003 Write docs\n")
     return task_file
 
 
@@ -180,17 +175,7 @@ def temp_task_file(tmp_path: Path) -> Path:
 def temp_conventions_file(tmp_path: Path) -> Path:
     """Create a temporary CLAUDE.md file."""
     conventions = tmp_path / "CLAUDE.md"
-    conventions.write_text("""# CLAUDE.md
-
-## Project Overview
-
-This is a test project.
-
-## Code Style
-
-- Use snake_case for functions
-- Use PascalCase for classes
-""")
+    conventions.write_text("# CLAUDE.md\n\n## Project Overview\n\nThis is a test project.\n\n## Code Style\n\n- Use snake_case for functions\n- Use PascalCase for classes\n")
     return conventions
 
 
@@ -245,6 +230,17 @@ class TestReadFileSafely:
             assert truncated is False
         finally:
             file_path.chmod(0o644)  # Restore for cleanup
+
+    def test_read_file_safely_os_error_on_binary_check(self, tmp_path: Path) -> None:
+        """Test _read_file_safely handles OSError during binary check."""
+        file_path = tmp_path / "error_read.txt"
+        file_path.write_text("content")
+
+        with patch("pathlib.Path.open") as mock_open:
+            mock_open.side_effect = OSError("Access denied")
+            content, truncated = _read_file_safely(file_path)
+            assert content == ""
+            assert truncated is False
 
 
 # =============================================================================
@@ -416,6 +412,27 @@ class TestTruncateFile:
         assert "..." in result
         result_lines = result.splitlines()
         assert len([l for l in result_lines if not l.startswith("...")]) <= 15
+
+    def test_truncate_file_window_scaling(self) -> None:
+        """Test window scaling when requested context exceeds budget."""
+        content = "\n".join(f"line {i}" for i in range(1, 101))
+        
+        # Request context around 3 points that would exceed max_lines
+        # 3 * (10 + 10 + 1) = 63 lines if context_lines=10
+        # Budget is 15 lines -> scaling forced
+        result = truncate_file(
+            content,
+            max_lines=15,
+            around_lines=[20, 50, 80],
+            context_lines=10,
+        )
+        
+        assert "line 20" in result
+        assert "line 50" in result
+        assert "line 80" in result
+        # Check that we didn't get full context
+        assert "line 15" not in result
+        assert "line 25" not in result
 
 
 # =============================================================================
@@ -708,6 +725,18 @@ class TestBuildReviewContext:
         # The implementation reads with errors='replace' so it won't crash
         assert "_metadata" in context
 
+    def test_build_review_context_git_errors(self) -> None:
+        """Test graceful handling of git errors in build_review_context."""
+        mock_git = MagicMock()
+        mock_git.diff.side_effect = RuntimeError("Git diff failed")
+        mock_git.diff_stats.side_effect = RuntimeError("Git stats failed")
+
+        context = build_review_context(mock_git, "main")
+
+        assert context["diff"] == ""
+        assert context["stats"] == {}
+        assert context["changed_files"] == {}
+
 
 # =============================================================================
 # Tests: build_fix_context (T034-T042)
@@ -849,6 +878,29 @@ class TestBuildFixContext:
         assert "line 48" in file_content
         assert "line 52" in file_content
 
+    def test_build_fix_context_read_errors(self, tmp_path: Path) -> None:
+        """Test error handling when reading files in build_fix_context."""
+        source_file = tmp_path / "error.py"
+        
+        validation = MagicMock()
+        validation.success = False
+        validation.stages = [
+            MockStageResult(
+                stage_name="ruff",
+                passed=False,
+                output="error",
+                duration_ms=10,
+                errors=(
+                    MockParsedError(file=str(source_file), line=1, message="Err"),
+                ),
+            )
+        ]
+
+        # Mock read failure
+        with patch("maverick.utils.context._read_file_safely", return_value=("", False)):
+            context = build_fix_context(validation, [source_file])
+            assert str(source_file) not in context["source_files"]
+
 
 # =============================================================================
 # Tests: build_issue_context (T043-T052)
@@ -939,6 +991,18 @@ class TestBuildIssueContext:
         context = build_issue_context(issue=issue, git=mock_git)
 
         assert context["related_files"] == {}
+
+    def test_build_issue_context_git_errors(
+        self,
+        mock_github_issue: MagicMock,
+    ) -> None:
+        """Test git error handling in build_issue_context."""
+        mock_git = MagicMock()
+        mock_git.log.side_effect = RuntimeError("Git log failed")
+
+        context = build_issue_context(mock_github_issue, mock_git)
+
+        assert context["recent_changes"] == []
 
 
 # =============================================================================

@@ -555,6 +555,7 @@ def build_review_context(
         changed_file_list = list(diff_stats.file_list)
     except (OSError, RuntimeError, ValueError) as e:
         logger.warning("Failed to get diff stats: %s", e)
+        stats_dict = {}  # Reset to empty on error
 
     # Read changed files
     changed_files: dict[str, str] = {}
