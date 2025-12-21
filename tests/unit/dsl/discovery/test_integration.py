@@ -168,6 +168,8 @@ def test_load_workflows_into_empty_registry() -> None:
 
 def test_load_workflows_no_duplicates() -> None:
     """Test that loading workflows doesn't create duplicates."""
+    from maverick.dsl.serialization.errors import DuplicateComponentError
+    
     registry = ComponentRegistry()
     
     # Load workflows once
@@ -176,7 +178,7 @@ def test_load_workflows_no_duplicates() -> None:
     
     # Loading again should raise error due to duplicate registration
     # (ComponentRegistry doesn't allow re-registering the same name)
-    with pytest.raises(Exception):  # DuplicateComponentError
+    with pytest.raises(DuplicateComponentError):
         load_workflows_into_registry(registry)
 
 
@@ -208,6 +210,7 @@ def test_load_workflows_with_project_fragment_override(
     fragments_dir.mkdir(parents=True)
     
     # Create custom fragment that might override a builtin
+    # Note: File uses underscores, workflow name uses hyphens (established convention)
     custom_fragment_yaml = sample_fragment_yaml.replace(
         "test-fragment", "commit-and-push"
     ).replace(
