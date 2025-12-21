@@ -12,8 +12,6 @@ These tests use mocking to isolate step execution logic from actual implementati
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from maverick.dsl.serialization import (
@@ -28,9 +26,7 @@ from maverick.dsl.serialization import (
     WorkflowFile,
     WorkflowFileExecutor,
 )
-from maverick.dsl.serialization.errors import ReferenceResolutionError
 from maverick.dsl.types import StepType
-
 
 # =============================================================================
 # Fixtures
@@ -1147,6 +1143,222 @@ class TestParallelStepExecution:
         assert len(result.final_output["results"]) == 2
         assert "sync" in result.final_output["results"]
         assert "async" in result.final_output["results"]
+
+    @pytest.mark.asyncio
+    async def test_parallel_step_with_for_each(self, registry):
+        """Test parallel step with for_each iteration."""
+
+        @registry.actions.register("process_item")
+        async def process_item(item):
+            return f"processed_{item}"
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="parallel-for-each-workflow",
+            steps=[
+                ParallelStepRecord(
+                    name="process_items",
+                    type=StepType.PARALLEL,
+                    for_each="${{ inputs.items }}",
+                    steps=[
+                        PythonStepRecord(
+                            name="process",
+                            type=StepType.PYTHON,
+                            action="process_item",
+                            kwargs={"item": "${{ inputs.item }}"},
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        async for _ in executor.execute(workflow, inputs={"items": ["a", "b", "c"]}):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        # for_each creates one iteration per item
+        assert "results" in result.final_output
+        assert len(result.final_output["results"]) == 3
+        # Each iteration returns a list with results from its steps
+        for iteration_result in result.final_output["results"]:
+            assert isinstance(iteration_result, (list, tuple))
+            assert len(iteration_result) == 1  # One step per iteration
+
+    @pytest.mark.asyncio
+    async def test_parallel_step_for_each_with_multiple_steps(self, registry):
+        """Test parallel step with for_each executing multiple steps per iteration."""
+
+        @registry.actions.register("double")
+        async def double(value):
+            return value * 2
+
+        @registry.actions.register("square")
+        async def square(value):
+            return value ** 2
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="parallel-multi-step-for-each",
+            steps=[
+                ParallelStepRecord(
+                    name="process_numbers",
+                    type=StepType.PARALLEL,
+                    for_each="${{ inputs.numbers }}",
+                    steps=[
+                        PythonStepRecord(
+                            name="double_it",
+                            type=StepType.PYTHON,
+                            action="double",
+                            kwargs={"value": "${{ inputs.item }}"},
+                        ),
+                        PythonStepRecord(
+                            name="square_it",
+                            type=StepType.PYTHON,
+                            action="square",
+                            kwargs={"value": "${{ inputs.item }}"},
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        async for _ in executor.execute(workflow, inputs={"numbers": [2, 3, 4]}):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        assert len(result.final_output["results"]) == 3
+        # Each iteration has 2 steps (double and square)
+        for iteration_result in result.final_output["results"]:
+            assert len(iteration_result) == 2
+
+    @pytest.mark.asyncio
+    async def test_parallel_step_for_each_empty_list(self, registry):
+        """Test parallel step with for_each on empty list."""
+
+        @registry.actions.register("process_item")
+        async def process_item(item):
+            return f"processed_{item}"
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="parallel-empty-for-each",
+            steps=[
+                ParallelStepRecord(
+                    name="process_items",
+                    type=StepType.PARALLEL,
+                    for_each="${{ inputs.items }}",
+                    steps=[
+                        PythonStepRecord(
+                            name="process",
+                            type=StepType.PYTHON,
+                            action="process_item",
+                            kwargs={"item": "${{ inputs.item }}"},
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        async for _ in executor.execute(workflow, inputs={"items": []}):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        # Empty list means no iterations
+        assert result.final_output["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_parallel_step_for_each_invalid_expression(self, registry):
+        """Test parallel step with for_each that evaluates to non-list."""
+
+        @registry.actions.register("process_item")
+        async def process_item(item):
+            return f"processed_{item}"
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="parallel-invalid-for-each",
+            steps=[
+                ParallelStepRecord(
+                    name="process_items",
+                    type=StepType.PARALLEL,
+                    for_each="${{ inputs.not_a_list }}",
+                    steps=[
+                        PythonStepRecord(
+                            name="process",
+                            type=StepType.PYTHON,
+                            action="process_item",
+                            kwargs={"item": "${{ inputs.item }}"},
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        async for _ in executor.execute(workflow, inputs={"not_a_list": "string"}):
+            pass
+
+        result = executor.get_result()
+        # Should fail because for_each expects a list
+        assert result.success is False
+        assert "must evaluate to a list or tuple" in result.step_results[0].error
+
+    @pytest.mark.asyncio
+    async def test_parallel_step_for_each_with_exception(self, registry):
+        """Test parallel step with for_each when one iteration fails."""
+
+        @registry.actions.register("maybe_fail")
+        async def maybe_fail(item):
+            if item == "bad":
+                raise ValueError("Bad item!")
+            return f"ok_{item}"
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="parallel-for-each-with-error",
+            steps=[
+                ParallelStepRecord(
+                    name="process_items",
+                    type=StepType.PARALLEL,
+                    for_each="${{ inputs.items }}",
+                    steps=[
+                        PythonStepRecord(
+                            name="process",
+                            type=StepType.PYTHON,
+                            action="maybe_fail",
+                            kwargs={"item": "${{ inputs.item }}"},
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        async for _ in executor.execute(workflow, inputs={"items": ["good", "bad", "also_good"]}):
+            pass
+
+        result = executor.get_result()
+        # Parallel step uses return_exceptions=True, so it completes
+        assert result.success is True
+        assert len(result.final_output["results"]) == 3
+        # Check that one iteration has an exception
+        has_exception = False
+        for iteration_result in result.final_output["results"]:
+            if isinstance(iteration_result, Exception):
+                has_exception = True
+                break
+            # iteration_result is a list of step results
+            for step_result in iteration_result:
+                if isinstance(step_result, Exception):
+                    has_exception = True
+                    break
+        assert has_exception
 
 
 # =============================================================================
