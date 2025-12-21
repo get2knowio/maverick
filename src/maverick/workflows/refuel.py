@@ -12,12 +12,26 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from maverick.agents.result import AgentUsage
+from maverick.dsl.events import (
+    ProgressEvent,
+    StepCompleted as DslStepCompleted,
+    StepStarted as DslStepStarted,
+    WorkflowCompleted as DslWorkflowCompleted,
+    WorkflowStarted as DslWorkflowStarted,
+)
+from maverick.dsl.results import WorkflowResult
+from maverick.dsl.serialization.executor import WorkflowFileExecutor
+from maverick.dsl.serialization.parser import parse_workflow
+from maverick.dsl.serialization.registry import ComponentRegistry
+from maverick.library.builtins import create_builtin_library
 
 if TYPE_CHECKING:
     from maverick.agents.generators.commit_message import CommitMessageGenerator
@@ -33,6 +47,7 @@ __all__ = [
     # Data structures
     "GitHubIssue",
     "IssueStatus",
+    "RefuelStepName",
     "RefuelInputs",
     "IssueProcessingResult",
     "RefuelResult",
@@ -86,6 +101,21 @@ class IssueStatus(str, Enum):
     FIXED = "fixed"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class RefuelStepName(str, Enum):
+    """DSL step names used in refuel workflow.
+
+    These constants map to step names in refuel.yaml and are used
+    for translating DSL events to RefuelProgressEvent types.
+
+    Values:
+        FETCH_ISSUES: Fetch issues from GitHub by label.
+        PROCESS_ISSUE: Process a single issue (create branch, fix, validate, commit, PR).
+    """
+
+    FETCH_ISSUES = "fetch_issues"
+    PROCESS_ISSUE = "process_issue"
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +326,7 @@ class RefuelWorkflow:
     def __init__(
         self,
         config: RefuelConfig | None = None,
+        registry: ComponentRegistry | None = None,
         git_runner: GitRunner | None = None,
         github_runner: GitHubCLIRunner | None = None,
         validation_runner: ValidationRunner | None = None,
@@ -306,6 +337,7 @@ class RefuelWorkflow:
 
         Args:
             config: Optional workflow configuration. Uses defaults if None.
+            registry: Component registry for DSL execution.
             git_runner: Git operations runner (injected for testing).
             github_runner: GitHub CLI runner (injected for testing).
             validation_runner: Validation runner (injected for testing).
@@ -313,11 +345,175 @@ class RefuelWorkflow:
             commit_generator: Commit message generator (injected for testing).
         """
         self._config = config or RefuelConfig()
+        self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
         self._github_runner = github_runner
         self._validation_runner = validation_runner
         self._issue_fixer_agent = issue_fixer_agent
         self._commit_generator = commit_generator
+
+        # DSL executor
+        self._executor: WorkflowFileExecutor | None = None
+        self._use_dsl = False  # Flag to enable DSL execution
+
+    def enable_dsl_execution(self) -> None:
+        """Enable DSL-based workflow execution.
+
+        When enabled, the workflow will use the WorkflowFileExecutor to execute
+        the refuel.yaml workflow definition instead of the legacy Python implementation.
+        """
+        self._use_dsl = True
+
+    # NOTE: The following methods (_load_workflow, _translate_event, _build_*_result)
+    # share common patterns with fly.py. Future refactoring could extract shared logic
+    # into a base class or helper module (e.g., WorkflowDSLMixin or dsl_utils.py).
+    # However, each workflow has unique event types and step mappings, so extraction
+    # should preserve type safety and avoid over-abstraction.
+
+    def _load_workflow(self, workflow_name: str) -> Any:
+        """Load workflow file from built-in library.
+
+        Args:
+            workflow_name: Name of the workflow to load (e.g., "refuel").
+
+        Returns:
+            Parsed WorkflowFile instance.
+
+        Raises:
+            KeyError: If workflow name is not a built-in.
+            WorkflowParseError: If workflow file is invalid.
+        """
+        # Use builtin library to load workflow
+        builtin_lib = create_builtin_library()
+        return builtin_lib.get_workflow(workflow_name)
+
+    def _translate_event(self, event: ProgressEvent) -> RefuelProgressEvent | None:
+        """Translate DSL progress events to RefuelProgressEvent types.
+
+        Maps DSL events to corresponding Refuel workflow events based on step metadata
+        and event types. Returns None for events that don't map to Refuel events.
+
+        Note:
+            When mapping step events in the future, use RefuelStepName constants
+            instead of string literals. Example:
+                if event.step_name == RefuelStepName.FETCH_ISSUES.value:
+                    # Handle fetch_issues step
+                elif event.step_name == RefuelStepName.PROCESS_ISSUE.value:
+                    # Handle process_issue step
+
+        Args:
+            event: DSL ProgressEvent from WorkflowFileExecutor.
+
+        Returns:
+            Corresponding RefuelProgressEvent, or None if no mapping exists.
+        """
+        # Map DSL WorkflowStarted to RefuelStarted
+        if isinstance(event, DslWorkflowStarted):
+            # Extract inputs from DSL event
+            refuel_inputs = RefuelInputs(
+                label=event.inputs.get("label", "tech-debt"),
+                limit=event.inputs.get("limit", 5),
+                parallel=event.inputs.get("parallel", True),
+                dry_run=event.inputs.get("dry_run", False),
+                auto_assign=event.inputs.get("auto_assign", True),
+            )
+            # Note: We don't know issues_found yet at workflow start, will be set to 0
+            # and updated when RefuelStepName.FETCH_ISSUES step completes
+            return RefuelStarted(inputs=refuel_inputs, issues_found=0)
+
+        # Map DSL StepStarted to IssueProcessingStarted (for process_issue steps)
+        elif isinstance(event, DslStepStarted):
+            # We could track issue processing if we add metadata to steps
+            # For now, return None as we'll handle this in the executor
+            # Future: Check if event.step_name == RefuelStepName.PROCESS_ISSUE.value
+            return None
+
+        # Map DSL StepCompleted to IssueProcessingCompleted (for process_issue steps)
+        elif isinstance(event, DslStepCompleted):
+            # Similar to StepStarted, this would require step metadata
+            # Future: Check if event.step_name == RefuelStepName.PROCESS_ISSUE.value
+            return None
+
+        # WorkflowCompleted is handled separately in execute()
+        return None
+
+    def _build_refuel_result(self, workflow_result: WorkflowResult) -> RefuelResult:
+        """Build RefuelResult from DSL WorkflowResult.
+
+        Extracts relevant information from the DSL workflow result and constructs
+        a RefuelResult with appropriate aggregations and metadata.
+
+        Args:
+            workflow_result: WorkflowResult from DSL execution.
+
+        Returns:
+            RefuelResult instance with workflow outcome.
+        """
+        # Extract results from workflow output
+        # The DSL workflow should set these in its output
+        output = workflow_result.final_output or {}
+
+        # Get per-issue results if available
+        results_data = output.get("results", [])
+        results: list[IssueProcessingResult] = []
+
+        # Convert output data to IssueProcessingResult instances
+        # This assumes the workflow output includes structured result data
+        for result_data in results_data:
+            if isinstance(result_data, dict):
+                # Reconstruct GitHubIssue
+                issue_data = result_data.get("issue", {})
+                issue = GitHubIssue(
+                    number=issue_data.get("number", 0),
+                    title=issue_data.get("title", ""),
+                    body=issue_data.get("body"),
+                    labels=issue_data.get("labels", []),
+                    assignee=issue_data.get("assignee"),
+                    url=issue_data.get("url", ""),
+                )
+
+                # Reconstruct AgentUsage
+                usage_data = result_data.get("agent_usage", {})
+                agent_usage = AgentUsage(
+                    input_tokens=usage_data.get("input_tokens", 0),
+                    output_tokens=usage_data.get("output_tokens", 0),
+                    total_cost_usd=usage_data.get("total_cost_usd", 0.0),
+                    duration_ms=usage_data.get("duration_ms", 0),
+                )
+
+                # Create result
+                result = IssueProcessingResult(
+                    issue=issue,
+                    status=IssueStatus(result_data.get("status", "pending")),
+                    branch=result_data.get("branch"),
+                    pr_url=result_data.get("pr_url"),
+                    error=result_data.get("error"),
+                    duration_ms=result_data.get("duration_ms", 0),
+                    agent_usage=agent_usage,
+                )
+                results.append(result)
+
+        # Compute aggregations
+        issues_found = output.get("issues_found", len(results))
+        issues_fixed = sum(1 for r in results if r.status == IssueStatus.FIXED)
+        issues_failed = sum(1 for r in results if r.status == IssueStatus.FAILED)
+        issues_skipped = sum(1 for r in results if r.status == IssueStatus.SKIPPED)
+        issues_processed = issues_fixed + issues_failed
+
+        total_duration_ms = output.get("total_duration_ms", workflow_result.total_duration_ms)
+        total_cost_usd = sum(r.agent_usage.total_cost_usd or 0.0 for r in results)
+
+        return RefuelResult(
+            success=workflow_result.success and issues_failed == 0,
+            issues_found=issues_found,
+            issues_processed=issues_processed,
+            issues_fixed=issues_fixed,
+            issues_failed=issues_failed,
+            issues_skipped=issues_skipped,
+            results=results,
+            total_duration_ms=total_duration_ms,
+            total_cost_usd=total_cost_usd,
+        )
 
     async def _discover_issues_with_retry(
         self, inputs: RefuelInputs, max_retries: int = 3
@@ -607,6 +803,75 @@ class RefuelWorkflow:
             Progress events (RefuelStarted, IssueProcessing*, RefuelCompleted)
         """
         workflow_start_time = time.time()
+
+        # DSL execution path (if enabled)
+        if self._use_dsl:
+            try:
+                # Load workflow definition
+                workflow = self._load_workflow("refuel")
+
+                # Create executor
+                self._executor = WorkflowFileExecutor(
+                    registry=self._registry,
+                    config=self._config,
+                )
+
+                # Convert RefuelInputs to dict for DSL executor
+                workflow_inputs = {
+                    "label": inputs.label,
+                    "limit": inputs.limit,
+                    "parallel": inputs.parallel,
+                    "dry_run": inputs.dry_run,
+                    "auto_assign": inputs.auto_assign,
+                }
+
+                # Track if we've seen RefuelStarted
+                refuel_started_emitted = False
+
+                # Execute workflow and translate events
+                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
+                    # Translate DSL events to RefuelProgressEvent
+                    refuel_event = self._translate_event(event)
+                    if refuel_event:
+                        yield refuel_event
+                        if isinstance(refuel_event, RefuelStarted):
+                            refuel_started_emitted = True
+
+                    # Handle WorkflowCompleted specially
+                    if isinstance(event, DslWorkflowCompleted):
+                        # Build final result
+                        workflow_result = self._executor.get_result()
+                        refuel_result = self._build_refuel_result(workflow_result)
+                        yield RefuelCompleted(result=refuel_result)
+
+                return
+
+            except Exception as e:
+                error_msg = f"DSL workflow execution failed: {e}"
+                logger.exception(error_msg)
+                # Return empty result on failure
+                empty_usage = AgentUsage(
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_cost_usd=0.0,
+                    duration_ms=0,
+                )
+                total_duration_ms = int((time.time() - workflow_start_time) * 1000)
+                refuel_result = RefuelResult(
+                    success=False,
+                    issues_found=0,
+                    issues_processed=0,
+                    issues_fixed=0,
+                    issues_failed=0,
+                    issues_skipped=0,
+                    results=[],
+                    total_duration_ms=total_duration_ms,
+                    total_cost_usd=0.0,
+                )
+                yield RefuelCompleted(result=refuel_result)
+                return
+
+        # Legacy execution path (original implementation)
 
         # Phase 1: Issue Discovery with retry
         if inputs.dry_run:

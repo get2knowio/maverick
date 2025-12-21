@@ -77,9 +77,9 @@ inputs:
 
 # Workflow Steps
 steps:
-  # --------------------------------------------------------------------------
-  # Step 1: Gather Context
-  # --------------------------------------------------------------------------
+  # ============================================================================
+  # Stage 1: Gather Context
+  # ============================================================================
   # Collect all relevant PR information including metadata, changed files,
   # commit history, and diff content. This provides context for both
   # CodeRabbit and the agent reviewer.
@@ -89,46 +89,65 @@ steps:
   #   - changed_files: List of files modified in the PR
   #   - commits: Commit messages and SHAs
   #   - diff: Full diff content for review
+  #   - coderabbit_available: Whether CodeRabbit CLI is installed
   #
   # Implementation:
   #   Uses GitHub CLI (gh) to fetch PR details. If pr_number is null,
   #   queries for PRs on the current branch and selects the first match.
-  #
+  #   Also checks if CodeRabbit CLI is available in the system.
+  # ============================================================================
   - name: gather_context
     type: python
     action: review.gather_pr_context
     kwargs:
       pr_number: ${{ inputs.pr_number }}
       base_branch: ${{ inputs.base_branch }}
+    metadata:
+      progress:
+        stage: "gathering_context"
+        weight: 10
 
-  # --------------------------------------------------------------------------
-  # Step 2: Run CodeRabbit
-  # --------------------------------------------------------------------------
+  # ============================================================================
+  # Stage 2: Run CodeRabbit (Conditional)
+  # ============================================================================
   # Execute CodeRabbit CLI for automated code review if available in the
   # environment. CodeRabbit provides static analysis, security scanning,
   # and code quality checks.
   #
+  # This step is CONDITIONAL - it only runs when CodeRabbit CLI is available
+  # on the system (checked in gather_context step).
+  #
   # Outputs:
-  #   - coderabbit_findings: List of issues found by CodeRabbit
-  #   - coderabbit_available: Boolean indicating if CodeRabbit was run
+  #   - available: Boolean indicating if CodeRabbit ran successfully
+  #   - findings: List of issues found by CodeRabbit
+  #   - error: Error message if CodeRabbit execution failed
   #
   # Implementation:
-  #   Checks for CodeRabbit CLI availability. If not found, sets
-  #   coderabbit_available=false and continues gracefully.
-  #
+  #   Runs CodeRabbit CLI with PR number and context. If CLI is not available
+  #   or PR number is null, this step is skipped via the when condition.
+  # ============================================================================
   - name: run_coderabbit
     type: python
     action: review.run_coderabbit_review
+    when: ${{ steps.gather_context.output.coderabbit_available }}
     kwargs:
-      pr_number: ${{ steps.gather_context.output.pr_number }}
+      pr_number: ${{ steps.gather_context.output.pr_metadata.number }}
       context: ${{ steps.gather_context.output }}
+    metadata:
+      progress:
+        stage: "coderabbit_review"
+        weight: 20
 
-  # --------------------------------------------------------------------------
-  # Step 3: Agent Review
-  # --------------------------------------------------------------------------
+  # ============================================================================
+  # Stage 3: Agent Review
+  # ============================================================================
   # Perform AI-powered code review using the code_reviewer agent.
   # The agent analyzes code for architecture, design patterns, best practices,
   # maintainability, and adherence to project conventions.
+  #
+  # This step always runs, regardless of whether CodeRabbit was available.
+  # The agent review complements automated tools with semantic understanding
+  # and project-specific context.
   #
   # Outputs:
   #   - review_comments: List of review findings with file/line context
@@ -137,8 +156,13 @@ steps:
   #
   # Implementation:
   #   Invokes code_reviewer agent with PR context including changed files,
-  #   diff content, and project conventions from CLAUDE.md.
+  #   diff content, and project conventions from CLAUDE.md. The agent is
+  #   aware of CodeRabbit findings (if available) to avoid duplicates.
   #
+  # Context builder: review_context
+  # - Includes: git diff, changed files, project conventions (CLAUDE.md),
+  #   architecture docs, PR metadata, CodeRabbit findings (if available)
+  # ============================================================================
   - name: agent_review
     type: agent
     agent: code_reviewer
@@ -146,26 +170,40 @@ steps:
       pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
       changed_files: ${{ steps.gather_context.output.changed_files }}
       diff: ${{ steps.gather_context.output.diff }}
+      commits: ${{ steps.gather_context.output.commits }}
       base_branch: ${{ inputs.base_branch }}
-      coderabbit_findings: ${{ steps.run_coderabbit.output.coderabbit_findings }}
+      coderabbit_findings: ${{ steps.run_coderabbit.output.findings }}
+    metadata:
+      progress:
+        stage: "agent_review"
+        weight: 40
 
-  # --------------------------------------------------------------------------
-  # Step 4: Combine Results
-  # --------------------------------------------------------------------------
+  # ============================================================================
+  # Stage 4: Combine Results
+  # ============================================================================
   # Merge review findings from CodeRabbit and agent review into a unified
   # report. Deduplicates issues, prioritizes findings, and formats the
   # final review output.
   #
+  # This step combines results from all available review sources:
+  # - Agent review (always present)
+  # - CodeRabbit review (if available and successful)
+  #
   # Outputs:
   #   - review_report: Formatted review report (markdown)
   #   - issues: Consolidated list of issues with severity and location
-  #   - recommendation: Final review decision
+  #   - recommendation: Final review decision (approve/comment/request_changes)
   #
   # Implementation:
-  #   Combines coderabbit_findings and agent review_comments, removes
-  #   duplicates based on file/line/message similarity, and generates
-  #   a structured markdown report.
+  #   Combines findings from both sources, removes duplicates based on
+  #   file/line/message similarity, groups by severity, and generates
+  #   a structured markdown report with overall recommendation.
   #
+  # Recommendation logic:
+  #   - "request_changes" if critical or error issues found
+  #   - "comment" if warnings found or moderate issues
+  #   - "approve" if no issues found
+  # ============================================================================
   - name: combine_results
     type: python
     action: review.combine_review_results
@@ -173,3 +211,7 @@ steps:
       agent_review: ${{ steps.agent_review.output }}
       coderabbit_review: ${{ steps.run_coderabbit.output }}
       pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
+    metadata:
+      progress:
+        stage: "combining_results"
+        weight: 30

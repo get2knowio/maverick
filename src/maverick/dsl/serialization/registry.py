@@ -2,6 +2,7 @@
 
 This module provides registries for managing workflow components:
 - ActionRegistry: Python callables (actions)
+- AgentRegistry: MaverickAgent classes
 - GeneratorRegistry: GeneratorAgent classes
 - ContextBuilderRegistry: Context builder functions
 - WorkflowRegistry: Workflow definitions
@@ -13,8 +14,8 @@ lookups with clear error messages.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeVar
 
 from maverick.dsl.serialization.errors import (
     DuplicateComponentError,
@@ -23,13 +24,19 @@ from maverick.dsl.serialization.errors import (
 
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
+    from maverick.dsl.decorator import WorkflowDefinition
 
 # Type aliases for registry components
 T = TypeVar("T")
-ActionType = Callable[..., Any]
-GeneratorType = type["MaverickAgent[Any, Any]"]
-ContextBuilderType = Callable[..., dict[str, Any]]
-WorkflowType = Any  # Will be WorkflowDefinition once defined
+ActionType: TypeAlias = Callable[..., Any]
+AgentType: TypeAlias = type["MaverickAgent[Any, Any]"]
+GeneratorType: TypeAlias = type["MaverickAgent[Any, Any]"]
+# Context builders can be sync or async functions returning dict[str, Any]
+# For async functions, the callable returns a Coroutine when invoked
+ContextBuilderType: TypeAlias = Callable[..., dict[str, Any]] | Callable[
+    ..., Coroutine[Any, Any, dict[str, Any]]
+]
+WorkflowType: TypeAlias = "WorkflowDefinition"
 
 
 # =============================================================================
@@ -209,6 +216,162 @@ class ActionRegistry:
             ```
         """
         return name in self._actions
+
+
+# =============================================================================
+# AgentRegistry
+# =============================================================================
+
+
+class AgentRegistry:
+    """Registry for MaverickAgent classes.
+
+    Agents are MaverickAgent subclasses that perform complex tasks (code review,
+    implementation, issue fixing, etc.). They are used in AgentStep definitions.
+
+    Attributes:
+        _agents: Internal dictionary mapping agent names to classes.
+
+    Example:
+        ```python
+        # Using decorator registration
+        @agent_registry.register("code_reviewer")
+        class CodeReviewerAgent(MaverickAgent):
+            ...
+
+        # Using explicit registration
+        agent_registry.register("implementer", ImplementerAgent)
+
+        # Looking up an agent
+        agent_class = agent_registry.get("code_reviewer")
+
+        # Listing all registered agents
+        names = agent_registry.list_names()
+        ```
+    """
+
+    def __init__(self) -> None:
+        """Initialize an empty registry."""
+        self._agents: dict[str, AgentType] = {}
+
+    def register(
+        self,
+        name: str,
+        component: AgentType | None = None,
+    ) -> AgentType | Callable[[AgentType], AgentType]:
+        """Register an agent class.
+
+        Can be used as a decorator or called directly.
+
+        Args:
+            name: Unique name for the agent.
+            component: Agent class to register (None when used as decorator).
+
+        Returns:
+            The registered class when called directly, or a decorator function
+            when used as a decorator.
+
+        Raises:
+            ReferenceResolutionError: If an agent with this name is already
+                registered.
+
+        Example:
+            ```python
+            # As a decorator
+            @registry.register("my_agent")
+            class MyAgent(MaverickAgent):
+                ...
+
+            # Direct registration
+            registry.register("my_agent", MyAgentClass)
+            ```
+        """
+        if component is None:
+            # Used as a decorator: @registry.register("name")
+            def decorator(agent_class: AgentType) -> AgentType:
+                self._register_impl(name, agent_class)
+                return agent_class
+
+            return decorator
+        else:
+            # Direct call: registry.register("name", AgentClass)
+            self._register_impl(name, component)
+            return component
+
+    def _register_impl(self, name: str, component: AgentType) -> None:
+        """Internal implementation of registration logic.
+
+        Args:
+            name: Unique name for the agent.
+            component: Agent class to register.
+
+        Raises:
+            DuplicateComponentError: If an agent with this name is already
+                registered.
+        """
+        if name in self._agents:
+            raise DuplicateComponentError(
+                component_type="agent",
+                component_name=name,
+            )
+        self._agents[name] = component
+
+    def get(self, name: str) -> AgentType:
+        """Look up an agent class by name.
+
+        Args:
+            name: Name of the agent to look up.
+
+        Returns:
+            The agent class associated with the name.
+
+        Raises:
+            ReferenceResolutionError: If no agent is registered with this name.
+
+        Example:
+            ```python
+            agent_class = registry.get("code_reviewer")
+            agent = agent_class(mcp_servers={...})
+            ```
+        """
+        if name not in self._agents:
+            raise ReferenceResolutionError(
+                reference_type="agent",
+                reference_name=name,
+                available_names=list(self._agents.keys()),
+            )
+        return self._agents[name]
+
+    def list_names(self) -> list[str]:
+        """List all registered agent names.
+
+        Returns:
+            Sorted list of registered agent names.
+
+        Example:
+            ```python
+            names = registry.list_names()
+            # ['code_reviewer', 'implementer', 'issue_fixer', ...]
+            ```
+        """
+        return sorted(self._agents.keys())
+
+    def has(self, name: str) -> bool:
+        """Check if an agent is registered.
+
+        Args:
+            name: Name of the agent to check.
+
+        Returns:
+            True if the agent is registered, False otherwise.
+
+        Example:
+            ```python
+            if registry.has("code_reviewer"):
+                agent_class = registry.get("code_reviewer")
+            ```
+        """
+        return name in self._agents
 
 
 # =============================================================================
@@ -690,11 +853,12 @@ class ComponentRegistry:
     """Facade aggregating all component registries.
 
     Provides a single entry point for accessing all component registries
-    (actions, generators, context builders, workflows). Supports both strict
-    and lenient modes for reference resolution.
+    (actions, agents, generators, context builders, workflows). Supports both
+    strict and lenient modes for reference resolution.
 
     Attributes:
         actions: Registry for Python callables.
+        agents: Registry for MaverickAgent classes.
         generators: Registry for GeneratorAgent classes.
         context_builders: Registry for context builder functions.
         workflows: Registry for workflow definitions.
@@ -708,12 +872,14 @@ class ComponentRegistry:
         # Create with custom registries
         registry = ComponentRegistry(
             actions=custom_actions,
+            agents=custom_agents,
             generators=custom_generators,
             strict=False,  # Lenient mode
         )
 
         # Access individual registries
         registry.actions.register("my_action", my_func)
+        registry.agents.register("my_agent", MyAgentClass)
         registry.generators.register("my_gen", MyGenClass)
         ```
     """
@@ -721,6 +887,7 @@ class ComponentRegistry:
     def __init__(
         self,
         actions: ActionRegistry | None = None,
+        agents: AgentRegistry | None = None,
         generators: GeneratorRegistry | None = None,
         context_builders: ContextBuilderRegistry | None = None,
         workflows: WorkflowRegistry | None = None,
@@ -730,6 +897,7 @@ class ComponentRegistry:
 
         Args:
             actions: Optional ActionRegistry to use (creates new if None).
+            agents: Optional AgentRegistry to use (creates new if None).
             generators: Optional GeneratorRegistry to use (creates new if None).
             context_builders: Optional ContextBuilderRegistry to use (creates
                 new if None).
@@ -737,6 +905,7 @@ class ComponentRegistry:
             strict: If False, defer resolution errors (lenient mode).
         """
         self.actions = actions if actions is not None else ActionRegistry()
+        self.agents = agents if agents is not None else AgentRegistry()
         self.generators = generators if generators is not None else GeneratorRegistry()
         self.context_builders = (
             context_builders
@@ -754,6 +923,9 @@ class ComponentRegistry:
 #: Global action registry instance
 action_registry = ActionRegistry()
 
+#: Global agent registry instance
+agent_registry = AgentRegistry()
+
 #: Global generator registry instance
 generator_registry = GeneratorRegistry()
 
@@ -766,6 +938,7 @@ workflow_registry = WorkflowRegistry()
 #: Global component registry facade (uses singleton registries)
 component_registry = ComponentRegistry(
     actions=action_registry,
+    agents=agent_registry,
     generators=generator_registry,
     context_builders=context_builder_registry,
     workflows=workflow_registry,

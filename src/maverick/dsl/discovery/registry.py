@@ -161,6 +161,19 @@ class DefaultWorkflowDiscovery:
     precedence rules to resolve workflows and fragments.
 
     Precedence order: PROJECT > USER > BUILTIN (higher overrides lower)
+
+    This applies to both workflows and fragments:
+    - Workflows: .maverick/workflows/*.yaml > ~/.config/maverick/workflows/*.yaml
+      > built-in
+    - Fragments: .maverick/workflows/fragments/*.yaml
+      > ~/.config/maverick/workflows/fragments/*.yaml > built-in
+
+    Fragment Override Example:
+        To customize the validate-and-fix fragment, create:
+        .maverick/workflows/fragments/validate_and_fix.yaml
+
+        This will override the built-in fragment for all workflows that
+        reference it.
     """
 
     def __init__(
@@ -309,8 +322,50 @@ class DefaultWorkflowDiscovery:
         root = project_root or Path.cwd()
         return root / ".maverick" / "workflows"
 
+    def get_project_fragments_path(self, project_root: Path | None = None) -> Path:
+        """Get path to project fragments directory.
+
+        Fragments override built-in fragments following precedence:
+        project > user > built-in
+
+        Args:
+            project_root: Project root directory (defaults to cwd).
+
+        Returns:
+            Path to .maverick/workflows/fragments/
+        """
+        return self.get_project_path(project_root) / "fragments"
+
+    def get_user_fragments_path(self) -> Path:
+        """Get path to user fragments directory.
+
+        Fragments override built-in fragments following precedence:
+        project > user > built-in
+
+        Returns:
+            Path to ~/.config/maverick/workflows/fragments/
+        """
+        return self.get_user_path() / "fragments"
+
+    def get_builtin_fragments_path(self) -> Path:
+        """Get path to built-in fragments directory.
+
+        Returns:
+            Path to built-in fragments directory in package resources.
+        """
+        return self.get_builtin_path() / "fragments"
+
     def _is_fragment(self, file_path: Path) -> bool:
         """Determine if a workflow file is a fragment.
+
+        Fragments are reusable sub-workflows that can be invoked by other workflows.
+        They follow the same precedence rules as workflows:
+        - PROJECT (.maverick/workflows/fragments/) overrides
+        - USER (~/.config/maverick/workflows/fragments/) overrides
+        - BUILTIN (maverick.library.fragments/)
+
+        To override a built-in fragment, create a file with the same name in your
+        project or user fragments directory.
 
         Args:
             file_path: Path to workflow file.
@@ -340,11 +395,58 @@ class DefaultWorkflowDiscovery:
         else:
             return "parse_error"  # Default
 
+    def get_fragment_override_info(self, fragment_name: str) -> dict[str, Path | None]:
+        """Get information about fragment override locations.
+
+        This is useful for debugging and understanding which fragment will be used.
+
+        Args:
+            fragment_name: Fragment name to check (e.g., "validate-and-fix").
+
+        Returns:
+            Dict with keys: 'project', 'user', 'builtin', 'active'
+            - project: Path to project fragment if it exists
+            - user: Path to user fragment if it exists
+            - builtin: Path to builtin fragment if it exists
+            - active: Path to the fragment that will be used (highest precedence)
+        """
+        # Convert name to filename
+        filename = f"{fragment_name.replace('-', '_')}.yaml"
+
+        # Check each location
+        project_path = self.get_project_fragments_path() / filename
+        user_path = self.get_user_fragments_path() / filename
+        builtin_path = self.get_builtin_fragments_path() / filename
+
+        result: dict[str, Path | None] = {
+            "project": project_path if project_path.exists() else None,
+            "user": user_path if user_path.exists() else None,
+            "builtin": builtin_path if builtin_path.exists() else None,
+            "active": None,
+        }
+
+        # Determine active (highest precedence)
+        if result["project"]:
+            result["active"] = result["project"]
+        elif result["user"]:
+            result["active"] = result["user"]
+        elif result["builtin"]:
+            result["active"] = result["builtin"]
+
+        return result
+
     def _apply_precedence(
         self,
         workflows_by_name: dict[str, list[tuple[Path, str]]],
     ) -> list[DiscoveredWorkflow]:
         """Apply precedence rules and detect conflicts.
+
+        For both workflows and fragments, the same precedence applies:
+        PROJECT > USER > BUILTIN
+
+        When multiple definitions exist for the same name, the highest
+        precedence one is selected, and lower precedence ones are recorded
+        in the 'overrides' field of the DiscoveredWorkflow.
 
         Args:
             workflows_by_name: Map of workflow name to list of (path, source).
