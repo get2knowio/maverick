@@ -358,15 +358,18 @@ class TestActionMethods:
     def test_action_go_home_pops_all_screens(self) -> None:
         """Test that action_go_home pops all screens except base."""
         app = MaverickApp()
-        # Mock screen_stack with multiple screens
-        mock_screens = [Mock(), Mock(), Mock()]
-
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
-            with patch.object(app, "pop_screen") as mock_pop:
+        
+        # Track pop_screen calls
+        pop_count = 0
+        original_len = Mock(side_effect=[3, 2, 1])  # Simulate screen_stack length decreasing
+        
+        with patch.object(app, "pop_screen") as mock_pop:
+            # Mock screen_stack to return decreasing length
+            with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: Mock(__len__=original_len))):
                 app.action_go_home()
-
-            # Should pop twice (leaving one screen)
-            assert mock_pop.call_count == 2
+                
+                # Should pop twice (3 screens -> 2 -> 1)
+                assert mock_pop.call_count == 2
 
     def test_action_start_workflow_pushes_workflow_screen(self) -> None:
         """Test that action_start_workflow pushes WorkflowScreen."""
@@ -426,21 +429,23 @@ class TestActionMethods:
         app = MaverickApp()
         mock_screen = Mock()
         mock_screen.refresh = Mock()
-
-        with patch.object(app, "screen", mock_screen):
+        
+        # Mock the screen property to return our mock screen
+        with patch.object(type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)):
             app.action_refresh()
-
-        mock_screen.refresh.assert_called_once()
+            
+            mock_screen.refresh.assert_called_once()
 
     def test_action_refresh_adds_log_if_no_refresh_method(self) -> None:
         """Test that action_refresh logs if screen has no refresh method."""
         app = MaverickApp()
         mock_screen = Mock(spec=[])  # No refresh method
-
-        with patch.object(app, "screen", mock_screen):
+        
+        # Mock the screen property to return our mock screen
+        with patch.object(type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)):
             with patch.object(app, "add_log") as mock_add_log:
                 app.action_refresh()
-
+            
             mock_add_log.assert_called_once()
             args = mock_add_log.call_args[0]
             assert "refresh" in args[0].lower()
@@ -525,8 +530,8 @@ class TestMaverickCommands:
         async for hit in provider.search(""):
             hits.append(hit)
 
-        # Should return all 8 commands
-        assert len(hits) == 8
+        # Should return all 11 commands
+        assert len(hits) == 11
 
     @pytest.mark.asyncio
     async def test_search_filters_by_name(self) -> None:
