@@ -566,7 +566,8 @@ class TestPush:
     """Tests for push() method."""
 
     def test_push_with_set_upstream(
-        self, temp_git_repo_with_remote: tuple[Path, Path]
+        self,
+        temp_git_repo_with_remote: tuple[Path, Path],
     ) -> None:
         """T042: push with set_upstream=True sets tracking branch."""
         repo_path, _ = temp_git_repo_with_remote
@@ -594,7 +595,9 @@ class TestPush:
         assert "origin/feature-push" in result.stdout
 
     def test_push_raises_rejected_error(
-        self, temp_git_repo_with_remote: tuple[Path, Path], tmp_path: Path
+        self,
+        temp_git_repo_with_remote: tuple[Path, Path],
+        tmp_path: Path,
     ) -> None:
         """T043: push raises PushRejectedError when remote rejects."""
         repo_path, remote_path = temp_git_repo_with_remote
@@ -672,7 +675,8 @@ class TestDiff:
         assert "+# Modified Repo" in diff_output or "+New line" in diff_output
 
     def test_diff_returns_empty_string_when_no_changes(
-        self, temp_git_repo: Path
+        self,
+        temp_git_repo: Path,
     ) -> None:
         """T050: diff returns empty string when no changes."""
         ops = GitOperations(temp_git_repo)
@@ -721,7 +725,9 @@ class TestPull:
     """Tests for pull() method."""
 
     def test_pull_fast_forwards_with_new_commits(
-        self, temp_git_repo_with_remote: tuple[Path, Path], tmp_path: Path
+        self,
+        temp_git_repo_with_remote: tuple[Path, Path],
+        tmp_path: Path,
     ) -> None:
         """T056: pull fast-forwards local branch with new remote commits."""
         repo_path, remote_path = temp_git_repo_with_remote
@@ -774,7 +780,9 @@ class TestPull:
         assert (repo_path / "other.py").exists()
 
     def test_pull_raises_merge_conflict_error(
-        self, temp_git_repo_with_remote: tuple[Path, Path], tmp_path: Path
+        self,
+        temp_git_repo_with_remote: tuple[Path, Path],
+        tmp_path: Path,
     ) -> None:
         """T057: pull raises MergeConflictError when conflicts occur."""
         repo_path, remote_path = temp_git_repo_with_remote
@@ -830,7 +838,8 @@ class TestPull:
             ops.pull()
 
     def test_pull_raises_error_for_nonexistent_remote_branch(
-        self, temp_git_repo_with_remote: tuple[Path, Path]
+        self,
+        temp_git_repo_with_remote: tuple[Path, Path],
     ) -> None:
         """T058: pull raises appropriate error when remote branch does not exist."""
         repo_path, _ = temp_git_repo_with_remote
@@ -1065,7 +1074,8 @@ class TestCheckoutEdgeCases:
     """Tests for checkout edge cases."""
 
     def test_checkout_nonexistent_branch_raises_git_error(
-        self, temp_git_repo: Path
+        self,
+        temp_git_repo: Path,
     ) -> None:
         """Test that checkout raises GitError for nonexistent branch."""
         ops = GitOperations(temp_git_repo)
@@ -1537,3 +1547,36 @@ class TestPushMockEdgeCases:
                 ops.push()
 
             assert "not found or not accessible" in str(exc_info.value).lower()
+
+
+class TestBranchValidation:
+    """Tests for branch name validation."""
+
+    def test_create_branch_validates_name(self, temp_git_repo: Path) -> None:
+        """Test that create_branch validates branch name."""
+        ops = GitOperations(temp_git_repo)
+
+        invalid_names = [
+            "",
+            " ",
+            "foo bar",
+            "-start-dash",
+            "end-dot.",
+            "invalid/char?",
+            "invalid[bracket]",
+            "dot..dot",
+            "backslash\\",
+        ]
+
+        for name in invalid_names:
+            with pytest.raises(ValueError) as exc_info:
+                ops.create_branch(name)
+            error_msg = str(exc_info.value).lower()
+            assert "branch name" in error_msg or "invalid" in error_msg
+
+    def test_checkout_validates_name(self, temp_git_repo: Path) -> None:
+        """Test that checkout validates branch name."""
+        ops = GitOperations(temp_git_repo)
+
+        with pytest.raises(ValueError):
+            ops.checkout("-invalid-start")

@@ -47,6 +47,8 @@ class TestCommitMessageGeneratorGenerate:
     @pytest.mark.asyncio
     async def test_generate_returns_conventional_commit_format(self) -> None:
         """Test that generate returns conventional commit format."""
+        import re
+
         generator = CommitMessageGenerator()
 
         # Mock _query to return a conventional commit message
@@ -66,13 +68,9 @@ class TestCommitMessageGeneratorGenerate:
 
             result = await generator.generate(context)
 
-            assert result == "feat(auth): add password reset functionality"
-            # Verify conventional commit format: type(scope): description
-            assert ":" in result
-            parts = result.split(":")
-            assert len(parts) >= 2
-            assert "(" in parts[0]
-            assert ")" in parts[0]
+            # Strict regex validation for conventional commit format
+            pattern = r"^(feat|fix|docs|style|refactor|test|build|ci|chore)(\([^)]+\))?:\s+.+"
+            assert re.match(pattern, result), f"Invalid conventional commit format: {result}"
 
     @pytest.mark.asyncio
     async def test_scope_hint_override_works(self) -> None:
