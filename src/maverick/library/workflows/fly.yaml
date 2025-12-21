@@ -35,6 +35,11 @@
 #       - Work-in-progress PRs
 #       Example: true
 #
+#   - dry_run (boolean, optional, default: false): Preview mode
+#       Set to true to preview workflow actions without executing them.
+#       Logs all planned operations instead of making actual changes.
+#       Example: true
+#
 # CUSTOMIZATION POINTS:
 #   - Override this workflow in your project to customize stages
 #   - Adjust validation stages in validate-and-fix step inputs
@@ -59,6 +64,10 @@
 #   # Skip code review
 #   maverick workflow run fly -i branch_name=025-builtin-workflow-library \
 #     -i skip_review=true
+#
+#   # Dry run (preview without executing)
+#   maverick workflow run fly -i branch_name=025-builtin-workflow-library \
+#     -i dry_run=true
 #
 # ==============================================================================
 
@@ -92,6 +101,24 @@ inputs:
     default: false
     description: Skip code review stage
 
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: |
+      When true, log planned operations without executing them.
+      Useful for previewing workflow actions before running.
+
+      In dry-run mode:
+      - Workspace initialization is logged but not executed
+      - Task implementation is skipped (logs task list only)
+      - Validation is skipped
+      - No commits or pushes are made
+      - No code review is performed
+      - No PR is created
+
+      Use this to preview what the workflow would do without making changes.
+
 # ------------------------------------------------------------------------------
 # Workflow Steps
 # ------------------------------------------------------------------------------
@@ -112,8 +139,25 @@ steps:
   - name: init
     type: python
     action: init_workspace
+    when: ${{ not inputs.dry_run }}
     kwargs:
       branch_name: ${{ inputs.branch_name }}
+    metadata:
+      progress:
+        stage: "initialization"
+        weight: 5
+
+  - name: init_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run }}
+    kwargs:
+      operation: "init_workspace"
+      details: "Would initialize workspace on branch ${{ inputs.branch_name }}"
+    metadata:
+      progress:
+        stage: "initialization"
+        weight: 5
 
   # ============================================================================
   # Stage 2: Implementation
@@ -139,8 +183,35 @@ steps:
   - name: implement
     type: agent
     agent: implementer
+    when: ${{ not inputs.dry_run }}
     context:
       task_file: ${{ inputs.task_file }}
+    metadata:
+      progress:
+        stage: "implementation"
+        weight: 40
+
+  - name: implement_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run }}
+    kwargs:
+      operation: "implement_tasks"
+      details: "Would execute tasks from task file"
+    metadata:
+      progress:
+        stage: "implementation"
+        weight: 40
+
+  # ============================================================================
+  # Note: Checkpoint After Implementation
+  # ============================================================================
+  # Future: Add checkpoint functionality after successful implementation to
+  # enable resumption from this point if the workflow is interrupted during
+  # validation or review.
+  #
+  # Checkpoint support is planned for a future release.
+  # ============================================================================
 
   # ============================================================================
   # Stage 3: Validation and Fix Loop
@@ -167,6 +238,7 @@ steps:
   - name: validate_and_fix
     type: subworkflow
     workflow: validate-and-fix
+    when: ${{ not inputs.dry_run }}
     inputs:
       stages:
         - format
@@ -175,6 +247,32 @@ steps:
         - test
       max_attempts: 3
       fixer_agent: validation_fixer
+    metadata:
+      progress:
+        stage: "validation"
+        weight: 25
+
+  - name: validate_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run }}
+    kwargs:
+      operation: "validate_and_fix"
+      details: "Would run validation stages: format, lint, typecheck, test (max 3 fix attempts)"
+    metadata:
+      progress:
+        stage: "validation"
+        weight: 25
+
+  # ============================================================================
+  # Note: Checkpoint After Validation
+  # ============================================================================
+  # Future: Add checkpoint functionality after successful validation to enable
+  # resumption from this point if the workflow is interrupted during
+  # commit/review/PR.
+  #
+  # Checkpoint support is planned for a future release.
+  # ============================================================================
 
   # ============================================================================
   # Stage 4: Commit and Push
@@ -197,16 +295,33 @@ steps:
   - name: commit_and_push
     type: subworkflow
     workflow: commit-and-push
+    when: ${{ not inputs.dry_run }}
+    metadata:
+      progress:
+        stage: "commit"
+        weight: 10
+
+  - name: commit_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run }}
+    kwargs:
+      operation: "commit_and_push"
+      details: "Would generate commit message, create commit, and push to remote branch"
+    metadata:
+      progress:
+        stage: "commit"
+        weight: 10
 
   # ============================================================================
   # Stage 5: Code Review (Optional)
   # ============================================================================
   # Perform automated code review using the code reviewer agent.
   #
-  # This step is CONDITIONAL - it only runs when skip_review is false.
-  # The condition expression ${{ not inputs.skip_review }} evaluates to:
-  # - true when skip_review is false or omitted (default behavior)
-  # - false when skip_review is explicitly set to true
+  # This step is CONDITIONAL - it only runs when skip_review is false AND
+  # dry_run is false. The condition expression evaluates to:
+  # - true when both skip_review and dry_run are false or omitted
+  # - false when either skip_review or dry_run is explicitly set to true
   #
   # The code reviewer agent:
   # - Analyzes the diff between the current branch and base branch
@@ -228,7 +343,23 @@ steps:
     type: agent
     agent: code_reviewer
     context: review_context
-    when: ${{ not inputs.skip_review }}
+    when: ${{ not inputs.skip_review and not inputs.dry_run }}
+    metadata:
+      progress:
+        stage: "review"
+        weight: 10
+
+  - name: review_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run and not inputs.skip_review }}
+    kwargs:
+      operation: "code_review"
+      details: "Would perform automated code review and architecture analysis"
+    metadata:
+      progress:
+        stage: "review"
+        weight: 10
 
   # ============================================================================
   # Stage 6: Create Pull Request
@@ -258,6 +389,23 @@ steps:
   - name: create_pr
     type: subworkflow
     workflow: create-pr-with-summary
+    when: ${{ not inputs.dry_run }}
     inputs:
       base_branch: main
       draft: false
+    metadata:
+      progress:
+        stage: "pr_creation"
+        weight: 10
+
+  - name: create_pr_dry_run
+    type: python
+    action: log_dry_run
+    when: ${{ inputs.dry_run }}
+    kwargs:
+      operation: "create_pr"
+      details: "Would generate PR body and create pull request against main (ready for review)"
+    metadata:
+      progress:
+        stage: "pr_creation"
+        weight: 10

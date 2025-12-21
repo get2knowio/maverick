@@ -20,9 +20,21 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from maverick.agents.result import AgentResult, AgentUsage
+from maverick.dsl.events import (
+    ProgressEvent,
+    StepCompleted as DslStepCompleted,
+    StepStarted as DslStepStarted,
+    WorkflowCompleted as DslWorkflowCompleted,
+    WorkflowStarted as DslWorkflowStarted,
+)
+from maverick.dsl.results import WorkflowResult
+from maverick.dsl.serialization.executor import WorkflowFileExecutor
+from maverick.dsl.serialization.parser import parse_workflow
+from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.exceptions import (
     AgentError,  # noqa: F401 - required for Pydantic type resolution
 )
+from maverick.library.builtins import create_builtin_library
 from maverick.models.validation import ValidationWorkflowResult
 
 if TYPE_CHECKING:
@@ -52,6 +64,38 @@ class WorkflowStage(str, Enum):
     def __str__(self) -> str:
         """Return the lowercase string value."""
         return self.value
+
+
+class DslStepName(str, Enum):
+    """DSL step names used in fly.yaml workflow definition.
+
+    Maps step names from the YAML workflow to standardized constants,
+    preventing magic strings in event translation logic.
+    """
+
+    INIT = "init"
+    INIT_DRY_RUN = "init_dry_run"
+    IMPLEMENT = "implement"
+    VALIDATE_AND_FIX = "validate_and_fix"
+    COMMIT_AND_PUSH = "commit_and_push"
+    REVIEW = "review"
+    CREATE_PR = "create_pr"
+
+    def __str__(self) -> str:
+        """Return the lowercase string value."""
+        return self.value
+
+
+# Mapping from DSL step names to workflow stages
+DSL_STEP_TO_STAGE: dict[str, WorkflowStage] = {
+    DslStepName.INIT.value: WorkflowStage.INIT,
+    DslStepName.INIT_DRY_RUN.value: WorkflowStage.INIT,
+    DslStepName.IMPLEMENT.value: WorkflowStage.IMPLEMENTATION,
+    DslStepName.VALIDATE_AND_FIX.value: WorkflowStage.VALIDATION,
+    DslStepName.COMMIT_AND_PUSH.value: WorkflowStage.PR_CREATION,
+    DslStepName.REVIEW.value: WorkflowStage.CODE_REVIEW,
+    DslStepName.CREATE_PR.value: WorkflowStage.PR_CREATION,
+}
 
 
 class FlyConfig(BaseModel):
@@ -204,6 +248,7 @@ class FlyWorkflow:
     def __init__(
         self,
         config: FlyConfig | None = None,
+        registry: ComponentRegistry | None = None,
         git_runner: GitRunner | None = None,
         validation_runner: ValidationRunner | None = None,
         github_runner: GitHubCLIRunner | None = None,
@@ -217,6 +262,7 @@ class FlyWorkflow:
 
         Args:
             config: Optional workflow configuration. Uses defaults if None.
+            registry: Component registry for DSL execution.
             git_runner: GitRunner instance for git operations.
             validation_runner: ValidationRunner for validation stages.
             github_runner: GitHubCLIRunner for PR creation.
@@ -227,6 +273,7 @@ class FlyWorkflow:
             pr_generator: PRDescriptionGenerator for PR descriptions.
         """
         self._config = config or FlyConfig()
+        self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
         self._validation_runner = validation_runner
         self._github_runner = github_runner
@@ -241,6 +288,18 @@ class FlyWorkflow:
         self._result: FlyResult | None = None
         self._state: WorkflowState | None = None
         self._usage_records: list[AgentUsage] = []
+
+        # DSL executor
+        self._executor: WorkflowFileExecutor | None = None
+        self._use_dsl = False  # Flag to enable DSL execution
+
+    def enable_dsl_execution(self) -> None:
+        """Enable DSL-based workflow execution.
+
+        When enabled, the workflow will use the WorkflowFileExecutor to execute
+        the fly.yaml workflow definition instead of the legacy Python implementation.
+        """
+        self._use_dsl = True
 
     def _aggregate_tokens(self) -> AgentUsage:
         """Aggregate token usage from all agent calls."""
@@ -259,6 +318,136 @@ class FlyWorkflow:
             duration_ms=sum(u.duration_ms for u in self._usage_records),
         )
 
+    def _load_workflow(self, workflow_name: str) -> Any:
+        """Load workflow file from built-in library.
+
+        NOTE: This method has a duplicated pattern with RefuelWorkflow._load_workflow.
+        Consider extracting to a shared helper in maverick.dsl.serialization or
+        maverick.workflows.base when refactoring refuel.py.
+
+        Args:
+            workflow_name: Name of the workflow to load (e.g., "fly").
+
+        Returns:
+            Parsed WorkflowFile instance.
+
+        Raises:
+            FileNotFoundError: If workflow file doesn't exist.
+            WorkflowParseError: If workflow file is invalid.
+            KeyError: If workflow name is not a built-in.
+        """
+        # Use builtin library registry instead of hard-coded path
+        builtin_library = create_builtin_library()
+        return builtin_library.get_workflow(workflow_name)
+
+    def _translate_event(self, event: ProgressEvent) -> FlyProgressEvent | None:
+        """Translate DSL progress events to FlyProgressEvent types.
+
+        NOTE: This method has a duplicated pattern with RefuelWorkflow._translate_event.
+        Consider extracting to a shared base class or helper when refactoring refuel.py.
+        The common pattern is: DSL event type checking + input extraction + event mapping.
+
+        Maps DSL events to corresponding Fly workflow events based on step metadata
+        and event types. Returns None for events that don't map to Fly events.
+
+        Args:
+            event: DSL ProgressEvent from WorkflowFileExecutor.
+
+        Returns:
+            Corresponding FlyProgressEvent, or None if no mapping exists.
+        """
+        # Map DSL WorkflowStarted to FlyWorkflowStarted
+        if isinstance(event, DslWorkflowStarted):
+            # Extract inputs from DSL event
+            fly_inputs = FlyInputs(
+                branch_name=event.inputs.get("branch_name", "unknown"),
+                task_file=Path(event.inputs["task_file"]) if "task_file" in event.inputs else None,
+                skip_review=event.inputs.get("skip_review", False),
+                skip_pr=event.inputs.get("skip_pr", False),
+                draft_pr=event.inputs.get("draft_pr", False),
+                base_branch=event.inputs.get("base_branch", "main"),
+                dry_run=event.inputs.get("dry_run", False),
+            )
+            return FlyWorkflowStarted(inputs=fly_inputs, timestamp=event.timestamp)
+
+        # Map DSL StepStarted to FlyStageStarted
+        elif isinstance(event, DslStepStarted):
+            # Use centralized mapping instead of duplicated dict
+            stage = DSL_STEP_TO_STAGE.get(event.step_name)
+            if stage:
+                return FlyStageStarted(stage=stage, timestamp=event.timestamp)
+
+        # Map DSL StepCompleted to FlyStageCompleted
+        elif isinstance(event, DslStepCompleted):
+            # Use centralized mapping instead of duplicated dict
+            stage = DSL_STEP_TO_STAGE.get(event.step_name)
+            if stage:
+                # Result depends on the step
+                result: Any = {"success": event.success, "duration_ms": event.duration_ms}
+                return FlyStageCompleted(stage=stage, result=result, timestamp=event.timestamp)
+
+        # WorkflowCompleted is handled separately in execute()
+        return None
+
+    def _build_fly_result(self, workflow_result: WorkflowResult) -> FlyResult:
+        """Build FlyResult from DSL WorkflowResult.
+
+        NOTE: This method has a duplicated pattern with RefuelWorkflow._build_*_result.
+        Consider extracting to a shared helper or base class when refactoring refuel.py.
+        The common pattern is: state creation + error extraction + summary building.
+
+        Extracts relevant information from the DSL workflow result and constructs
+        a FlyResult with appropriate state, summary, and metadata.
+
+        Args:
+            workflow_result: WorkflowResult from DSL execution.
+
+        Returns:
+            FlyResult instance with workflow outcome.
+        """
+        # Determine final stage based on workflow success
+        final_stage = WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
+
+        # Build state from workflow result
+        state = WorkflowState(
+            stage=final_stage,
+            branch=self._state.branch if self._state else "unknown",
+            task_file=self._state.task_file if self._state else None,
+            started_at=self._state.started_at if self._state else datetime.now(),
+            completed_at=datetime.now(),
+        )
+
+        # Copy existing state results if available
+        if self._state:
+            state.implementation_result = self._state.implementation_result
+            state.validation_result = self._state.validation_result
+            state.review_results = self._state.review_results
+            state.pr_url = self._state.pr_url
+            state.errors = self._state.errors
+
+        # Extract errors from failed steps
+        if not workflow_result.success:
+            failed_step = workflow_result.failed_step
+            if failed_step and failed_step.error:
+                state.errors.append(f"{failed_step.name}: {failed_step.error}")
+
+        # Build summary
+        if workflow_result.success:
+            summary = "Fly workflow completed successfully"
+            if state.pr_url:
+                summary += f". PR: {state.pr_url}"
+        else:
+            summary = f"Fly workflow failed at step: {workflow_result.failed_step.name if workflow_result.failed_step else 'unknown'}"
+
+        # Create result
+        return FlyResult(
+            success=workflow_result.success,
+            state=state,
+            summary=summary,
+            token_usage=self._aggregate_tokens(),
+            total_cost_usd=self._aggregate_tokens().total_cost_usd or 0.0,
+        )
+
     async def execute(self, inputs: FlyInputs) -> AsyncIterator[FlyProgressEvent]:
         """Execute the fly workflow.
 
@@ -274,6 +463,51 @@ class FlyWorkflow:
             task_file=inputs.task_file,
         )
 
+        # DSL execution path (if enabled)
+        if self._use_dsl:
+            try:
+                # Load workflow definition
+                workflow = self._load_workflow("fly")
+
+                # Create executor
+                self._executor = WorkflowFileExecutor(
+                    registry=self._registry,
+                    config=self._config,
+                )
+
+                # Convert FlyInputs to dict for DSL executor
+                workflow_inputs = inputs.model_dump()
+                # Convert Path to string for YAML compatibility
+                if workflow_inputs.get("task_file"):
+                    workflow_inputs["task_file"] = str(workflow_inputs["task_file"])
+
+                # Execute workflow and translate events
+                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
+                    # Translate DSL events to FlyProgressEvent
+                    fly_event = self._translate_event(event)
+                    if fly_event:
+                        yield fly_event
+
+                    # Handle WorkflowCompleted specially
+                    if isinstance(event, DslWorkflowCompleted):
+                        # Build final result
+                        workflow_result = self._executor.get_result()
+                        self._result = self._build_fly_result(workflow_result)
+                        yield FlyWorkflowCompleted(result=self._result)
+
+                return
+
+            except Exception as e:
+                error_msg = f"DSL workflow execution failed: {e}"
+                logger.exception(error_msg)
+                if self._state:
+                    self._state.errors.append(error_msg)
+                    self._state.stage = WorkflowStage.FAILED
+                    self._state.completed_at = datetime.now()
+                    yield FlyWorkflowFailed(error=error_msg, state=self._state)
+                return
+
+        # Legacy execution path (original implementation)
         # Emit workflow started
         yield FlyWorkflowStarted(inputs=inputs)
 
@@ -647,6 +881,9 @@ class FlyWorkflow:
 __all__ = [
     # Enums
     "WorkflowStage",
+    "DslStepName",
+    # Constants
+    "DSL_STEP_TO_STAGE",
     # Configuration
     "FlyInputs",
     "FlyConfig",

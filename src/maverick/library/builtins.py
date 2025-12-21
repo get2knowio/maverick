@@ -19,11 +19,12 @@ if TYPE_CHECKING:
 
 # Core workflows (FR-001)
 BUILTIN_WORKFLOWS = frozenset({
-    "fly",       # FR-004: Full spec-based development
-    "refuel",    # FR-005: Tech-debt resolution
-    "review",    # FR-006: Code review orchestration
-    "validate",  # FR-007: Validation with optional fixes
-    "quick-fix", # FR-008: Quick issue fix
+    "fly",                   # FR-004: Full spec-based development
+    "refuel",                # FR-005: Tech-debt resolution
+    "review",                # FR-006: Code review orchestration
+    "validate",              # FR-007: Validation with optional fixes
+    "quick-fix",             # FR-008: Quick issue fix
+    "process-single-issue",  # Sub-workflow for single issue processing
 })
 
 # Reusable fragments (FR-009)
@@ -127,6 +128,15 @@ QUICK_FIX_WORKFLOW_INFO = BuiltinWorkflowInfo(
         ("issue_number", "integer", True, "GitHub issue number"),
     ),
     step_summary="fetch_issue → branch → fix → validate → commit → pr",
+)
+
+PROCESS_SINGLE_ISSUE_WORKFLOW_INFO = BuiltinWorkflowInfo(
+    name="process-single-issue",
+    description="Process single GitHub issue (sub-workflow for refuel)",
+    inputs=(
+        ("issue_number", "integer", True, "GitHub issue number"),
+    ),
+    step_summary="fetch_issue → branch → fix → validate_and_fix → commit_and_push → create_pr_with_summary",
 )
 
 
@@ -307,6 +317,7 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
         "review": REVIEW_WORKFLOW_INFO,
         "validate": VALIDATE_WORKFLOW_INFO,
         "quick-fix": QUICK_FIX_WORKFLOW_INFO,
+        "process-single-issue": PROCESS_SINGLE_ISSUE_WORKFLOW_INFO,
     }
 
     # Mapping of fragment names to info objects
