@@ -110,6 +110,16 @@ class ValidationStage:
 
     Raises:
         ValueError: If command is empty or timeout is non-positive.
+
+    Example:
+        >>> stage = ValidationStage(
+        ...     name="lint",
+        ...     command=("ruff", "check", "."),
+        ...     fixable=True,
+        ...     fix_command=("ruff", "check", "--fix", "."),
+        ... )
+        >>> stage.name
+        'lint'
     """
 
     name: str
@@ -155,6 +165,21 @@ class ValidationOutput:
         success: True if all stages passed.
         stages: Results from each validation stage in execution order.
         total_duration_ms: Total execution time across all stages.
+
+    Example:
+        >>> result = StageResult(
+        ...     stage_name="lint",
+        ...     passed=True,
+        ...     output="All checks passed!",
+        ...     duration_ms=150
+        ... )
+        >>> output = ValidationOutput(
+        ...     success=True,
+        ...     stages=(result,),
+        ...     total_duration_ms=150
+        ... )
+        >>> output.stages_passed
+        1
     """
 
     success: bool
@@ -192,6 +217,19 @@ class GitHubIssue:
 
     Raises:
         ValueError: If number is not positive or state is invalid.
+
+    Example:
+        >>> issue = GitHubIssue(
+        ...     number=42,
+        ...     title="Fix bugs",
+        ...     body="Description...",
+        ...     labels=("bug",),
+        ...     state="open",
+        ...     assignees=("octocat",),
+        ...     url="https://github.com/org/repo/issues/42"
+        ... )
+        >>> issue.number
+        42
     """
 
     number: int
@@ -304,6 +342,20 @@ class CodeRabbitResult:
         summary: High-level summary of the review.
         raw_output: Complete raw output from CodeRabbit.
         warnings: Non-critical warnings encountered during review.
+
+    Example:
+        >>> finding = CodeRabbitFinding(
+        ...     file="src/main.py",
+        ...     line=10,
+        ...     severity="error",
+        ...     message="Syntax error"
+        ... )
+        >>> result = CodeRabbitResult(
+        ...     findings=(finding,),
+        ...     summary="Found 1 error"
+        ... )
+        >>> result.error_count
+        1
     """
 
     findings: tuple[CodeRabbitFinding, ...]
