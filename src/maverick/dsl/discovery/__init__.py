@@ -14,6 +14,7 @@ from maverick.dsl.discovery.exceptions import (
     WorkflowConflictError,
     WorkflowDiscoveryError,
 )
+from maverick.dsl.discovery.integration import load_workflows_into_registry
 from maverick.dsl.discovery.models import (
     DiscoveredWorkflow,
     DiscoveryResult,
@@ -47,4 +48,6 @@ __all__ = [
     "DefaultWorkflowDiscovery",
     # Factory
     "create_discovery",
+    # Integration
+    "load_workflows_into_registry",
 ]
