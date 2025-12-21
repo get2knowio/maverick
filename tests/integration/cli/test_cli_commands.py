@@ -427,15 +427,21 @@ class TestReviewCommandIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock gh pr view to simulate PR existence
+            # Patch subprocess.run in sys.modules so the import picks up our mock
             with patch("subprocess.run") as mock_run:
-                # First call: gh pr view (success)
-                # Second call: gh pr view --json (success)
+                # Multiple calls will be made:
+                # 1. git --version (dependency check)
+                # 2. gh --version (dependency check)
+                # 3. gh pr view (PR validation)
+                # 4. gh pr view --json (get PR details)
                 mock_run.side_effect = [
-                    MagicMock(returncode=0, stdout="PR #123"),
+                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
+                    MagicMock(returncode=0, stdout="PR #123"),              # gh pr view
                     MagicMock(
                         returncode=0,
                         stdout='{"headRefName": "feature-test", "baseRefName": "main"}',
-                    ),
+                    ),  # gh pr view --json
                 ]
 
                 # Mock CodeReviewerAgent
@@ -481,13 +487,21 @@ class TestReviewCommandIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock gh pr view
+            # Patch subprocess.run in sys.modules so the import picks up our mock
             with patch("subprocess.run") as mock_run:
+                # Multiple calls will be made:
+                # 1. git --version (dependency check)
+                # 2. gh --version (dependency check)
+                # 3. gh pr view (PR validation)
+                # 4. gh pr view --json (get PR details)
                 mock_run.side_effect = [
-                    MagicMock(returncode=0, stdout="PR #123"),
+                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
+                    MagicMock(returncode=0, stdout="PR #123"),              # gh pr view
                     MagicMock(
                         returncode=0,
                         stdout='{"headRefName": "feature-test", "baseRefName": "main"}',
-                    ),
+                    ),  # gh pr view --json
                 ]
 
                 # Mock CodeReviewerAgent
@@ -529,11 +543,20 @@ class TestReviewCommandIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock gh pr view to fail (PR not found)
+            # Patch subprocess.run in sys.modules so the import picks up our mock
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=1,
-                    stderr="PR not found",
-                )
+                # Multiple calls will be made:
+                # 1. git --version (dependency check)
+                # 2. gh --version (dependency check)
+                # 3. gh pr view (PR validation - fail)
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
+                    MagicMock(
+                        returncode=1,
+                        stderr="PR not found",
+                    ),  # gh pr view
+                ]
 
                 # Run review command
                 result = runner.invoke(cli, ["review", "999"])
