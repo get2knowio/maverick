@@ -17,13 +17,44 @@ from maverick.cli.context import CLIContext, ExitCode, async_command
 from maverick.cli.output import OutputFormat, format_error, format_json, format_table
 from maverick.cli.validators import check_dependencies, check_git_auth
 from maverick.config import load_config
+from maverick.dsl.context_builders import register_all_context_builders
 from maverick.dsl.discovery import DiscoveryResult, create_discovery
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.visualization import to_ascii, to_mermaid
 from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
+from maverick.library.actions import register_all_actions
+from maverick.library.agents import register_all_agents
+from maverick.library.generators import register_all_generators
 from maverick.models.review import ReviewResult
 from maverick.workflows.fly import FlyInputs, FlyWorkflow
 from maverick.workflows.refuel import RefuelInputs, RefuelWorkflow
+
+
+def create_registered_registry(strict: bool = False) -> "ComponentRegistry":
+    """Create a ComponentRegistry with all built-in components registered.
+
+    This function creates a new ComponentRegistry and registers all built-in
+    actions, agents, generators, and context builders so they can be resolved
+    by workflows.
+
+    Args:
+        strict: If True, create registry in strict mode (reference resolution
+            errors will be raised immediately).
+
+    Returns:
+        ComponentRegistry with all built-in components registered.
+    """
+    from maverick.dsl.serialization.registry import ComponentRegistry
+
+    registry = ComponentRegistry(strict=strict)
+
+    # Register all built-in components
+    register_all_actions(registry)
+    register_all_agents(registry)
+    register_all_generators(registry)
+    register_all_context_builders(registry)
+
+    return registry
 
 
 @click.group(invoke_without_command=True)
@@ -1303,10 +1334,9 @@ def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
         # Parse workflow
         registry = None
         if strict:
-            # Create a registry for reference resolution
+            # Create a registry with all built-in components registered
             # In strict mode, we want to catch reference errors
-            registry = ComponentRegistry(strict=True)
-            # TODO: Load actual components from registry file if provided
+            registry = create_registered_registry(strict=True)
 
         workflow_obj = parse_workflow(
             content, registry=registry, validate_only=not strict
@@ -1798,8 +1828,8 @@ async def workflow_run(
             click.echo("Inputs: (none)")
         click.echo()
 
-        # Create registry and executor
-        registry = ComponentRegistry()
+        # Create registry with all built-in components registered and executor
+        registry = create_registered_registry()
         executor = WorkflowFileExecutor(registry=registry)
 
         # Track step progress
