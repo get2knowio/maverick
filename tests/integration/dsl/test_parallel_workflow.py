@@ -48,7 +48,7 @@ steps:
         type: python
         action: process_item
         kwargs:
-          value: ${{ inputs.item }}
+          value: ${{ item }}
 """
 
         # Create registry with test action
@@ -110,12 +110,12 @@ steps:
         type: python
         action: double_value
         kwargs:
-          n: ${{ inputs.item }}
+          n: ${{ item }}
       - name: square
         type: python
         action: square_value
         kwargs:
-          n: ${{ inputs.item }}
+          n: ${{ item }}
 """
 
         registry = ComponentRegistry()
@@ -163,7 +163,7 @@ steps:
         type: python
         action: transform_item
         kwargs:
-          item: ${{ inputs.item }}
+          item: ${{ item }}
 
   - name: check_completion
     type: python
@@ -266,7 +266,7 @@ steps:
         type: python
         action: process_item
         kwargs:
-          item: ${{ inputs.item }}
+          item: ${{ item }}
 """
 
         registry = ComponentRegistry()
@@ -306,7 +306,7 @@ steps:
         type: python
         action: maybe_fail
         kwargs:
-          value: ${{ inputs.item }}
+          value: ${{ item }}
 """
 
         registry = ComponentRegistry()
@@ -368,7 +368,7 @@ steps:
         type: python
         action: get_name
         kwargs:
-          user: ${{ inputs.item }}
+          user: ${{ item }}
 """
 
         registry = ComponentRegistry()

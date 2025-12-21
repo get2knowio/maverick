@@ -961,3 +961,80 @@ class TestParseExpressionDocumentation:
         assert result.kind == ExpressionKind.INPUT_REF
         assert result.path == ("inputs", "condition")
         assert result.negated is True
+
+
+class TestParseExpressionIterationVariables:
+    """Test parsing iteration variables (item and index) for for_each loops."""
+
+    def test_parse_item_simple(self) -> None:
+        """Test parsing simple item reference."""
+        result = parse_expression("${{ item }}")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item",)
+        assert result.negated is False
+
+    def test_parse_item_with_field(self) -> None:
+        """Test parsing item reference with nested field access."""
+        result = parse_expression("${{ item.name }}")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item", "name")
+        assert result.negated is False
+
+    def test_parse_item_with_deep_nesting(self) -> None:
+        """Test parsing item reference with deeply nested fields."""
+        result = parse_expression("${{ item.user.profile.email }}")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item", "user", "profile", "email")
+        assert result.negated is False
+
+    def test_parse_item_with_array_index(self) -> None:
+        """Test parsing item reference with array index."""
+        result = parse_expression("${{ item[0] }}")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item", "0")
+        assert result.negated is False
+
+    def test_parse_index_simple(self) -> None:
+        """Test parsing simple index reference."""
+        result = parse_expression("${{ index }}")
+
+        assert result.kind == ExpressionKind.INDEX_REF
+        assert result.path == ("index",)
+        assert result.negated is False
+
+    def test_parse_index_with_field_raises_error(self) -> None:
+        """Test that index with field access raises error."""
+        with pytest.raises(
+            ExpressionSyntaxError,
+            match="Index reference must be a single element",
+        ):
+            parse_expression("${{ index.field }}")
+
+    def test_parse_negated_item(self) -> None:
+        """Test parsing negated item reference."""
+        result = parse_expression("${{ not item }}")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item",)
+        assert result.negated is True
+
+    def test_parse_item_without_wrapper(self) -> None:
+        """Test parsing item reference without ${{ }} wrapper."""
+        result = parse_expression("item")
+
+        assert result.kind == ExpressionKind.ITEM_REF
+        assert result.path == ("item",)
+        assert result.negated is False
+
+    def test_parse_index_without_wrapper(self) -> None:
+        """Test parsing index reference without ${{ }} wrapper."""
+        result = parse_expression("index")
+
+        assert result.kind == ExpressionKind.INDEX_REF
+        assert result.path == ("index",)
+        assert result.negated is False
+

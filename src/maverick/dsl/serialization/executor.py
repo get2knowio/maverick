@@ -133,7 +133,11 @@ class WorkflowFileExecutor:
         inputs = inputs or {}
 
         # Build execution context
-        # Context structure: {"inputs": {...}, "steps": {"step_name": {"output": ...}}}
+        # Context structure: {
+        #   "inputs": {...},
+        #   "steps": {"step_name": {"output": ...}},
+        #   "iteration": {"item": ..., "index": ...}  # Only in for_each loops
+        # }
         context = {
             "inputs": inputs,
             "steps": {},  # Will hold step outputs: steps.<name>.output
@@ -253,6 +257,7 @@ class WorkflowFileExecutor:
         evaluator = ExpressionEvaluator(
             inputs=context.get("inputs", {}),
             step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
         )
 
         # Parse and evaluate the expression
@@ -320,6 +325,7 @@ class WorkflowFileExecutor:
         evaluator = ExpressionEvaluator(
             inputs=context.get("inputs", {}),
             step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
         )
 
         resolved = {}
@@ -779,6 +785,7 @@ class WorkflowFileExecutor:
         evaluator = ExpressionEvaluator(
             inputs=context.get("inputs", {}),
             step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
         )
 
         # Parse and evaluate the for_each expression
@@ -794,15 +801,14 @@ class WorkflowFileExecutor:
 
         # Create tasks for each item
         tasks = []
-        for item in items:
+        for index, item in enumerate(items):
             # Create a copy of the context with the current item
-            # Add 'item' to a special scope that can be accessed in expressions
+            # Add 'item' and 'index' to iteration context for expression evaluation
             item_context = context.copy()
-            # Add the item to the context in a way that expressions can access it
-            # We'll store it in the inputs for simplicity, but with a reserved name
-            item_context_inputs = item_context.get("inputs", {}).copy()
-            item_context_inputs["item"] = item
-            item_context["inputs"] = item_context_inputs
+            item_context["iteration"] = {
+                "item": item,
+                "index": index,
+            }
 
             # Create tasks for all steps in this iteration
             iteration_tasks = [

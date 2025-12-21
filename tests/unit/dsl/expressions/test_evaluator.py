@@ -679,3 +679,124 @@ class TestEdgeCasesAndErrors:
         )
         result = evaluator.evaluate_string("Path: ${{ inputs.path }}")
         assert result == "Path: /tmp/file with spaces & special chars"
+
+
+class TestIterationContextEvaluation:
+    """Test evaluation of iteration context variables (item and index)."""
+
+    def test_simple_item_reference(self) -> None:
+        """Evaluate simple item reference: ${{ item }}."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": "apple"},
+        )
+        expr = parse_expression("${{ item }}")
+        result = evaluator.evaluate(expr)
+        assert result == "apple"
+
+    def test_item_with_nested_field(self) -> None:
+        """Evaluate item reference with nested field access."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": {"name": "John", "age": 30}},
+        )
+        expr = parse_expression("${{ item.name }}")
+        result = evaluator.evaluate(expr)
+        assert result == "John"
+
+    def test_item_with_deep_nesting(self) -> None:
+        """Evaluate item reference with deeply nested fields."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={
+                "item": {"user": {"profile": {"email": "john@example.com"}}}
+            },
+        )
+        expr = parse_expression("${{ item.user.profile.email }}")
+        result = evaluator.evaluate(expr)
+        assert result == "john@example.com"
+
+    def test_item_with_array_index(self) -> None:
+        """Evaluate item reference with array index."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": ["first", "second", "third"]},
+        )
+        expr = parse_expression("${{ item[0] }}")
+        result = evaluator.evaluate(expr)
+        assert result == "first"
+
+    def test_simple_index_reference(self) -> None:
+        """Evaluate simple index reference: ${{ index }}."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": "apple", "index": 2},
+        )
+        expr = parse_expression("${{ index }}")
+        result = evaluator.evaluate(expr)
+        assert result == 2
+
+    def test_item_reference_outside_loop_raises_error(self) -> None:
+        """Evaluate item reference outside for_each loop raises error."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={},  # No item in context
+        )
+        expr = parse_expression("${{ item }}")
+        with pytest.raises(
+            ExpressionEvaluationError,
+            match="Item reference used outside of for_each loop",
+        ):
+            evaluator.evaluate(expr)
+
+    def test_index_reference_outside_loop_raises_error(self) -> None:
+        """Evaluate index reference outside for_each loop raises error."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={},  # No index in context
+        )
+        expr = parse_expression("${{ index }}")
+        with pytest.raises(
+            ExpressionEvaluationError,
+            match="Index reference used outside of for_each loop",
+        ):
+            evaluator.evaluate(expr)
+
+    def test_negated_item_reference(self) -> None:
+        """Evaluate negated item reference."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": False},
+        )
+        expr = parse_expression("${{ not item }}")
+        result = evaluator.evaluate(expr)
+        assert result is True
+
+    def test_item_in_template_string(self) -> None:
+        """Evaluate item reference in template string."""
+        evaluator = ExpressionEvaluator(
+            inputs={},
+            step_outputs={},
+            iteration_context={"item": "apple", "index": 1},
+        )
+        result = evaluator.evaluate_string("Processing item ${{ item }} at index ${{ index }}")
+        assert result == "Processing item apple at index 1"
+
+    def test_item_with_inputs_and_steps(self) -> None:
+        """Evaluate item reference alongside inputs and steps."""
+        evaluator = ExpressionEvaluator(
+            inputs={"prefix": "Item:"},
+            step_outputs={"prev": {"output": "processed"}},
+            iteration_context={"item": "apple"},
+        )
+        result = evaluator.evaluate_string("${{ inputs.prefix }} ${{ item }} (${{ steps.prev.output }})")
+        assert result == "Item: apple (processed)"
+

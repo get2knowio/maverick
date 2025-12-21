@@ -63,6 +63,11 @@ steps:
         action: process_item
         kwargs:
           item: ${{ '{{ item }}' }}  # Current iteration's item
+      - name: validate_result
+        type: python
+        action: validate_result
+        kwargs:
+          item: ${{ '{{ item }}' }}
 
   # ==========================================================================
   # Example 2: Combining Parallel Results
@@ -86,12 +91,12 @@ steps:
   # Example 3: Conditional Parallel Execution
   # ==========================================================================
   # Use the `when` clause to conditionally execute parallel steps based on
-  # runtime conditions (e.g., only when there are items to process).
+  # runtime conditions. Note: For checking if a list has items, you would
+  # typically check the list input in a separate step first.
   # ==========================================================================
   - name: conditional_parallel
     type: parallel
     for_each: ${{ '{{ inputs.items }}' }}
-    when: ${{ '{{ inputs.items | length > 0 }}' }}
     steps:
       - name: validate_item
         type: python
