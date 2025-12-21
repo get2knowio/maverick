@@ -29,6 +29,7 @@ from maverick.agents.generators.code_analyzer import CodeAnalyzer
 from maverick.agents.generators.commit_message import CommitMessageGenerator
 from maverick.agents.generators.error_explainer import ErrorExplainer
 from maverick.agents.generators.pr_description import PRDescriptionGenerator
+from maverick.agents.generators.pr_title import PRTitleGenerator
 
 __all__ = [
     # Base class
@@ -38,6 +39,7 @@ __all__ = [
     "CommitMessageGenerator",
     "ErrorExplainer",
     "PRDescriptionGenerator",
+    "PRTitleGenerator",
     # Constants
     "DEFAULT_MODEL",
     "DEFAULT_PR_SECTIONS",
