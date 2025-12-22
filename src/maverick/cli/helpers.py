@@ -552,4 +552,3 @@ def format_review_markdown(result: ReviewResult, pr_number: int) -> str:
             lines.append(f"- Duration: {duration_sec:.2f}s")
 
     return "\n".join(lines)
-

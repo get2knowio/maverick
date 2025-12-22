@@ -204,9 +204,7 @@ class WorkflowFileExecutor:
                 step_name = step_result_dict["name"]
                 step_output = step_result_dict["output"]
                 context["steps"][step_name] = {"output": step_output}
-                logger.debug(
-                    f"Restored step output for '{step_name}' from checkpoint"
-                )
+                logger.debug(f"Restored step output for '{step_name}' from checkpoint")
 
         start_time = time.perf_counter()
         step_results: list[StepResult] = []
@@ -904,9 +902,7 @@ class WorkflowFileExecutor:
             }
 
             # Create tasks for all steps in this iteration
-            iteration_tasks = [
-                self._execute_step(s, item_context) for s in step.steps
-            ]
+            iteration_tasks = [self._execute_step(s, item_context) for s in step.steps]
 
             # Each iteration's task is itself a gather of all steps in parallel
             tasks.append(asyncio.gather(*iteration_tasks, return_exceptions=True))
@@ -955,10 +951,12 @@ class WorkflowFileExecutor:
         for step_name, step_data in context.get("steps", {}).items():
             output = step_data.get("output")
             # Store minimal data needed for resume
-            step_results_dicts.append({
-                "name": step_name,
-                "output": output,
-            })
+            step_results_dicts.append(
+                {
+                    "name": step_name,
+                    "output": output,
+                }
+            )
 
         # Create checkpoint data
         timestamp = datetime.now(timezone.utc).isoformat()

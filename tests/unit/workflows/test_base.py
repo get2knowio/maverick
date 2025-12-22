@@ -83,9 +83,13 @@ class TestWorkflowDSLMixin:
         mock_library = MagicMock()
         mock_library.get_workflow.side_effect = KeyError("Workflow not found")
 
-        with patch(
-            "maverick.workflows.base.create_builtin_library", return_value=mock_library
-        ), pytest.raises(KeyError, match="Workflow not found"):
+        with (
+            patch(
+                "maverick.workflows.base.create_builtin_library",
+                return_value=mock_library,
+            ),
+            pytest.raises(KeyError, match="Workflow not found"),
+        ):
             workflow._load_workflow("non-existent")
 
     def test_mixin_works_with_inheritance_chain(self) -> None:

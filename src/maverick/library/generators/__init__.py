@@ -12,6 +12,7 @@ Registered Generators:
     pr_body_generator: PRDescriptionGenerator - Generates PR descriptions
     pr_title_generator: PRTitleGenerator - Generates PR titles
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

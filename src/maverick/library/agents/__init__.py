@@ -13,6 +13,7 @@ Registered Agents:
     issue_fixer: IssueFixerAgent - Fixes GitHub issues
     validation_fixer: FixerAgent - Applies validation fixes
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

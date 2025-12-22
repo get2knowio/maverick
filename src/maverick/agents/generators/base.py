@@ -13,6 +13,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
+from maverick.agents.result import AgentUsage
 from maverick.agents.tools import GENERATOR_TOOLS
 from maverick.agents.utils import extract_text
 from maverick.exceptions import GeneratorError
@@ -81,9 +82,15 @@ class GeneratorAgent(ABC):
                     system_prompt="You generate helpful text from provided context.",
                 )
 
-            async def generate(self, context: dict[str, Any]) -> str:
+            async def generate(
+                self,
+                context: dict[str, Any],
+                return_usage: bool = False
+            ) -> str | tuple[str, AgentUsage]:
                 # All context is provided in the prompt
                 prompt = f"Generate text for: {context['input']}"
+                if return_usage:
+                    return await self._query_with_usage(prompt)
                 return await self._query(prompt)
         ```
     """
@@ -144,14 +151,19 @@ class GeneratorAgent(ABC):
         )
 
     @abstractmethod
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate text from context.
 
         Args:
             context: Input context dictionary (varies by generator type).
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Generated text output.
+            Generated text output, or (text, usage) if return_usage is True.
 
         Raises:
             GeneratorError: On generation failure (API errors, invalid input).
@@ -163,12 +175,30 @@ class GeneratorAgent(ABC):
 
         Args:
             prompt: The user prompt to send to Claude.
-            system_prompt: Optional system prompt override. If provided,
-                creates a new options object with this system prompt instead
-                of using the instance's default options.
+            system_prompt: Optional system prompt override.
 
         Returns:
             Generated text response.
+
+        Raises:
+            GeneratorError: If the query fails.
+        """
+        text, _ = await self._query_with_usage(prompt, system_prompt)
+        return text
+
+    async def _query_with_usage(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+    ) -> tuple[str, AgentUsage]:
+        """Execute query and return text with usage stats.
+
+        Args:
+            prompt: The user prompt to send to Claude.
+            system_prompt: Optional system prompt override.
+
+        Returns:
+            Tuple of (generated text, usage stats).
 
         Raises:
             GeneratorError: If the query fails.
@@ -193,8 +223,10 @@ class GeneratorAgent(ABC):
 
         try:
             text_parts: list[str] = []
+            messages = []
 
             async for message in query(prompt=prompt, options=options):
+                messages.append(message)
                 # Extract text from AssistantMessage
                 # NOTE: Using type().__name__ string comparison to avoid importing
                 # SDK message types, keeping generators lightweight and decoupled
@@ -203,13 +235,16 @@ class GeneratorAgent(ABC):
                     if text:
                         text_parts.append(text)
 
-            result = "\n".join(text_parts)
+            result_text = "\n".join(text_parts)
+            usage = self._extract_usage(messages)
+
             logger.debug(
-                "Generator '%s' received response length: %d",
+                "Generator '%s' received response length: %d, tokens: %d",
                 self._name,
-                len(result),
+                len(result_text),
+                usage.total_tokens,
             )
-            return result
+            return result_text, usage
 
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             # Expected errors from SDK, validation, or I/O operations
@@ -229,6 +264,40 @@ class GeneratorAgent(ABC):
                 self._name,
             )
             raise
+
+    def _extract_usage(self, messages: list[Any]) -> AgentUsage:
+        """Extract usage statistics from messages (FR-014).
+
+        Args:
+            messages: List of messages from Claude response.
+
+        Returns:
+            AgentUsage with token counts and timing.
+        """
+        # Find ResultMessage for usage stats
+        result_msg = None
+        for msg in messages:
+            if type(msg).__name__ == "ResultMessage":
+                result_msg = msg
+                break
+
+        if result_msg is None:
+            # No result message, return zeros
+            return AgentUsage(
+                input_tokens=0,
+                output_tokens=0,
+                total_cost_usd=None,
+                duration_ms=0,
+            )
+
+        # Extract usage from ResultMessage
+        usage = getattr(result_msg, "usage", None) or {}
+        return AgentUsage(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_cost_usd=getattr(result_msg, "total_cost_usd", None),
+            duration_ms=getattr(result_msg, "duration_ms", 0),
+        )
 
     def _truncate_input(
         self,

@@ -118,10 +118,31 @@ class GitHubCLIRunner:
         Raises:
             RuntimeError: If gh command fails.
         """
-        result = await self._command_runner.run(["gh", *args])
-        if not result.success:
-            raise RuntimeError(f"gh command failed: {result.stderr}")
-        return result.stdout.strip() if result.stdout.strip() else "{}"
+        import asyncio
+        import logging
+
+        logger = logging.getLogger(__name__)
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            result = await self._command_runner.run(["gh", *args])
+            if result.success:
+                return result.stdout.strip() if result.stdout.strip() else "{}"
+
+            # Check if it's a network/transient error (generic check)
+            # We retry on any failure for now as gh cli often fails on network
+            last_error = result.stderr
+            logger.warning(
+                f"gh command failed (attempt {attempt + 1}/{max_retries}): {last_error}"
+            )
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2**attempt)
+
+        raise RuntimeError(
+            f"gh command failed after {max_retries} attempts: {last_error}"
+        )
 
     async def get_issue(self, number: int) -> GitHubIssue:
         """Get a single issue by number.

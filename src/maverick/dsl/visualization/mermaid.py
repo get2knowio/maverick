@@ -146,13 +146,15 @@ class MermaidGenerator:
         Returns:
             Escaped label safe for Mermaid
         """
-        # Mermaid handles most characters well, but we escape common problematic ones
-        # Replace brackets that could interfere with shape syntax
-        label = label.replace("[", "(").replace("]", ")")
-        # Replace curly braces
-        label = label.replace("{", "(").replace("}", ")")
-        # Replace quotes
-        label = label.replace('"', "'")
+        # Replace characters that interfere with Mermaid syntax
+        label = label.replace('"', "'")  # Replace double quotes with single
+        label = label.replace("[", "(").replace("]", ")")  # Replace brackets
+        label = label.replace("{", "(").replace("}", ")")  # Replace braces
+        label = label.replace("(", "（").replace(")", "）")  # Use full-width parens
+
+        # Strip newlines and extra spaces
+        label = " ".join(label.split())
+
         return label
 
     def _add_edge(self, lines: list[str], edge: GraphEdge) -> None:

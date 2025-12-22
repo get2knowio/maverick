@@ -8,7 +8,7 @@ from pathlib import Path
 
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import StageResult, ValidationOutput, ValidationStage
-from maverick.runners.parsers import get_parser
+from maverick.runners.parsers import get_parsers
 
 __all__ = ["ValidationRunner"]
 
@@ -100,9 +100,8 @@ class ValidationRunner:
 
         # Parse errors from output
         errors = []
-        parser = get_parser(result.output)
-        if parser:
-            errors = parser.parse(result.output)
+        for parser in get_parsers(result.output):
+            errors.extend(parser.parse(result.output))
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
 

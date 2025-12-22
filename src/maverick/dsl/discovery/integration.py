@@ -4,6 +4,7 @@ This module provides the bridge between the workflow discovery system
 (which finds workflows and fragments from multiple locations) and the
 component registry (which is used by WorkflowFileExecutor for runtime lookup).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

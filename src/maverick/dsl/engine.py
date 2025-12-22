@@ -84,53 +84,24 @@ class WorkflowEngine:
         )
         await self._checkpoint_store.save(workflow_id, checkpoint_data)
 
-    async def execute(
+    async def _execute_steps(
         self,
-        workflow_func: Callable[..., Any],
-        workflow_id: str | None = None,
-        **inputs: Any,
+        gen: Generator[StepDefinition, Any, Any],
+        context: WorkflowContext,
+        initial_step: StepDefinition | None,
+        seen_names: set[str],
+        step_results: list[StepResult],
+        workflow_name: str,
+        workflow_id: str | None,
+        inputs: dict[str, Any],
+        result_container: dict[str, Any],
     ) -> AsyncIterator[ProgressEvent]:
-        """Execute a workflow and yield progress events.
-
-        Args:
-            workflow_func: Decorated workflow function.
-            workflow_id: Optional unique identifier for this workflow run.
-            **inputs: Workflow input arguments.
-
-        Yields:
-            ProgressEvent objects (WorkflowStarted, StepStarted, etc.).
-        """
-        # Get workflow definition from decorated function
-        workflow_def: WorkflowDefinition = workflow_func.__workflow_def__  # type: ignore[attr-defined]
-        workflow_name = workflow_def.name
-
-        # Create context
-        context = WorkflowContext(inputs=inputs, config=self._config)
-
-        # Track execution
-        start_time = time.perf_counter()
-        step_results: list[StepResult] = []
-        seen_names: set[str] = set()
+        """Execute workflow steps from the generator."""
+        step_to_execute = initial_step
         final_output: Any = None
         has_explicit_return = False
         success = True
 
-        # Emit workflow started
-        yield WorkflowStarted(workflow_name=workflow_name, inputs=inputs)
-
-        # Create generator from workflow function
-        gen: Generator[StepDefinition, Any, Any] = workflow_def.func(**inputs)
-
-        # Start generator
-        try:
-            step_to_execute = gen.send(None)
-        except StopIteration as e:
-            # Workflow returned immediately with no steps
-            has_explicit_return = True
-            final_output = e.value
-            step_to_execute = None
-
-        # Execute steps
         while step_to_execute is not None:
             step = step_to_execute
 
@@ -215,6 +186,73 @@ class WorkflowEngine:
             final_output = step_results[-1].output
         else:
             final_output = None
+
+        result_container["success"] = success
+        result_container["final_output"] = final_output
+
+    async def execute(
+        self,
+        workflow_func: Callable[..., Any],
+        workflow_id: str | None = None,
+        **inputs: Any,
+    ) -> AsyncIterator[ProgressEvent]:
+        """Execute a workflow and yield progress events.
+
+        Args:
+            workflow_func: Decorated workflow function.
+            workflow_id: Optional unique identifier for this workflow run.
+            **inputs: Workflow input arguments.
+
+        Yields:
+            ProgressEvent objects (WorkflowStarted, StepStarted, etc.).
+        """
+        # Get workflow definition from decorated function
+        workflow_def: WorkflowDefinition = workflow_func.__workflow_def__  # type: ignore[attr-defined]
+        workflow_name = workflow_def.name
+
+        # Create context
+        context = WorkflowContext(inputs=inputs, config=self._config)
+
+        # Track execution
+        start_time = time.perf_counter()
+        step_results: list[StepResult] = []
+        seen_names: set[str] = set()
+        final_output: Any = None
+        success = True
+        result_container: dict[str, Any] = {}
+
+        # Emit workflow started
+        yield WorkflowStarted(workflow_name=workflow_name, inputs=inputs)
+
+        # Create generator from workflow function
+        gen: Generator[StepDefinition, Any, Any] = workflow_def.func(**inputs)
+
+        # Start generator
+        try:
+            step_to_execute = gen.send(None)
+        except StopIteration as e:
+            # Workflow returned immediately with no steps
+            step_to_execute = None
+            final_output = e.value
+            success = True
+
+        # Execute steps if we have any
+        if step_to_execute is not None:
+            async for event in self._execute_steps(
+                gen,
+                context,
+                step_to_execute,
+                seen_names,
+                step_results,
+                workflow_name,
+                workflow_id,
+                inputs,
+                result_container,
+            ):
+                yield event
+
+            success = result_container.get("success", False)
+            final_output = result_container.get("final_output")
 
         # Execute rollbacks if workflow failed
         rollback_errors_list: list[RollbackError] = []
@@ -319,6 +357,7 @@ class WorkflowEngine:
         final_output: Any = None
         has_explicit_return = False
         success = True
+        result_container: dict[str, Any] = {}
 
         # Emit workflow started
         yield WorkflowStarted(workflow_name=workflow_name, inputs=inputs)
@@ -337,80 +376,33 @@ class WorkflowEngine:
             has_explicit_return = True
             final_output = e.value
             step_to_execute = None
+            success = True
 
         # Continue with normal execution from here
-        while step_to_execute is not None:
-            step = step_to_execute
+        if step_to_execute is not None:
+            async for event in self._execute_steps(
+                gen,
+                context,
+                step_to_execute,
+                seen_names,
+                step_results,
+                workflow_name,
+                workflow_id,
+                inputs,
+                result_container,
+            ):
+                yield event
 
-            # Check for duplicate step name (FR-005)
-            if step.name in seen_names:
-                raise DuplicateStepNameError(step.name)
-            seen_names.add(step.name)
+            success = result_container.get("success", False)
+            final_output = result_container.get("final_output")
 
-            # Check for cancellation
-            if self._cancelled:
-                success = False
-                break
-
-            # Emit step started
-            yield StepStarted(step_name=step.name, step_type=step.step_type)
-
-            # Execute step
-            step_start_time = time.perf_counter()
-            try:
-                step_result = await step.execute(context)
-            except Exception as e:
-                duration_ms = int((time.perf_counter() - step_start_time) * 1000)
-                step_result = StepResult(
-                    name=step.name,
-                    step_type=step.step_type,
-                    success=False,
-                    output=None,
-                    duration_ms=duration_ms,
-                    error=f"Step '{step.name}' raised {type(e).__name__}: {e}",
-                )
-            step_results.append(step_result)
-            context.results[step.name] = step_result
-
-            # Emit step completed
-            yield StepCompleted(
-                step_name=step.name,
-                step_type=step.step_type,
-                success=step_result.success,
-                duration_ms=step_result.duration_ms,
-            )
-
-            # Save checkpoint if this is a checkpoint step
-            if isinstance(step, CheckpointStep) and step_result.success:
-                logger.debug(
-                    f"Saving checkpoint for step '{step.name}' "
-                    f"(workflow_id={workflow_id})"
-                )
-                await self._save_checkpoint(
-                    workflow_name=workflow_name,
-                    workflow_id=workflow_id,
-                    step_name=step.name,
-                    inputs=inputs,
-                    step_results=step_results,
-                )
-                logger.info(f"Checkpoint saved for step '{step.name}'")
-                yield CheckpointSaved(
-                    step_name=step.name,
-                    workflow_id=workflow_id,
-                )
-
-            # Handle step failure
-            if not step_result.success:
-                success = False
-                break
-
-            # Send result back to generator and get next step
-            try:
-                step_to_execute = gen.send(step_result.output)
-            except StopIteration as e:
-                has_explicit_return = True
-                final_output = e.value
-                break
+        elif has_explicit_return:
+            # Already done after fast-forward
+            pass
+        else:
+            # Fast-forward ended but no more steps and no explicit return?
+            # That means we just finished execution.
+            pass
 
         # Execute rollbacks if workflow failed
         rollback_errors_list: list[RollbackError] = []

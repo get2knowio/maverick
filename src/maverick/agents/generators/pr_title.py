@@ -4,6 +4,7 @@ This module provides a generator that creates concise PR titles following
 conventional commit format. It uses commit messages, branch names, and
 task summaries to produce titles in the format: type(scope): description
 """
+
 from __future__ import annotations
 
 import logging
@@ -154,8 +155,7 @@ class PRTitleGenerator(GeneratorAgent):
         # Ensure result is not too long
         if len(result) > 72:
             logger.warning(
-                "Generated PR title exceeds 72 characters (%d), truncating",
-                len(result)
+                "Generated PR title exceeds 72 characters (%d), truncating", len(result)
             )
             result = result[:69] + "..."
 

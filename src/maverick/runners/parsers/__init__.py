@@ -13,6 +13,7 @@ __all__ = [
     "RustCompilerParser",
     "ESLintJSONParser",
     "get_parser",
+    "get_parsers",
 ]
 
 _PARSERS: list[OutputParser] = [
@@ -22,9 +23,16 @@ _PARSERS: list[OutputParser] = [
 ]
 
 
-def get_parser(output: str) -> OutputParser | None:
-    """Get a parser that can handle the given output."""
+def get_parsers(output: str) -> list[OutputParser]:
+    """Get all parsers that can handle the given output."""
+    matching_parsers = []
     for parser in _PARSERS:
         if parser.can_parse(output):
-            return parser
-    return None
+            matching_parsers.append(parser)
+    return matching_parsers
+
+
+def get_parser(output: str) -> OutputParser | None:
+    """Get the first parser that can handle the given output."""
+    parsers = get_parsers(output)
+    return parsers[0] if parsers else None

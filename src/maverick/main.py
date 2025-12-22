@@ -574,8 +574,6 @@ async def review(
             raise SystemExit(ExitCode.FAILURE)
 
 
-
-
 @cli.group()
 def config() -> None:
     """Manage Maverick configuration."""
@@ -1669,9 +1667,7 @@ async def workflow_run(
                     )
                     click.echo(f"{summary_header} in {total_sec:.2f}s")
                 else:
-                    summary_header = click.style(
-                        "Workflow failed", fg="red", bold=True
-                    )
+                    summary_header = click.style("Workflow failed", fg="red", bold=True)
                     click.echo(f"{summary_header} after {total_sec:.2f}s")
 
         # Get final result
