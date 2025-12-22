@@ -17,6 +17,7 @@ from maverick.agents.generators.base import (
     DEFAULT_PR_SECTIONS,
     GeneratorAgent,
 )
+from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
 
 # =============================================================================
@@ -130,7 +131,11 @@ class PRDescriptionGenerator(GeneratorAgent):
             as a PR description.
         """).strip()
 
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate PR description from context.
 
         Args:
@@ -139,9 +144,11 @@ class PRDescriptionGenerator(GeneratorAgent):
                 - task_summary (str): Summary of the task/feature (REQUIRED, non-empty)
                 - diff_stats (dict): File change statistics (OPTIONAL)
                 - validation_results (dict): Test/lint results (OPTIONAL)
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Markdown PR description with configured sections.
+            Markdown PR description with configured sections,
+            or (description, usage) if return_usage is True.
 
         Raises:
             GeneratorError: If commits or task_summary is missing/empty,
@@ -185,6 +192,8 @@ class PRDescriptionGenerator(GeneratorAgent):
         prompt = self._build_prompt(context)
 
         # Execute query and return result
+        if return_usage:
+            return await self._query_with_usage(prompt)
         return await self._query(prompt)
 
     def _build_prompt(self, context: dict[str, Any]) -> str:

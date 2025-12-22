@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from maverick.agents.generators.base import DEFAULT_MODEL, GeneratorAgent
+from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
 
 # =============================================================================
@@ -108,7 +109,11 @@ class PRTitleGenerator(GeneratorAgent):
             model=model,
         )
 
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate PR title from context.
 
         Args:
@@ -117,9 +122,11 @@ class PRTitleGenerator(GeneratorAgent):
                 - branch_name (str): Branch name (OPTIONAL)
                 - task_summary (str): Task summary (OPTIONAL)
                 - diff_overview (str): Brief change overview (OPTIONAL)
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            PR title in conventional commit format.
+            PR title in conventional commit format,
+            or (title, usage) if return_usage is True.
 
         Raises:
             GeneratorError: If commits is missing/empty or generation fails.
@@ -149,8 +156,11 @@ class PRTitleGenerator(GeneratorAgent):
         # Build prompt from context
         prompt = self._build_prompt(context)
 
-        # Execute query and return result
-        result = await self._query(prompt)
+        # Execute query and get result with usage if requested
+        if return_usage:
+            result, usage = await self._query_with_usage(prompt)
+        else:
+            result = await self._query(prompt)
 
         # Ensure result is not too long
         if len(result) > 72:
@@ -159,6 +169,8 @@ class PRTitleGenerator(GeneratorAgent):
             )
             result = result[:69] + "..."
 
+        if return_usage:
+            return result, usage
         return result
 
     def _build_prompt(self, context: dict[str, Any]) -> str:

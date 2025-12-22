@@ -124,6 +124,7 @@ class TestWorkflowParsing:
             "subworkflow",
             "branch",
             "parallel",
+            "checkpoint",
         }
 
         for step in workflow.steps:

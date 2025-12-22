@@ -14,6 +14,7 @@ from maverick.agents.generators.base import (
     MAX_SNIPPET_SIZE,
     GeneratorAgent,
 )
+from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
 
 # =============================================================================
@@ -109,7 +110,11 @@ class CodeAnalyzer(GeneratorAgent):
             model=model,
         )
 
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate code analysis based on requested analysis type.
 
         Args:
@@ -119,9 +124,10 @@ class CodeAnalyzer(GeneratorAgent):
                   "review", or "summarize" (optional, defaults to
                   "explain")
                 - language (str): Programming language hint (optional)
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Generated analysis text.
+            Generated analysis text, or (analysis, usage) if return_usage is True.
 
         Raises:
             GeneratorError: If code is missing, empty, or generation fails.
@@ -157,6 +163,11 @@ class CodeAnalyzer(GeneratorAgent):
         analysis_system_prompt = self._get_system_prompt(analysis_type)
 
         # Call the base class _query method with the system prompt override
+        if return_usage:
+            return await self._query_with_usage(
+                prompt,
+                system_prompt=analysis_system_prompt
+            )
         return await self._query(prompt, system_prompt=analysis_system_prompt)
 
     def _get_system_prompt(self, analysis_type: str) -> str:

@@ -51,18 +51,30 @@ class TestModuleImports:
         import importlib
         import sys
 
-        # Clear cached imports
-        modules_to_clear = [k for k in sys.modules if k.startswith("maverick.agents")]
-        for mod in modules_to_clear:
-            del sys.modules[mod]
+        # Save the current state of maverick.agents modules
+        saved_modules = {
+            k: v for k, v in sys.modules.items() if k.startswith("maverick.agents")
+        }
 
-        # Time the import
-        start = time.perf_counter()
-        importlib.import_module("maverick.agents")
-        elapsed = time.perf_counter() - start
+        try:
+            # Clear cached imports
+            modules_to_clear = [
+                k for k in sys.modules if k.startswith("maverick.agents")
+            ]
+            for mod in modules_to_clear:
+                del sys.modules[mod]
 
-        # Should import quickly (under 500ms)
-        assert elapsed < 0.5, f"Import took {elapsed:.3f}s, expected < 0.5s"
+            # Time the import
+            start = time.perf_counter()
+            importlib.import_module("maverick.agents")
+            elapsed = time.perf_counter() - start
+
+            # Should import quickly (under 500ms)
+            assert elapsed < 0.5, f"Import took {elapsed:.3f}s, expected < 0.5s"
+        finally:
+            # Restore the original modules to prevent test pollution
+            for mod_name, mod in saved_modules.items():
+                sys.modules[mod_name] = mod
 
 
 class TestDataclassPerformance:

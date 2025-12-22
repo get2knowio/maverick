@@ -379,7 +379,9 @@ class WorkflowEngine:
             success = True
 
         # Continue with normal execution from here
+        executed_new_steps = False
         if step_to_execute is not None:
+            executed_new_steps = True
             async for event in self._execute_steps(
                 gen,
                 context,
@@ -417,8 +419,11 @@ class WorkflowEngine:
         # Calculate total duration
         total_duration_ms = int((time.perf_counter() - start_time) * 1000)
 
-        # Determine final output
-        if not success:
+        # Determine final output (only if we didn't execute new steps)
+        if executed_new_steps:
+            # final_output already set from result_container
+            pass
+        elif not success:
             final_output = None
         elif has_explicit_return and final_output is not None:
             pass

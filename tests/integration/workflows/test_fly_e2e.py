@@ -334,6 +334,7 @@ async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path
         WorkflowStage.IMPLEMENTATION,
         WorkflowStage.VALIDATION,
         WorkflowStage.CODE_REVIEW,
+        WorkflowStage.CONVENTION_UPDATE,
         WorkflowStage.PR_CREATION,
     ]
 

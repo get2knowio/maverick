@@ -200,13 +200,14 @@ class TestUpdateHeaderSubtitle:
 
         # Mock the header widget
         mock_header = Mock(spec=Header)
+        mock_header.subtitle = ""
 
         with patch.object(app, "query_one", return_value=mock_header):
             app._update_header_subtitle()
 
         # Should set subtitle with workflow, branch, and time
-        assert mock_header.sub_title is not None
-        subtitle = mock_header.sub_title
+        assert mock_header.subtitle is not None
+        subtitle = mock_header.subtitle
         assert "FlyWorkflow" in subtitle
         assert "feature-branch" in subtitle
         assert "00:00" in subtitle or "00:01" in subtitle
@@ -219,11 +220,12 @@ class TestUpdateHeaderSubtitle:
         app._current_branch = ""
 
         mock_header = Mock(spec=Header)
+        mock_header.subtitle = ""
 
         with patch.object(app, "query_one", return_value=mock_header):
             app._update_header_subtitle()
 
-        subtitle = mock_header.sub_title
+        subtitle = mock_header.subtitle
         assert "RefuelWorkflow" in subtitle
         assert "00:00" in subtitle or "00:01" in subtitle
         # Should not contain empty parentheses
@@ -254,11 +256,12 @@ class TestUpdateHeaderSubtitle:
         app._timer_start = time.time() - 65
 
         mock_header = Mock(spec=Header)
+        mock_header.subtitle = ""
 
         with patch.object(app, "query_one", return_value=mock_header):
             app._update_header_subtitle()
 
-        subtitle = mock_header.sub_title
+        subtitle = mock_header.subtitle
         assert "01:0" in subtitle  # 01:05
 
     def test_update_header_subtitle_handles_missing_header(self) -> None:
@@ -294,7 +297,8 @@ class TestActionMethods:
             # Should not raise exception
             app.action_toggle_log()
 
-    def test_action_pop_screen_when_multiple_screens(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_pop_screen_when_multiple_screens(self) -> None:
         """Test that action_pop_screen pops when multiple screens exist."""
         app = MaverickApp()
         # Mock screen_stack with multiple screens
@@ -306,11 +310,12 @@ class TestActionMethods:
             new_callable=lambda: property(lambda self: mock_screens),
         ):
             with patch.object(app, "pop_screen") as mock_pop:
-                app.action_pop_screen()
+                await app.action_pop_screen()
 
             mock_pop.assert_called_once()
 
-    def test_action_pop_screen_when_single_screen(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_pop_screen_when_single_screen(self) -> None:
         """Test that action_pop_screen doesn't pop when only one screen."""
         app = MaverickApp()
         # Mock screen_stack with single screen
@@ -322,16 +327,17 @@ class TestActionMethods:
             new_callable=lambda: property(lambda self: mock_screens),
         ):
             with patch.object(app, "pop_screen") as mock_pop:
-                app.action_pop_screen()
+                await app.action_pop_screen()
 
             mock_pop.assert_not_called()
 
-    def test_action_quit_exits_app(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_quit_exits_app(self) -> None:
         """Test that action_quit calls exit()."""
         app = MaverickApp()
 
         with patch.object(app, "exit") as mock_exit:
-            app.action_quit()
+            await app.action_quit()
 
         mock_exit.assert_called_once()
 

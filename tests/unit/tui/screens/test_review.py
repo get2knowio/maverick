@@ -476,7 +476,8 @@ class TestReviewScreenRequestChangesAction:
 class TestReviewScreenDismissAction:
     """Tests for action_dismiss method (T034)."""
 
-    def test_action_dismiss_with_selected_issue(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_dismiss_with_selected_issue(self) -> None:
         """Test dismiss action with a selected issue."""
         screen = ReviewScreen()
         issues = [
@@ -491,14 +492,15 @@ class TestReviewScreenDismissAction:
             patch.object(screen, "_update_issue_list"),
             patch.object(screen, "_update_detail_view"),
         ):
-            screen.action_dismiss()
+            await screen.action_dismiss()
 
         # Should remove the second issue
         assert len(screen._issues) == 2
         assert screen._issues[0]["id"] == "1"
         assert screen._issues[1]["id"] == "3"
 
-    def test_action_dismiss_updates_selection(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_dismiss_updates_selection(self) -> None:
         """Test that dismiss updates selection index correctly."""
         screen = ReviewScreen()
         issues = [
@@ -512,24 +514,26 @@ class TestReviewScreenDismissAction:
             patch.object(screen, "_update_issue_list"),
             patch.object(screen, "_update_detail_view"),
         ):
-            screen.action_dismiss()
+            await screen.action_dismiss()
 
         # Selection should move back if we're at the end
         assert screen._selected_index == 0
 
-    def test_action_dismiss_no_issues(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_dismiss_no_issues(self) -> None:
         """Test dismiss action when no issues are loaded."""
         screen = ReviewScreen()
         screen._issues = []
         screen._selected_index = -1
 
         with patch.object(screen, "_update_issue_list") as mock_update:
-            screen.action_dismiss()
+            await screen.action_dismiss()
 
         # Should not crash or update anything
         mock_update.assert_not_called()
 
-    def test_action_dismiss_last_issue(self) -> None:
+    @pytest.mark.asyncio
+    async def test_action_dismiss_last_issue(self) -> None:
         """Test dismissing the last remaining issue."""
         screen = ReviewScreen()
         issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
@@ -540,7 +544,7 @@ class TestReviewScreenDismissAction:
             patch.object(screen, "_update_issue_list"),
             patch.object(screen, "_clear_detail_view"),
         ):
-            screen.action_dismiss()
+            await screen.action_dismiss()
 
         assert len(screen._issues) == 0
         assert screen._selected_index == -1
@@ -653,13 +657,27 @@ class TestReviewScreenExecuteFixAll:
     @pytest.mark.asyncio
     async def test_execute_fix_all_updates_state(self) -> None:
         """Test that execute fix all updates action state."""
+        from maverick.models.issue_fix import FixResult as AgentFixResult
+
         screen = ReviewScreen()
         screen._issues = [
             {"id": "1", "severity": "error", "message": "Error 1"},
             {"id": "2", "severity": "warning", "message": "Warning 1"},
         ]
 
-        await screen._execute_fix_all()
+        # Mock IssueFixerAgent to avoid real agent execution
+        mock_agent = AsyncMock()
+        mock_result = AgentFixResult(
+            success=True,
+            issue_number=1000001,
+            issue_title="Fix error finding",
+        )
+        mock_agent.execute.return_value = mock_result
+
+        with patch(
+            "maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent
+        ):
+            await screen._execute_fix_all()
 
         # Should complete and update state
         assert not screen.action_state.is_fixing
@@ -668,13 +686,27 @@ class TestReviewScreenExecuteFixAll:
     @pytest.mark.asyncio
     async def test_execute_fix_all_creates_results(self) -> None:
         """Test that execute fix all creates fix results for each issue."""
+        from maverick.models.issue_fix import FixResult as AgentFixResult
+
         screen = ReviewScreen()
         screen._issues = [
             {"id": "1", "severity": "error", "message": "Error 1"},
             {"id": "2", "severity": "warning", "message": "Warning 1"},
         ]
 
-        await screen._execute_fix_all()
+        # Mock IssueFixerAgent to avoid real agent execution
+        mock_agent = AsyncMock()
+        mock_result = AgentFixResult(
+            success=True,
+            issue_number=1000001,
+            issue_title="Fix error finding",
+        )
+        mock_agent.execute.return_value = mock_result
+
+        with patch(
+            "maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent
+        ):
+            await screen._execute_fix_all()
 
         # Should have results for both issues
         assert screen.action_state.fix_results is not None

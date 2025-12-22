@@ -638,7 +638,7 @@ def test_fly_command_with_valid_branch(
 ) -> None:
     """T030: Test fly command with valid branch - 'maverick fly feature-branch'."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -649,14 +649,40 @@ def test_fly_command_with_valid_branch(
     os.system("git config user.name 'Test User'")
     os.system("git checkout -b feature-branch > /dev/null 2>&1")
 
-    # Mock FlyWorkflow.execute
-    mock_result = MagicMock()
-    mock_result.success = True
-    mock_result.summary = "Workflow completed successfully"
+    # Mock FlyWorkflow.execute as async generator
+    from maverick.agents.result import AgentUsage
+    from maverick.workflows.fly import (
+        FlyResult,
+        FlyWorkflowCompleted,
+        WorkflowStage,
+        WorkflowState,
+    )
+
+    mock_result = FlyResult(
+        success=True,
+        state=WorkflowState(
+            stage=WorkflowStage.COMPLETE,
+            branch="feature-branch",
+            task_file=None,
+            implementation_result=None,
+            validation_result=None,
+            review_results=[],
+            pr_url=None,
+            errors=[],
+        ),
+        summary="Workflow completed successfully",
+        token_usage=AgentUsage(
+            input_tokens=0, output_tokens=0, total_cost_usd=0.0, duration_ms=0
+        ),
+        total_cost_usd=0.0,
+    )
+
+    async def mock_execute(inputs):
+        yield FlyWorkflowCompleted(result=mock_result)
 
     with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-        mock_workflow = AsyncMock()
-        mock_workflow.execute.return_value = mock_result
+        mock_workflow = MagicMock()
+        mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
 
         result = cli_runner.invoke(cli, ["fly", "feature-branch"])
@@ -676,7 +702,7 @@ def test_fly_with_task_file_option(
     Command: 'maverick fly branch --task-file tasks.md'
     """
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -691,14 +717,42 @@ def test_fly_with_task_file_option(
     task_file = temp_dir / "tasks.md"
     task_file.write_text("# Tasks\n- Task 1\n- Task 2\n")
 
-    # Mock FlyWorkflow.execute
-    mock_result = MagicMock()
-    mock_result.success = True
-    mock_result.summary = "Workflow completed successfully"
+    # Mock FlyWorkflow.execute as async generator
+    from maverick.agents.result import AgentUsage
+    from maverick.workflows.fly import (
+        FlyResult,
+        FlyWorkflowCompleted,
+        WorkflowStage,
+        WorkflowState,
+    )
+
+    captured_inputs = {}
+
+    async def mock_execute(inputs):
+        captured_inputs["inputs"] = inputs
+        mock_result = FlyResult(
+            success=True,
+            state=WorkflowState(
+                stage=WorkflowStage.COMPLETE,
+                branch="feature-branch",
+                task_file=task_file,
+                implementation_result=None,
+                validation_result=None,
+                review_results=[],
+                pr_url=None,
+                errors=[],
+            ),
+            summary="Workflow completed successfully",
+            token_usage=AgentUsage(
+                input_tokens=0, output_tokens=0, total_cost_usd=0.0, duration_ms=0
+            ),
+            total_cost_usd=0.0,
+        )
+        yield FlyWorkflowCompleted(result=mock_result)
 
     with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-        mock_workflow = AsyncMock()
-        mock_workflow.execute.return_value = mock_result
+        mock_workflow = MagicMock()
+        mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
 
         result = cli_runner.invoke(
@@ -708,9 +762,7 @@ def test_fly_with_task_file_option(
         # Should succeed
         assert result.exit_code == 0
         # Verify task_file was passed to workflow
-        mock_workflow.execute.assert_called_once()
-        call_args = mock_workflow.execute.call_args[0][0]
-        assert call_args.task_file == task_file
+        assert captured_inputs["inputs"].task_file == task_file
 
 
 def test_fly_skip_review_option(
@@ -721,7 +773,7 @@ def test_fly_skip_review_option(
 ) -> None:
     """T032: Test fly --skip-review option."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -732,14 +784,42 @@ def test_fly_skip_review_option(
     os.system("git config user.name 'Test User'")
     os.system("git checkout -b feature-branch > /dev/null 2>&1")
 
-    # Mock FlyWorkflow.execute
-    mock_result = MagicMock()
-    mock_result.success = True
-    mock_result.summary = "Workflow completed successfully"
+    # Mock FlyWorkflow.execute as async generator
+    from maverick.agents.result import AgentUsage
+    from maverick.workflows.fly import (
+        FlyResult,
+        FlyWorkflowCompleted,
+        WorkflowStage,
+        WorkflowState,
+    )
+
+    captured_inputs = {}
+
+    async def mock_execute(inputs):
+        captured_inputs["inputs"] = inputs
+        mock_result = FlyResult(
+            success=True,
+            state=WorkflowState(
+                stage=WorkflowStage.COMPLETE,
+                branch="feature-branch",
+                task_file=None,
+                implementation_result=None,
+                validation_result=None,
+                review_results=[],
+                pr_url=None,
+                errors=[],
+            ),
+            summary="Workflow completed successfully",
+            token_usage=AgentUsage(
+                input_tokens=0, output_tokens=0, total_cost_usd=0.0, duration_ms=0
+            ),
+            total_cost_usd=0.0,
+        )
+        yield FlyWorkflowCompleted(result=mock_result)
 
     with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-        mock_workflow = AsyncMock()
-        mock_workflow.execute.return_value = mock_result
+        mock_workflow = MagicMock()
+        mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
 
         result = cli_runner.invoke(cli, ["fly", "feature-branch", "--skip-review"])
@@ -747,9 +827,7 @@ def test_fly_skip_review_option(
         # Should succeed
         assert result.exit_code == 0
         # Verify skip_review was passed to workflow
-        mock_workflow.execute.assert_called_once()
-        call_args = mock_workflow.execute.call_args[0][0]
-        assert call_args.skip_review is True
+        assert captured_inputs["inputs"].skip_review is True
 
 
 def test_fly_skip_pr_option(
@@ -760,7 +838,7 @@ def test_fly_skip_pr_option(
 ) -> None:
     """T033: Test fly --skip-pr option."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -771,14 +849,42 @@ def test_fly_skip_pr_option(
     os.system("git config user.name 'Test User'")
     os.system("git checkout -b feature-branch > /dev/null 2>&1")
 
-    # Mock FlyWorkflow.execute
-    mock_result = MagicMock()
-    mock_result.success = True
-    mock_result.summary = "Workflow completed successfully"
+    # Mock FlyWorkflow.execute as async generator
+    from maverick.agents.result import AgentUsage
+    from maverick.workflows.fly import (
+        FlyResult,
+        FlyWorkflowCompleted,
+        WorkflowStage,
+        WorkflowState,
+    )
+
+    captured_inputs = {}
+
+    async def mock_execute(inputs):
+        captured_inputs["inputs"] = inputs
+        mock_result = FlyResult(
+            success=True,
+            state=WorkflowState(
+                stage=WorkflowStage.COMPLETE,
+                branch="feature-branch",
+                task_file=None,
+                implementation_result=None,
+                validation_result=None,
+                review_results=[],
+                pr_url=None,
+                errors=[],
+            ),
+            summary="Workflow completed successfully",
+            token_usage=AgentUsage(
+                input_tokens=0, output_tokens=0, total_cost_usd=0.0, duration_ms=0
+            ),
+            total_cost_usd=0.0,
+        )
+        yield FlyWorkflowCompleted(result=mock_result)
 
     with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-        mock_workflow = AsyncMock()
-        mock_workflow.execute.return_value = mock_result
+        mock_workflow = MagicMock()
+        mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
 
         result = cli_runner.invoke(cli, ["fly", "feature-branch", "--skip-pr"])
@@ -786,9 +892,7 @@ def test_fly_skip_pr_option(
         # Should succeed
         assert result.exit_code == 0
         # Verify skip_pr was passed to workflow
-        mock_workflow.execute.assert_called_once()
-        call_args = mock_workflow.execute.call_args[0][0]
-        assert call_args.skip_pr is True
+        assert captured_inputs["inputs"].skip_pr is True
 
 
 def test_fly_dry_run_option(
@@ -861,7 +965,7 @@ def test_fly_keyboard_interrupt_handling(
 ) -> None:
     """T036: Test fly keyboard interrupt handling - should exit with code 130."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -872,10 +976,14 @@ def test_fly_keyboard_interrupt_handling(
     os.system("git config user.name 'Test User'")
     os.system("git checkout -b feature-branch > /dev/null 2>&1")
 
-    # Mock FlyWorkflow.execute to raise KeyboardInterrupt
+    # Mock FlyWorkflow.execute to raise KeyboardInterrupt as async generator
+    async def mock_execute(inputs):
+        raise KeyboardInterrupt()
+        yield  # pragma: no cover
+
     with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-        mock_workflow = AsyncMock()
-        mock_workflow.execute.side_effect = KeyboardInterrupt()
+        mock_workflow = MagicMock()
+        mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
 
         result = cli_runner.invoke(cli, ["fly", "feature-branch"])

@@ -14,6 +14,7 @@ from maverick.agents.generators.base import (
     MAX_SNIPPET_SIZE,
     GeneratorAgent,
 )
+from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
 
 # =============================================================================
@@ -111,15 +112,21 @@ class ErrorExplainer(GeneratorAgent):
             model=model,
         )
 
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate error explanation from error context.
 
         Args:
             context: Must contain 'error_output' (str).
                     May contain 'source_context' (str), 'error_type' (ErrorType).
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Structured explanation with fix suggestions.
+            Structured explanation with fix suggestions,
+            or (explanation, usage) if return_usage is True.
 
         Raises:
             GeneratorError: If error_output is missing/empty or API call fails.
@@ -160,6 +167,8 @@ class ErrorExplainer(GeneratorAgent):
         prompt = self._build_prompt(error_output, source_context, error_type)
 
         # Query Claude for explanation
+        if return_usage:
+            return await self._query_with_usage(prompt)
         return await self._query(prompt)
 
     def _build_prompt(

@@ -672,13 +672,17 @@ class RefuelWorkflow(WorkflowDSLMixin):
             # Generate commit message if generator available
             if self._commit_generator is not None and diff_output:
                 try:
-                    commit_message = await self._commit_generator.generate(
+                    result = await self._commit_generator.generate(
                         {
                             "diff": diff_output,
                             "file_stats": {},
                             "scope_hint": f"issue-{issue.number}",
-                        }
+                        },
+                        return_usage=False,
                     )
+                    # When return_usage=False, result is always str
+                    assert isinstance(result, str)
+                    commit_message = result
                 except Exception as e:
                     logger.warning(f"Commit message generation failed: {e}")
 

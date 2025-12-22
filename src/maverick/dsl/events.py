@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from maverick.dsl.results import RollbackError
 from maverick.dsl.types import StepType
 
 
@@ -133,4 +134,5 @@ ProgressEvent = (
     | RollbackStarted
     | RollbackCompleted
     | CheckpointSaved
+    | RollbackError
 )

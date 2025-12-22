@@ -14,6 +14,7 @@ from maverick.agents.generators.base import (
     MAX_DIFF_SIZE,
     GeneratorAgent,
 )
+from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
 
 # =============================================================================
@@ -109,7 +110,11 @@ class CommitMessageGenerator(GeneratorAgent):
             model=model,
         )
 
-    async def generate(self, context: dict[str, Any]) -> str:
+    async def generate(
+        self,
+        context: dict[str, Any],
+        return_usage: bool = False,
+    ) -> str | tuple[str, AgentUsage]:
         """Generate a conventional commit message from context.
 
         Args:
@@ -117,9 +122,11 @@ class CommitMessageGenerator(GeneratorAgent):
                 - diff (str): Git diff showing changes (required)
                 - file_stats (dict): File statistics with additions/deletions (optional)
                 - scope_hint (str): Suggested scope for commit message (optional)
+            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Conventional commit message in format: type(scope): description
+            Conventional commit message in format: type(scope): description,
+            or (message, usage) if return_usage is True.
 
         Raises:
             GeneratorError: If diff is empty or generation fails.
@@ -150,10 +157,14 @@ class CommitMessageGenerator(GeneratorAgent):
 
         # Query Claude
         logger.debug("Generating commit message")
-        result = await self._query(prompt)
-
-        logger.debug("Generated commit message: %s", result)
-        return result
+        if return_usage:
+            result, usage = await self._query_with_usage(prompt)
+            logger.debug("Generated commit message: %s", result)
+            return result, usage
+        else:
+            result = await self._query(prompt)
+            logger.debug("Generated commit message: %s", result)
+            return result
 
     def _build_prompt(
         self,

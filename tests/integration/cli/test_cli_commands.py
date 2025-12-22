@@ -115,14 +115,42 @@ class TestFlyWorkflowIntegration:
 
             # Mock the workflow execution
             with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
-                mock_workflow = AsyncMock()
+                from maverick.agents.result import AgentUsage
+                from maverick.workflows.fly import (
+                    FlyResult,
+                    FlyWorkflowCompleted,
+                    WorkflowStage,
+                    WorkflowState,
+                )
+
+                mock_workflow = MagicMock()
                 mock_workflow_class.return_value = mock_workflow
 
-                # Mock workflow result
-                mock_result = MagicMock()
-                mock_result.success = True
-                mock_result.summary = "Workflow completed successfully"
-                mock_workflow.execute.return_value = mock_result
+                # Mock workflow result - execute() is an async generator
+                async def mock_execute(inputs):
+                    mock_fly_result = FlyResult(
+                        success=True,
+                        state=WorkflowState(
+                            stage=WorkflowStage.COMPLETE,
+                            branch="feature-test",
+                            current_task=None,
+                            tasks_completed=2,
+                            tasks_total=2,
+                            validation_passed=True,
+                            pr_url=None,
+                        ),
+                        summary="Workflow completed successfully",
+                        token_usage=AgentUsage(
+                            input_tokens=100,
+                            output_tokens=50,
+                            total_cost_usd=0.01,
+                            duration_ms=1000,
+                        ),
+                        total_cost_usd=0.01,
+                    )
+                    yield FlyWorkflowCompleted(result=mock_fly_result)
+
+                mock_workflow.execute = mock_execute
 
                 # Run fly command
                 result = runner.invoke(
@@ -133,7 +161,6 @@ class TestFlyWorkflowIntegration:
                 # Verify
                 assert result.exit_code == ExitCode.SUCCESS
                 assert "Workflow completed successfully" in result.output
-                mock_workflow.execute.assert_called_once()
 
     def test_fly_workflow_dry_run(
         self,

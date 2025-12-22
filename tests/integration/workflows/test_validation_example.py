@@ -64,7 +64,7 @@ async def test_simple_workflow_with_runner():
 
     # Verify overall success
     assert result.success
-    assert runner.duration_ms > 0
+    assert runner.duration_ms >= 0  # May be 0 if workflow runs very fast
 
     # Verify both stages passed using assert_stage_passed
     runner.assert_stage_passed("first")

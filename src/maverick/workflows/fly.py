@@ -706,8 +706,29 @@ class FlyWorkflow(WorkflowDSLMixin):
                             logger.warning(f"Code review failed: {e}")
 
                 yield FlyStageCompleted(
-                    stage=WorkflowStage.CODE_REVIEW, result=self._state.review_results
+                    stage=WorkflowStage.CODE_REVIEW,
+                    result=self._state.review_results
                 )
+
+            # CONVENTION_UPDATE Stage (Task #87)
+            if self._cancel_event.is_set():
+                return
+
+            yield FlyStageStarted(stage=WorkflowStage.CONVENTION_UPDATE)
+            self._state.stage = WorkflowStage.CONVENTION_UPDATE
+
+            if inputs.dry_run:
+                logger.info("[DRY-RUN] Would analyze findings and update conventions")
+            else:
+                # Placeholder logic: In future this will use ConventionAgent
+                # For now, we assume convention updates happen via manual review or
+                # separate command /speckit.constitution
+                logger.info("Convention update stage (placeholder)")
+
+            yield FlyStageCompleted(
+                stage=WorkflowStage.CONVENTION_UPDATE,
+                result=None
+            )
 
             # Commit Stage - create commit with all changes
             if self._cancel_event.is_set():
@@ -733,12 +754,16 @@ class FlyWorkflow(WorkflowDSLMixin):
                 # Generate commit message
                 if self._commit_generator is not None and diff_output:
                     try:
-                        commit_message = await self._commit_generator.generate(
+                        result = await self._commit_generator.generate(
                             {
                                 "diff": diff_output,
                                 "file_stats": {},
-                            }
+                            },
+                            return_usage=False,
                         )
+                        # When return_usage=False, result is always str
+                        assert isinstance(result, str)
+                        commit_message = result
                     except Exception as e:
                         logger.warning(f"Commit message generation failed: {e}")
 
@@ -786,7 +811,7 @@ class FlyWorkflow(WorkflowDSLMixin):
             else:
                 if self._pr_generator is not None:
                     try:
-                        pr_body = await self._pr_generator.generate(
+                        result = await self._pr_generator.generate(
                             {
                                 "commits": [commit_message] if commit_message else [],
                                 "task_summary": f"Feature branch: {actual_branch}",
@@ -794,8 +819,12 @@ class FlyWorkflow(WorkflowDSLMixin):
                                     "passed": validation_passed,
                                     "failures": self._state.errors,
                                 },
-                            }
+                            },
+                            return_usage=False,
                         )
+                        # When return_usage=False, result is always str
+                        assert isinstance(result, str)
+                        pr_body = result
                     except Exception as e:
                         logger.warning(f"PR description generation failed: {e}")
 
