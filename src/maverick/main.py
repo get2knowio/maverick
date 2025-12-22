@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -14,6 +15,18 @@ from maverick import __version__
 from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.context import AgentContext
 from maverick.cli.context import CLIContext, ExitCode, async_command
+from maverick.cli.helpers import (
+    count_tasks,
+    detect_task_file,
+    format_review_markdown,
+    format_review_text,
+    format_status_json,
+    format_status_text,
+    get_git_branch,
+    get_workflow_history,
+    validate_branch,
+    validate_pr,
+)
 from maverick.cli.output import OutputFormat, format_error, format_json, format_table
 from maverick.cli.validators import check_dependencies, check_git_auth
 from maverick.config import load_config
@@ -25,12 +38,14 @@ from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
 from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
 from maverick.library.generators import register_all_generators
-from maverick.models.review import ReviewResult
 from maverick.workflows.fly import FlyInputs, FlyWorkflow
 from maverick.workflows.refuel import RefuelInputs, RefuelWorkflow
 
+if TYPE_CHECKING:
+    from maverick.dsl.serialization.registry import ComponentRegistry
 
-def create_registered_registry(strict: bool = False) -> "ComponentRegistry":
+
+def create_registered_registry(strict: bool = False) -> ComponentRegistry:
     """Create a ComponentRegistry with all built-in components registered.
 
     This function creates a new ComponentRegistry and registers all built-in
@@ -243,80 +258,16 @@ async def fly(
     try:
         # T039: Validate branch exists
         logger.info(f"Validating branch '{branch_name}'...")
-        try:
-            import subprocess
-
-            # Check if branch exists using git show-ref
-            # This works for branches that have commits
-            result = subprocess.run(
-                ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                # Branch doesn't exist as a ref (no commits yet or doesn't exist at all)
-                # Check if we're currently on this branch using symbolic-ref
-                current_branch_result = subprocess.run(
-                    ["git", "symbolic-ref", "HEAD"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-
-                if current_branch_result.returncode == 0:
-                    # Extract branch name from refs/heads/branch-name
-                    current_ref = current_branch_result.stdout.strip()
-                    current_branch = current_ref.replace("refs/heads/", "")
-
-                    if current_branch != branch_name:
-                        # Branch doesn't exist and we're not on it
-                        suggestion = (
-                            f"Create branch with 'git checkout -b {branch_name}'"
-                        )
-                        error_msg = format_error(
-                            f"Branch '{branch_name}' does not exist",
-                            suggestion=suggestion,
-                        )
-                        click.echo(error_msg, err=True)
-                        raise SystemExit(ExitCode.FAILURE)
-                else:
-                    # Can't determine current branch
-                    suggestion = f"Create branch with 'git checkout -b {branch_name}'"
-                    error_msg = format_error(
-                        f"Branch '{branch_name}' does not exist",
-                        suggestion=suggestion,
-                    )
-                    click.echo(error_msg, err=True)
-                    raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("Git command timed out")
+        is_valid, error_msg = validate_branch(branch_name)
+        if not is_valid:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "git is not installed",
-                suggestion="Install from https://git-scm.com/downloads",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
         # T040: Detect/validate task file
         if task_file is None:
-            # Auto-detect task file
-            # Look for tasks.md in spec directories
-            potential_paths = [
-                Path(f".specify/{branch_name}/tasks.md"),
-                Path("tasks.md"),
-            ]
-
-            for path in potential_paths:
-                if path.exists():
-                    task_file = path
-                    logger.info(f"Auto-detected task file: {task_file}")
-                    break
+            task_file = detect_task_file(branch_name)
+            if task_file:
+                logger.info(f"Auto-detected task file: {task_file}")
 
         # T042: If dry_run, just show planned actions
         if dry_run:
@@ -572,74 +523,14 @@ async def review(
     try:
         # T064: Validate PR exists using gh pr view
         logger.info(f"Validating PR #{pr_number}...")
-        try:
-            import subprocess
-
-            result = subprocess.run(
-                ["gh", "pr", "view", str(pr_number)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode != 0:
-                suggestion = (
-                    "Check the PR number and ensure you have access to the repository"
-                )
-                error_msg = format_error(
-                    f"Pull request #{pr_number} not found",
-                    suggestion=suggestion,
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("GitHub CLI command timed out")
+        is_valid, error_msg, pr_data = validate_pr(pr_number)
+        if not is_valid:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "GitHub CLI (gh) is not installed",
-                suggestion="Install from https://cli.github.com/",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
-        # T064a: Get PR information (branch name for review)
-        logger.info(f"Fetching PR #{pr_number} details...")
-        try:
-            # Get PR branch name
-            pr_info_result = subprocess.run(
-                [
-                    "gh",
-                    "pr",
-                    "view",
-                    str(pr_number),
-                    "--json",
-                    "headRefName,baseRefName",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if pr_info_result.returncode != 0:
-                error_msg = format_error(
-                    f"Failed to fetch PR #{pr_number} details",
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-            import json
-
-            pr_data = json.loads(pr_info_result.stdout)
-            branch = pr_data.get("headRefName", "HEAD")
-            base_branch = pr_data.get("baseRefName", "main")
-
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Could not parse PR details: {e}, using defaults")
-            branch = "HEAD"
-            base_branch = "main"
+        # Extract branch info from pr_data
+        branch = pr_data.get("headRefName", "HEAD") if pr_data else "HEAD"
+        base_branch = pr_data.get("baseRefName", "main") if pr_data else "main"
 
         # T065: Create and execute CodeReviewerAgent
         logger.info(f"Starting code review for PR #{pr_number}...")
@@ -665,28 +556,11 @@ async def review(
         output_format = OutputFormat(output)
 
         if output_format == OutputFormat.JSON:
-            # T066: Format as JSON
-            json_output = format_json(result.model_dump())
-            click.echo(json_output)
+            click.echo(format_json(result.model_dump()))
         elif output_format == OutputFormat.MARKDOWN:
-            # T067: Format as markdown
-            markdown_output = _format_review_as_markdown(result, pr_number)
-            click.echo(markdown_output)
+            click.echo(format_review_markdown(result, pr_number))
         else:
-            # TUI/text output
-            click.echo(f"\n{result.summary}")
-
-            if result.findings:
-                click.echo(f"\nFound {len(result.findings)} issue(s):\n")
-                for i, finding in enumerate(result.findings, 1):
-                    severity_label = finding.severity.value.upper()
-                    click.echo(f"{i}. [{severity_label}] {finding.file}")
-                    if finding.line:
-                        click.echo(f"   Line {finding.line}")
-                    click.echo(f"   {finding.message}")
-                    if finding.suggestion:
-                        click.echo(f"   Suggestion: {finding.suggestion}")
-                    click.echo()
+            click.echo(format_review_text(result))
 
         if result.success:
             raise SystemExit(ExitCode.SUCCESS)
@@ -717,104 +591,6 @@ async def review(
         raise SystemExit(ExitCode.FAILURE) from e
 
 
-def _format_review_as_markdown(result: ReviewResult, pr_number: int) -> str:
-    """Format review result as markdown.
-
-    Args:
-        result: ReviewResult from CodeReviewerAgent.
-        pr_number: Pull request number.
-
-    Returns:
-        Formatted markdown string.
-    """
-    lines = [
-        f"# Code Review: PR #{pr_number}",
-        "",
-        "## Summary",
-        "",
-        result.summary,
-        "",
-    ]
-
-    if result.findings:
-        lines.extend(
-            [
-                f"## Findings ({len(result.findings)})",
-                "",
-            ]
-        )
-
-        # Group findings by severity
-        from maverick.models.review import ReviewSeverity
-
-        severity_groups = {
-            ReviewSeverity.CRITICAL: [],
-            ReviewSeverity.MAJOR: [],
-            ReviewSeverity.MINOR: [],
-            ReviewSeverity.SUGGESTION: [],
-        }
-
-        for finding in result.findings:
-            severity_groups[finding.severity].append(finding)
-
-        # Output findings by severity
-        for severity in [
-            ReviewSeverity.CRITICAL,
-            ReviewSeverity.MAJOR,
-            ReviewSeverity.MINOR,
-            ReviewSeverity.SUGGESTION,
-        ]:
-            findings = severity_groups[severity]
-            if findings:
-                lines.extend(
-                    [
-                        f"### {severity.value.capitalize()} ({len(findings)})",
-                        "",
-                    ]
-                )
-
-                for finding in findings:
-                    location = f"{finding.file}"
-                    if finding.line:
-                        location += f":{finding.line}"
-
-                    lines.extend(
-                        [
-                            f"**{location}**",
-                            "",
-                            finding.message,
-                            "",
-                        ]
-                    )
-
-                    if finding.suggestion:
-                        lines.extend(
-                            [
-                                "*Suggestion:*",
-                                "",
-                                finding.suggestion,
-                                "",
-                            ]
-                        )
-
-    lines.extend(
-        [
-            "## Metadata",
-            "",
-            f"- Files reviewed: {result.files_reviewed}",
-        ]
-    )
-
-    if result.metadata:
-        if "branch" in result.metadata:
-            lines.append(f"- Branch: {result.metadata['branch']}")
-        if "base_branch" in result.metadata:
-            lines.append(f"- Base branch: {result.metadata['base_branch']}")
-        if "duration_ms" in result.metadata:
-            duration_sec = result.metadata["duration_ms"] / 1000
-            lines.append(f"- Duration: {duration_sec:.2f}s")
-
-    return "\n".join(lines)
 
 
 @cli.group()
@@ -1331,7 +1107,6 @@ def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
             UnsupportedVersionError,
             WorkflowParseError,
         )
-        from maverick.dsl.serialization.registry import ComponentRegistry
 
         # Read workflow file
         content = file.read_text()
@@ -1816,7 +1591,7 @@ async def workflow_run(
             WorkflowCompleted,
             WorkflowStarted,
         )
-        from maverick.dsl.serialization import ComponentRegistry, WorkflowFileExecutor
+        from maverick.dsl.serialization import WorkflowFileExecutor
 
         # Display workflow header
         wf_name = workflow_obj.name
@@ -1970,181 +1745,52 @@ def status(ctx: click.Context, fmt: str) -> None:
         maverick status
         maverick status --format json
     """
-    import re
-    import subprocess
-    from datetime import datetime
-
     logger = logging.getLogger(__name__)
 
     try:
-        # T088: Detect git branch using subprocess
-        # First, check if we're in a git repository
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--git-dir"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                # Not a git repository
-                suggestion = (
-                    "Initialize with 'git init' or navigate to a git repository"
-                )
-                error_msg = format_error(
-                    "Not a git repository",
-                    suggestion=suggestion,
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("Git command timed out")
+        # Get git branch
+        branch, error_msg = get_git_branch()
+        if error_msg:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "git is not installed",
-                suggestion="Install from https://git-scm.com/downloads",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
-        # Get current branch
-        try:
-            result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode == 0:
-                branch = result.stdout.strip()
-                if not branch:
-                    # In detached HEAD state
-                    branch = "(detached HEAD)"
-            else:
-                branch = "(unknown)"
-
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            branch = "(unknown)"
-
-        # T089: Detect pending tasks from tasks.md
+        # Detect pending tasks from tasks.md
+        task_file_found = False
         pending_tasks = 0
         completed_tasks = 0
-        task_file_found = False
 
-        # Look for tasks.md in current directory or .specify/
-        spec_task_file = (
-            Path.cwd() / ".specify" / branch / "tasks.md"
-            if branch not in ("(unknown)", "(detached HEAD)")
+        task_file_path = detect_task_file(
+            branch
+            if branch and branch not in ("(unknown)", "(detached HEAD)")
             else None
         )
-        potential_task_files = [
-            Path.cwd() / "tasks.md",
-            spec_task_file,
-        ]
 
-        for task_file_path in potential_task_files:
-            if task_file_path and task_file_path.exists():
-                task_file_found = True
-                try:
-                    content = task_file_path.read_text()
-                    # Count pending tasks: lines with - [ ]
-                    pending_tasks = len(
-                        re.findall(r"^-\s*\[\s*\]", content, re.MULTILINE)
-                    )
-                    # Count completed tasks: lines with - [x] or - [X]
-                    completed_tasks = len(
-                        re.findall(r"^-\s*\[[xX]\]", content, re.MULTILINE)
-                    )
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to read task file: {e}")
+        if task_file_path:
+            task_file_found = True
+            pending_tasks, completed_tasks = count_tasks(task_file_path)
 
-        # T090: Get recent workflow history from WorkflowHistory
-        recent_workflows = []
-        try:
-            from maverick.tui.history import WorkflowHistoryStore
+        # Get recent workflow history
+        recent_workflows = get_workflow_history(count=5)
 
-            history_store = WorkflowHistoryStore()
-            recent_entries = history_store.get_recent(count=5)
-
-            for entry in recent_entries:
-                # Calculate time ago
-                dt = datetime.fromisoformat(entry.timestamp)
-                now = datetime.now()
-                delta = now - dt
-
-                if delta.days > 0:
-                    time_ago = f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
-                elif delta.seconds >= 3600:
-                    hours = delta.seconds // 3600
-                    time_ago = f"{hours} hour{'s' if hours > 1 else ''} ago"
-                elif delta.seconds >= 60:
-                    minutes = delta.seconds // 60
-                    time_ago = f"{minutes} minute{'s' if minutes > 1 else ''} ago"
-                else:
-                    time_ago = "just now"
-
-                recent_workflows.append(
-                    {
-                        "workflow_type": entry.workflow_type,
-                        "branch": entry.branch_name,
-                        "status": entry.final_status,
-                        "time_ago": time_ago,
-                        "timestamp": entry.timestamp,
-                    }
-                )
-
-        except Exception as e:
-            logger.debug(f"Failed to load workflow history: {e}")
-
-        # T091: Format output as text or JSON
+        # Format output
         if fmt == "json":
-            # JSON format
-            output_data = {
-                "branch": branch,
-                "tasks": {
-                    "pending": pending_tasks,
-                    "completed": completed_tasks,
-                }
-                if task_file_found
-                else None,
-                "workflows": recent_workflows if recent_workflows else [],
-            }
-            click.echo(format_json(output_data))
+            output = format_status_json(
+                branch,
+                task_file_found,
+                pending_tasks,
+                completed_tasks,
+                recent_workflows,
+            )
         else:
-            # Text format
-            lines = [
-                "Project Status",
-                "==============",
-                f"Branch: {branch}",
-            ]
+            output = format_status_text(
+                branch,
+                task_file_found,
+                pending_tasks,
+                completed_tasks,
+                recent_workflows,
+            )
 
-            if task_file_found:
-                task_summary = (
-                    f"Tasks: {pending_tasks} pending, {completed_tasks} completed"
-                )
-                lines.append(task_summary)
-            else:
-                lines.append("Tasks: No task file found")
-
-            if recent_workflows:
-                lines.append("Recent Workflows:")
-                for wf in recent_workflows[:3]:  # Show top 3 in text mode
-                    status_icon = "✓" if wf["status"] == "completed" else "✗"
-                    workflow_line = (
-                        f"  {status_icon} {wf['workflow_type']} "
-                        f"({wf['time_ago']}): {wf['status']}"
-                    )
-                    lines.append(workflow_line)
-            else:
-                lines.append("Recent Workflows: None")
-
-            click.echo("\n".join(lines))
+        click.echo(output)
 
     except SystemExit:
         raise
