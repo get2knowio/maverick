@@ -59,6 +59,84 @@ class StepResult:
         if not self.success and self.error is None:
             raise ValueError("Failed steps must have an error message")
 
+    @classmethod
+    def create_success(
+        cls,
+        name: str,
+        step_type: StepType,
+        output: Any,
+        duration_ms: int,
+    ) -> StepResult:
+        """Create a successful StepResult.
+
+        Factory method for cleaner instantiation of successful results.
+
+        Args:
+            name: Step name.
+            step_type: Type of step.
+            output: Output data from the step.
+            duration_ms: Execution duration in milliseconds.
+
+        Returns:
+            A StepResult instance with success=True and error=None.
+
+        Example:
+            >>> result = StepResult.create_success(
+            ...     name="my-step",
+            ...     step_type=StepType.PYTHON,
+            ...     output={"data": "value"},
+            ...     duration_ms=150,
+            ... )
+        """
+        return cls(
+            name=name,
+            step_type=step_type,
+            success=True,
+            output=output,
+            duration_ms=duration_ms,
+            error=None,
+        )
+
+    @classmethod
+    def create_failure(
+        cls,
+        name: str,
+        step_type: StepType,
+        duration_ms: int,
+        error: str,
+        output: Any = None,
+    ) -> StepResult:
+        """Create a failed StepResult.
+
+        Factory method for cleaner instantiation of failed results.
+
+        Args:
+            name: Step name.
+            step_type: Type of step.
+            duration_ms: Execution duration in milliseconds.
+            error: Error message describing the failure.
+            output: Optional output data (defaults to None).
+
+        Returns:
+            A StepResult instance with success=False.
+
+        Example:
+            >>> result = StepResult.create_failure(
+            ...     name="my-step",
+            ...     step_type=StepType.PYTHON,
+            ...     duration_ms=50,
+            ...     error="Connection timeout",
+            ... )
+        """
+        return cls(
+            name=name,
+            step_type=step_type,
+            success=False,
+            output=output,
+            duration_ms=duration_ms,
+            error=error,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize for logging/persistence.
 
