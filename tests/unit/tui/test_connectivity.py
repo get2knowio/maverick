@@ -1,6 +1,7 @@
 """Unit tests for connectivity monitoring utilities."""
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -60,8 +61,6 @@ class TestConnectivityMonitor:
             # Status should be CHECKING during the check
             task = monitor.check_connectivity()
             # Give it a moment to start
-            import asyncio
-
             await asyncio.sleep(0.01)
 
             # Complete the check

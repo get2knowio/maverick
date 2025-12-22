@@ -315,10 +315,10 @@ class MaverickScreen(Screen):
         provides a hook for screens to respond to connectivity changes, such
         as pausing workflows when disconnected or resuming when reconnected.
 
-        The default implementation displays notifications to inform the user
-        of connectivity changes. Subclasses should override this method to
-        implement connectivity-aware behavior such as pausing/resuming
-        workflows.
+        This implementation displays notifications to inform the user of
+        connectivity changes. Subclasses should override this method to
+        implement additional connectivity-aware behavior such as pausing
+        or resuming workflows.
 
         Args:
             connected: True if connected to GitHub, False if disconnected.
