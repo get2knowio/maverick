@@ -212,7 +212,9 @@ MIT
 
 ## Links
 
-- [Documentation](CONTRIBUTING.md)
+- [Documentation Site](https://get2knowio.github.io/maverick/)
+- [Training Slides](https://get2knowio.github.io/maverick/slides/)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Constitution (Core Principles)](.specify/memory/constitution.md)
 - [Issue Tracker](https://github.com/get2knowio/maverick/issues)
 - [Claude Agent SDK](https://github.com/anthropics/anthropic-agent-sdk)

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maverick Documentation</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --border: #334155;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 1.5rem 2rem;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.2s;
+        }
+
+        nav a:hover {
+            color: var(--text-primary);
+        }
+
+        main {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+            width: 100%;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: transform 0.2s, border-color 0.2s;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+        }
+
+        .card-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .card .badge {
+            display: inline-block;
+            background: var(--accent);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+
+        .features {
+            margin-top: 4rem;
+            text-align: center;
+        }
+
+        .features h2 {
+            font-size: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            text-align: left;
+        }
+
+        .feature {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+
+        .feature h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .feature p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            nav a {
+                margin-left: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <a href="./" class="logo">Maverick<span>.</span></a>
+            <nav>
+                <a href="https://github.com/get2knowio/maverick">GitHub</a>
+                <a href="https://github.com/get2knowio/maverick/blob/main/CONTRIBUTING.md">Contributing</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <h1>Maverick Documentation</h1>
+            <p class="subtitle">
+                AI-powered development workflow orchestration with autonomous agent execution using the Claude Agent SDK
+            </p>
+        </section>
+
+        <section class="cards">
+            <a href="./slides/" class="card">
+                <div class="card-icon">📊</div>
+                <h2>Training Slides</h2>
+                <p>
+                    Comprehensive presentation covering Maverick's architecture, workflows, agents, MCP tools, and extensibility patterns.
+                </p>
+                <span class="badge">Interactive Presentation</span>
+            </a>
+
+            <a href="https://github.com/get2knowio/maverick/blob/main/README.md" class="card">
+                <div class="card-icon">📖</div>
+                <h2>Getting Started</h2>
+                <p>
+                    Quick start guide for installation, configuration, and running your first autonomous workflow.
+                </p>
+                <span class="badge">README</span>
+            </a>
+
+            <a href="https://github.com/get2knowio/maverick/blob/main/.specify/memory/constitution.md" class="card">
+                <div class="card-icon">📜</div>
+                <h2>Project Constitution</h2>
+                <p>
+                    Core principles and guidelines that govern Maverick's development: async-first, type safety, test-first, and more.
+                </p>
+                <span class="badge">Principles</span>
+            </a>
+        </section>
+
+        <section class="features">
+            <h2>Key Features</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>🤖 Autonomous Agents</h3>
+                    <p>AI agents handle implementation, review, and fixes independently with minimal human intervention.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔄 Workflow DSL</h3>
+                    <p>Define complex workflows with parallel execution, conditionals, and checkpointing using a declarative DSL.</p>
+                </div>
+                <div class="feature">
+                    <h3>🎨 Interactive TUI</h3>
+                    <p>Real-time visibility into agent operations with a beautiful Textual-based terminal interface.</p>
+                </div>
+                <div class="feature">
+                    <h3>📊 Resilient Operation</h3>
+                    <p>Automatic retries, checkpointing, and graceful degradation for robust execution.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔌 MCP Tools</h3>
+                    <p>Extensible tool layer for GitHub, git, validation, and custom integrations.</p>
+                </div>
+                <div class="feature">
+                    <h3>📝 Spec-Driven</h3>
+                    <p>Work from structured specifications with automatic task parsing and parallel execution.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>
+            Maverick is open source under the MIT license.
+            <a href="https://github.com/get2knowio/maverick">View on GitHub</a>
+        </p>
+    </footer>
+</body>
+</html>
