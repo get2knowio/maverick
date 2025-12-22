@@ -51,7 +51,7 @@ def clean_env() -> Generator[None, None, None]:
 @pytest.fixture
 def sample_config_yaml() -> str:
     """Return sample maverick.yaml content for testing."""
-    return '''
+    return """
 github:
   owner: "test-org"
   repo: "test-repo"
@@ -70,7 +70,7 @@ parallel:
   max_tasks: 3
 
 verbosity: "info"
-'''
+"""
 
 
 @pytest.fixture

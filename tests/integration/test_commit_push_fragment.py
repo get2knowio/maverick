@@ -8,13 +8,19 @@ verifying:
 - Conditional push based on push parameter
 - Integration with mocked git operations
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
 
-from maverick.dsl.events import StepCompleted, StepStarted, WorkflowCompleted, WorkflowStarted
+from maverick.dsl.events import (
+    StepCompleted,
+    StepStarted,
+    WorkflowCompleted,
+    WorkflowStarted,
+)
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.builtins import DefaultBuiltinLibrary
@@ -58,8 +64,12 @@ class TestCommitAndPushFragment:
             }
 
         # Register components
-        registry.generators.register("commit_message_generator", MockCommitMessageGenerator)
-        registry.context_builders.register("commit_message_context", mock_commit_message_context)
+        registry.generators.register(
+            "commit_message_generator", MockCommitMessageGenerator
+        )
+        registry.context_builders.register(
+            "commit_message_context", mock_commit_message_context
+        )
         registry.actions.register("git_commit", mock_git_commit)
         registry.actions.register("git_push", mock_git_push)
 
@@ -152,7 +162,9 @@ class TestCommitAndPushFragment:
 
         events = []
         # Provide empty message to trigger generation, explicitly set push=True
-        async for event in executor.execute(fragment, inputs={"message": "", "push": True}):
+        async for event in executor.execute(
+            fragment, inputs={"message": "", "push": True}
+        ):
             events.append(event)
 
         # Verify event sequence
@@ -192,7 +204,9 @@ class TestCommitAndPushFragment:
             (s for s in result.step_results if s.name == "commit_with_generated"), None
         )
         assert commit_step is not None
-        assert commit_step.output["message"] == "feat(test): auto-generated commit message"
+        assert (
+            commit_step.output["message"] == "feat(test): auto-generated commit message"
+        )
 
     @pytest.mark.asyncio
     async def test_fragment_with_push_disabled(
@@ -255,7 +269,9 @@ class TestCommitAndPushFragment:
 
         events = []
         # Explicitly provide push=True to test default push behavior
-        async for event in executor.execute(fragment, inputs={"message": "test", "push": True}):
+        async for event in executor.execute(
+            fragment, inputs={"message": "test", "push": True}
+        ):
             events.append(event)
 
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
@@ -288,9 +304,7 @@ class TestCommitAndPushFragment:
             events.append(event)
 
         # Extract step events in order
-        step_events = [
-            e for e in events if isinstance(e, (StepStarted, StepCompleted))
-        ]
+        step_events = [e for e in events if isinstance(e, (StepStarted, StepCompleted))]
 
         # Build list of (step_name, event_type) pairs
         step_sequence = []
@@ -302,24 +316,35 @@ class TestCommitAndPushFragment:
 
         # Find indices of key steps
         generate_start = next(
-            (i for i, (name, typ) in enumerate(step_sequence)
-             if name == "generate_message" and typ == "start"),
-            None
+            (
+                i
+                for i, (name, typ) in enumerate(step_sequence)
+                if name == "generate_message" and typ == "start"
+            ),
+            None,
         )
         commit_start = next(
-            (i for i, (name, typ) in enumerate(step_sequence)
-             if name == "commit_with_generated" and typ == "start"),
-            None
+            (
+                i
+                for i, (name, typ) in enumerate(step_sequence)
+                if name == "commit_with_generated" and typ == "start"
+            ),
+            None,
         )
         push_start = next(
-            (i for i, (name, typ) in enumerate(step_sequence)
-             if name == "push" and typ == "start"),
-            None
+            (
+                i
+                for i, (name, typ) in enumerate(step_sequence)
+                if name == "push" and typ == "start"
+            ),
+            None,
         )
 
         # Verify order: generate < commit < push
         if generate_start is not None and commit_start is not None:
-            assert generate_start < commit_start, "generate_message should come before commit"
+            assert generate_start < commit_start, (
+                "generate_message should come before commit"
+            )
 
         if commit_start is not None and push_start is not None:
             assert commit_start < push_start, "commit should come before push"
@@ -393,7 +418,9 @@ class TestCommitAndPushFragment:
 
         events = []
         # Provide empty message to trigger generation. Disable push.
-        async for event in executor.execute(fragment, inputs={"message": "", "push": False}):
+        async for event in executor.execute(
+            fragment, inputs={"message": "", "push": False}
+        ):
             events.append(event)
 
         result = executor.get_result()

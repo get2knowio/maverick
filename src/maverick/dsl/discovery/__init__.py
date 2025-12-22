@@ -8,6 +8,7 @@ Workflows are discovered from three locations:
 
 Project workflows override user workflows which override built-in workflows.
 """
+
 from __future__ import annotations
 
 from maverick.dsl.discovery.exceptions import (

@@ -169,8 +169,9 @@ async def test_executor_conditional_skip(registry):
     async for event in executor.execute(workflow, inputs={"run_step": False}):
         events.append(event)
 
-    # Should have WorkflowStarted, StepStarted (executed_step), StepCompleted, WorkflowCompleted
-    # The skipped_step should not generate events
+    # Should have WorkflowStarted, StepStarted (executed_step),
+    # StepCompleted, WorkflowCompleted. The skipped_step should not
+    # generate events
     assert len(events) == 4
 
     step_names = [e.step_name for e in events if isinstance(e, StepStarted)]

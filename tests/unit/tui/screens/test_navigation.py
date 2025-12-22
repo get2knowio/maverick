@@ -1,4 +1,5 @@
 """Tests for screen navigation (User Story 5)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,9 +9,11 @@ import pytest
 # Mock classes for testing navigation behavior
 # (Real screens may not exist yet - TDD approach)
 
+
 @dataclass
 class MockScreen:
     """Mock screen for navigation testing."""
+
     name: str
     can_go_back: bool = True
 

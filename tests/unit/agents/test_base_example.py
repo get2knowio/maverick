@@ -10,6 +10,7 @@ Patterns demonstrated:
 - Testing message streaming and query tracking
 - Error handling in agent tests
 """
+
 from __future__ import annotations
 
 from typing import Callable

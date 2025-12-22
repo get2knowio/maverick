@@ -213,7 +213,9 @@ class ASCIIGenerator:
         return lines
 
     def _draw_validate_details(
-        self, step: ValidateStepRecord, index: int,
+        self,
+        step: ValidateStepRecord,
+        index: int,
     ) -> list[str]:
         """Draw validate step details (stages, retry, on_failure).
 
@@ -240,9 +242,7 @@ class ASCIIGenerator:
         if step.on_failure:
             on_fail_type = self._get_type_label(step.on_failure)
             on_fail_name = step.on_failure.name
-            on_fail_line = (
-                f"   ├─ on_fail → {index}a. [{on_fail_type}] {on_fail_name}"
-            )
+            on_fail_line = f"   ├─ on_fail → {index}a. [{on_fail_type}] {on_fail_name}"
             lines.append(self._draw_content_line(on_fail_line))
             # Show retry loop
             retry_line = f"   │            └─ retry → {index}."
@@ -284,7 +284,9 @@ class ASCIIGenerator:
         return lines
 
     def _draw_parallel_details(
-        self, step: ParallelStepRecord, index: int,
+        self,
+        step: ParallelStepRecord,
+        index: int,
     ) -> list[str]:
         """Draw parallel substeps.
 

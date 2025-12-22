@@ -7,6 +7,7 @@ Tests the Pydantic models used by CodeReviewerAgent:
 - ReviewResult model
 - ReviewContext model
 """
+
 from __future__ import annotations
 
 from pathlib import Path

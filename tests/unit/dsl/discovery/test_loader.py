@@ -453,7 +453,9 @@ def test_load_builtin_fly_workflow(loader: WorkflowLoader) -> None:
 
 def test_load_builtin_validate_workflow(loader: WorkflowLoader) -> None:
     """Test loading real builtin validate workflow."""
-    builtin_path = Path("/workspaces/maverick/src/maverick/library/workflows/validate.yaml")
+    builtin_path = Path(
+        "/workspaces/maverick/src/maverick/library/workflows/validate.yaml"
+    )
 
     # Skip test if file doesn't exist
     if not builtin_path.exists():
@@ -477,7 +479,9 @@ def test_load_builtin_validate_workflow(loader: WorkflowLoader) -> None:
 
 def test_load_builtin_review_workflow(loader: WorkflowLoader) -> None:
     """Test loading real builtin review workflow."""
-    builtin_path = Path("/workspaces/maverick/src/maverick/library/workflows/review.yaml")
+    builtin_path = Path(
+        "/workspaces/maverick/src/maverick/library/workflows/review.yaml"
+    )
 
     # Skip test if file doesn't exist
     if not builtin_path.exists():
@@ -501,7 +505,9 @@ def test_load_all_builtin_workflows(loader: WorkflowLoader) -> None:
     if not library_path.exists():
         pytest.skip("Builtin workflows directory not found")
 
-    workflow_files = list(library_path.glob("*.yaml")) + list(library_path.glob("*.yml"))
+    workflow_files = list(library_path.glob("*.yaml")) + list(
+        library_path.glob("*.yml")
+    )
 
     # Ensure we found at least some workflows
     assert len(workflow_files) > 0, "No builtin workflows found"
@@ -553,7 +559,9 @@ def test_load_metadata_empty_file(tmp_path: Path, loader: WorkflowLoader) -> Non
     assert "Failed to load metadata" in str(exc_info.value)
 
 
-def test_load_metadata_whitespace_only_file(tmp_path: Path, loader: WorkflowLoader) -> None:
+def test_load_metadata_whitespace_only_file(
+    tmp_path: Path, loader: WorkflowLoader
+) -> None:
     """Test raises WorkflowDiscoveryError for whitespace-only file."""
     whitespace_file = tmp_path / "whitespace.yaml"
     whitespace_file.write_text("   \n  \n  \t  \n")

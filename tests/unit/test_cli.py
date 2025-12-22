@@ -56,7 +56,10 @@ def test_exit_code_usage_error(cli_runner: CliRunner) -> None:
 
 
 def test_default_verbosity_warning_level(
-    cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that default verbosity is WARNING level (no -v flags)."""
     import logging
@@ -82,14 +85,20 @@ def test_default_verbosity_warning_level(
         assert result.exit_code == 0
         # basicConfig should have been called with WARNING level (30)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.WARNING
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"]
+            == logging.WARNING
+        )
     finally:
         # Restore original
         maverick.main.logging.basicConfig = original_basicConfig
 
 
 def test_single_verbose_info_level(
-    cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that -v flag sets INFO level logging."""
     import logging
@@ -114,14 +123,19 @@ def test_single_verbose_info_level(
         assert result.exit_code == 0
         # With -v, level should be INFO (20)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        )
     finally:
         # Restore original
         maverick.main.logging.basicConfig = original_basicConfig
 
 
 def test_double_verbose_debug_level(
-    cli_runner: CliRunner, temp_dir: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that -vv flag sets DEBUG level logging."""
     import logging
@@ -146,7 +160,9 @@ def test_double_verbose_debug_level(
         assert result.exit_code == 0
         # With -vv, level should be DEBUG (10)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        )
     finally:
         # Restore original
         maverick.main.logging.basicConfig = original_basicConfig
@@ -184,7 +200,9 @@ def test_verbosity_from_config(
         assert result.exit_code == 0
         # Config sets debug level
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        )
     finally:
         # Restore original
         maverick.main.logging.basicConfig = original_basicConfig

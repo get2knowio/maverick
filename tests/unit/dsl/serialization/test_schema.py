@@ -180,9 +180,7 @@ class TestInputDefinition:
 
     def test_integer_type_with_default(self) -> None:
         """Test integer input with default value."""
-        input_def = InputDefinition(
-            type=InputType.INTEGER, required=False, default=123
-        )
+        input_def = InputDefinition(type=InputType.INTEGER, required=False, default=123)
         assert input_def.type == InputType.INTEGER
         assert input_def.default == 123
 
@@ -464,13 +462,19 @@ class TestValidationError:
             code="E001",
             message="Invalid step type",
             path="steps[0].type",
-            suggestion="Use one of: python, agent, generate, validate, subworkflow, branch, parallel",
+            suggestion=(
+                "Use one of: python, agent, generate, validate, "
+                "subworkflow, branch, parallel"
+            ),
         )
 
         assert error.code == "E001"
         assert error.message == "Invalid step type"
         assert error.path == "steps[0].type"
-        assert error.suggestion == "Use one of: python, agent, generate, validate, subworkflow, branch, parallel"
+        assert error.suggestion == (
+            "Use one of: python, agent, generate, validate, "
+            "subworkflow, branch, parallel"
+        )
 
     def test_create_validation_error_without_suggestion(self):
         """Test creating a ValidationError without optional suggestion."""
@@ -1333,9 +1337,7 @@ class TestParallelStepRecord:
             PythonStepRecord(name="task", action="func1"),
             PythonStepRecord(name="task", action="func2"),
         ]
-        with pytest.raises(
-            Exception, match="Duplicate step names in parallel block"
-        ):
+        with pytest.raises(Exception, match="Duplicate step names in parallel block"):
             ParallelStepRecord(name="parallel", steps=steps)
 
     def test_empty_steps_fails(self):

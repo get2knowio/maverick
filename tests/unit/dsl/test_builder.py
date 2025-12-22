@@ -198,7 +198,8 @@ class TestStepBuilderChaining:
         assert isinstance(python_step, PythonStep)
 
     def test_multiple_steps_from_same_name(self) -> None:
-        """Test creating multiple different step types with same name (builder pattern)."""
+        """Test creating multiple different step types with same name
+        (builder pattern)."""
 
         def dummy_action() -> str:
             return "result"

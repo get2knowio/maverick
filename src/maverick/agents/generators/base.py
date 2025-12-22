@@ -4,6 +4,7 @@ This module defines the GeneratorAgent ABC that all generator agents must inheri
 from. It uses Claude Agent SDK's query() function for stateless, single-shot text
 generation without tools.
 """
+
 from __future__ import annotations
 
 import logging
@@ -138,7 +139,8 @@ class GeneratorAgent(ABC):
             system_prompt=self._system_prompt,
             model=self._model,
             max_turns=MAX_TURNS,
-            allowed_tools=list(GENERATOR_TOOLS),  # Empty set - generators don't use tools
+            # Empty set - generators don't use tools
+            allowed_tools=list(GENERATOR_TOOLS),
         )
 
     @abstractmethod
@@ -183,7 +185,8 @@ class GeneratorAgent(ABC):
                 system_prompt=system_prompt,
                 model=self._model,
                 max_turns=MAX_TURNS,
-                allowed_tools=list(GENERATOR_TOOLS),  # Empty set - generators don't use tools
+                # Empty set - generators don't use tools
+                allowed_tools=list(GENERATOR_TOOLS),
             )
         else:
             options = self._options

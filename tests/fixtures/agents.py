@@ -8,6 +8,7 @@ Provides:
 - MockSDKClient: Mock client with response queue for testing
 - Factory fixtures for creating mock messages
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -219,7 +220,9 @@ def mock_sdk_client() -> MockSDKClient:
 
     Example:
         >>> @pytest.mark.asyncio
-        ... async def test_agent(mock_sdk_client, mock_text_message, mock_result_message):
+        ... async def test_agent(
+        ...     mock_sdk_client, mock_text_message, mock_result_message
+        ... ):
         ...     mock_sdk_client.queue_response([
         ...         mock_text_message("Hello"),
         ...         mock_result_message(),
@@ -392,9 +395,9 @@ def mock_commit_generator() -> MagicMock:
         ...     assert message.startswith("feat(")
         ...
         ...     # Configure specific behavior
-        ...     mock_commit_generator.generate.return_value = "fix(api): handle null user"
+        ...     mock_commit_generator.generate.return_value = "fix(api): null user"
         ...     message = await mock_commit_generator.generate(context)
-        ...     assert message == "fix(api): handle null user"
+        ...     assert message == "fix(api): null user"
     """
     generator = MagicMock()
 

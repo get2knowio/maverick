@@ -30,6 +30,7 @@ Example:
     print(context['branch'])
     ```
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,17 +66,22 @@ ContextDict: TypeAlias = dict[str, Any]
 
 # Secret detection patterns (high precision, low false positives)
 SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("api_key", re.compile(
-        r"(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[\w-]{20,}", re.IGNORECASE
-    )),
-    ("bearer_token", re.compile(
-        r"(?:bearer|authorization)\s*[:=]\s*['\"]?[\w.-]+", re.IGNORECASE
-    )),
+    (
+        "api_key",
+        re.compile(r"(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[\w-]{20,}", re.IGNORECASE),
+    ),
+    (
+        "bearer_token",
+        re.compile(r"(?:bearer|authorization)\s*[:=]\s*['\"]?[\w.-]+", re.IGNORECASE),
+    ),
     ("aws_key", re.compile(r"(?:AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16}")),
-    ("secret_password", re.compile(
-        r"(?:secret|password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]{8,}",
-        re.IGNORECASE,
-    )),
+    (
+        "secret_password",
+        re.compile(
+            r"(?:secret|password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]{8,}",
+            re.IGNORECASE,
+        ),
+    ),
     ("private_key", re.compile(r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----")),
 ]
 
@@ -225,9 +231,9 @@ def _read_file_safely(
 
     # Check for binary content (null bytes in first 8KB)
     try:
-        with path.open('rb') as f:
+        with path.open("rb") as f:
             sample = f.read(8192)
-            if b'\x00' in sample:
+            if b"\x00" in sample:
                 logger.debug("Skipping binary file: %s", path)
                 return "", False
     except OSError:
@@ -463,12 +469,14 @@ def build_implementation_context(
     try:
         commits = git.log(n=DEFAULT_RECENT_COMMITS)
         for commit in commits:
-            recent_commits.append({
-                "hash": commit.short_hash,
-                "message": commit.message,
-                "author": commit.author,
-                "date": commit.date,
-            })
+            recent_commits.append(
+                {
+                    "hash": commit.short_hash,
+                    "message": commit.message,
+                    "author": commit.author,
+                    "date": commit.date,
+                }
+            )
     except (OSError, RuntimeError, ValueError) as e:
         logger.warning("Failed to get recent commits: %s", e)
 
@@ -659,13 +667,15 @@ def build_fix_context(
 
     for stage in validation_output.stages:
         for error in stage.errors:
-            errors.append({
-                "file": error.file,
-                "line": error.line,
-                "message": error.message,
-                "severity": error.severity or "error",
-                "code": error.code,
-            })
+            errors.append(
+                {
+                    "file": error.file,
+                    "line": error.line,
+                    "message": error.message,
+                    "severity": error.severity or "error",
+                    "code": error.code,
+                }
+            )
             # Track error lines per file
             if error.file not in error_lines_by_file:
                 error_lines_by_file[error.file] = []
@@ -835,12 +845,14 @@ def build_issue_context(
     try:
         commits = git.log(n=5)
         for commit in commits:
-            recent_changes.append({
-                "hash": commit.short_hash,
-                "message": commit.message,
-                "author": commit.author,
-                "date": commit.date,
-            })
+            recent_changes.append(
+                {
+                    "hash": commit.short_hash,
+                    "message": commit.message,
+                    "author": commit.author,
+                    "date": commit.date,
+                }
+            )
     except (OSError, RuntimeError, ValueError) as e:
         logger.warning("Failed to get recent changes: %s", e)
 

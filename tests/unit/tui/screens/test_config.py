@@ -1,4 +1,5 @@
 """Unit tests for ConfigScreen."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -498,7 +499,9 @@ class TestConfigScreenActions:
     def test_action_move_down_while_editing(self) -> None:
         """Test that move down does nothing when editing."""
         screen = ConfigScreen()
-        screen._options = [{"key": "option1", "label": "Option 1", "value": True, "type": "bool"}]
+        screen._options = [
+            {"key": "option1", "label": "Option 1", "value": True, "type": "bool"}
+        ]
         screen._selected_index = 0
         screen._editing = True
 

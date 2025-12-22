@@ -123,7 +123,9 @@ class TestUserStory1TwoStepWorkflow:
         @workflow(name="async-workflow")
         def async_workflow(start: int) -> int:
             result1 = yield step("double1").python(action=async_process, args=(start,))
-            result2 = yield step("double2").python(action=async_process, args=(result1,))
+            result2 = yield step("double2").python(
+                action=async_process, args=(result1,)
+            )
             return result2
 
         engine = WorkflowEngine()
@@ -548,7 +550,9 @@ class TestUserStory3ValidateWorkflow:
 
         @workflow(name="failing-sub")
         def failing_sub() -> None:
-            yield step("fail").python(action=lambda: (_ for _ in ()).throw(ValueError("boom")))
+            yield step("fail").python(
+                action=lambda: (_ for _ in ()).throw(ValueError("boom"))
+            )
 
         @workflow(name="parent-workflow")
         def parent_workflow() -> str:
@@ -617,7 +621,10 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_context_builder_failure_stops_workflow(self) -> None:
-        """Test that context builder failure returns a failed StepResult and stops workflow."""
+        """Test that context builder failure returns failed StepResult.
+
+        Verifies workflow stops execution when context builder raises exception.
+        """
 
         class MockAgent:
             name = "mock-agent"
@@ -669,8 +676,13 @@ class TestEdgeCases:
         assert events[-1].success is False
 
     @pytest.mark.asyncio
-    async def test_validate_step_stages_not_found_returns_failed_result(self) -> None:
-        """Test that validate step with non-existent stages config key returns failed result."""
+    async def test_validate_step_stages_not_found_returns_failed_result(
+        self,
+    ) -> None:
+        """Test validate step returns failed result for missing config key.
+
+        Verifies that validate step with non-existent stages config key fails.
+        """
 
         @workflow(name="validate-stages-not-found-workflow")
         def validate_workflow() -> str:
@@ -683,7 +695,10 @@ class TestEdgeCases:
 
         # Create engine with config that doesn't have "nonexistent_key"
         class MockConfig:
-            validation_stages = ["format", "lint"]  # Has default, but not "nonexistent_key"
+            validation_stages = [
+                "format",
+                "lint",
+            ]  # Has default, but not "nonexistent_key"
 
         engine = WorkflowEngine(config=MockConfig())
         events = []
@@ -706,7 +721,10 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_engine_catches_step_execution_exception(self) -> None:
-        """Test that engine catches unexpected exceptions from step.execute() and returns failed StepResult."""
+        """Test engine catches unexpected exceptions from step.execute().
+
+        Verifies that engine returns failed StepResult when step raises exception.
+        """
         from dataclasses import dataclass, field
 
         @dataclass(frozen=True, slots=True)
@@ -724,7 +742,8 @@ class TestEdgeCases:
                 return {"name": self.name, "step_type": self.step_type.value}
 
         # We need to manually create a workflow that yields the broken step
-        # Since the builder pattern creates specific step types, we'll use a direct generator
+        # Since the builder pattern creates specific step types, we'll use
+        # a direct generator
         def broken_workflow_func():
             yield step("before").python(action=lambda: "ok")
             yield BrokenStep()  # This will raise in execute()
@@ -766,7 +785,10 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_workflow_cancellation(self) -> None:
-        """Test that calling cancel() stops workflow at next step boundary."""
+        """Test that calling cancel() stops workflow at next boundary.
+
+        Verifies workflow stops execution after cancellation is requested.
+        """
         import asyncio
 
         call_count = 0
@@ -809,6 +831,8 @@ class TestEdgeCases:
         assert call_count == 2  # Only 2 steps executed
 
         # Workflow should have emitted WorkflowCompleted with success=False
-        workflow_completed_events = [e for e in events if isinstance(e, WorkflowCompleted)]
+        workflow_completed_events = [
+            e for e in events if isinstance(e, WorkflowCompleted)
+        ]
         assert len(workflow_completed_events) == 1
         assert workflow_completed_events[0].success is False

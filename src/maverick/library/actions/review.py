@@ -91,9 +91,7 @@ async def gather_pr_context(
                 "title": pr_data.get("title"),
                 "description": pr_data.get("body"),
                 "author": pr_data.get("author", {}).get("login"),
-                "labels": tuple(
-                    label["name"] for label in pr_data.get("labels", [])
-                ),
+                "labels": tuple(label["name"] for label in pr_data.get("labels", [])),
                 "base_branch": base_branch,
             }
 
@@ -130,9 +128,7 @@ async def gather_pr_context(
             check=True,
         )
         commits = tuple(
-            c.strip()
-            for c in log_result.stdout.strip().split("\n")
-            if c.strip()
+            c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
         )
 
         # Check if CodeRabbit CLI is available
@@ -295,10 +291,12 @@ async def combine_review_results(
         )
         if issue_key not in seen_issues:
             seen_issues.add(issue_key)
-            all_issues.append({
-                **issue,
-                "source": "agent",
-            })
+            all_issues.append(
+                {
+                    **issue,
+                    "source": "agent",
+                }
+            )
 
     for issue in coderabbit_issues:
         issue_key = (
@@ -308,10 +306,12 @@ async def combine_review_results(
         )
         if issue_key not in seen_issues:
             seen_issues.add(issue_key)
-            all_issues.append({
-                **issue,
-                "source": "coderabbit",
-            })
+            all_issues.append(
+                {
+                    **issue,
+                    "source": "coderabbit",
+                }
+            )
 
     # Generate unified report
     report_lines = []
@@ -331,9 +331,7 @@ async def combine_review_results(
     report_lines.append(f"- Total issues found: {len(all_issues)}")
     agent_count = len([i for i in all_issues if i.get("source") == "agent"])
     report_lines.append(f"- Agent review issues: {agent_count}")
-    coderabbit_count = len(
-        [i for i in all_issues if i.get("source") == "coderabbit"]
-    )
+    coderabbit_count = len([i for i in all_issues if i.get("source") == "coderabbit"])
     report_lines.append(f"- CodeRabbit issues: {coderabbit_count}")
     report_lines.append("")
 

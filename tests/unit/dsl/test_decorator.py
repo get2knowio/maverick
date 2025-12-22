@@ -45,8 +45,9 @@ class TestWorkflowDecorator:
         params = {p.name: p for p in workflow_def.parameters}
 
         # arg1: positional-or-keyword with str annotation, no default
-        # Note: Due to `from __future__ import annotations`, annotations are stored as strings
-        # Note: kind is stored as a string name (e.g., "POSITIONAL_OR_KEYWORD") instead of inspect enum
+        # Note: Due to `from __future__ import annotations`, annotations
+        # are stored as strings. kind is stored as a string name
+        # (e.g., "POSITIONAL_OR_KEYWORD") instead of inspect enum
         assert params["arg1"].name == "arg1"
         assert params["arg1"].annotation == "str"
         assert params["arg1"].default is None  # Implementation uses None for no default

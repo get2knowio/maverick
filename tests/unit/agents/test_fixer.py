@@ -8,6 +8,7 @@ Tests the fixer agent's functionality including:
 - JSON output parsing
 - Error handling
 """
+
 from __future__ import annotations
 
 import json
@@ -59,25 +60,29 @@ Please fix this error by reformatting the line appropriately."""
 @pytest.fixture
 def sample_fix_output() -> str:
     """Sample JSON output from a successful fix."""
-    return json.dumps({
-        "success": True,
-        "file_modified": True,
-        "file_path": "src/maverick/agents/implementer.py",
-        "changes_made": "Reformatted line 42 to comply with line length limit",
-        "error": None
-    })
+    return json.dumps(
+        {
+            "success": True,
+            "file_modified": True,
+            "file_path": "src/maverick/agents/implementer.py",
+            "changes_made": "Reformatted line 42 to comply with line length limit",
+            "error": None,
+        }
+    )
 
 
 @pytest.fixture
 def sample_fix_output_failure() -> str:
     """Sample JSON output from a failed fix."""
-    return json.dumps({
-        "success": False,
-        "file_modified": False,
-        "file_path": "src/maverick/agents/implementer.py",
-        "changes_made": "",
-        "error": "File not found"
-    })
+    return json.dumps(
+        {
+            "success": False,
+            "file_modified": False,
+            "file_path": "src/maverick/agents/implementer.py",
+            "changes_made": "",
+            "error": "File not found",
+        }
+    )
 
 
 # =============================================================================
@@ -102,7 +107,8 @@ class TestFixerAgentInitialization:
         expected_tools = {"Read", "Write", "Edit"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
-            f"FixerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+            f"FixerAgent tools mismatch. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
         )
 
     def test_allowed_tools_is_minimal_set(self, agent: FixerAgent) -> None:
@@ -147,26 +153,20 @@ class TestFixerSystemPrompt:
         assert FIXER_SYSTEM_PROMPT
         assert len(FIXER_SYSTEM_PROMPT) > 100
 
-    def test_system_prompt_emphasizes_targeted_fixes(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_system_prompt_emphasizes_targeted_fixes(self, agent: FixerAgent) -> None:
         """Test system prompt emphasizes targeted, minimal changes (T032)."""
         prompt = agent.system_prompt
         assert "targeted" in prompt.lower() or "minimal" in prompt.lower()
         assert "fix" in prompt.lower()
 
-    def test_system_prompt_lists_available_tools(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_system_prompt_lists_available_tools(self, agent: FixerAgent) -> None:
         """Test system prompt lists the three available tools (T032)."""
         prompt = agent.system_prompt
         assert "Read" in prompt
         assert "Write" in prompt
         assert "Edit" in prompt
 
-    def test_system_prompt_specifies_constraints(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_system_prompt_specifies_constraints(self, agent: FixerAgent) -> None:
         """Test system prompt specifies agent constraints (T032)."""
         prompt = agent.system_prompt
         # Should not search for files
@@ -174,21 +174,23 @@ class TestFixerSystemPrompt:
         # Should make minimal changes
         assert "minimal" in prompt.lower() or "necessary" in prompt.lower()
 
-    def test_system_prompt_specifies_output_format(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_system_prompt_specifies_output_format(self, agent: FixerAgent) -> None:
         """Test system prompt specifies JSON output format (T032)."""
         prompt = agent.system_prompt
         assert "JSON" in prompt or "json" in prompt.lower()
         assert "success" in prompt.lower()
         assert "file_modified" in prompt.lower() or "file_path" in prompt.lower()
 
-    def test_system_prompt_includes_required_fields(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_system_prompt_includes_required_fields(self, agent: FixerAgent) -> None:
         """Test system prompt lists all required output fields (T032)."""
         prompt = agent.system_prompt
-        required_fields = ["success", "file_modified", "file_path", "changes_made", "error"]
+        required_fields = [
+            "success",
+            "file_modified",
+            "file_path",
+            "changes_made",
+            "error",
+        ]
         for field in required_fields:
             assert field in prompt.lower() or field.replace("_", " ") in prompt.lower()
 
@@ -243,7 +245,10 @@ class TestExecuteMethod:
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_text_block = MagicMock()
-        mock_text_block.text = '{"success": true, "file_modified": true, "file_path": "test.py", "changes_made": "fixed", "error": null}'
+        mock_text_block.text = (
+            '{"success": true, "file_modified": true, "file_path": "test.py", '
+            '"changes_made": "fixed", "error": null}'
+        )
         type(mock_text_block).__name__ = "TextBlock"
         mock_message.content = [mock_text_block]
         type(mock_message).__name__ = "AssistantMessage"

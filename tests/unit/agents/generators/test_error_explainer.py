@@ -1,4 +1,5 @@
 """Unit tests for ErrorExplainer generator."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -40,8 +41,7 @@ class TestErrorExplainerGenerate:
 
         context = {
             "error_output": (
-                "TypeError: unsupported operand type(s) for +: "
-                "'int' and 'str'"
+                "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
             ),
             "source_context": (
                 "def add(a: int, b: int) -> int:\n"
@@ -58,7 +58,9 @@ class TestErrorExplainerGenerate:
             "**Code example**: result = add(5, 10)"
         )
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation
+        ):
             result = await explainer.generate(context)
 
         assert "What happened" in result
@@ -88,7 +90,9 @@ class TestErrorExplainerGenerate:
             "assert add(2, 3) == 5."
         )
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation
+        ):
             result = await explainer.generate(context)
 
         assert "assertion" in result.lower() or "test" in result.lower()
@@ -113,7 +117,9 @@ class TestErrorExplainerGenerate:
             "**How to fix**: Add one more blank line before line 15."
         )
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation
+        ):
             result = await explainer.generate(context)
 
         assert "blank line" in result.lower() or "pep" in result.lower()
@@ -127,8 +133,7 @@ class TestErrorExplainerGenerate:
 
         context = {
             "error_output": (
-                "FileNotFoundError: [Errno 2] No such file or "
-                "directory: 'data.txt'"
+                "FileNotFoundError: [Errno 2] No such file or directory: 'data.txt'"
             )
         }
 
@@ -141,7 +146,9 @@ class TestErrorExplainerGenerate:
             "file path."
         )
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation
+        ):
             result = await explainer.generate(context)
 
         assert len(result) > 0
@@ -186,7 +193,12 @@ class TestErrorExplainerGenerate:
         mock_explanation = "**What happened**: Syntax error in code."
 
         with (
-            patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation),
+            patch.object(
+                explainer,
+                "_query",
+                new_callable=AsyncMock,
+                return_value=mock_explanation,
+            ),
             patch("maverick.agents.generators.base.logger") as mock_logger,
         ):
             result = await explainer.generate(context)
@@ -219,7 +231,9 @@ class TestErrorExplainerGenerate:
             captured_prompt = prompt
             return mock_explanation
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, side_effect=capture_query):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, side_effect=capture_query
+        ):
             await explainer.generate(context)
 
         assert captured_prompt is not None
@@ -246,7 +260,9 @@ class TestErrorExplainerGenerate:
             captured_prompt = prompt
             return mock_explanation
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, side_effect=capture_query):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, side_effect=capture_query
+        ):
             await explainer.generate(context)
 
         assert captured_prompt is not None
@@ -266,7 +282,12 @@ class TestErrorExplainerGenerate:
                 "error_type": error_type,
             }
 
-            with patch.object(explainer, "_query", new_callable=AsyncMock, return_value=mock_explanation):
+            with patch.object(
+                explainer,
+                "_query",
+                new_callable=AsyncMock,
+                return_value=mock_explanation,
+            ):
                 result = await explainer.generate(context)
                 assert len(result) > 0
 
@@ -303,7 +324,9 @@ class TestErrorExplainerEdgeCases:
                 generator_name="error-explainer",
             )
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, side_effect=mock_query_error):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, side_effect=mock_query_error
+        ):
             with pytest.raises(GeneratorError) as exc_info:
                 await explainer.generate(context)
 
@@ -342,7 +365,9 @@ class TestErrorExplainerEdgeCases:
             captured_prompt = prompt
             return mock_explanation
 
-        with patch.object(explainer, "_query", new_callable=AsyncMock, side_effect=capture_query):
+        with patch.object(
+            explainer, "_query", new_callable=AsyncMock, side_effect=capture_query
+        ):
             await explainer.generate(context)
 
         # Error output should be in prompt without truncation

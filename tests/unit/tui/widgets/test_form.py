@@ -274,7 +274,9 @@ class TestBranchInputFieldValidation:
     """Tests for BranchInputField validation logic."""
 
     @pytest.mark.asyncio
-    async def test_empty_branch_invalid(self, branch_field: MockBranchInputField) -> None:
+    async def test_empty_branch_invalid(
+        self, branch_field: MockBranchInputField
+    ) -> None:
         """Empty branch name is invalid."""
         branch_field.set_value("")
         assert branch_field.is_valid is False
@@ -768,7 +770,9 @@ class TestFormFieldScenarios:
     @pytest.mark.asyncio
     async def test_numeric_field_adjustment_workflow(self) -> None:
         """Complete workflow for numeric field adjustment."""
-        field = MockNumericField(label="Max Issues", value="3", min_value=1, max_value=10)
+        field = MockNumericField(
+            label="Max Issues", value="3", min_value=1, max_value=10
+        )
 
         # User clicks increment button
         field.increment()
@@ -788,7 +792,9 @@ class TestFormFieldScenarios:
         """Workflow with multiple form fields."""
         # Create a form with multiple fields
         branch_field = MockBranchInputField(label="Branch")
-        max_agents = MockNumericField(label="Max Agents", value="3", min_value=1, max_value=10)
+        max_agents = MockNumericField(
+            label="Max Agents", value="3", min_value=1, max_value=10
+        )
         parallel_mode = MockToggleField(label="Parallel", checked=False)
         processing = MockSelectField(
             label="Mode", options=("fast", "thorough"), selected_index=0

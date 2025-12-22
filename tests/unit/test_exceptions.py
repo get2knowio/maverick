@@ -6,6 +6,7 @@ Tests the custom exception hierarchy and implementation-specific exceptions:
 - GitHubError
 - MaverickValidationError
 """
+
 from __future__ import annotations
 
 import pytest

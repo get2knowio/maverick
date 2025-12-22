@@ -96,8 +96,8 @@ I've reviewed the code and found the following issues:
       "severity": "critical",
       "file": "src/example.py",
       "line": 5,
-      "message": "SQL injection vulnerability: user input is directly interpolated into SQL query",
-      "suggestion": "Use parameterized queries: cursor.execute('SELECT * FROM users WHERE name = ?', (user_input,))"
+      "message": "SQL injection vulnerability: user input is directly interpolated",
+      "suggestion": "Use parameterized queries with placeholders"
     },
     {
       "severity": "minor",
@@ -151,8 +151,12 @@ class TestCodeReviewerAgentInitialization:
         Agent should understand that diffs and file contents are provided
         by the orchestration layer, not retrieved by the agent itself.
         """
-        prompt = agent.system_prompt
-        assert "pre-gathered" in prompt.lower() or "provided" in prompt.lower() or "orchestration" in prompt.lower()
+        prompt = agent.system_prompt.lower()
+        assert (
+            "pre-gathered" in prompt
+            or "provided" in prompt
+            or "orchestration" in prompt
+        )
 
     def test_allowed_tools_excludes_bash(self, agent: CodeReviewerAgent) -> None:
         """Test allowed tools excludes Bash (orchestration layer handles commands)."""
@@ -172,7 +176,8 @@ class TestCodeReviewerAgentInitialization:
         expected_tools = {"Read", "Glob", "Grep"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
-            f"CodeReviewerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+            f"CodeReviewerAgent tools mismatch. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
         )
         # Ensure no write permissions
         assert "Write" not in agent.allowed_tools
@@ -313,7 +318,9 @@ class TestParseFindings:
         # Should parse at least the valid entries
         assert len(findings) >= 1
         # Check first finding (critical)
-        critical_findings = [f for f in findings if f.severity == ReviewSeverity.CRITICAL]
+        critical_findings = [
+            f for f in findings if f.severity == ReviewSeverity.CRITICAL
+        ]
         assert len(critical_findings) >= 1
         assert critical_findings[0].file == "src/example.py"
 
@@ -341,9 +348,9 @@ class TestParseFindings:
         response = """```json
 {
   "findings": [
-    {"severity": "critical", "file": "a.py", "message": "Valid finding here with enough length", "suggestion": "Fix it"},
-    {"severity": "invalid", "file": "b.py", "message": "Invalid severity value here too"},
-    {"file": "c.py", "message": "Missing severity field here ok", "suggestion": "Fix"}
+    {"severity": "critical", "file": "a.py", "message": "Valid finding"},
+    {"severity": "invalid", "file": "b.py", "message": "Invalid severity value"},
+    {"file": "c.py", "message": "Missing severity field"}
   ]
 }
 ```"""

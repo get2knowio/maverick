@@ -27,7 +27,9 @@ async def git_commit(
     try:
         if add_all:
             proc = await asyncio.create_subprocess_exec(
-                "git", "add", ".",
+                "git",
+                "add",
+                ".",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -47,7 +49,10 @@ async def git_commit(
 
         # Create commit
         proc = await asyncio.create_subprocess_exec(
-            "git", "commit", "-m", full_message,
+            "git",
+            "commit",
+            "-m",
+            full_message,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -58,7 +63,9 @@ async def git_commit(
 
         # Get commit SHA
         proc = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "HEAD",
+            "git",
+            "rev-parse",
+            "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -69,7 +76,12 @@ async def git_commit(
 
         # Get list of committed files
         proc = await asyncio.create_subprocess_exec(
-            "git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
+            "git",
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -111,7 +123,10 @@ async def git_push(set_upstream: bool = True) -> dict[str, Any]:
     try:
         # Get current branch
         proc = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "--abbrev-ref", "HEAD",
+            "git",
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -172,7 +187,10 @@ async def create_git_branch(
     try:
         # Check if branch exists
         proc = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "--verify", branch_name,
+            "git",
+            "rev-parse",
+            "--verify",
+            branch_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -182,7 +200,9 @@ async def create_git_branch(
         if branch_exists:
             # Checkout existing branch
             proc = await asyncio.create_subprocess_exec(
-                "git", "checkout", branch_name,
+                "git",
+                "checkout",
+                branch_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -194,7 +214,9 @@ async def create_git_branch(
         else:
             # Create new branch from base
             proc = await asyncio.create_subprocess_exec(
-                "git", "checkout", base,
+                "git",
+                "checkout",
+                base,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -204,7 +226,10 @@ async def create_git_branch(
                 raise RuntimeError(f"git checkout base failed: {stderr.decode()}")
 
             proc = await asyncio.create_subprocess_exec(
-                "git", "checkout", "-b", branch_name,
+                "git",
+                "checkout",
+                "-b",
+                branch_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

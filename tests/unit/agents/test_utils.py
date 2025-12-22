@@ -2,6 +2,7 @@
 
 Tests for text extraction utilities that process Claude SDK Message objects.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -209,9 +210,7 @@ class TestExtractAllText:
     def test_filters_non_assistant_message_objects_from_list(self) -> None:
         """Test filters non-AssistantMessage objects from list."""
         # Arrange
-        assistant_msg = create_assistant_message(
-            [create_text_block("Assistant text.")]
-        )
+        assistant_msg = create_assistant_message([create_text_block("Assistant text.")])
         user_msg = create_user_message("User text.")
         system_msg = create_system_message("System text.")
         messages = [user_msg, assistant_msg, system_msg]

@@ -14,6 +14,7 @@ Example:
     print(status.staged)  # ("file.py",)
     ```
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -38,7 +39,7 @@ from maverick.exceptions import (
 # Constants & Validators
 # =============================================================================
 
-_INVALID_BRANCH_CHARS = re.compile(r'[~^: ?*\[\]\\]')
+_INVALID_BRANCH_CHARS = re.compile(r"[~^: ?*\[\]\\]")
 
 
 def _validate_branch_name(name: str) -> None:

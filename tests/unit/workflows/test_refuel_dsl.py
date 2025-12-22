@@ -128,7 +128,10 @@ class TestRefuelWorkflowDSLExecution:
         mock_workflow_file = MagicMock(name="refuel")
         mock_library.get_workflow.return_value = mock_workflow_file
 
-        with patch("maverick.workflows.refuel.create_builtin_library", return_value=mock_library):
+        with patch(
+            "maverick.workflows.refuel.create_builtin_library",
+            return_value=mock_library,
+        ):
             result = workflow._load_workflow("refuel")
 
             # Verify builtin library was called
@@ -400,7 +403,12 @@ class TestResultConstruction:
                 "pr_url": "pr1",
                 "error": None,
                 "duration_ms": 1000,
-                "agent_usage": {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "duration_ms": 0},
+                "agent_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "duration_ms": 0,
+                },
             },
             {
                 "issue": {
@@ -416,7 +424,12 @@ class TestResultConstruction:
                 "pr_url": "pr2",
                 "error": None,
                 "duration_ms": 1000,
-                "agent_usage": {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "duration_ms": 0},
+                "agent_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "duration_ms": 0,
+                },
             },
             {
                 "issue": {
@@ -432,7 +445,12 @@ class TestResultConstruction:
                 "pr_url": None,
                 "error": "Error message",
                 "duration_ms": 1000,
-                "agent_usage": {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "duration_ms": 0},
+                "agent_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "duration_ms": 0,
+                },
             },
             {
                 "issue": {
@@ -448,7 +466,12 @@ class TestResultConstruction:
                 "pr_url": None,
                 "error": None,
                 "duration_ms": 0,
-                "agent_usage": {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "duration_ms": 0},
+                "agent_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "duration_ms": 0,
+                },
             },
         ]
 
@@ -625,7 +648,12 @@ class TestResultConstruction:
                 "pr_url": None,
                 "error": "Error",
                 "duration_ms": 1000,
-                "agent_usage": {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "duration_ms": 0},
+                "agent_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "duration_ms": 0,
+                },
             },
         ]
 

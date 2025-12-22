@@ -14,9 +14,11 @@ from typing import Any
 # Workspace Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceState:
     """State of the workspace after initialization."""
+
     branch_name: str
     base_branch: str
     is_clean: bool
@@ -28,9 +30,11 @@ class WorkspaceState:
 # Git Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class GitCommitResult:
     """Result of git commit operation."""
+
     success: bool
     commit_sha: str | None
     message: str
@@ -41,6 +45,7 @@ class GitCommitResult:
 @dataclass(frozen=True, slots=True)
 class GitPushResult:
     """Result of git push operation."""
+
     success: bool
     remote: str
     branch: str
@@ -51,6 +56,7 @@ class GitPushResult:
 @dataclass(frozen=True, slots=True)
 class GitBranchResult:
     """Result of branch creation."""
+
     success: bool
     branch_name: str
     base_branch: str
@@ -62,9 +68,11 @@ class GitBranchResult:
 # GitHub Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class FetchedIssue:
     """Single GitHub issue fetched from API."""
+
     number: int
     title: str
     body: str | None
@@ -77,6 +85,7 @@ class FetchedIssue:
 @dataclass(frozen=True, slots=True)
 class FetchIssuesResult:
     """Result of fetching multiple issues."""
+
     success: bool
     issues: tuple[FetchedIssue, ...]
     total_count: int
@@ -86,6 +95,7 @@ class FetchIssuesResult:
 @dataclass(frozen=True, slots=True)
 class FetchSingleIssueResult:
     """Result of fetching a single issue."""
+
     success: bool
     issue: FetchedIssue | None
     error: str | None
@@ -94,6 +104,7 @@ class FetchSingleIssueResult:
 @dataclass(frozen=True, slots=True)
 class PRCreationResult:
     """Result of PR creation via GitHub CLI."""
+
     success: bool
     pr_number: int | None
     pr_url: str | None
@@ -107,9 +118,11 @@ class PRCreationResult:
 # Validation Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class StageResultEntry:
     """Result of a single validation stage."""
+
     name: str
     passed: bool
     errors: tuple[str, ...]
@@ -119,6 +132,7 @@ class StageResultEntry:
 @dataclass(frozen=True, slots=True)
 class ValidationReportResult:
     """Final validation report from validate_and_fix fragment."""
+
     passed: bool
     stages: tuple[StageResultEntry, ...]
     attempts: int
@@ -131,9 +145,11 @@ class ValidationReportResult:
 # Review Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class PRMetadata:
     """Pull request metadata."""
+
     number: int | None
     title: str | None
     description: str | None
@@ -145,6 +161,7 @@ class PRMetadata:
 @dataclass(frozen=True, slots=True)
 class ReviewContextResult:
     """Gathered context for code review."""
+
     pr_metadata: PRMetadata
     changed_files: tuple[str, ...]
     diff: str
@@ -155,6 +172,7 @@ class ReviewContextResult:
 @dataclass(frozen=True, slots=True)
 class CodeRabbitResult:
     """Result from CodeRabbit review."""
+
     available: bool
     findings: tuple[dict[str, Any], ...]
     error: str | None
@@ -163,6 +181,7 @@ class CodeRabbitResult:
 @dataclass(frozen=True, slots=True)
 class CombinedReviewResult:
     """Combined review results from all sources."""
+
     review_report: str
     issues: tuple[dict[str, Any], ...]
     recommendation: str  # "approve", "request_changes", "comment"
@@ -172,9 +191,11 @@ class CombinedReviewResult:
 # Refuel Types
 # =============================================================================
 
+
 @dataclass(frozen=True, slots=True)
 class ProcessedIssueEntry:
     """Result of processing a single issue."""
+
     issue_number: int
     issue_title: str
     status: str  # "fixed", "failed", "skipped"
@@ -186,6 +207,7 @@ class ProcessedIssueEntry:
 @dataclass(frozen=True, slots=True)
 class RefuelSummaryResult:
     """Summary of refuel workflow execution."""
+
     total_issues: int
     processed_count: int
     success_count: int

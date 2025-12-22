@@ -1,4 +1,5 @@
 """Unit tests for GitHub utilities."""
+
 from __future__ import annotations
 
 import asyncio
@@ -279,9 +280,7 @@ class TestCheckGhAuth:
     async def test_check_gh_auth_not_authenticated(self) -> None:
         """Test check_gh_auth returns False when not authenticated."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"not authenticated")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"", b"not authenticated"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):

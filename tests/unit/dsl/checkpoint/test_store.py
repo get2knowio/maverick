@@ -89,9 +89,7 @@ class TestMemoryCheckpointStore:
             checkpoint_id="cp1",
             workflow_name="wf1",
             inputs_hash="hash123",
-            step_results=(
-                {"name": "step1", "output": "result1"},
-            ),
+            step_results=({"name": "step1", "output": "result1"},),
             saved_at="2024-01-01T12:00:00Z",
         )
         await store.save("workflow_1", data)

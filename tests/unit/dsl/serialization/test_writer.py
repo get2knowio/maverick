@@ -908,9 +908,7 @@ class TestWorkflowWriterFieldOrdering:
             version="1.0",
             name="test-workflow",
             description="Test",
-            inputs={
-                "repo": InputDefinition(type=InputType.STRING, required=True)
-            },
+            inputs={"repo": InputDefinition(type=InputType.STRING, required=True)},
             steps=[
                 PythonStepRecord(
                     name="step1",

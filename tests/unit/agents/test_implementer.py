@@ -8,6 +8,7 @@ Tests the implementer agent's functionality including:
 - Helper methods (prompt building, file change detection, validation, commits)
 - Error handling for parse errors and execution failures
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -162,7 +163,8 @@ class TestImplementerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "implementer"
         assert agent.system_prompt == IMPLEMENTER_SYSTEM_PROMPT
-        # Compare as sets since allowed_tools is a list and IMPLEMENTER_TOOLS is a frozenset
+        # Compare as sets since allowed_tools is a list and
+        # IMPLEMENTER_TOOLS is a frozenset
         assert set(agent.allowed_tools) == set(IMPLEMENTER_TOOLS)
 
     def test_custom_model(self) -> None:
@@ -170,9 +172,7 @@ class TestImplementerAgentInitialization:
         custom_agent = ImplementerAgent(model="claude-3-opus-20240229")
         assert custom_agent.model == "claude-3-opus-20240229"
 
-    def test_system_prompt_contains_tdd_approach(
-        self, agent: ImplementerAgent
-    ) -> None:
+    def test_system_prompt_contains_tdd_approach(self, agent: ImplementerAgent) -> None:
         """Test system prompt includes TDD methodology."""
         prompt = agent.system_prompt
         assert "TDD" in prompt or "test-driven" in prompt.lower()
@@ -217,7 +217,8 @@ class TestImplementerAgentInitialization:
         expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
-            f"ImplementerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+            f"ImplementerAgent tools mismatch. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
         )
 
     def test_allowed_tools_uses_centralized_constants(
@@ -335,7 +336,9 @@ class TestDetectFileChanges:
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
         """Test returns list of FileChange objects."""
-        with patch("maverick.utils.git.get_diff_stats", new_callable=AsyncMock) as mock_diff:
+        with patch(
+            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
+        ) as mock_diff:
             mock_diff.return_value = {
                 "src/file.py": (10, 2),
                 "tests/test_file.py": (20, 0),
@@ -352,7 +355,9 @@ class TestDetectFileChanges:
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
         """Test correctly parses file stats into FileChange objects."""
-        with patch("maverick.utils.git.get_diff_stats", new_callable=AsyncMock) as mock_diff:
+        with patch(
+            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
+        ) as mock_diff:
             mock_diff.return_value = {
                 "src/module.py": (15, 3),
             }
@@ -370,7 +375,9 @@ class TestDetectFileChanges:
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
         """Test returns empty list on git errors."""
-        with patch("maverick.utils.git.get_diff_stats", new_callable=AsyncMock) as mock_diff:
+        with patch(
+            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
+        ) as mock_diff:
             mock_diff.side_effect = Exception("Git command failed")
 
             changes = await agent._detect_file_changes(tmp_path)
@@ -433,8 +440,12 @@ class TestCreateCommit:
         )
 
         with (
-            patch("maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock) as mock_changes,
-            patch("maverick.utils.git.create_commit", new_callable=AsyncMock) as mock_commit,
+            patch(
+                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
+            ) as mock_changes,
+            patch(
+                "maverick.utils.git.create_commit", new_callable=AsyncMock
+            ) as mock_commit,
         ):
             mock_changes.return_value = True
             mock_commit.return_value = "abc123def456"
@@ -455,7 +466,9 @@ class TestCreateCommit:
             cwd=tmp_path,
         )
 
-        with patch("maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock) as mock_changes:
+        with patch(
+            "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
+        ) as mock_changes:
             mock_changes.return_value = False
 
             sha = await agent._create_commit(sample_task, context)
@@ -479,8 +492,12 @@ class TestCreateCommit:
         )
 
         with (
-            patch("maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock) as mock_changes,
-            patch("maverick.utils.git.create_commit", new_callable=AsyncMock) as mock_commit,
+            patch(
+                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
+            ) as mock_changes,
+            patch(
+                "maverick.utils.git.create_commit", new_callable=AsyncMock
+            ) as mock_commit,
         ):
             mock_changes.return_value = True
             mock_commit.return_value = "abc123"
@@ -503,7 +520,9 @@ class TestCreateCommit:
             cwd=tmp_path,
         )
 
-        with patch("maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock) as mock_changes:
+        with patch(
+            "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
+        ) as mock_changes:
             mock_changes.side_effect = Exception("Git error")
 
             sha = await agent._create_commit(sample_task, context)

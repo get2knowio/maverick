@@ -281,9 +281,7 @@ class ReviewScreen(MaverickScreen):
                 f"[/{severity_class} bold]"
             )
             header_widget = Static(
-                header_text,
-                classes="severity-header",
-                id=f"severity-header-{severity}"
+                header_text, classes="severity-header", id=f"severity-header-{severity}"
             )
             issue_list.mount(header_widget)
 
@@ -587,7 +585,7 @@ class ReviewScreen(MaverickScreen):
         # Sort by file_path and line_number for consistent ordering
         sorted_issues = sorted(
             self._issues,
-            key=lambda x: (str(x.get("file_path", "")), int(x.get("line_number", 0)))
+            key=lambda x: (str(x.get("file_path", "")), int(x.get("line_number", 0))),
         )
 
         # Create a JSON representation of key fields

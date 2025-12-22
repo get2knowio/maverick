@@ -3,6 +3,7 @@
 This module defines AgentUsage and AgentResult dataclasses for representing
 agent execution outcomes in a structured, type-safe manner.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

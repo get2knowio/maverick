@@ -4,6 +4,7 @@ These tests verify that the agent module components work together correctly
 and meet performance requirements. They test real import paths, dataclass
 creation overhead, and registry operations.
 """
+
 from __future__ import annotations
 
 import time
@@ -51,9 +52,7 @@ class TestModuleImports:
         import sys
 
         # Clear cached imports
-        modules_to_clear = [
-            k for k in sys.modules if k.startswith("maverick.agents")
-        ]
+        modules_to_clear = [k for k in sys.modules if k.startswith("maverick.agents")]
         for mod in modules_to_clear:
             del sys.modules[mod]
 

@@ -6,6 +6,7 @@ commands, create PRs, or perform API operations directly.
 
 See specs/021-agent-tool-permissions/research.md for prompt patterns.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -52,14 +53,20 @@ class TestPromptsDoNotMentionGitOperations:
         agent = CodeReviewerAgent()
         prompt = agent.system_prompt.lower()
 
-        # Should NOT mention running git commands (unless as negative guidance "don't")
+        # Should NOT mention running git commands
+        # (unless as negative guidance "don't")
         assert "run git" not in prompt
-        # Allow "don't execute git" or "do not attempt to execute git" as negative guidance
+        # Allow "don't execute git" or "do not attempt to execute git"
+        # as negative guidance
         if "execute git" in prompt:
             assert "do not" in prompt or "don't" in prompt
         # If git diff is mentioned, should clarify it's provided
         if "git diff" in prompt:
-            assert "provided" in prompt or "pre-gathered" in prompt or "orchestration" in prompt
+            assert (
+                "provided" in prompt
+                or "pre-gathered" in prompt
+                or "orchestration" in prompt
+            )
 
     def test_issue_fixer_does_not_mention_git_commands(self) -> None:
         """Test IssueFixerAgent prompt doesn't mention running git commands.
@@ -173,7 +180,10 @@ class TestPromptsDoNotMentionAPIOperations:
 
 
 class TestPromptsDoNotMentionBashExecution:
-    """Test that agent prompts do not instruct Bash execution for orchestrated tasks (T026)."""
+    """Test that agent prompts do not instruct Bash execution.
+
+    For orchestrated tasks (T026).
+    """
 
     def test_implementer_does_not_instruct_bash_for_validation(self) -> None:
         """Test ImplementerAgent prompt doesn't instruct running validation via Bash.
@@ -187,7 +197,8 @@ class TestPromptsDoNotMentionBashExecution:
         # Should NOT instruct to run validation commands
         assert "run validation" not in prompt or "orchestration" in prompt
         assert "execute tests" not in prompt or "orchestration" in prompt
-        # NOTE: Agent may mention validation exists, but shouldn't say "run pytest" directly
+        # NOTE: Agent may mention validation exists,
+        # but shouldn't say "run pytest" directly
 
     def test_code_reviewer_does_not_instruct_bash_execution(self) -> None:
         """Test CodeReviewerAgent prompt doesn't instruct executing commands.
@@ -210,8 +221,12 @@ class TestPromptsDoNotMentionBashExecution:
         prompt = agent.system_prompt.lower()
 
         # Should NOT instruct to run validation commands
-        assert "run validation" not in prompt or "orchestration" in prompt
-        assert "execute tests" not in prompt or "orchestration" in prompt
+        assert (
+            "run validation" not in prompt or "orchestration" in prompt
+        )
+        assert (
+            "execute tests" not in prompt or "orchestration" in prompt
+        )
 
 
 class TestPromptsExplainConstrainedRole:
@@ -237,11 +252,13 @@ class TestPromptsExplainConstrainedRole:
         prompt = agent.system_prompt.lower()
 
         # Should mention that context is provided/pre-gathered
-        has_context_explanation = any([
-            "provided" in prompt,
-            "pre-gathered" in prompt,
-            "orchestration" in prompt,
-        ])
+        has_context_explanation = any(
+            [
+                "provided" in prompt,
+                "pre-gathered" in prompt,
+                "orchestration" in prompt,
+            ]
+        )
         assert has_context_explanation
 
     def test_generator_explains_context_is_provided(self) -> None:

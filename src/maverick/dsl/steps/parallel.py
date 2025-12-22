@@ -48,7 +48,8 @@ class ParallelStep(StepDefinition):
             for name in names:
                 if name in seen:
                     raise ValueError(
-                        f"Parallel step '{self.name}' contains duplicate child step name: '{name}'"
+                        f"Parallel step '{self.name}' contains "
+                        f"duplicate child step name: '{name}'"
                     )
                 seen.add(name)
 

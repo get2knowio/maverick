@@ -192,7 +192,5 @@ class TestLogToolExecution:
             "status": "success",
         }
         start = datetime.now()
-        result = await log_tool_execution(
-            input_data, None, None, start_time=start
-        )
+        result = await log_tool_execution(input_data, None, None, start_time=start)
         assert result == {}

@@ -103,9 +103,7 @@ class TestParallelStep:
         assert "duplicate" in str(exc_info.value)
         assert "parallel_group" in str(exc_info.value)
 
-    async def test_parallel_fail_fast(
-        self, workflow_context: WorkflowContext
-    ) -> None:
+    async def test_parallel_fail_fast(self, workflow_context: WorkflowContext) -> None:
         """Parallel step should stop on first failure."""
         from maverick.dsl.results import ParallelResult
         from maverick.dsl.steps.parallel import ParallelStep

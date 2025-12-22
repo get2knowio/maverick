@@ -188,7 +188,9 @@ def create_mock_implementer_agent(success: bool = True) -> MagicMock:
         )
     else:
         result = AgentResult.failure_result(
-            errors=[AgentError("Implementation failed: syntax error in generated code")],
+            errors=[
+                AgentError("Implementation failed: syntax error in generated code")
+            ],
             usage=usage,
         )
 
@@ -225,7 +227,10 @@ def create_mock_commit_generator() -> MagicMock:
     """
     mock_gen = MagicMock()
     mock_gen.generate = AsyncMock(
-        return_value="feat: implement user authentication\n\nAdded login and signup endpoints."
+        return_value=(
+            "feat: implement user authentication\n\n"
+            "Added login and signup endpoints."
+        )
     )
     return mock_gen
 
@@ -354,7 +359,9 @@ async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path
     assert result.total_cost_usd == 0.023  # 0.015 + 0.008
 
     # Verify: Mock calls
-    mock_git.create_branch_with_fallback.assert_called_once_with("feature/user-auth", "HEAD")
+    mock_git.create_branch_with_fallback.assert_called_once_with(
+        "feature/user-auth", "HEAD"
+    )
     mock_implementer.execute.assert_called_once()
     mock_validation.run.assert_called_once()
     mock_reviewer.execute.assert_called_once()
@@ -523,14 +530,16 @@ async def test_workflow_handles_implementer_agent_failure(tmp_path):
 
     # Verify: Implementation stage completed (even with failure)
     impl_completed = [
-        e for e in events
+        e
+        for e in events
         if isinstance(e, FlyStageCompleted) and e.stage == WorkflowStage.IMPLEMENTATION
     ]
     assert len(impl_completed) == 1
 
     # Verify: Validation stage still executed
     validation_started = [
-        e for e in events
+        e
+        for e in events
         if isinstance(e, FlyStageStarted) and e.stage == WorkflowStage.VALIDATION
     ]
     assert len(validation_started) == 1
@@ -604,7 +613,7 @@ async def test_validation_failure_continues_workflow_with_draft_pr(tmp_path):
     # Verify: PR was created as draft (check call arguments)
     call_args = mock_github.create_pr.call_args
     assert call_args is not None
-    assert call_args.kwargs.get('draft') is True
+    assert call_args.kwargs.get("draft") is True
 
     # Verify: All stages executed despite validation failure
     stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]

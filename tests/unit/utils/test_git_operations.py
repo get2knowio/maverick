@@ -1001,9 +1001,8 @@ class TestNoShellTrue:
             ):
                 for keyword in node.keywords:
                     # shell should be False or not present
-                    if (
-                        keyword.arg == "shell"
-                        and isinstance(keyword.value, ast.Constant)
+                    if keyword.arg == "shell" and isinstance(
+                        keyword.value, ast.Constant
                     ):
                         assert keyword.value.value is False, (
                             "shell=True found in subprocess call"

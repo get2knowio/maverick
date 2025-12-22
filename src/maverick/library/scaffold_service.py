@@ -4,6 +4,7 @@ This module provides the concrete implementation of the template-based workflow
 scaffolding service. It uses Jinja2 templates to generate new workflow files
 from predefined templates.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -82,7 +83,7 @@ class ScaffoldService:
             TemplateInfo(
                 template_type=TemplateType.FULL,
                 format=TemplateFormat.YAML,
-                description="Complete workflow with validation, review, and PR patterns",
+                description="Complete workflow with validation, review, PR patterns",
                 example_steps=(
                     "init",
                     "implement",
@@ -94,7 +95,7 @@ class ScaffoldService:
             TemplateInfo(
                 template_type=TemplateType.FULL,
                 format=TemplateFormat.PYTHON,
-                description="Complete workflow with validation, review, and PR patterns (Python)",
+                description="Complete workflow with validation, review, PR (Python)",
                 example_steps=(
                     "init",
                     "implement",
@@ -179,9 +180,7 @@ class ScaffoldService:
 
         return ScaffoldResult(success=True, content=content)
 
-    def get_template_path(
-        self, template: TemplateType, format: TemplateFormat
-    ) -> Path:
+    def get_template_path(self, template: TemplateType, format: TemplateFormat) -> Path:
         """Get path to template file.
 
         Args:

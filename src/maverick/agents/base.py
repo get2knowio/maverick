@@ -4,6 +4,7 @@ This module defines the MaverickAgent ABC that all concrete agents must inherit 
 It wraps Claude Agent SDK interactions and provides a standardized interface for
 agent creation and execution.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

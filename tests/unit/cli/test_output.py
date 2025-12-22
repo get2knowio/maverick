@@ -8,6 +8,7 @@ Tests the output formatting functions and enums:
 - format_json()
 - format_table()
 """
+
 from __future__ import annotations
 
 import json

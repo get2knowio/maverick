@@ -130,7 +130,9 @@ class TestBuiltinFragmentInfo:
     def test_fragment_info_fields_are_correct(self) -> None:
         """Test that VALIDATE_AND_FIX_FRAGMENT_INFO has correct fields."""
         assert VALIDATE_AND_FIX_FRAGMENT_INFO.name == "validate-and-fix"
-        assert VALIDATE_AND_FIX_FRAGMENT_INFO.description == "Validation-with-retry loop"
+        assert (
+            VALIDATE_AND_FIX_FRAGMENT_INFO.description == "Validation-with-retry loop"
+        )
         assert isinstance(VALIDATE_AND_FIX_FRAGMENT_INFO.inputs, tuple)
         assert isinstance(VALIDATE_AND_FIX_FRAGMENT_INFO.used_by, tuple)
         assert "fly" in VALIDATE_AND_FIX_FRAGMENT_INFO.used_by
@@ -157,7 +159,14 @@ class TestBuiltinConstants:
 
     def test_builtin_workflows_contains_expected_workflows(self) -> None:
         """Test that BUILTIN_WORKFLOWS contains all expected workflow names."""
-        expected = {"fly", "refuel", "review", "validate", "quick-fix"}
+        expected = {
+            "fly",
+            "refuel",
+            "review",
+            "validate",
+            "quick-fix",
+            "process-single-issue",
+        }
         assert BUILTIN_WORKFLOWS == expected
 
     def test_builtin_workflows_is_immutable(self) -> None:
@@ -230,24 +239,35 @@ class TestListWorkflows:
         workflows = library.list_workflows()
         assert isinstance(workflows, list)
 
-    def test_returns_builtin_workflow_info_objects(self, library: BuiltinLibrary) -> None:
+    def test_returns_builtin_workflow_info_objects(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that list_workflows returns BuiltinWorkflowInfo objects."""
         workflows = library.list_workflows()
         assert all(isinstance(wf, BuiltinWorkflowInfo) for wf in workflows)
 
-    def test_returns_five_workflows(self, library: BuiltinLibrary) -> None:
-        """Test that list_workflows returns exactly 5 workflows."""
+    def test_returns_six_workflows(self, library: BuiltinLibrary) -> None:
+        """Test that list_workflows returns exactly 6 workflows."""
         workflows = library.list_workflows()
-        assert len(workflows) == 5
+        assert len(workflows) == 6
 
     def test_all_expected_workflows_present(self, library: BuiltinLibrary) -> None:
         """Test that all expected workflows are in the list."""
         workflows = library.list_workflows()
         workflow_names = {wf.name for wf in workflows}
-        expected = {"fly", "refuel", "review", "validate", "quick-fix"}
+        expected = {
+            "fly",
+            "refuel",
+            "review",
+            "validate",
+            "quick-fix",
+            "process-single-issue",
+        }
         assert workflow_names == expected
 
-    def test_workflow_info_objects_match_constants(self, library: BuiltinLibrary) -> None:
+    def test_workflow_info_objects_match_constants(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that returned workflow info objects match constants."""
         workflows = library.list_workflows()
         workflow_dict = {wf.name: wf for wf in workflows}
@@ -277,7 +297,9 @@ class TestListFragments:
         fragments = library.list_fragments()
         assert isinstance(fragments, list)
 
-    def test_returns_builtin_fragment_info_objects(self, library: BuiltinLibrary) -> None:
+    def test_returns_builtin_fragment_info_objects(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that list_fragments returns BuiltinFragmentInfo objects."""
         fragments = library.list_fragments()
         assert all(isinstance(frag, BuiltinFragmentInfo) for frag in fragments)
@@ -294,14 +316,19 @@ class TestListFragments:
         expected = {"validate-and-fix", "commit-and-push", "create-pr-with-summary"}
         assert fragment_names == expected
 
-    def test_fragment_info_objects_match_constants(self, library: BuiltinLibrary) -> None:
+    def test_fragment_info_objects_match_constants(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that returned fragment info objects match constants."""
         fragments = library.list_fragments()
         fragment_dict = {frag.name: frag for frag in fragments}
 
         assert fragment_dict["validate-and-fix"] == VALIDATE_AND_FIX_FRAGMENT_INFO
         assert fragment_dict["commit-and-push"] == COMMIT_AND_PUSH_FRAGMENT_INFO
-        assert fragment_dict["create-pr-with-summary"] == CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO
+        assert (
+            fragment_dict["create-pr-with-summary"]
+            == CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO
+        )
 
 
 # =============================================================================
@@ -317,7 +344,9 @@ class TestHasWorkflow:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_true_for_valid_workflow_names(self, library: BuiltinLibrary) -> None:
+    def test_returns_true_for_valid_workflow_names(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that has_workflow returns True for all valid workflow names."""
         assert library.has_workflow("fly") is True
         assert library.has_workflow("refuel") is True
@@ -325,7 +354,9 @@ class TestHasWorkflow:
         assert library.has_workflow("validate") is True
         assert library.has_workflow("quick-fix") is True
 
-    def test_returns_false_for_invalid_workflow_names(self, library: BuiltinLibrary) -> None:
+    def test_returns_false_for_invalid_workflow_names(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that has_workflow returns False for invalid workflow names."""
         assert library.has_workflow("unknown") is False
         assert library.has_workflow("not_a_workflow") is False
@@ -350,13 +381,17 @@ class TestHasFragment:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_true_for_valid_fragment_names(self, library: BuiltinLibrary) -> None:
+    def test_returns_true_for_valid_fragment_names(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that has_fragment returns True for all valid fragment names."""
         assert library.has_fragment("validate-and-fix") is True
         assert library.has_fragment("commit-and-push") is True
         assert library.has_fragment("create-pr-with-summary") is True
 
-    def test_returns_false_for_invalid_fragment_names(self, library: BuiltinLibrary) -> None:
+    def test_returns_false_for_invalid_fragment_names(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that has_fragment returns False for invalid fragment names."""
         assert library.has_fragment("unknown") is False
         assert library.has_fragment("not_a_fragment") is False
@@ -381,7 +416,9 @@ class TestGetWorkflowPath:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_path_object_for_valid_workflow(self, library: BuiltinLibrary) -> None:
+    def test_returns_path_object_for_valid_workflow(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_workflow_path returns a Path object."""
         path = library.get_workflow_path("fly")
         assert isinstance(path, Path)
@@ -405,7 +442,9 @@ class TestGetWorkflowPath:
             assert isinstance(path, Path)
             assert path.suffix == ".yaml"
 
-    def test_raises_key_error_for_invalid_workflow(self, library: BuiltinLibrary) -> None:
+    def test_raises_key_error_for_invalid_workflow(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_workflow_path raises KeyError for invalid names."""
         with pytest.raises(KeyError, match="Unknown built-in workflow: unknown"):
             library.get_workflow_path("unknown")
@@ -429,7 +468,9 @@ class TestGetFragmentPath:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_path_object_for_valid_fragment(self, library: BuiltinLibrary) -> None:
+    def test_returns_path_object_for_valid_fragment(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_fragment_path returns a Path object."""
         path = library.get_fragment_path("validate-and-fix")
         assert isinstance(path, Path)
@@ -453,7 +494,9 @@ class TestGetFragmentPath:
             assert isinstance(path, Path)
             assert path.suffix == ".yaml"
 
-    def test_raises_key_error_for_invalid_fragment(self, library: BuiltinLibrary) -> None:
+    def test_raises_key_error_for_invalid_fragment(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_fragment_path raises KeyError for invalid names."""
         with pytest.raises(KeyError, match="Unknown built-in fragment: unknown"):
             library.get_fragment_path("unknown")
@@ -477,7 +520,9 @@ class TestGetWorkflow:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_workflow_file_for_valid_workflow(self, library: BuiltinLibrary) -> None:
+    def test_returns_workflow_file_for_valid_workflow(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_workflow returns a WorkflowFile object."""
         workflow = library.get_workflow("fly")
         assert isinstance(workflow, WorkflowFile)
@@ -530,7 +575,9 @@ class TestGetWorkflow:
         # At least some workflows should load successfully
         assert loaded_count >= 2, f"Only {loaded_count} workflows loaded successfully"
 
-    def test_raises_key_error_for_invalid_workflow(self, library: BuiltinLibrary) -> None:
+    def test_raises_key_error_for_invalid_workflow(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_workflow raises KeyError for invalid names."""
         with pytest.raises(KeyError, match="Unknown built-in workflow: unknown"):
             library.get_workflow("unknown")
@@ -560,7 +607,9 @@ class TestGetFragment:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_returns_workflow_file_for_valid_fragment(self, library: BuiltinLibrary) -> None:
+    def test_returns_workflow_file_for_valid_fragment(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_fragment returns a WorkflowFile object for valid fragments."""
         # Try each fragment - at least commit_and_push should work
         for fragment_name in ["commit-and-push", "create-pr-with-summary"]:
@@ -634,7 +683,9 @@ class TestGetFragment:
         # At least one fragment should load successfully
         assert loaded_count >= 1, "No fragments could be loaded successfully"
 
-    def test_raises_key_error_for_invalid_fragment(self, library: BuiltinLibrary) -> None:
+    def test_raises_key_error_for_invalid_fragment(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that get_fragment raises KeyError for invalid names."""
         with pytest.raises(KeyError, match="Unknown built-in fragment: unknown"):
             library.get_fragment("unknown")
@@ -658,7 +709,9 @@ class TestBuiltinLibraryIntegration:
         """Create a BuiltinLibrary instance for testing."""
         return create_builtin_library()
 
-    def test_workflow_info_matches_loaded_workflow(self, library: BuiltinLibrary) -> None:
+    def test_workflow_info_matches_loaded_workflow(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that workflow info metadata matches loaded workflow.
 
         Note: The info.name uses underscores (Python convention) while
@@ -675,14 +728,18 @@ class TestBuiltinLibraryIntegration:
         assert fly_workflow.name == "fly"
         assert fly_info.name == "fly"
 
-    def test_fragment_info_matches_loaded_fragment(self, library: BuiltinLibrary) -> None:
+    def test_fragment_info_matches_loaded_fragment(
+        self, library: BuiltinLibrary
+    ) -> None:
         """Test that fragment info metadata matches loaded fragment.
 
         Note: Some fragments may have YAML validation errors.
         """
         # Get fragment info from list
         fragments = library.list_fragments()
-        commit_push_info = next(frag for frag in fragments if frag.name == "commit-and-push")
+        commit_push_info = next(
+            frag for frag in fragments if frag.name == "commit-and-push"
+        )
 
         # Load actual fragment (use one that's likely to parse successfully)
         try:

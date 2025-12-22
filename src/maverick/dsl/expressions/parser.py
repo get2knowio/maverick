@@ -33,6 +33,7 @@ class ExpressionKind(str, Enum):
 
     INPUT_REF = "input_ref"  # ${{ inputs.name }}
     STEP_REF = "step_ref"  # ${{ steps.x.output }}
+    LOOP_VAR = "loop_var"  # ${{ item }} or ${{ item_index }}
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +163,9 @@ def tokenize(expression: str) -> list[str]:
                 tokens.append(expr[start : i + 1])  # Include quotes
                 i += 1
             # Handle numeric indices
-            elif expr[i].isdigit() or (expr[i] == "-" and i + 1 < len(expr) and expr[i + 1].isdigit()):
+            elif expr[i].isdigit() or (
+                expr[i] == "-" and i + 1 < len(expr) and expr[i + 1].isdigit()
+            ):
                 start = i
                 if expr[i] == "-":
                     i += 1
@@ -262,10 +265,10 @@ def parse_expression(expression: str) -> Expression:
         ExpressionSyntaxError: For invalid expression syntax
 
     Examples:
-        >>> parse_expression("${{ inputs.name }}")
-        Expression(raw='${{ inputs.name }}', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'name'), negated=False)
-        >>> parse_expression("not inputs.dry_run")
-        Expression(raw='not inputs.dry_run', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'dry_run'), negated=True)
+        >>> parse_expression("${{ inputs.name }}")  # doctest: +ELLIPSIS
+        Expression(raw='${{ inputs.name }}', kind=..., path=..., negated=False)
+        >>> parse_expression("not inputs.dry_run")  # doctest: +ELLIPSIS
+        Expression(raw='not inputs.dry_run', kind=..., path=..., negated=True)
     """
     # Store original for raw field
     original = expression
@@ -353,6 +356,9 @@ def parse_expression(expression: str) -> Expression:
     # Determine expression kind based on first path element
     first_element = path[0]
 
+    # Loop variables used in parallel for_each steps
+    loop_variables = {"item", "item_index"}
+
     if first_element == "inputs":
         if len(path) < 2:
             raise ExpressionSyntaxError(
@@ -376,9 +382,13 @@ def parse_expression(expression: str) -> Expression:
                 position=0,
             )
         kind = ExpressionKind.STEP_REF
+    elif first_element in loop_variables:
+        # Loop variable reference (used in parallel for_each steps)
+        kind = ExpressionKind.LOOP_VAR
     else:
         raise ExpressionSyntaxError(
-            f"Expression must start with 'inputs' or 'steps', got '{first_element}'",
+            f"Expression must start with 'inputs', 'steps', or a loop variable "
+            f"('item', 'item_index'), got '{first_element}'",
             expression=original,
             position=0,
         )
@@ -408,8 +418,8 @@ def extract_all(text: str) -> list[Expression]:
         ExpressionSyntaxError: For invalid expression syntax in any match
 
     Examples:
-        >>> extract_all("Hello ${{ inputs.name }}")
-        [Expression(raw='${{ inputs.name }}', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'name'), negated=False)]
+        >>> extract_all("Hello ${{ inputs.name }}")  # doctest: +ELLIPSIS
+        [Expression(raw='${{ inputs.name }}', kind=..., path=..., negated=False)]
         >>> extract_all("No expressions here")
         []
     """

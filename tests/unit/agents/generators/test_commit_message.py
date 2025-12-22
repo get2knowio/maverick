@@ -1,4 +1,5 @@
 """Unit tests for CommitMessageGenerator."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -60,8 +61,7 @@ class TestCommitMessageGeneratorGenerate:
         ):
             context = {
                 "diff": (
-                    "diff --git a/auth.py b/auth.py\n"
-                    "+def reset_password():\n+    pass"
+                    "diff --git a/auth.py b/auth.py\n+def reset_password():\n+    pass"
                 ),
                 "file_stats": {"auth.py": {"additions": 2, "deletions": 0}},
             }
@@ -69,8 +69,12 @@ class TestCommitMessageGeneratorGenerate:
             result = await generator.generate(context)
 
             # Strict regex validation for conventional commit format
-            pattern = r"^(feat|fix|docs|style|refactor|test|build|ci|chore)(\([^)]+\))?:\s+.+"
-            assert re.match(pattern, result), f"Invalid conventional commit format: {result}"
+            pattern = (
+                r"^(feat|fix|docs|style|refactor|test|build|ci|chore)(\([^)]+\))?:\s+.+"
+            )
+            assert re.match(pattern, result), (
+                f"Invalid conventional commit format: {result}"
+            )
 
     @pytest.mark.asyncio
     async def test_scope_hint_override_works(self) -> None:
@@ -113,8 +117,7 @@ class TestCommitMessageGeneratorGenerate:
         ):
             context = {
                 "diff": (
-                    "diff --git a/auth.py b/auth.py\n"
-                    "-if user:\n+if user is not None:"
+                    "diff --git a/auth.py b/auth.py\n-if user:\n+if user is not None:"
                 ),
                 "file_stats": {"auth.py": {"additions": 1, "deletions": 1}},
             }
@@ -159,9 +162,9 @@ class TestCommitMessageGeneratorGenerate:
         generator = CommitMessageGenerator()
 
         # Create a diff larger than 100KB
-        large_diff = "diff --git a/file.py b/file.py\n" + (
-            "+" + "x" * 1000 + "\n"
-        ) * 200
+        large_diff = (
+            "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 200
+        )
 
         assert len(large_diff) > MAX_DIFF_SIZE
 

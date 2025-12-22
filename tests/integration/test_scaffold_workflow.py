@@ -8,6 +8,7 @@ This module validates the complete template scaffolding flow:
 - File validation (YAML parsing, Python syntax checking)
 - Directory handling (project vs custom directories)
 """
+
 from __future__ import annotations
 
 import ast
@@ -42,7 +43,11 @@ def get_scaffolder():
     # Try a simple template render to see if templates are working
     try:
         from pathlib import Path
-        from maverick.library.scaffold import ScaffoldRequest, TemplateType, TemplateFormat
+        from maverick.library.scaffold import (
+            ScaffoldRequest,
+            TemplateType,
+            TemplateFormat,
+        )
 
         test_request = ScaffoldRequest(
             name="test",
@@ -119,8 +124,13 @@ class TestWorkflowNameValidation:
 class TestDefaultOutputDirectory:
     """Test default output directory function."""
 
-    def test_default_output_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default output directory should be .maverick/workflows/ in current directory."""
+    def test_default_output_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default output directory should be .maverick/workflows/.
+
+        Verifies default location in current directory.
+        """
         # Change to temp directory
         monkeypatch.chdir(tmp_path)
 
@@ -294,13 +304,20 @@ class TestFullTemplateScaffolding:
         # At least one of these patterns should be present
         has_validation = any("validate" in name.lower() for name in step_names)
         has_review = any("review" in name.lower() for name in step_names)
-        has_pr = any("pr" in name.lower() or "pull" in name.lower() for name in step_names)
+        has_pr = any(
+            "pr" in name.lower() or "pull" in name.lower() for name in step_names
+        )
 
         # Full workflow should have at least 2 of these 3 stages
         assert sum([has_validation, has_review, has_pr]) >= 2
 
-    def test_full_template_includes_subworkflow_references(self, tmp_path: Path) -> None:
-        """Full template should include references to fragments like validate_and_fix."""
+    def test_full_template_includes_subworkflow_references(
+        self, tmp_path: Path
+    ) -> None:
+        """Full template should include references to fragments.
+
+        Verifies references like validate_and_fix are present in full template.
+        """
         scaffolder = get_scaffolder()
 
         output_dir = tmp_path / "workflows"
@@ -320,10 +337,12 @@ class TestFullTemplateScaffolding:
 
         # Full template should reference at least one fragment
         # Check for subworkflow references
-        assert ("type: subworkflow" in content or
-                "validate_and_fix" in content or
-                "commit_and_push" in content or
-                "create_pr_with_summary" in content)
+        assert (
+            "type: subworkflow" in content
+            or "validate_and_fix" in content
+            or "commit_and_push" in content
+            or "create_pr_with_summary" in content
+        )
 
 
 class TestParallelTemplateScaffolding:
@@ -377,7 +396,7 @@ class TestParallelTemplateScaffolding:
         workflow = parse_workflow(content)
 
         # Find parallel step
-        parallel_steps = [s for s in workflow.steps if hasattr(s, 'steps')]
+        parallel_steps = [s for s in workflow.steps if hasattr(s, "steps")]
         assert len(parallel_steps) > 0
 
         # Parallel step should have multiple substeps
@@ -461,7 +480,9 @@ class TestPythonTemplateScaffolding:
         tree = ast.parse(content)
 
         # Should have at least one function definition
-        functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+        functions = [
+            node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        ]
         assert len(functions) > 0
 
 
@@ -492,8 +513,7 @@ class TestScaffoldCustomValues:
         workflow = parse_workflow(content)
 
         # Description should be in workflow or content
-        assert (workflow.description == custom_desc or
-                custom_desc in content)
+        assert workflow.description == custom_desc or custom_desc in content
 
     def test_custom_author_appears_in_output(self, tmp_path: Path) -> None:
         """Custom author should appear in generated workflow comments."""
@@ -550,7 +570,9 @@ class TestScaffoldCustomValues:
 class TestScaffoldDirectoryHandling:
     """Test scaffolding to different directories."""
 
-    def test_scaffold_to_project_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_scaffold_to_project_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Scaffold to project .maverick/workflows/ directory."""
         monkeypatch.chdir(tmp_path)
 
@@ -618,7 +640,9 @@ class TestScaffoldDirectoryHandling:
 class TestScaffoldPreviewMode:
     """Test preview mode that returns content without creating files."""
 
-    def test_preview_returns_content_without_creating_file(self, tmp_path: Path) -> None:
+    def test_preview_returns_content_without_creating_file(
+        self, tmp_path: Path
+    ) -> None:
         """Preview should return content but not create file."""
         scaffolder = get_scaffolder()
 

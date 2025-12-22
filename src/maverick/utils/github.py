@@ -3,6 +3,7 @@
 This module provides async functions for GitHub operations using the gh CLI
 with automatic retry and exponential backoff.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,7 +55,8 @@ async def _run_gh_command(
         asyncio.TimeoutError: If command times out.
     """
     process = await asyncio.create_subprocess_exec(
-        "gh", *args,
+        "gh",
+        *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -139,14 +141,18 @@ async def fetch_issue(
     for attempt in range(max_retries):
         try:
             stdout, stderr, return_code = await _run_gh_command(
-                "issue", "view", str(issue_number),
-                "--json", fields,
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                fields,
                 cwd=cwd,
             )
 
             if return_code == 0:
                 data = json.loads(stdout)
-                logger.debug("Fetched issue #%d: %s", issue_number, data.get("title", ""))
+                title = data.get("title", "")
+                logger.debug("Fetched issue #%d: %s", issue_number, title)
                 return data
 
             error_msg = stderr or stdout
@@ -165,7 +171,9 @@ async def fetch_issue(
                     wait_time = retry_after or (BACKOFF_BASE ** (attempt + 1))
                     logger.warning(
                         "GitHub rate limit hit, waiting %.1fs (attempt %d/%d)",
-                        wait_time, attempt + 1, max_retries,
+                        wait_time,
+                        attempt + 1,
+                        max_retries,
                     )
                     await asyncio.sleep(wait_time)
                     continue
@@ -186,7 +194,10 @@ async def fetch_issue(
                 wait_time = BACKOFF_BASE ** (attempt + 1)
                 logger.warning(
                     "GitHub CLI error, retrying in %.1fs (attempt %d/%d): %s",
-                    wait_time, attempt + 1, max_retries, error_msg,
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
+                    error_msg,
                 )
                 await asyncio.sleep(wait_time)
                 continue
@@ -201,7 +212,9 @@ async def fetch_issue(
                 wait_time = BACKOFF_BASE ** (attempt + 1)
                 logger.warning(
                     "GitHub request timed out, retrying in %.1fs (attempt %d/%d)",
-                    wait_time, attempt + 1, max_retries,
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
                 )
                 await asyncio.sleep(wait_time)
                 continue
@@ -275,7 +288,11 @@ async def add_issue_comment(
         GitHubError: On CLI or API errors.
     """
     stdout, stderr, return_code = await _run_gh_command(
-        "issue", "comment", str(issue_number), "--body", body,
+        "issue",
+        "comment",
+        str(issue_number),
+        "--body",
+        body,
         cwd=cwd,
     )
 
@@ -298,7 +315,8 @@ async def check_gh_auth(cwd: Path) -> bool:
         True if authenticated, False otherwise.
     """
     stdout, stderr, return_code = await _run_gh_command(
-        "auth", "status",
+        "auth",
+        "status",
         cwd=cwd,
         timeout=10.0,
     )

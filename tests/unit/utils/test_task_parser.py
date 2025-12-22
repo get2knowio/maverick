@@ -1,4 +1,5 @@
 """Unit tests for task parser."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -536,6 +537,7 @@ class TestTaskParseEdgeCases:
 
             # Import and use the parse_tasks_file function
             from maverick.utils.task_parser import parse_tasks_file
+
             tasks, phases = parse_tasks_file(path)
 
             assert len(tasks) == 4

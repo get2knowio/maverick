@@ -7,6 +7,7 @@ the test suite. Common patterns include:
 - Assertion helpers
 - Mock builders for agents, workflows, and CLI components
 """
+
 from __future__ import annotations
 
 from tests.utils.assertions import AgentResultAssertion

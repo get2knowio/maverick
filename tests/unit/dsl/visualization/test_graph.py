@@ -312,7 +312,10 @@ class TestWorkflowGraphBuilder:
 
         # Should have edges showing the retry loop through fix_issues
         edge_pairs = [(e.source, e.target) for e in graph.edges]
-        assert ("validate", "fix_issues") in edge_pairs or ("fix_issues", "validate") in edge_pairs
+        assert ("validate", "fix_issues") in edge_pairs or (
+            "fix_issues",
+            "validate",
+        ) in edge_pairs
 
     def test_build_branch_step(self) -> None:
         """Test building graph from workflow with branch step."""
@@ -537,8 +540,12 @@ class TestWorkflowGraphBuilder:
                     name="parallel",
                     type=StepType.PARALLEL,
                     steps=[
-                        PythonStepRecord(name="task1", type=StepType.PYTHON, action="fn1"),
-                        PythonStepRecord(name="task2", type=StepType.PYTHON, action="fn2"),
+                        PythonStepRecord(
+                            name="task1", type=StepType.PYTHON, action="fn1"
+                        ),
+                        PythonStepRecord(
+                            name="task2", type=StepType.PYTHON, action="fn2"
+                        ),
                     ],
                 ),
                 BranchStepRecord(
@@ -572,16 +579,24 @@ class TestWorkflowGraphBuilder:
             steps=[
                 PythonStepRecord(name="python", type=StepType.PYTHON, action="fn"),
                 AgentStepRecord(name="agent", type=StepType.AGENT, agent="agent1"),
-                GenerateStepRecord(name="generate", type=StepType.GENERATE, generator="gen1"),
-                ValidateStepRecord(name="validate", type=StepType.VALIDATE, stages=["test"]),
-                SubWorkflowStepRecord(name="subworkflow", type=StepType.SUBWORKFLOW, workflow="sub.yaml"),
+                GenerateStepRecord(
+                    name="generate", type=StepType.GENERATE, generator="gen1"
+                ),
+                ValidateStepRecord(
+                    name="validate", type=StepType.VALIDATE, stages=["test"]
+                ),
+                SubWorkflowStepRecord(
+                    name="subworkflow", type=StepType.SUBWORKFLOW, workflow="sub.yaml"
+                ),
                 BranchStepRecord(
                     name="branch",
                     type=StepType.BRANCH,
                     options=[
                         BranchOptionRecord(
                             when="true",
-                            step=PythonStepRecord(name="opt1", type=StepType.PYTHON, action="fn2"),
+                            step=PythonStepRecord(
+                                name="opt1", type=StepType.PYTHON, action="fn2"
+                            ),
                         ),
                     ],
                 ),
@@ -589,7 +604,9 @@ class TestWorkflowGraphBuilder:
                     name="parallel",
                     type=StepType.PARALLEL,
                     steps=[
-                        PythonStepRecord(name="par1", type=StepType.PYTHON, action="fn3"),
+                        PythonStepRecord(
+                            name="par1", type=StepType.PYTHON, action="fn3"
+                        ),
                     ],
                 ),
             ],

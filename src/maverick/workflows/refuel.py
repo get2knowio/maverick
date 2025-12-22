@@ -111,7 +111,7 @@ class RefuelStepName(str, Enum):
 
     Values:
         FETCH_ISSUES: Fetch issues from GitHub by label.
-        PROCESS_ISSUE: Process a single issue (create branch, fix, validate, commit, PR).
+        PROCESS_ISSUE: Process a single issue (branch, fix, validate, commit, PR).
     """
 
     FETCH_ISSUES = "fetch_issues"
@@ -500,7 +500,9 @@ class RefuelWorkflow:
         issues_skipped = sum(1 for r in results if r.status == IssueStatus.SKIPPED)
         issues_processed = issues_fixed + issues_failed
 
-        total_duration_ms = output.get("total_duration_ms", workflow_result.total_duration_ms)
+        total_duration_ms = output.get(
+            "total_duration_ms", workflow_result.total_duration_ms
+        )
         total_cost_usd = sum(r.agent_usage.total_cost_usd or 0.0 for r in results)
 
         return RefuelResult(
@@ -595,9 +597,7 @@ class RefuelWorkflow:
         if inputs.dry_run:
             # In dry-run mode, log operations without executing
             logger.info(f"[DRY-RUN] Would create branch: {branch_name}")
-            logger.info(
-                f"[DRY-RUN] Would run IssueFixerAgent for #{issue.number}"
-            )
+            logger.info(f"[DRY-RUN] Would run IssueFixerAgent for #{issue.number}")
             logger.info("[DRY-RUN] Would run validation workflow")
             logger.info("[DRY-RUN] Would stage changes and create commit")
             logger.info("[DRY-RUN] Would push branch to remote")
@@ -696,11 +696,13 @@ class RefuelWorkflow:
             # Generate commit message if generator available
             if self._commit_generator is not None and diff_output:
                 try:
-                    commit_message = await self._commit_generator.generate({
-                        "diff": diff_output,
-                        "file_stats": {},
-                        "scope_hint": f"issue-{issue.number}",
-                    })
+                    commit_message = await self._commit_generator.generate(
+                        {
+                            "diff": diff_output,
+                            "file_stats": {},
+                            "scope_hint": f"issue-{issue.number}",
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Commit message generation failed: {e}")
 
@@ -829,7 +831,8 @@ class RefuelWorkflow:
                 refuel_started_emitted = False
 
                 # Execute workflow and translate events
-                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
+                execution = self._executor.execute(workflow, inputs=workflow_inputs)
+                async for event in execution:
                     # Translate DSL events to RefuelProgressEvent
                     refuel_event = self._translate_event(event)
                     if refuel_event:
@@ -882,8 +885,7 @@ class RefuelWorkflow:
             try:
                 runner_issues = await self._discover_issues_with_retry(inputs)
                 issues = [
-                    _convert_runner_issue_to_workflow_issue(ri)
-                    for ri in runner_issues
+                    _convert_runner_issue_to_workflow_issue(ri) for ri in runner_issues
                 ]
             except Exception as e:
                 # If discovery fails in dry-run, continue with empty list
@@ -892,8 +894,7 @@ class RefuelWorkflow:
         else:
             runner_issues = await self._discover_issues_with_retry(inputs)
             issues = [
-                _convert_runner_issue_to_workflow_issue(ri)
-                for ri in runner_issues
+                _convert_runner_issue_to_workflow_issue(ri) for ri in runner_issues
             ]
 
         # Emit RefuelStarted

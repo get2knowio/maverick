@@ -264,9 +264,7 @@ class TestFlyScreenCancellation:
         if not hasattr(screen, "_show_cancellation_summary"):
             pytest.skip("_show_cancellation_summary not implemented yet")
 
-        with patch.object(
-            screen, "_show_cancellation_summary"
-        ) as mock_show_summary:
+        with patch.object(screen, "_show_cancellation_summary") as mock_show_summary:
             if hasattr(screen, "_cancel_workflow"):
                 screen._cancel_workflow()
                 mock_show_summary.assert_called_once()
@@ -368,9 +366,7 @@ class TestRefuelScreenCancellation:
         if not hasattr(screen, "_show_cancellation_summary"):
             pytest.skip("_show_cancellation_summary not implemented yet")
 
-        with patch.object(
-            screen, "_show_cancellation_summary"
-        ) as mock_show_summary:
+        with patch.object(screen, "_show_cancellation_summary") as mock_show_summary:
             if hasattr(screen, "_cancel_workflow"):
                 screen._cancel_workflow()
                 mock_show_summary.assert_called_once()

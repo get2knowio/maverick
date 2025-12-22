@@ -23,7 +23,9 @@ try:
     WORKFLOWS_DIR = files("maverick.library") / "workflows"
 except (ImportError, TypeError):
     # Fallback for older Python versions or when running from source
-    WORKFLOWS_DIR = Path(__file__).parents[3] / "src" / "maverick" / "library" / "workflows"
+    WORKFLOWS_DIR = (
+        Path(__file__).parents[3] / "src" / "maverick" / "library" / "workflows"
+    )
 
 
 # List of all built-in workflow files to test

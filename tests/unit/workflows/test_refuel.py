@@ -645,7 +645,9 @@ class TestRefuelWorkflowExecution:
 
     @pytest.mark.asyncio
     async def test_issue_discovery_via_github_runner(self):
-        """Test RefuelWorkflow discovers issues via GitHubCLIRunner.list_issues() - T037."""
+        """Test RefuelWorkflow discovers issues via
+        GitHubCLIRunner.list_issues() - T037.
+        """
         from unittest.mock import AsyncMock, MagicMock
 
         from maverick.runners.github import GitHubCLIRunner
@@ -750,7 +752,9 @@ class TestRefuelWorkflowExecution:
 
     @pytest.mark.asyncio
     async def test_issue_isolation_one_failure_does_not_crash_others(self):
-        """Test RefuelWorkflow isolates issues: one failure doesn't crash others - T039."""
+        """Test RefuelWorkflow isolates issues: one failure doesn't crash
+        others - T039.
+        """
         from unittest.mock import AsyncMock, MagicMock
 
         from maverick.agents.issue_fixer import IssueFixerAgent
@@ -943,7 +947,9 @@ class TestRefuelWorkflowExecution:
 
         # 2. For each issue: IssueProcessingStarted, IssueProcessingCompleted
         started_events = [e for e in events if isinstance(e, IssueProcessingStarted)]
-        completed_events = [e for e in events if isinstance(e, IssueProcessingCompleted)]
+        completed_events = [
+            e for e in events if isinstance(e, IssueProcessingCompleted)
+        ]
 
         assert len(started_events) == 2
         assert len(completed_events) == 2
@@ -959,7 +965,9 @@ class TestRefuelWorkflowExecution:
 
     @pytest.mark.asyncio
     async def test_network_failure_retry_with_exponential_backoff(self):
-        """Test RefuelWorkflow retries on network failures with exponential backoff - T054c."""
+        """Test RefuelWorkflow retries on network failures with exponential
+        backoff - T054c.
+        """
         from unittest.mock import AsyncMock, MagicMock
 
         from maverick.exceptions import GitHubError
@@ -1169,7 +1177,9 @@ class TestRefuelProgressEventEmission:
 
         # Extract IssueProcessingStarted and IssueProcessingCompleted events
         started_events = [e for e in events if isinstance(e, IssueProcessingStarted)]
-        completed_events = [e for e in events if isinstance(e, IssueProcessingCompleted)]
+        completed_events = [
+            e for e in events if isinstance(e, IssueProcessingCompleted)
+        ]
 
         # Verify we have matching pairs for 2 issues
         assert len(started_events) == 2
@@ -1200,15 +1210,21 @@ class TestRefuelProgressEventEmission:
         # Verify order: for each issue, started comes before completed
         for i in range(2):
             started_idx = next(
-                idx for idx, e in enumerate(events)
+                idx
+                for idx, e in enumerate(events)
                 if isinstance(e, IssueProcessingStarted) and e.issue.number == i + 1
             )
             completed_idx = next(
-                idx for idx, e in enumerate(events)
-                if isinstance(e, IssueProcessingCompleted) and e.result.issue.number == i + 1
+                idx
+                for idx, e in enumerate(events)
+                if isinstance(e, IssueProcessingCompleted)
+                and e.result.issue.number == i + 1
             )
-            assert started_idx < completed_idx, f"Issue {i + 1} started must come before completed"
+            assert started_idx < completed_idx, (
+                f"Issue {i + 1} started must come before completed"
+            )
 
-        # Verify event sequence: RefuelStarted -> IssueProcessing pairs -> RefuelCompleted
+        # Verify event sequence: RefuelStarted -> IssueProcessing pairs ->
+        # RefuelCompleted
         assert isinstance(events[0], RefuelStarted)
         assert isinstance(events[-1], RefuelCompleted)

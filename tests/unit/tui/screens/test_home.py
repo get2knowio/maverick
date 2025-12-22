@@ -1,4 +1,5 @@
 """Unit tests for HomeScreen."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -87,7 +88,11 @@ class TestHomeScreenRefreshRecentWorkflows:
         mock_workflow_list = MagicMock(spec=WorkflowList)
 
         workflows = [
-            {"branch_name": f"branch-{i}", "workflow_type": "fly", "status": "completed"}
+            {
+                "branch_name": f"branch-{i}",
+                "workflow_type": "fly",
+                "status": "completed",
+            }
             for i in range(5)
         ]
 
@@ -145,10 +150,14 @@ class TestHomeScreenActions:
         mock_app = MagicMock()
         mock_workflow_screen = MagicMock()
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch(
-            "maverick.tui.screens.workflow.WorkflowScreen", return_value=mock_workflow_screen
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch(
+                "maverick.tui.screens.workflow.WorkflowScreen",
+                return_value=mock_workflow_screen,
+            ),
         ):
             screen.action_start_workflow()
 
@@ -207,11 +216,15 @@ class TestHomeScreenEventHandling:
         }
         event = WorkflowList.WorkflowSelected(index=0, workflow=workflow)
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch(
-            "maverick.tui.screens.workflow.WorkflowScreen", return_value=mock_workflow_screen
-        ) as mock_workflow_class:
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch(
+                "maverick.tui.screens.workflow.WorkflowScreen",
+                return_value=mock_workflow_screen,
+            ) as mock_workflow_class,
+        ):
             screen.on_workflow_list_workflow_selected(event)
 
         mock_workflow_class.assert_called_once_with(
@@ -228,11 +241,15 @@ class TestHomeScreenEventHandling:
         # Create event with empty workflow
         event = WorkflowList.WorkflowSelected(index=0, workflow={})
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch(
-            "maverick.tui.screens.workflow.WorkflowScreen", return_value=mock_workflow_screen
-        ) as mock_workflow_class:
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch(
+                "maverick.tui.screens.workflow.WorkflowScreen",
+                return_value=mock_workflow_screen,
+            ) as mock_workflow_class,
+        ):
             screen.on_workflow_list_workflow_selected(event)
 
         mock_workflow_class.assert_called_once_with(
@@ -274,8 +291,12 @@ class TestHomeScreenHistoryDisplay:
         mock_store = MagicMock(spec=WorkflowHistoryStore)
         mock_store.get_recent.return_value = [entry1, entry2]
 
-        with patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.home.WorkflowHistoryStore", return_value=mock_store
+        with (
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.home.WorkflowHistoryStore",
+                return_value=mock_store,
+            ),
         ):
             # _load_history is called in on_mount
             screen._load_history()
@@ -286,7 +307,9 @@ class TestHomeScreenHistoryDisplay:
         assert mock_workflow_list.set_workflows.called
 
     def test_refresh_loads_history_from_store(self) -> None:
-        """Test refresh_recent_workflows loads from history store when no workflows provided."""
+        """Test refresh_recent_workflows loads from history store when no
+        workflows provided.
+        """
         screen = HomeScreen()
         mock_workflow_list = MagicMock(spec=WorkflowList)
 
@@ -301,15 +324,21 @@ class TestHomeScreenHistoryDisplay:
         mock_store = MagicMock(spec=WorkflowHistoryStore)
         mock_store.get_recent.return_value = [entry1]
 
-        with patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.home.WorkflowHistoryStore", return_value=mock_store
+        with (
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.home.WorkflowHistoryStore",
+                return_value=mock_store,
+            ),
         ):
             screen.refresh_recent_workflows()
 
         mock_store.get_recent.assert_called_once_with(10)
 
     def test_history_entries_converted_to_workflow_dict(self) -> None:
-        """Test history entries are converted to workflow dict format for WorkflowList."""
+        """Test history entries are converted to workflow dict format for
+        WorkflowList.
+        """
         screen = HomeScreen()
         mock_workflow_list = MagicMock(spec=WorkflowList)
 
@@ -325,8 +354,12 @@ class TestHomeScreenHistoryDisplay:
         mock_store = MagicMock(spec=WorkflowHistoryStore)
         mock_store.get_recent.return_value = [entry]
 
-        with patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.home.WorkflowHistoryStore", return_value=mock_store
+        with (
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.home.WorkflowHistoryStore",
+                return_value=mock_store,
+            ),
         ):
             screen._load_history()
             screen.refresh_recent_workflows()
@@ -357,8 +390,12 @@ class TestHomeScreenHistoryDisplay:
         mock_store = MagicMock(spec=WorkflowHistoryStore)
         mock_store.get_recent.return_value = [entry]
 
-        with patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.home.WorkflowHistoryStore", return_value=mock_store
+        with (
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.home.WorkflowHistoryStore",
+                return_value=mock_store,
+            ),
         ):
             screen._load_history()
             screen.refresh_recent_workflows()
@@ -375,8 +412,12 @@ class TestHomeScreenHistoryDisplay:
         mock_store = MagicMock(spec=WorkflowHistoryStore)
         mock_store.get_recent.return_value = []
 
-        with patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.home.WorkflowHistoryStore", return_value=mock_store
+        with (
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.home.WorkflowHistoryStore",
+                return_value=mock_store,
+            ),
         ):
             screen._load_history()
             screen.refresh_recent_workflows()
@@ -409,12 +450,16 @@ class TestHomeScreenHistorySelection:
 
         mock_review_screen = MagicMock()
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.history_review.HistoricalReviewScreen",
-            return_value=mock_review_screen,
-        ) as mock_review_class:
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.history_review.HistoricalReviewScreen",
+                return_value=mock_review_screen,
+            ) as mock_review_class,
+        ):
             screen.action_view_history_entry()
 
         # Verify HistoricalReviewScreen was created with the entry
@@ -438,11 +483,15 @@ class TestHomeScreenHistorySelection:
 
         screen.recent_workflows = (entry,)
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.history_review.HistoricalReviewScreen"
-        ) as mock_review_class:
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.history_review.HistoricalReviewScreen"
+            ) as mock_review_class,
+        ):
             screen.action_view_history_entry()
 
         # Should not push any screen
@@ -458,11 +507,15 @@ class TestHomeScreenHistorySelection:
 
         screen.recent_workflows = ()
 
-        with patch.object(
-            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-        ), patch.object(screen, "query_one", return_value=mock_workflow_list), patch(
-            "maverick.tui.screens.history_review.HistoricalReviewScreen"
-        ) as mock_review_class:
+        with (
+            patch.object(
+                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+            ),
+            patch.object(screen, "query_one", return_value=mock_workflow_list),
+            patch(
+                "maverick.tui.screens.history_review.HistoricalReviewScreen"
+            ) as mock_review_class,
+        ):
             screen.action_view_history_entry()
 
         mock_review_class.assert_not_called()

@@ -59,12 +59,12 @@ def test_config_option_loads_custom_file(
 
     # Create custom config file
     custom_config = temp_dir / "custom.yaml"
-    custom_config.write_text('''
+    custom_config.write_text("""
 github:
   owner: "custom-org"
   repo: "custom-repo"
 verbosity: "info"
-''')
+""")
 
     result = cli_runner.invoke(cli, ["--config", str(custom_config)])
 
@@ -147,7 +147,9 @@ def test_verbose_single_flag_info_level(
         assert result.exit_code == 0
         # Should set INFO level (20)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -176,7 +178,9 @@ def test_verbose_double_flag_debug_level(
         assert result.exit_code == 0
         # Should set DEBUG level (10)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -205,7 +209,9 @@ def test_verbose_triple_flag_debug_level(
         assert result.exit_code == 0
         # Should set DEBUG level (10) - max detail
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -234,7 +240,9 @@ def test_verbose_long_flag(
         assert result.exit_code == 0
         # Should set INFO level (20)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -268,7 +276,9 @@ def test_quiet_flag_sets_error_level(
         assert result.exit_code == 0
         # Should set ERROR level (40)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -297,7 +307,9 @@ def test_quiet_short_flag(
         assert result.exit_code == 0
         # Should set ERROR level (40)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -340,9 +352,10 @@ def test_no_tui_with_tty_still_disables_tui(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock TTY detection to return True
-    with patch("sys.stdin.isatty", return_value=True), \
-         patch("sys.stdout.isatty", return_value=True):
-
+    with (
+        patch("sys.stdin.isatty", return_value=True),
+        patch("sys.stdout.isatty", return_value=True),
+    ):
         result = cli_runner.invoke(cli, ["--no-tui"])
 
         assert result.exit_code == 0
@@ -413,7 +426,9 @@ def test_quiet_takes_precedence_over_verbose(
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that --quiet takes precedence when both --quiet and --verbose are specified."""
+    """Test that --quiet takes precedence when both --quiet and
+    --verbose are specified.
+    """
     import os
 
     import maverick.main
@@ -431,7 +446,9 @@ def test_quiet_takes_precedence_over_verbose(
         assert result.exit_code == 0
         # Quiet should win - ERROR level (40)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -460,7 +477,9 @@ def test_quiet_precedence_with_multiple_verbose(
         assert result.exit_code == 0
         # Quiet should win - ERROR level (40)
         maverick.main.logging.basicConfig.assert_called_once()
-        assert maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        assert (
+            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
+        )
     finally:
         maverick.main.logging.basicConfig = original_basicConfig
 
@@ -520,9 +539,10 @@ def test_both_stdin_stdout_not_tty(
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    with patch("sys.stdin.isatty", return_value=False), \
-         patch("sys.stdout.isatty", return_value=False):
-
+    with (
+        patch("sys.stdin.isatty", return_value=False),
+        patch("sys.stdout.isatty", return_value=False),
+    ):
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
@@ -541,9 +561,10 @@ def test_tty_environment_enables_tui(
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    with patch("sys.stdin.isatty", return_value=True), \
-         patch("sys.stdout.isatty", return_value=True):
-
+    with (
+        patch("sys.stdin.isatty", return_value=True),
+        patch("sys.stdout.isatty", return_value=True),
+    ):
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
@@ -571,11 +592,15 @@ def test_all_options_together(
     custom_config = temp_dir / "custom.yaml"
     custom_config.write_text('verbosity: "debug"\n')
 
-    result = cli_runner.invoke(cli, [
-        "--config", str(custom_config),
-        "-vv",
-        "--no-tui",
-    ])
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--config",
+            str(custom_config),
+            "-vv",
+            "--no-tui",
+        ],
+    )
 
     assert result.exit_code == 0
 
@@ -646,7 +671,10 @@ def test_fly_with_task_file_option(
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """T031: Test fly --task-file option - 'maverick fly branch --task-file tasks.md'."""
+    """T031: Test fly --task-file option.
+
+    Command: 'maverick fly branch --task-file tasks.md'
+    """
     import os
     from unittest.mock import AsyncMock, patch
 
@@ -769,7 +797,10 @@ def test_fly_dry_run_option(
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """T034: Test fly --dry-run option - should show planned actions without executing."""
+    """T034: Test fly --dry-run option.
+
+    Should show planned actions without executing.
+    """
     import os
     from unittest.mock import AsyncMock, patch
 
@@ -852,7 +883,9 @@ def test_fly_keyboard_interrupt_handling(
         # Should exit with code 130
         assert result.exit_code == 130
         # Should show interrupted message
-        assert "interrupt" in result.output.lower() or "cancelled" in result.output.lower()
+        assert (
+            "interrupt" in result.output.lower() or "cancelled" in result.output.lower()
+        )
 
 
 # =============================================================================
@@ -896,6 +929,7 @@ def test_refuel_command_default_behavior(
                     RefuelResult,
                     RefuelStarted,
                 )
+
                 yield RefuelStarted(inputs=inputs, issues_found=0)
                 yield RefuelCompleted(
                     result=RefuelResult(
@@ -953,6 +987,7 @@ def test_refuel_label_option(
                     RefuelResult,
                     RefuelStarted,
                 )
+
                 # Verify custom label was passed
                 assert inputs.label == "bug"
                 yield RefuelStarted(inputs=inputs, issues_found=0)
@@ -1010,6 +1045,7 @@ def test_refuel_limit_option(
                     RefuelResult,
                     RefuelStarted,
                 )
+
                 # Verify custom limit was passed
                 assert inputs.limit == 3
                 yield RefuelStarted(inputs=inputs, issues_found=0)
@@ -1067,6 +1103,7 @@ def test_refuel_sequential_flag(
                     RefuelResult,
                     RefuelStarted,
                 )
+
                 # Verify sequential mode (parallel=False)
                 assert inputs.parallel is False
                 yield RefuelStarted(inputs=inputs, issues_found=0)
@@ -1215,7 +1252,9 @@ def test_refuel_keyboard_interrupt_handling(
             result = cli_runner.invoke(cli, ["refuel"])
 
             assert result.exit_code == 130
-            assert "Interrupted" in result.output or "interrupt" in result.output.lower()
+            assert (
+                "Interrupted" in result.output or "interrupt" in result.output.lower()
+            )
 
 
 # =============================================================================
@@ -1245,10 +1284,15 @@ def test_review_command_with_valid_pr_number(
 
     # Mock check_dependencies to return success (FR-013 startup validation)
     from maverick.cli.validators import DependencyStatus
+
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
-            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
         ]
 
         # Mock gh pr view to succeed
@@ -1269,6 +1313,7 @@ def test_review_command_with_valid_pr_number(
                 # Mock agent execution
                 async def mock_execute(context):
                     from maverick.models.review import ReviewResult
+
                     return ReviewResult(
                         success=True,
                         findings=[],
@@ -1306,10 +1351,15 @@ def test_review_with_fix_option(
 
     # Mock check_dependencies to return success (FR-013 startup validation)
     from maverick.cli.validators import DependencyStatus
+
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
-            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
         ]
 
         # Mock gh pr view to succeed
@@ -1328,6 +1378,7 @@ def test_review_with_fix_option(
                 # Mock agent execution
                 async def mock_execute(context):
                     from maverick.models.review import ReviewResult
+
                     return ReviewResult(
                         success=True,
                         findings=[],
@@ -1364,10 +1415,15 @@ def test_review_output_json_option(
 
     # Mock check_dependencies to return success (FR-013 startup validation)
     from maverick.cli.validators import DependencyStatus
+
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
-            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
         ]
 
         # Mock gh pr view to succeed
@@ -1386,6 +1442,7 @@ def test_review_output_json_option(
                 # Mock agent execution
                 async def mock_execute(context):
                     from maverick.models.review import ReviewResult
+
                     return ReviewResult(
                         success=True,
                         findings=[],
@@ -1430,10 +1487,15 @@ def test_review_output_markdown_option(
 
     # Mock check_dependencies to return success (FR-013 startup validation)
     from maverick.cli.validators import DependencyStatus
+
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
-            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
         ]
 
         # Mock gh pr view to succeed
@@ -1452,6 +1514,7 @@ def test_review_output_markdown_option(
                 # Mock agent execution
                 async def mock_execute(context):
                     from maverick.models.review import ReviewResult
+
                     return ReviewResult(
                         success=True,
                         findings=[],
@@ -1462,11 +1525,17 @@ def test_review_output_markdown_option(
 
                 mock_agent.execute = mock_execute
 
-                result = cli_runner.invoke(cli, ["review", "123", "--output", "markdown"])
+                result = cli_runner.invoke(
+                    cli, ["review", "123", "--output", "markdown"]
+                )
 
                 assert result.exit_code == 0
                 # Verify markdown formatting
-                assert "#" in result.output or "**" in result.output or result.output.strip().startswith("Reviewed")
+                assert (
+                    "#" in result.output
+                    or "**" in result.output
+                    or result.output.strip().startswith("Reviewed")
+                )
 
 
 def test_review_with_nonexistent_pr_error(
@@ -1490,9 +1559,7 @@ def test_review_with_nonexistent_pr_error(
     # Mock gh pr view to fail (PR not found)
     with patch("subprocess.run") as mock_subprocess:
         mock_subprocess.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="pull request not found"
+            returncode=1, stdout="", stderr="pull request not found"
         )
 
         result = cli_runner.invoke(cli, ["review", "999"])
@@ -1531,6 +1598,7 @@ def test_config_init_creates_default_file(
     assert config_file.exists()
     # Should contain valid YAML
     import yaml
+
     config_data = yaml.safe_load(config_file.read_text())
     assert config_data is not None
     # Should have success message
@@ -1602,12 +1670,12 @@ def test_config_show_displays_yaml(
 
     # Create a config file
     config_file = temp_dir / "maverick.yaml"
-    config_file.write_text('''
+    config_file.write_text("""
 github:
   owner: "test-org"
   repo: "test-repo"
 verbosity: "info"
-''')
+""")
 
     result = cli_runner.invoke(cli, ["config", "show"])
 
@@ -1634,12 +1702,12 @@ def test_config_show_format_json(
 
     # Create a config file
     config_file = temp_dir / "maverick.yaml"
-    config_file.write_text('''
+    config_file.write_text("""
 github:
   owner: "test-org"
   repo: "test-repo"
 verbosity: "info"
-''')
+""")
 
     result = cli_runner.invoke(cli, ["config", "show", "--format", "json"])
 
@@ -1781,13 +1849,13 @@ def test_config_validate_with_valid_config(
 
     # Create valid config file
     config_file = temp_dir / "maverick.yaml"
-    config_file.write_text('''
+    config_file.write_text("""
 github:
   owner: "test-org"
   repo: "test-repo"
   default_branch: "main"
 verbosity: "info"
-''')
+""")
 
     result = cli_runner.invoke(cli, ["config", "validate"])
 
@@ -1811,11 +1879,11 @@ def test_config_validate_with_invalid_config(
 
     # Create invalid config file
     config_file = temp_dir / "maverick.yaml"
-    config_file.write_text('''
+    config_file.write_text("""
 model:
   max_tokens: -1
 verbosity: "invalid_level"
-''')
+""")
 
     result = cli_runner.invoke(cli, ["config", "validate"])
 
@@ -1839,13 +1907,15 @@ def test_config_validate_with_file_option(
 
     # Create custom config file
     custom_config = temp_dir / "custom.yaml"
-    custom_config.write_text('''
+    custom_config.write_text("""
 github:
   owner: "custom-org"
 verbosity: "debug"
-''')
+""")
 
-    result = cli_runner.invoke(cli, ["config", "validate", "--file", str(custom_config)])
+    result = cli_runner.invoke(
+        cli, ["config", "validate", "--file", str(custom_config)]
+    )
 
     # Should succeed
     assert result.exit_code == 0

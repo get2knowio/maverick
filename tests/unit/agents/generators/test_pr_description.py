@@ -1,4 +1,5 @@
 """Unit tests for PRDescriptionGenerator."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -89,9 +90,7 @@ Implement user authentication feature
 All validation checks passed
 """
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = expected_output
 
             result = await generator.generate(context)
@@ -129,9 +128,7 @@ Validation failures detected:
 - test_auth.py::test_login FAILED
 """
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = expected_output
 
             result = await generator.generate(context)
@@ -154,9 +151,7 @@ Validation failures detected:
             "validation_results": {"passed": True, "failures": []},
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = "## Summary\n..."
 
             await generator.generate(context)
@@ -191,9 +186,7 @@ All tests pass
 Additional notes
 """
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = expected_output
 
             result = await generator.generate(context)
@@ -281,9 +274,7 @@ Additional notes
             "validation_results": {"passed": True, "failures": []},
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = "## Summary\n..."
 
             result = await generator.generate(context)
@@ -302,9 +293,7 @@ Additional notes
             "task_summary": "Add new feature",
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = "## Summary\n..."
 
             result = await generator.generate(context)
@@ -324,9 +313,7 @@ Additional notes
             "validation_results": {"passed": True, "failures": []},
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.side_effect = GeneratorError(
                 "API error",
                 generator_name="pr-description-generator",
@@ -382,9 +369,7 @@ class TestPRDescriptionGeneratorPromptBuilding:
             "validation_results": {"passed": False, "failures": ["test failure"]},
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = "## Summary\n..."
 
             await generator.generate(context)
@@ -407,9 +392,7 @@ class TestPRDescriptionGeneratorPromptBuilding:
             "task_summary": "Minimal task",
         }
 
-        with patch.object(
-            generator, "_query", new_callable=AsyncMock
-        ) as mock_query:
+        with patch.object(generator, "_query", new_callable=AsyncMock) as mock_query:
             mock_query.return_value = "## Summary\n..."
 
             await generator.generate(context)

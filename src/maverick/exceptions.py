@@ -46,7 +46,8 @@ class AgentError(MaverickError):
     Attributes:
         message: Human-readable error message.
         agent_name: Name of the agent that raised the error (if known).
-        error_code: Optional error code for categorizing errors (e.g., INVALID_BRANCH, GIT_ERROR).
+        error_code: Optional error code for categorizing errors
+            (e.g., INVALID_BRANCH, GIT_ERROR).
     """
 
     def __init__(
@@ -77,7 +78,9 @@ class CLINotFoundError(AgentError):
 
     def __init__(
         self,
-        message: str = "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code",
+        message: str = (
+            "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"
+        ),
         cli_path: str | None = None,
     ) -> None:
         """Initialize the CLINotFoundError.
@@ -244,7 +247,7 @@ class InvalidToolError(AgentError):
 
 
 class DuplicateAgentError(AgentError):
-    """Exception raised when attempting to register an agent with a name that already exists.
+    """Exception raised when registering an agent with an existing name.
 
     Attributes:
         message: Human-readable error message.
@@ -930,7 +933,8 @@ class DuplicateStepNameError(WorkflowError):
         """
         self.step_name = step_name
         super().__init__(
-            f"Duplicate step name: '{step_name}'. Step names must be unique within a workflow.",
+            f"Duplicate step name: '{step_name}'. "
+            f"Step names must be unique within a workflow.",
         )
 
 

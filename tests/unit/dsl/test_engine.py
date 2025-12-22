@@ -170,7 +170,8 @@ class TestWorkflowEngineGetResult:
 
     @pytest.mark.asyncio
     async def test_get_result_raises_runtime_error_before_execute(self) -> None:
-        """Test that get_result() raises RuntimeError if called before execute completes."""
+        """Test that get_result() raises RuntimeError if called before
+        execute completes."""
         engine = WorkflowEngine()
 
         with pytest.raises(RuntimeError, match="not been executed"):
@@ -199,7 +200,8 @@ class TestWorkflowEngineFinalOutput:
 
     @pytest.mark.asyncio
     async def test_workflow_with_explicit_return_uses_return_value(self) -> None:
-        """Test that workflow with return statement uses return value as final_output."""
+        """Test that workflow with return statement uses return value as
+        final_output."""
 
         @workflow(name="test-workflow")
         def workflow_with_return() -> dict[str, str]:

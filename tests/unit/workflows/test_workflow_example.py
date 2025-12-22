@@ -300,9 +300,7 @@ class TestCommandExecution:
         # Mock subprocess to simulate successful command
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Success output", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"Success output", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             result = await workflow._execute_command(stage)
@@ -616,8 +614,7 @@ class TestDryRunMode:
         assert result.metadata.get("dry_run") is True
         assert result.success is True
         assert all(
-            "[DRY-RUN]" in stage_result.output
-            for stage_result in result.stage_results
+            "[DRY-RUN]" in stage_result.output for stage_result in result.stage_results
         )
 
 

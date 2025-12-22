@@ -3,6 +3,7 @@
 This module verifies that the mock_github_cli fixture works correctly
 in real test scenarios.
 """
+
 from __future__ import annotations
 
 from tests.fixtures.github import CommandCall, CommandResponse, MockGitHubCLI
@@ -113,9 +114,7 @@ def test_command_response_defaults() -> None:
 
 def test_command_response_custom_values() -> None:
     """Test CommandResponse with custom values."""
-    response = CommandResponse(
-        returncode=1, stdout="output", stderr="error message"
-    )
+    response = CommandResponse(returncode=1, stdout="output", stderr="error message")
     assert response.returncode == 1
     assert response.stdout == "output"
     assert response.stderr == "error message"

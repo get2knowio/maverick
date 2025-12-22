@@ -536,6 +536,7 @@ def test_resolve_references_invalid_generator(component_reg: ComponentRegistry) 
 
 def test_resolve_references_context_builder(component_reg: ComponentRegistry) -> None:
     """Test resolving context builder references."""
+
     # Register a context builder
     def build_context() -> dict[str, Any]:
         return {"key": "value"}

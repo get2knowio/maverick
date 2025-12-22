@@ -1,4 +1,5 @@
 """Unit tests for FlyScreen."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -295,8 +296,10 @@ class TestFlyScreenWorkflowStartAndTransition:
         mock_button = MagicMock(spec=Button)
         mock_button.id = "unknown-btn"
 
-        with patch.object(screen, "action_start") as mock_action_start, \
-             patch.object(screen, "go_back") as mock_go_back:
+        with (
+            patch.object(screen, "action_start") as mock_action_start,
+            patch.object(screen, "go_back") as mock_go_back,
+        ):
             event = Button.Pressed(mock_button)
             screen.on_button_pressed(event)
 

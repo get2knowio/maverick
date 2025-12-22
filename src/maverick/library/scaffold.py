@@ -4,6 +4,7 @@ This module provides the data models, exceptions, and helper functions for
 template-based workflow scaffolding. It defines the public API for creating
 new workflow files from templates.
 """
+
 from __future__ import annotations
 
 import re
@@ -414,9 +415,7 @@ class ScaffoldService:
         except jinja2.TemplateError as e:
             raise TemplateRenderError(request.template, str(e)) from e
 
-    def get_template_path(
-        self, template: TemplateType, format: TemplateFormat
-    ) -> Path:
+    def get_template_path(self, template: TemplateType, format: TemplateFormat) -> Path:
         """Get path to template file.
 
         Args:

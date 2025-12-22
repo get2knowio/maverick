@@ -16,25 +16,27 @@ class TestCodeRabbitRunner:
     @pytest.mark.asyncio
     async def test_run_review_success(self):
         """Test successful code review with findings."""
-        mock_output = json.dumps({
-            "findings": [
-                {
-                    "file": "src/test.py",
-                    "line": 10,
-                    "severity": "warning",
-                    "message": "Consider adding docstring",
-                    "suggestion": "Add a docstring to explain the function",
-                    "category": "documentation",
-                },
-                {
-                    "file": "src/test.py",
-                    "line": 25,
-                    "severity": "error",
-                    "message": "Potential security issue",
-                    "category": "security",
-                },
-            ]
-        })
+        mock_output = json.dumps(
+            {
+                "findings": [
+                    {
+                        "file": "src/test.py",
+                        "line": 10,
+                        "severity": "warning",
+                        "message": "Consider adding docstring",
+                        "suggestion": "Add a docstring to explain the function",
+                        "category": "documentation",
+                    },
+                    {
+                        "file": "src/test.py",
+                        "line": 25,
+                        "severity": "error",
+                        "message": "Potential security issue",
+                        "category": "security",
+                    },
+                ]
+            }
+        )
 
         mock_result = CommandResult(
             returncode=0,

@@ -7,6 +7,7 @@ Tests the notification tools functionality including:
 - Retry logic and graceful degradation
 - MCP server factory
 """
+
 from __future__ import annotations
 
 import json
@@ -200,7 +201,10 @@ class TestSendNtfyRequest:
         """Test successful notification send."""
         mock_session = MockClientSession(mock_aiohttp_response)
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             success, message, notification_id = await _send_ntfy_request(
                 config=mock_config,
                 message="Test notification body",
@@ -263,8 +267,12 @@ class TestSendNtfyRequest:
                 return MockResponse(success_response)
 
         # Mock asyncio.sleep to avoid delays in tests
-        with patch("maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession):
-            with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession
+        ):
+            with patch(
+                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
+            ) as mock_sleep:
                 success, message, notification_id = await _send_ntfy_request(
                     config=mock_config,
                     message="Test retry",
@@ -310,8 +318,13 @@ class TestSendNtfyRequest:
                 raise aiohttp.ClientError("Server unreachable")
 
         # Mock asyncio.sleep
-        with patch("maverick.tools.notification.aiohttp.ClientSession", FailingMockClientSession):
-            with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            FailingMockClientSession,
+        ):
+            with patch(
+                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
+            ):
                 success, message, notification_id = await _send_ntfy_request(
                     config=mock_config,
                     message="Test degradation",
@@ -340,8 +353,13 @@ class TestSendNtfyRequest:
         mock_session = MockClientSession(error_response)
 
         # Mock asyncio.sleep
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_session):
-            with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            with patch(
+                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
+            ):
                 success, message, notification_id = await _send_ntfy_request(
                     config=mock_config,
                     message="Test HTTP error",
@@ -374,7 +392,10 @@ class TestSendWorkflowUpdate:
         """Test successful workflow update notification with all parameters (T052)."""
         send_workflow_update = notification_tools["send_workflow_update"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             # Test each stage mapping
             for stage, expected_config in STAGE_MAPPING.items():
                 result = await send_workflow_update.handler(
@@ -408,7 +429,10 @@ class TestSendWorkflowUpdate:
         """Test all stage mappings produce correct priority and tags."""
         send_workflow_update = notification_tools["send_workflow_update"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             # Test start stage
             await send_workflow_update.handler(
                 {
@@ -474,7 +498,9 @@ class TestSendWorkflowUpdate:
         # Verify response
         response_data = json.loads(result["content"][0]["text"])
         assert response_data["success"] is True
-        assert response_data["message"] == "Notifications disabled (no topic configured)"
+        assert (
+            response_data["message"] == "Notifications disabled (no topic configured)"
+        )
         assert "notification_id" not in response_data
 
     @pytest.mark.asyncio
@@ -534,8 +560,12 @@ class TestSendWorkflowUpdate:
                     raise aiohttp.ClientError("Temporary error")
                 return MockResponse(success_response)
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession):
-            with patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession
+        ):
+            with patch(
+                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
+            ):
                 result = await send_workflow_update.handler(
                     {
                         "stage": "start",
@@ -558,7 +588,10 @@ class TestSendWorkflowUpdate:
         """Test workflow update with default workflow name."""
         send_workflow_update = notification_tools["send_workflow_update"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             # Don't provide workflow_name
             result = await send_workflow_update.handler(
                 {
@@ -594,7 +627,10 @@ class TestSendNotification:
         """Test successful custom notification with title, priority, tags (T055)."""
         send_notification = notification_tools["send_notification"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             result = await send_notification.handler(
                 {
                     "message": "Custom notification body",
@@ -634,7 +670,10 @@ class TestSendNotification:
         """Test notification with only required message parameter."""
         send_notification = notification_tools["send_notification"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             result = await send_notification.handler({"message": "Simple notification"})
 
             # Verify response
@@ -772,7 +811,9 @@ class TestSendNotification:
         # Verify response
         response_data = json.loads(result["content"][0]["text"])
         assert response_data["success"] is True
-        assert response_data["message"] == "Notifications disabled (no topic configured)"
+        assert (
+            response_data["message"] == "Notifications disabled (no topic configured)"
+        )
         assert "notification_id" not in response_data
 
     @pytest.mark.asyncio
@@ -784,7 +825,10 @@ class TestSendNotification:
         """Test priority parameter is case-insensitive."""
         send_notification = notification_tools["send_notification"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             # Test uppercase priority
             result = await send_notification.handler(
                 {"message": "Test", "priority": "HIGH"}
@@ -808,7 +852,10 @@ class TestSendNotification:
         """Test tags are converted to strings."""
         send_notification = notification_tools["send_notification"]
 
-        with patch("maverick.tools.notification.aiohttp.ClientSession", return_value=mock_aiohttp_session):
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_aiohttp_session,
+        ):
             # Test with mixed tag types
             result = await send_notification.handler(
                 {

@@ -133,10 +133,7 @@ class ValidateStep(StepDefinition):
 
         while True:
             # Run validation
-            if (
-                context.config
-                and hasattr(context.config, "run_validation_stages")
-            ):
+            if context.config and hasattr(context.config, "run_validation_stages"):
                 result = await context.config.run_validation_stages(stages)
             else:
                 # No validation runner configured - treat as pass

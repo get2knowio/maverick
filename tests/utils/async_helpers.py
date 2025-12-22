@@ -3,6 +3,7 @@
 This module provides utilities for testing async code, particularly
 async generators used in workflows and agent interactions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

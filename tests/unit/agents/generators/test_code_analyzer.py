@@ -1,4 +1,5 @@
 """Unit tests for CodeAnalyzer generator."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -42,8 +43,7 @@ class TestCodeAnalyzerGenerate:
         # Mock the _query method to return a sample explanation
         mock_text_block = MagicMock()
         mock_text_block.text = (
-            "This function calculates the factorial of a "
-            "number using recursion."
+            "This function calculates the factorial of a number using recursion."
         )
         type(mock_text_block).__name__ = "TextBlock"
 
@@ -58,10 +58,15 @@ class TestCodeAnalyzerGenerate:
             "maverick.agents.generators.base.query",
             return_value=mock_query_iter(),
         ):
-            result = await analyzer.generate({
-                "code": "def factorial(n): return 1 if n == 0 else n * factorial(n-1)",
-                "analysis_type": "explain",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": (
+                        "def factorial(n): "
+                        "return 1 if n == 0 else n * factorial(n-1)"
+                    ),
+                    "analysis_type": "explain",
+                }
+            )
 
         assert "factorial" in result.lower() or "recursion" in result.lower()
 
@@ -89,10 +94,15 @@ class TestCodeAnalyzerGenerate:
             "maverick.agents.generators.base.query",
             return_value=mock_query_iter(),
         ):
-            result = await analyzer.generate({
-                "code": "def factorial(n): return 1 if n == 0 else n * factorial(n-1)",
-                "analysis_type": "review",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": (
+                        "def factorial(n): "
+                        "return 1 if n == 0 else n * factorial(n-1)"
+                    ),
+                    "analysis_type": "review",
+                }
+            )
 
         assert "issue" in result.lower() or "validation" in result.lower()
 
@@ -117,10 +127,15 @@ class TestCodeAnalyzerGenerate:
             "maverick.agents.generators.base.query",
             return_value=mock_query_iter(),
         ):
-            result = await analyzer.generate({
-                "code": "def factorial(n): return 1 if n == 0 else n * factorial(n-1)",
-                "analysis_type": "summarize",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": (
+                        "def factorial(n): "
+                        "return 1 if n == 0 else n * factorial(n-1)"
+                    ),
+                    "analysis_type": "summarize",
+                }
+            )
 
         assert len(result) > 0
 
@@ -148,10 +163,12 @@ class TestCodeAnalyzerGenerate:
             return_value=mock_query_iter(),
         ):
             # Should not raise an error, just default to explain
-            result = await analyzer.generate({
-                "code": "print('hello')",
-                "analysis_type": "invalid_type",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": "print('hello')",
+                    "analysis_type": "invalid_type",
+                }
+            )
 
         assert len(result) > 0
 
@@ -178,11 +195,13 @@ class TestCodeAnalyzerGenerate:
             "maverick.agents.generators.base.query",
             return_value=mock_query_iter(),
         ) as mock_query:
-            result = await analyzer.generate({
-                "code": "def hello(): pass",
-                "analysis_type": "explain",
-                "language": "Python",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": "def hello(): pass",
+                    "analysis_type": "explain",
+                    "language": "Python",
+                }
+            )
 
             # Verify the query was called
             assert mock_query.called
@@ -199,10 +218,12 @@ class TestCodeAnalyzerGenerate:
         analyzer = CodeAnalyzer()
 
         with pytest.raises(GeneratorError) as exc_info:
-            await analyzer.generate({
-                "code": "",
-                "analysis_type": "explain",
-            })
+            await analyzer.generate(
+                {
+                    "code": "",
+                    "analysis_type": "explain",
+                }
+            )
 
         assert "code" in exc_info.value.message.lower()
         assert "empty" in exc_info.value.message.lower()
@@ -213,10 +234,12 @@ class TestCodeAnalyzerGenerate:
         analyzer = CodeAnalyzer()
 
         with pytest.raises(GeneratorError) as exc_info:
-            await analyzer.generate({
-                "code": "   \n\t  ",
-                "analysis_type": "explain",
-            })
+            await analyzer.generate(
+                {
+                    "code": "   \n\t  ",
+                    "analysis_type": "explain",
+                }
+            )
 
         assert "code" in exc_info.value.message.lower()
         assert "empty" in exc_info.value.message.lower()
@@ -227,9 +250,11 @@ class TestCodeAnalyzerGenerate:
         analyzer = CodeAnalyzer()
 
         with pytest.raises(GeneratorError) as exc_info:
-            await analyzer.generate({
-                "analysis_type": "explain",
-            })
+            await analyzer.generate(
+                {
+                    "analysis_type": "explain",
+                }
+            )
 
         assert "code" in exc_info.value.message.lower()
 
@@ -260,10 +285,12 @@ class TestCodeAnalyzerGenerate:
             ),
             patch("maverick.agents.generators.base.logger") as mock_logger,
         ):
-            result = await analyzer.generate({
-                "code": large_code,
-                "analysis_type": "explain",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": large_code,
+                    "analysis_type": "explain",
+                }
+            )
 
             # Should log a WARNING about truncation
             mock_logger.warning.assert_called_once()
@@ -299,10 +326,12 @@ class TestCodeAnalyzerGenerate:
             ),
             patch("maverick.agents.generators.base.logger") as mock_logger,
         ):
-            await analyzer.generate({
-                "code": large_code,
-                "analysis_type": "explain",
-            })
+            await analyzer.generate(
+                {
+                    "code": large_code,
+                    "analysis_type": "explain",
+                }
+            )
 
             # Verify WARNING was called for truncation
             assert mock_logger.warning.called
@@ -331,8 +360,10 @@ class TestCodeAnalyzerGenerate:
             return_value=mock_query_iter(),
         ):
             # Should not raise an error
-            result = await analyzer.generate({
-                "code": "print('hello')",
-            })
+            result = await analyzer.generate(
+                {
+                    "code": "print('hello')",
+                }
+            )
 
         assert len(result) > 0

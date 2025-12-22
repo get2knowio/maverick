@@ -23,13 +23,14 @@ class TestConfigPerformance:
         within the 100ms threshold.
         """
         import os
+
         os.chdir(temp_dir)
 
         # Create a realistic config scenario
         user_config_dir = temp_dir / ".config" / "maverick"
         user_config_dir.mkdir(parents=True)
         user_config_path = user_config_dir / "config.yaml"
-        user_config_path.write_text('''
+        user_config_path.write_text("""
 github:
   owner: "test-org"
 notifications:
@@ -37,16 +38,16 @@ notifications:
 model:
   max_tokens: 4096
 verbosity: "info"
-''')
+""")
 
         project_config_path = temp_dir / "maverick.yaml"
-        project_config_path.write_text('''
+        project_config_path.write_text("""
 github:
   owner: "project-org"
   repo: "test-repo"
 model:
   max_tokens: 8192
-''')
+""")
 
         os.environ["MAVERICK_MODEL__TEMPERATURE"] = "0.5"
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -64,7 +65,7 @@ model:
 
         # Verify performance requirement
         assert elapsed < 0.1, (
-            f"Config loading took {elapsed*1000:.2f}ms, "
+            f"Config loading took {elapsed * 1000:.2f}ms, "
             f"expected < 100ms (SC-005 requirement)"
         )
 
@@ -80,14 +81,15 @@ model:
         Note: This is for the second and subsequent loads in the same process.
         """
         import os
+
         os.chdir(temp_dir)
 
         project_config_path = temp_dir / "maverick.yaml"
-        project_config_path.write_text('''
+        project_config_path.write_text("""
 github:
   owner: "test-org"
   repo: "test-repo"
-''')
+""")
 
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
@@ -103,8 +105,7 @@ github:
 
         assert config.github.owner == "test-org"
         assert elapsed < 0.1, (
-            f"Warm config loading took {elapsed*1000:.2f}ms, "
-            f"expected < 100ms"
+            f"Warm config loading took {elapsed * 1000:.2f}ms, expected < 100ms"
         )
 
     def test_config_loading_defaults_only_under_100ms(
@@ -119,6 +120,7 @@ github:
         This is the simplest scenario (no user or project config files).
         """
         import os
+
         os.chdir(temp_dir)
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
@@ -131,6 +133,6 @@ github:
 
         assert config.github.owner is None  # Verify defaults
         assert elapsed < 0.1, (
-            f"Defaults-only config loading took {elapsed*1000:.2f}ms, "
+            f"Defaults-only config loading took {elapsed * 1000:.2f}ms, "
             f"expected < 100ms"
         )

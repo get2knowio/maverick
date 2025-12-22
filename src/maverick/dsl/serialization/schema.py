@@ -233,7 +233,9 @@ class ParallelStepRecord(StepRecord):
 
     @field_validator("steps")
     @classmethod
-    def validate_unique_step_names(cls, v: list["StepRecordUnion"]) -> list["StepRecordUnion"]:
+    def validate_unique_step_names(
+        cls, v: list["StepRecordUnion"]
+    ) -> list["StepRecordUnion"]:
         """Ensure all parallel step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):
@@ -299,7 +301,9 @@ class WorkflowFile(BaseModel):
 
     @field_validator("steps")
     @classmethod
-    def validate_unique_step_names(cls, v: list[StepRecordUnion]) -> list[StepRecordUnion]:
+    def validate_unique_step_names(
+        cls, v: list[StepRecordUnion]
+    ) -> list[StepRecordUnion]:
         """Ensure all top-level step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):

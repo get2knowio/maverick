@@ -61,7 +61,9 @@ class TestFlyWorkflowDryRun:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -139,7 +141,9 @@ class TestFlyWorkflowDryRun:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         task_file = tmp_path / "tasks.md"
@@ -187,7 +191,9 @@ class TestFlyWorkflowDryRun:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -303,7 +309,9 @@ class TestFlyWorkflowDryRun:
 
         mock_validation_real = MagicMock()
         mock_validation_real.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer_real = MagicMock()
@@ -318,7 +326,9 @@ class TestFlyWorkflowDryRun:
         mock_pr_gen_real.generate = AsyncMock(return_value="## Summary\nTest")
 
         mock_github_real = MagicMock()
-        mock_github_real.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github_real.create_pr = AsyncMock(
+            return_value="https://github.com/test/pr/1"
+        )
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test task")

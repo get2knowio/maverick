@@ -93,9 +93,7 @@ class MermaidGenerator:
 
         return "\n".join(lines)
 
-    def _add_node(
-        self, lines: list[str], node: GraphNode, processed: set[str]
-    ) -> None:
+    def _add_node(self, lines: list[str], node: GraphNode, processed: set[str]) -> None:
         """Add a node definition to the output.
 
         Args:

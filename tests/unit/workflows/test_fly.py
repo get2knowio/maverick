@@ -288,7 +288,10 @@ class TestFlyWorkflowExecution:
         async for event in workflow.execute(inputs):
             events.append(event)
             # Stop after INIT stage completes
-            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.INIT:
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.INIT
+            ):
                 break
 
         # Verify branch creation was called
@@ -457,7 +460,9 @@ class TestFlyWorkflowExecution:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -527,7 +532,9 @@ class TestFlyWorkflowExecution:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -601,7 +608,9 @@ class TestFlyWorkflowExecution:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -644,7 +653,8 @@ class TestFlyWorkflowExecution:
         stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
         stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
 
-        # Should have at least INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW, PR_CREATION
+        # Should have at least INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW,
+        # PR_CREATION
         assert len(stage_started) >= 5
         assert len(stage_completed) >= 5
 
@@ -756,7 +766,9 @@ class TestFlyWorkflowExecution:
         result = workflow.get_result()
         assert result is not None
         # Workflow should have errors but not fail completely
-        assert len(result.state.errors) > 0 or not result.state.validation_result.success
+        assert (
+            len(result.state.errors) > 0 or not result.state.validation_result.success
+        )
 
 
 # Helper functions for creating test objects
@@ -889,8 +901,7 @@ class TestProgressEvents:
         """Test FlyStageStarted has stage and timestamp fields (T026)."""
         # Create with WorkflowStage.IMPLEMENTATION
         event = FlyStageStarted(
-            stage=WorkflowStage.IMPLEMENTATION,
-            timestamp=time.time()
+            stage=WorkflowStage.IMPLEMENTATION, timestamp=time.time()
         )
 
         # Verify both fields are accessible
@@ -906,18 +917,14 @@ class TestProgressEvents:
 
         # Create with string result
         event1 = FlyStageCompleted(
-            stage=stage,
-            result=result_str,
-            timestamp=time.time()
+            stage=stage, result=result_str, timestamp=time.time()
         )
         assert event1.stage == stage
         assert event1.result == result_str
 
         # Create with dict result
         event2 = FlyStageCompleted(
-            stage=stage,
-            result=result_dict,
-            timestamp=time.time()
+            stage=stage, result=result_dict, timestamp=time.time()
         )
         assert event2.stage == stage
         assert event2.result == result_dict
@@ -936,10 +943,7 @@ class TestProgressEvents:
         )
 
         # Create event
-        event = FlyWorkflowCompleted(
-            result=fly_result,
-            timestamp=time.time()
-        )
+        event = FlyWorkflowCompleted(result=fly_result, timestamp=time.time())
 
         # Verify result is accessible
         assert event.result == fly_result
@@ -955,9 +959,7 @@ class TestProgressEvents:
 
         # Create event
         event = FlyWorkflowFailed(
-            error=error_message,
-            state=state,
-            timestamp=time.time()
+            error=error_message, state=state, timestamp=time.time()
         )
 
         # Verify all fields accessible
@@ -1111,7 +1113,10 @@ class TestProgressEventEmission:
         async for event in workflow.execute(inputs):
             events.append(event)
             # Stop after INIT completes
-            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.INIT:
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.INIT
+            ):
                 break
 
         # Verify FlyWorkflowStarted is first event
@@ -1161,7 +1166,9 @@ class TestProgressEventEmission:
 
         mock_validation = MagicMock()
         mock_validation.run = AsyncMock(
-            return_value=iter([ValidationWorkflowResult(success=True, stage_results=[])])
+            return_value=iter(
+                [ValidationWorkflowResult(success=True, stage_results=[])]
+            )
         )
 
         mock_reviewer = MagicMock()
@@ -1202,7 +1209,9 @@ class TestProgressEventEmission:
         stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
 
         # Verify we have matching pairs
-        assert len(stage_started) >= 5  # INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW, PR_CREATION
+        assert (
+            len(stage_started) >= 5
+        )  # INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW, PR_CREATION
         assert len(stage_completed) >= 5
 
         # Verify each stage has both started and completed
@@ -1222,9 +1231,19 @@ class TestProgressEventEmission:
 
         # Verify order: for each stage, started comes before completed
         for stage in expected_stages:
-            started_idx = next(i for i, e in enumerate(events) if isinstance(e, FlyStageStarted) and e.stage == stage)
-            completed_idx = next(i for i, e in enumerate(events) if isinstance(e, FlyStageCompleted) and e.stage == stage)
-            assert started_idx < completed_idx, f"Stage {stage} started must come before completed"
+            started_idx = next(
+                i
+                for i, e in enumerate(events)
+                if isinstance(e, FlyStageStarted) and e.stage == stage
+            )
+            completed_idx = next(
+                i
+                for i, e in enumerate(events)
+                if isinstance(e, FlyStageCompleted) and e.stage == stage
+            )
+            assert started_idx < completed_idx, (
+                f"Stage {stage} started must come before completed"
+            )
 
     @pytest.mark.asyncio
     async def test_validation_retry_progress_updates(self, tmp_path):
@@ -1292,16 +1311,21 @@ class TestProgressEventEmission:
         async for event in workflow.execute(inputs):
             events.append(event)
             # Stop after validation completes
-            if isinstance(event, FlyStageCompleted) and event.stage == WorkflowStage.VALIDATION:
+            if (
+                isinstance(event, FlyStageCompleted)
+                and event.stage == WorkflowStage.VALIDATION
+            ):
                 break
 
         # Verify VALIDATION stage events exist
         validation_started = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, FlyStageStarted) and e.stage == WorkflowStage.VALIDATION
         ]
         validation_completed = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, FlyStageCompleted) and e.stage == WorkflowStage.VALIDATION
         ]
 
@@ -1312,9 +1336,9 @@ class TestProgressEventEmission:
         completed_event = validation_completed[0]
         assert completed_event.result is not None
         # Result should be ValidationWorkflowResult
-        assert hasattr(completed_event.result, 'success')
+        assert hasattr(completed_event.result, "success")
         assert completed_event.result.success is False  # Validation failed
 
         # Verify stage results contain retry information
-        if hasattr(completed_event.result, 'stage_results'):
+        if hasattr(completed_event.result, "stage_results"):
             assert len(completed_event.result.stage_results) > 0

@@ -300,7 +300,11 @@ class TestActionMethods:
         # Mock screen_stack with multiple screens
         mock_screens = [Mock(), Mock()]
 
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
+        with patch.object(
+            type(app),
+            "screen_stack",
+            new_callable=lambda: property(lambda self: mock_screens),
+        ):
             with patch.object(app, "pop_screen") as mock_pop:
                 app.action_pop_screen()
 
@@ -312,7 +316,11 @@ class TestActionMethods:
         # Mock screen_stack with single screen
         mock_screens = [Mock()]
 
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
+        with patch.object(
+            type(app),
+            "screen_stack",
+            new_callable=lambda: property(lambda self: mock_screens),
+        ):
             with patch.object(app, "pop_screen") as mock_pop:
                 app.action_pop_screen()
 
@@ -359,10 +367,24 @@ class TestActionMethods:
         """Test that action_go_home pops all screens except base."""
         app = MaverickApp()
         # Mock screen_stack with multiple screens
+        # The stack should shrink as pop_screen is called
         mock_screens = [Mock(), Mock(), Mock()]
 
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
-            with patch.object(app, "pop_screen") as mock_pop:
+        def get_screen_stack(self):
+            return mock_screens
+
+        def mock_pop_screen():
+            if len(mock_screens) > 0:
+                mock_screens.pop()
+
+        with patch.object(
+            type(app),
+            "screen_stack",
+            new_callable=lambda: property(get_screen_stack),
+        ):
+            with patch.object(
+                app, "pop_screen", side_effect=mock_pop_screen
+            ) as mock_pop:
                 app.action_go_home()
 
             # Should pop twice (leaving one screen)
@@ -427,7 +449,11 @@ class TestActionMethods:
         mock_screen = Mock()
         mock_screen.refresh = Mock()
 
-        with patch.object(app, "screen", mock_screen):
+        with patch.object(
+            type(app),
+            "screen",
+            new_callable=lambda: property(lambda self: mock_screen),
+        ):
             app.action_refresh()
 
         mock_screen.refresh.assert_called_once()
@@ -437,7 +463,11 @@ class TestActionMethods:
         app = MaverickApp()
         mock_screen = Mock(spec=[])  # No refresh method
 
-        with patch.object(app, "screen", mock_screen):
+        with patch.object(
+            type(app),
+            "screen",
+            new_callable=lambda: property(lambda self: mock_screen),
+        ):
             with patch.object(app, "add_log") as mock_add_log:
                 app.action_refresh()
 
@@ -525,8 +555,8 @@ class TestMaverickCommands:
         async for hit in provider.search(""):
             hits.append(hit)
 
-        # Should return all 8 commands
-        assert len(hits) == 8
+        # Should return all 11 commands
+        assert len(hits) == 11
 
     @pytest.mark.asyncio
     async def test_search_filters_by_name(self) -> None:
@@ -631,7 +661,8 @@ class TestMaverickCommands:
             # Check that at least one hit has the expected callback
             callbacks = [hit.command for hit in hits]
             callback_names = [
-                callback.__name__ for callback in callbacks
+                callback.__name__
+                for callback in callbacks
                 if hasattr(callback, "__name__")
             ]
             assert expected_method in callback_names, (

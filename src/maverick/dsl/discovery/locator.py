@@ -15,6 +15,7 @@ Example:
         print(f"Found: {path}")
     ```
 """
+
 from __future__ import annotations
 
 import logging
@@ -85,16 +86,12 @@ class WorkflowLocator:
         """
         # Check if directory exists
         if not directory.exists():
-            logger.warning(
-                f"Workflow directory does not exist: {directory}"
-            )
+            logger.warning(f"Workflow directory does not exist: {directory}")
             return []
 
         # Check if it's actually a directory
         if not directory.is_dir():
-            logger.warning(
-                f"Workflow path is not a directory: {directory}"
-            )
+            logger.warning(f"Workflow path is not a directory: {directory}")
             return []
 
         # Try to scan for YAML files
@@ -103,29 +100,20 @@ class WorkflowLocator:
             yaml_files = list(directory.glob("*.yaml"))
 
             # Filter to only files (exclude directories that somehow match)
-            workflow_files = [
-                path for path in yaml_files
-                if path.is_file()
-            ]
+            workflow_files = [path for path in yaml_files if path.is_file()]
 
             if workflow_files:
                 logger.debug(
                     f"Found {len(workflow_files)} workflow file(s) in {directory}"
                 )
             else:
-                logger.debug(
-                    f"No workflow files found in {directory}"
-                )
+                logger.debug(f"No workflow files found in {directory}")
 
             return workflow_files
 
         except PermissionError:
-            logger.warning(
-                f"Permission denied accessing directory: {directory}"
-            )
+            logger.warning(f"Permission denied accessing directory: {directory}")
             return []
         except OSError as e:
-            logger.warning(
-                f"Error reading directory {directory}: {e}"
-            )
+            logger.warning(f"Error reading directory {directory}: {e}")
             return []

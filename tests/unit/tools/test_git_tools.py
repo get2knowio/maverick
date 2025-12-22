@@ -8,6 +8,7 @@ Tests the git tools functionality including:
 - git_create_branch: Creating and checking out new branches
 - Error handling and validation
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -134,9 +135,7 @@ class TestHelperFunctions:
         mock_subprocess.communicate.return_value = (b"output\n", b"")
         mock_subprocess.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             stdout, stderr, returncode = await _run_git_command("status")
 
         assert stdout == "output"
@@ -152,9 +151,7 @@ class TestHelperFunctions:
         mock_subprocess.communicate.return_value = (b"", b"error output\n")
         mock_subprocess.returncode = 1
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             stdout, stderr, returncode = await _run_git_command("commit")
 
         assert stdout == ""
@@ -173,9 +170,7 @@ class TestHelperFunctions:
         mock_proc.wait = AsyncMock()
         mock_create_subprocess_exec.return_value = mock_proc
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             with pytest.raises(asyncio.TimeoutError):
                 await _run_git_command("status", timeout=0.1)
 
@@ -187,9 +182,7 @@ class TestHelperFunctions:
         self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
     ) -> None:
         """Test _verify_git_prerequisites with all checks passing."""
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             # Should not raise
             await _verify_git_prerequisites()
 
@@ -203,9 +196,7 @@ class TestHelperFunctions:
         """Test _verify_git_prerequisites when git is not installed."""
         mock_create_subprocess_exec.side_effect = FileNotFoundError
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             with pytest.raises(GitToolsError) as exc_info:
                 await _verify_git_prerequisites()
 
@@ -223,16 +214,16 @@ class TestHelperFunctions:
                 # rev-parse fails
                 proc = MagicMock()
                 proc.returncode = 1
-                proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a git repository"))
+                proc.communicate = AsyncMock(
+                    return_value=(b"", b"fatal: not a git repository")
+                )
                 return proc
             # git --version succeeds
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             with pytest.raises(GitToolsError) as exc_info:
                 await _verify_git_prerequisites()
 
@@ -268,9 +259,7 @@ class TestGitCommit:
         ]
         mock_subprocess.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {"message": "add feature", "type": "feat"}
@@ -300,9 +289,7 @@ class TestGitCommit:
         ]
         mock_subprocess.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {
@@ -333,11 +320,11 @@ class TestGitCommit:
         )
         mock_subprocess.returncode = 1
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler({"message": "test commit"})
+            result = await server["tools"]["git_commit"].handler(
+                {"message": "test commit"}
+            )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -379,9 +366,7 @@ class TestGitCommit:
         mock_proc.wait = AsyncMock()
         mock_create_subprocess_exec.return_value = mock_proc
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler({"message": "test"})
 
@@ -400,9 +385,7 @@ class TestGitCommit:
         )
         mock_subprocess.returncode = 1
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler({"message": "test"})
 
@@ -442,7 +425,13 @@ class TestGitPush:
                 proc = MagicMock()
                 proc.returncode = 0
                 proc.communicate = AsyncMock(
-                    return_value=(b"", b"To github.com:org/repo\n   abc123..def456  feature-branch -> feature-branch\n")
+                    return_value=(
+                        b"",
+                        (
+                            b"To github.com:org/repo\n"
+                            b"   abc123..def456  feature-branch -> feature-branch\n"
+                        ),
+                    )
                 )
                 return proc
             # git --version and rev-parse --git-dir
@@ -450,9 +439,7 @@ class TestGitPush:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -485,9 +472,7 @@ class TestGitPush:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -516,16 +501,17 @@ class TestGitPush:
                 proc = MagicMock()
                 proc.returncode = 1
                 proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: Authentication failed for 'https://github.com/org/repo'\n")
+                    return_value=(
+                        b"",
+                        b"fatal: Authentication failed for 'https://github.com/org/repo'\n",
+                    )
                 )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -556,9 +542,7 @@ class TestGitPush:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -577,15 +561,15 @@ class TestGitPush:
                 # Not a git repo
                 proc = MagicMock()
                 proc.returncode = 1
-                proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a git repository\n"))
+                proc.communicate = AsyncMock(
+                    return_value=(b"", b"fatal: not a git repository\n")
+                )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -613,16 +597,20 @@ class TestGitPush:
                 proc = MagicMock()
                 proc.returncode = 0
                 proc.communicate = AsyncMock(
-                    return_value=(b"", b"Branch 'feature' set up to track remote branch 'feature' from 'origin'.\n")
+                    return_value=(
+                        b"",
+                        (
+                            b"Branch 'feature' set up to track remote branch "
+                            b"'feature' from 'origin'.\n"
+                        ),
+                    )
                 )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": True})
 
@@ -659,9 +647,7 @@ class TestGitCurrentBranch:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -690,9 +676,7 @@ class TestGitCurrentBranch:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -715,15 +699,15 @@ class TestGitCurrentBranch:
                 # Not a git repo
                 proc = MagicMock()
                 proc.returncode = 1
-                proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a git repository\n"))
+                proc.communicate = AsyncMock(
+                    return_value=(b"", b"fatal: not a git repository\n")
+                )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -756,16 +740,17 @@ class TestGitDiffStats:
                 proc = MagicMock()
                 proc.returncode = 0
                 proc.communicate = AsyncMock(
-                    return_value=(b" 3 files changed, 50 insertions(+), 20 deletions(-)\n", b"")
+                    return_value=(
+                        b" 3 files changed, 50 insertions(+), 20 deletions(-)\n",
+                        b"",
+                    )
                 )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -795,9 +780,7 @@ class TestGitDiffStats:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -824,9 +807,7 @@ class TestGitDiffStats:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -853,9 +834,7 @@ class TestGitDiffStats:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -896,11 +875,11 @@ class TestGitCreateBranch:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler({"name": "feature"})
+            result = await server["tools"]["git_create_branch"].handler(
+                {"name": "feature"}
+            )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -927,11 +906,11 @@ class TestGitCreateBranch:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler({"name": "feature", "base": "main"})
+            result = await server["tools"]["git_create_branch"].handler(
+                {"name": "feature", "base": "main"}
+            )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -953,18 +932,21 @@ class TestGitCreateBranch:
                 proc = MagicMock()
                 proc.returncode = 1
                 proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: A branch named 'feature' already exists.\n")
+                    return_value=(
+                        b"",
+                        b"fatal: A branch named 'feature' already exists.\n",
+                    )
                 )
                 return proc
             return mock_subprocess
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler({"name": "feature"})
+            result = await server["tools"]["git_create_branch"].handler(
+                {"name": "feature"}
+            )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -1018,11 +1000,11 @@ class TestGitCreateBranch:
 
         mock_create_subprocess_exec.side_effect = side_effect
 
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler({"name": "feature", "base": "nonexistent"})
+            result = await server["tools"]["git_create_branch"].handler(
+                {"name": "feature", "base": "nonexistent"}
+            )
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -1047,9 +1029,7 @@ class TestCreateGitToolsServer:
         - All 5 tools are registered
         - Server has correct name and version
         """
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server()
 
         # Verify server was created
@@ -1066,18 +1046,20 @@ class TestCreateGitToolsServer:
         assert server is not None
 
     def test_create_git_tools_server_with_cwd(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock, tmp_path: Path
+        self,
+        mock_create_subprocess_exec: AsyncMock,
+        mock_subprocess: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Test create_git_tools_server with custom working directory."""
-        with patch(
-            "asyncio.create_subprocess_exec", mock_create_subprocess_exec
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             server = create_git_tools_server(cwd=tmp_path)
 
         assert server is not None
 
     def test_create_git_tools_server_async_context_error(self) -> None:
         """Test create_git_tools_server raises error when called from async context."""
+
         async def call_in_async_context():
             with pytest.raises(GitToolsError) as exc_info:
                 create_git_tools_server()

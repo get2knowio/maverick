@@ -8,6 +8,7 @@ verifying:
 - Conditional execution based on validation results
 - Integration with mocked validation and fix actions
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -65,7 +66,11 @@ class TestValidateAndFixFragment:
                     "final_validation": {
                         "success": True,
                         "stages": [
-                            {"stage": stage, "success": True, "output": f"{stage} passed"}
+                            {
+                                "stage": stage,
+                                "success": True,
+                                "output": f"{stage} passed",
+                            }
                             for stage in stages
                         ],
                     },
@@ -97,7 +102,11 @@ class TestValidateAndFixFragment:
                     "final_validation": {
                         "success": False,
                         "stages": [
-                            {"stage": stages[0], "success": False, "error": "persistent error"},
+                            {
+                                "stage": stages[0],
+                                "success": False,
+                                "error": "persistent error",
+                            },
                         ],
                     },
                 }
@@ -117,20 +126,28 @@ class TestValidateAndFixFragment:
         ) -> dict[str, Any]:
             # Determine final success based on fix_loop_result
             if fix_loop_result:
-                final_validation = fix_loop_result.get("final_validation", initial_result)
+                final_validation = fix_loop_result.get(
+                    "final_validation", initial_result
+                )
             else:
                 final_validation = initial_result
 
             return {
                 "passed": final_validation.get("success", False),
                 "stages": final_validation.get("stages", []),
-                "attempts": fix_loop_result.get("attempts", 0) if fix_loop_result else 0,
-                "fixes_applied": fix_loop_result.get("fixes_applied", []) if fix_loop_result else [],
+                "attempts": fix_loop_result.get("attempts", 0)
+                if fix_loop_result
+                else 0,
+                "fixes_applied": fix_loop_result.get("fixes_applied", [])
+                if fix_loop_result
+                else [],
                 "remaining_errors": (
                     ["persistent error"] if not final_validation.get("success") else []
                 ),
                 "suggestions": (
-                    ["Manual intervention required"] if not final_validation.get("success") else []
+                    ["Manual intervention required"]
+                    if not final_validation.get("success")
+                    else []
                 ),
             }
 
@@ -138,8 +155,12 @@ class TestValidateAndFixFragment:
         registry.actions.register("validate_success", mock_validate_success)
         registry.actions.register("validate_failure", mock_validate_failure)
         registry.actions.register("run_fix_retry_loop", mock_fix_retry_loop_success)
-        registry.actions.register("run_fix_retry_loop_exhausted", mock_fix_retry_loop_exhausted)
-        registry.actions.register("generate_validation_report", mock_generate_validation_report)
+        registry.actions.register(
+            "run_fix_retry_loop_exhausted", mock_fix_retry_loop_exhausted
+        )
+        registry.actions.register(
+            "generate_validation_report", mock_generate_validation_report
+        )
 
         return registry
 

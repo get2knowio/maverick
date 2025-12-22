@@ -3,10 +3,26 @@
 This module provides utilities for validating MCP tool responses
 against expected schemas.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
+
+
+def is_string_value(value: Any) -> TypeGuard[str]:
+    """Type guard for string values."""
+    return isinstance(value, str)
+
+
+def is_dict_value(value: Any) -> TypeGuard[dict[str, Any]]:
+    """Type guard for dict values."""
+    return isinstance(value, dict)
+
+
+def is_list_value(value: Any) -> TypeGuard[list[Any]]:
+    """Type guard for list values."""
+    return isinstance(value, list)
 
 
 @dataclass
@@ -95,8 +111,10 @@ class MCPToolValidator:
         elif schema_type == "array":
             self._validate_array(value, schema, path, errors)
         elif schema_type == "string":
-            if not isinstance(value, str):
-                errors.append(f"{path or 'root'}: expected string, got {type(value).__name__}")
+            if not is_string_value(value):
+                errors.append(
+                    f"{path or 'root'}: expected string, got {type(value).__name__}"
+                )
         elif schema_type == "integer":
             if not isinstance(value, int) or isinstance(value, bool):
                 errors.append(
@@ -122,8 +140,10 @@ class MCPToolValidator:
         self, value: Any, schema: dict[str, Any], path: str, errors: list[str]
     ) -> None:
         """Validate an object value against an object schema."""
-        if not isinstance(value, dict):
-            errors.append(f"{path or 'root'}: expected object, got {type(value).__name__}")
+        if not is_dict_value(value):
+            errors.append(
+                f"{path or 'root'}: expected object, got {type(value).__name__}"
+            )
             return
 
         # Check required fields
@@ -144,8 +164,10 @@ class MCPToolValidator:
         self, value: Any, schema: dict[str, Any], path: str, errors: list[str]
     ) -> None:
         """Validate an array value against an array schema."""
-        if not isinstance(value, list):
-            errors.append(f"{path or 'root'}: expected array, got {type(value).__name__}")
+        if not is_list_value(value):
+            errors.append(
+                f"{path or 'root'}: expected array, got {type(value).__name__}"
+            )
             return
 
         items_schema = schema.get("items")

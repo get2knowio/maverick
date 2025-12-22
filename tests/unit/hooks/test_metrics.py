@@ -31,12 +31,14 @@ class TestMetricsCollectorRecordAndQuery:
         """Test getting metrics for all tools."""
         collector = MetricsCollector()
         for i in range(10):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash" if i % 2 == 0 else "Write",
-                timestamp=time(),
-                duration_ms=50.0 + i,
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash" if i % 2 == 0 else "Write",
+                    timestamp=time(),
+                    duration_ms=50.0 + i,
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics()
         assert metrics.call_count == 10
@@ -47,12 +49,14 @@ class TestMetricsCollectorRecordAndQuery:
         """Test getting metrics for a specific tool."""
         collector = MetricsCollector()
         for i in range(10):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash" if i % 2 == 0 else "Write",
-                timestamp=time(),
-                duration_ms=50.0,
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash" if i % 2 == 0 else "Write",
+                    timestamp=time(),
+                    duration_ms=50.0,
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics("Bash")
         assert metrics.call_count == 5
@@ -78,12 +82,14 @@ class TestRollingWindowEviction:
 
         # Add more entries than max
         for _ in range(150):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=50.0,
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=50.0,
+                    success=True,
+                )
+            )
 
         assert collector.entry_count == 100
 
@@ -95,12 +101,14 @@ class TestRollingWindowEviction:
 
         # Add entries with increasing duration
         for i in range(150):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=float(i * 10),
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=float(i * 10),
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics()
         # Oldest entries (0-49) should be evicted
@@ -121,12 +129,14 @@ class TestThreadSafety:
 
         async def record_many(start: int) -> None:
             for i in range(100):
-                await collector.record(ToolMetricEntry(
-                    tool_name="Bash",
-                    timestamp=time(),
-                    duration_ms=float(start + i),
-                    success=True,
-                ))
+                await collector.record(
+                    ToolMetricEntry(
+                        tool_name="Bash",
+                        timestamp=time(),
+                        duration_ms=float(start + i),
+                        success=True,
+                    )
+                )
 
         # Run multiple concurrent tasks
         await asyncio.gather(
@@ -144,12 +154,14 @@ class TestThreadSafety:
 
         async def writer() -> None:
             for _ in range(50):
-                await collector.record(ToolMetricEntry(
-                    tool_name="Bash",
-                    timestamp=time(),
-                    duration_ms=50.0,
-                    success=True,
-                ))
+                await collector.record(
+                    ToolMetricEntry(
+                        tool_name="Bash",
+                        timestamp=time(),
+                        duration_ms=50.0,
+                        success=True,
+                    )
+                )
 
         async def reader() -> None:
             for _ in range(50):
@@ -177,12 +189,14 @@ class TestPercentileCalculations:
 
         # Add entries with known durations: 10, 20, 30, 40, 50
         for duration in [10, 20, 30, 40, 50]:
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=float(duration),
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=float(duration),
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics()
         assert metrics.p50_duration_ms == 30.0
@@ -194,12 +208,14 @@ class TestPercentileCalculations:
 
         # Add 100 entries with durations 1-100
         for i in range(1, 101):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=float(i),
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=float(i),
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics()
         # P95 should be close to 95
@@ -212,12 +228,14 @@ class TestPercentileCalculations:
 
         # Add 100 entries with durations 1-100
         for i in range(1, 101):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=float(i),
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=float(i),
+                    success=True,
+                )
+            )
 
         metrics = await collector.get_metrics()
         # P99 should be close to 99
@@ -230,12 +248,14 @@ class TestPercentileCalculations:
 
         # Add 7 successes and 3 failures
         for i in range(10):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=50.0,
-                success=i < 7,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=50.0,
+                    success=i < 7,
+                )
+            )
 
         metrics = await collector.get_metrics()
         assert metrics.success_count == 7
@@ -271,9 +291,7 @@ class TestCollectMetrics:
 
         start = time() - 0.1  # 100ms ago
         await collect_metrics(
-            input_data, None, None,
-            collector=collector,
-            start_time=start
+            input_data, None, None, collector=collector, start_time=start
         )
 
         metrics = await collector.get_metrics()
@@ -306,12 +324,14 @@ class TestClear:
 
         # Add entries
         for _ in range(10):
-            await collector.record(ToolMetricEntry(
-                tool_name="Bash",
-                timestamp=time(),
-                duration_ms=50.0,
-                success=True,
-            ))
+            await collector.record(
+                ToolMetricEntry(
+                    tool_name="Bash",
+                    timestamp=time(),
+                    duration_ms=50.0,
+                    success=True,
+                )
+            )
 
         assert collector.entry_count == 10
 

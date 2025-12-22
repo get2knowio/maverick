@@ -10,6 +10,7 @@ Tests the validation MCP tools for running validation commands and parsing outpu
 - T079: test_parse_validation_output_truncation - verify error truncation at MAX_ERRORS
 - T080: test_create_validation_tools_server - verify factory creates server
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -216,10 +217,9 @@ class TestRunCommandWithTimeout:
         async def communicate_after_kill() -> tuple[bytes, bytes]:
             return b"partial output", b"timeout error"
 
-        mock_process.communicate = AsyncMock(side_effect=[
-            asyncio.TimeoutError,
-            (b"partial output", b"timeout error")
-        ])
+        mock_process.communicate = AsyncMock(
+            side_effect=[asyncio.TimeoutError, (b"partial output", b"timeout error")]
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
             stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
@@ -272,13 +272,14 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_success(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test successful validation run (T074)."""
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"All checks passed", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"All checks passed", b""))
 
         # Create server with config - tools are created via closure
         server = create_validation_tools_server(config=validation_config)
@@ -301,13 +302,14 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_failure(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test validation failure with output (T075)."""
         mock_process.returncode = 1
-        mock_process.communicate = AsyncMock(
-            return_value=(b"E501 Line too long", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"E501 Line too long", b""))
 
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -325,14 +327,16 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_timeout(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test validation timeout handling (T076)."""
         # First call to communicate raises TimeoutError, second returns after kill
-        mock_process.communicate = AsyncMock(side_effect=[
-            asyncio.TimeoutError,
-            (b"", b"Process killed due to timeout")
-        ])
+        mock_process.communicate = AsyncMock(
+            side_effect=[asyncio.TimeoutError, (b"", b"Process killed due to timeout")]
+        )
         mock_process.kill = Mock()
 
         server = create_validation_tools_server(config=validation_config)
@@ -348,7 +352,9 @@ class TestRunValidation:
         assert response_data["results"][0]["success"] is False
 
     @pytest.mark.asyncio
-    async def test_run_validation_invalid_type(self, validation_config: ValidationConfig) -> None:
+    async def test_run_validation_invalid_type(
+        self, validation_config: ValidationConfig
+    ) -> None:
         """Test validation with invalid type returns error."""
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -362,7 +368,9 @@ class TestRunValidation:
         assert "invalid_type" in response_data["message"]
 
     @pytest.mark.asyncio
-    async def test_run_validation_empty_types(self, validation_config: ValidationConfig) -> None:
+    async def test_run_validation_empty_types(
+        self, validation_config: ValidationConfig
+    ) -> None:
         """Test validation with empty types list returns success."""
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -376,7 +384,10 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_all_types(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test validation with all valid types."""
         mock_process.returncode = 0
@@ -434,7 +445,10 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_combines_stdout_stderr(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test that validation combines stdout and stderr in output."""
         mock_process.returncode = 0
@@ -456,7 +470,10 @@ class TestRunValidation:
 
     @pytest.mark.asyncio
     async def test_run_validation_mixed_results(
-        self, mock_subprocess_exec: AsyncMock, mock_process: Mock, validation_config: ValidationConfig
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        validation_config: ValidationConfig,
     ) -> None:
         """Test validation with mixed success/failure results."""
         # First call succeeds, second fails
@@ -564,7 +581,9 @@ class TestParseValidationOutput:
             errors.append(f"src/file{i}.py:{i}:1: E501 Error {i}")
         output = "\n".join(errors)
 
-        response = await parse_validation_output.handler({"output": output, "type": "lint"})
+        response = await parse_validation_output.handler(
+            {"output": output, "type": "lint"}
+        )
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -628,7 +647,9 @@ src/b.py:2:2: F401 Unused import
 src/c.py:3:3: W291 Trailing whitespace
 src/d.py:4:4: N802 Function name should be lowercase"""
 
-        response = await parse_validation_output.handler({"output": output, "type": "lint"})
+        response = await parse_validation_output.handler(
+            {"output": output, "type": "lint"}
+        )
         response_data = json.loads(response["content"][0]["text"])
 
         codes = [e["code"] for e in response_data["errors"]]
@@ -642,7 +663,9 @@ src/d.py:4:4: N802 Function name should be lowercase"""
 
         output = "src/foo.py:10: error: Some error without code"
 
-        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
+        response = await parse_validation_output.handler(
+            {"output": output, "type": "typecheck"}
+        )
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -656,7 +679,9 @@ src/d.py:4:4: N802 Function name should be lowercase"""
 
         output = "src/foo.py:10: error: Type error [type-arg]"
 
-        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
+        response = await parse_validation_output.handler(
+            {"output": output, "type": "typecheck"}
+        )
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -880,10 +905,9 @@ class TestValidationIntegration:
             project_root=tmp_path,
         )
 
-        mock_process.communicate = AsyncMock(side_effect=[
-            asyncio.TimeoutError,
-            (b"", b"timeout")
-        ])
+        mock_process.communicate = AsyncMock(
+            side_effect=[asyncio.TimeoutError, (b"", b"timeout")]
+        )
         mock_process.kill = Mock()
 
         server = create_validation_tools_server(config=config)

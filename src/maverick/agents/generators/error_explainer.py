@@ -3,6 +3,7 @@
 This module provides the ErrorExplainer generator that translates cryptic error
 output into actionable guidance with structured explanations.
 """
+
 from __future__ import annotations
 
 import logging

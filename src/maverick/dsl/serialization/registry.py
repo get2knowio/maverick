@@ -33,9 +33,9 @@ AgentType: TypeAlias = type["MaverickAgent[Any, Any]"]
 GeneratorType: TypeAlias = type["MaverickAgent[Any, Any]"]
 # Context builders can be sync or async functions returning dict[str, Any]
 # For async functions, the callable returns a Coroutine when invoked
-ContextBuilderType: TypeAlias = Callable[..., dict[str, Any]] | Callable[
-    ..., Coroutine[Any, Any, dict[str, Any]]
-]
+ContextBuilderType: TypeAlias = (
+    Callable[..., dict[str, Any]] | Callable[..., Coroutine[Any, Any, dict[str, Any]]]
+)
 WorkflowType: TypeAlias = "WorkflowDefinition"
 
 

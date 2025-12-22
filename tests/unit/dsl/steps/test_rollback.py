@@ -61,6 +61,7 @@ class TestRollbackStep:
         mock = MockStep(name="create_resource", output="resource_id")
 
         rollback_called = []
+
         def cleanup(ctx):
             rollback_called.append(True)
 
@@ -80,6 +81,7 @@ class TestRollbackStep:
         mock = MockStep(name="create_resource", should_fail=True)
 
         rollback_called = []
+
         def cleanup(ctx):
             rollback_called.append(True)
 

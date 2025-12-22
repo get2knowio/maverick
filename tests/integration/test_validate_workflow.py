@@ -379,7 +379,11 @@ class TestValidateWorkflowEdgeCases:
             "success": False,
             "passed": False,
             "stages": [
-                {"stage": "typecheck", "success": False, "error": "Type error on line 42"}
+                {
+                    "stage": "typecheck",
+                    "success": False,
+                    "error": "Type error on line 42",
+                }
             ],
         }
 

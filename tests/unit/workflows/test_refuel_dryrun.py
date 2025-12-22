@@ -78,8 +78,12 @@ class TestRefuelWorkflowDryRun:
         assert started_events[0].issues_found == 2
 
         # Verify issue processing events
-        processing_started = [e for e in events if isinstance(e, IssueProcessingStarted)]
-        processing_completed = [e for e in events if isinstance(e, IssueProcessingCompleted)]
+        processing_started = [
+            e for e in events if isinstance(e, IssueProcessingStarted)
+        ]
+        processing_completed = [
+            e for e in events if isinstance(e, IssueProcessingCompleted)
+        ]
 
         assert len(processing_started) == 2
         assert len(processing_completed) == 2

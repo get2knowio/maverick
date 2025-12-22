@@ -22,7 +22,7 @@ class TestConfigLoadingIntegration:
         user_config_dir = temp_dir / ".config" / "maverick"
         user_config_dir.mkdir(parents=True)
         user_config_path = user_config_dir / "config.yaml"
-        user_config_path.write_text('''
+        user_config_path.write_text("""
 github:
   owner: "user-level-org"
 notifications:
@@ -31,17 +31,17 @@ model:
   max_tokens: 2048
   temperature: 0.1
 verbosity: "info"
-''')
+""")
 
         # 2. Create project config (overrides some user values)
         project_config_path = temp_dir / "maverick.yaml"
-        project_config_path.write_text('''
+        project_config_path.write_text("""
 github:
   owner: "project-level-org"
   repo: "my-repo"
 model:
   max_tokens: 4096
-''')
+""")
 
         # 3. Set environment variables (highest priority)
         os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "8192"
@@ -69,7 +69,9 @@ model:
         # - parallel.max_agents: default -> 3
         assert config.parallel.max_agents == 3
 
-    def test_defaults_only(self, clean_env: None, temp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_defaults_only(
+        self, clean_env: None, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that defaults work when no config files exist."""
         os.chdir(temp_dir)
         monkeypatch.setattr(Path, "home", lambda: temp_dir)

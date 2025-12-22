@@ -12,12 +12,16 @@ from maverick.runners.validation import ValidationRunner
 
 @pytest.fixture
 def mock_command_result_success():
-    return CommandResult(returncode=0, stdout="OK", stderr="", duration_ms=100, timed_out=False)
+    return CommandResult(
+        returncode=0, stdout="OK", stderr="", duration_ms=100, timed_out=False
+    )
 
 
 @pytest.fixture
 def mock_command_result_failure():
-    return CommandResult(returncode=1, stdout="", stderr="Error", duration_ms=100, timed_out=False)
+    return CommandResult(
+        returncode=1, stdout="", stderr="Error", duration_ms=100, timed_out=False
+    )
 
 
 class TestValidationRunner:
@@ -43,7 +47,9 @@ class TestValidationRunner:
         assert output.stages_passed == 2
 
     @pytest.mark.asyncio
-    async def test_stage_failure_stops_execution(self, mock_command_result_success, mock_command_result_failure):
+    async def test_stage_failure_stops_execution(
+        self, mock_command_result_success, mock_command_result_failure
+    ):
         """Test that failure stops subsequent stages."""
         stages = [
             ValidationStage(name="stage1", command=("cmd1",)),
@@ -55,10 +61,12 @@ class TestValidationRunner:
 
         # Mock the CommandRunner instance
         mock_runner = MagicMock()
-        mock_runner.run = AsyncMock(side_effect=[
-            mock_command_result_success,
-            mock_command_result_failure,  # Stage 2 fails
-        ])
+        mock_runner.run = AsyncMock(
+            side_effect=[
+                mock_command_result_success,
+                mock_command_result_failure,  # Stage 2 fails
+            ]
+        )
         runner._command_runner = mock_runner
 
         output = await runner.run()
@@ -68,7 +76,9 @@ class TestValidationRunner:
         assert output.stages_passed == 1
 
     @pytest.mark.asyncio
-    async def test_fixable_stage_retry(self, mock_command_result_success, mock_command_result_failure):
+    async def test_fixable_stage_retry(
+        self, mock_command_result_success, mock_command_result_failure
+    ):
         """Test fixable stage runs fix command and retries."""
         stages = [
             ValidationStage(
@@ -84,11 +94,13 @@ class TestValidationRunner:
         # Mock the CommandRunner instance
         mock_runner = MagicMock()
         # First check fails, fix runs, second check passes
-        mock_runner.run = AsyncMock(side_effect=[
-            mock_command_result_failure,  # Initial check fails
-            mock_command_result_success,  # Fix command
-            mock_command_result_success,  # Re-check passes
-        ])
+        mock_runner.run = AsyncMock(
+            side_effect=[
+                mock_command_result_failure,  # Initial check fails
+                mock_command_result_success,  # Fix command
+                mock_command_result_success,  # Re-check passes
+            ]
+        )
         runner._command_runner = mock_runner
 
         output = await runner.run()
@@ -108,11 +120,11 @@ class TestValidationRunner:
 
         # Mock CommandRunner to return traceback output
         # Format the traceback so the error pattern can match it
-        traceback_output = '''Traceback (most recent call last):
+        traceback_output = """Traceback (most recent call last):
   File "test.py", line 42, in test_function
     raise ValueError("test error")
 ValueError: test error
-'''
+"""
         mock_result = CommandResult(
             returncode=1,
             stdout=traceback_output,

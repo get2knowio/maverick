@@ -1,4 +1,5 @@
 """Unit tests for AgentUsage and AgentResult dataclasses."""
+
 from __future__ import annotations
 
 import pytest

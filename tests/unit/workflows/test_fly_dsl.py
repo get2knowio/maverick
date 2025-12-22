@@ -385,9 +385,17 @@ class TestResultConstruction:
 
         # Add usage records
         from maverick.agents.result import AgentUsage
+
         workflow._usage_records = [
-            AgentUsage(input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=500),
-            AgentUsage(input_tokens=200, output_tokens=100, total_cost_usd=0.02, duration_ms=800),
+            AgentUsage(
+                input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=500
+            ),
+            AgentUsage(
+                input_tokens=200,
+                output_tokens=100,
+                total_cost_usd=0.02,
+                duration_ms=800,
+            ),
         ]
 
         workflow._state = MagicMock()
@@ -438,7 +446,10 @@ class TestDSLExecutionErrorHandling:
             # Should emit FlyWorkflowFailed event
             assert len(events) > 0
             assert isinstance(events[-1], FlyWorkflowFailed)
-            assert "Parse error" in events[-1].error or "DSL workflow execution failed" in events[-1].error
+            assert (
+                "Parse error" in events[-1].error
+                or "DSL workflow execution failed" in events[-1].error
+            )
 
     @pytest.mark.asyncio
     async def test_handles_executor_error(self, tmp_path: Path) -> None:

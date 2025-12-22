@@ -100,8 +100,8 @@ class TestSettingsScreenInitialization:
             save_btn = app.query_one("#save-btn", Button)
             cancel_btn = app.query_one("#cancel-btn", Button)
 
-            assert save_btn.label == "Save"
-            assert cancel_btn.label == "Cancel"
+            assert save_btn.label.plain == "Save"
+            assert cancel_btn.label.plain == "Cancel"
 
     @pytest.mark.asyncio
     async def test_screen_has_test_buttons(self) -> None:
@@ -117,8 +117,8 @@ class TestSettingsScreenInitialization:
             test_github = app.query_one("#test-github-btn", Button)
             test_notification = app.query_one("#test-notification-btn", Button)
 
-            assert test_github.label == "Test Connection"
-            assert test_notification.label == "Test Notification"
+            assert test_github.label.plain == "Test Connection"
+            assert test_notification.label.plain == "Test Notification"
 
 
 class TestSettingsScreenState:

@@ -4,6 +4,7 @@ This module implements the CodeReviewerAgent, which performs automated code revi
 on feature branches by analyzing git diffs and checking for correctness, security,
 style/conventions, performance, and testability issues.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,18 +60,21 @@ DEFAULT_BASE_BRANCH: str = "main"
 # System Prompt
 # =============================================================================
 
-SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development, analyzing pre-gathered code changes.
+SYSTEM_PROMPT = """You are an expert code reviewer specializing in Python development.
+You analyze pre-gathered code changes.
 
 ## Your Role
 
-You analyze code changes that have been provided to you. The orchestration layer handles:
+You analyze code changes that have been provided to you.
+The orchestration layer handles:
 - Retrieving git diffs (already gathered and provided to you)
 - Reading file contents (already gathered and provided to you)
 - Fetching convention guidelines (CLAUDE.md is provided if available)
 
 You focus on:
 - Analyzing the provided diff and file contents
-- Identifying issues across review dimensions (correctness, security, style, performance, testability)
+- Identifying issues across review dimensions
+  (correctness, security, style, performance, testability)
 - Providing structured, actionable findings
 
 Do not attempt to:
@@ -160,7 +164,8 @@ After:
     query = "SELECT * FROM users WHERE id = %s"
     cursor.execute(query, [user_id])
 
-This prevents SQL injection by using parameterized queries. See OWASP SQL Injection Prevention Cheat Sheet.
+This prevents SQL injection by using parameterized queries.
+See OWASP SQL Injection Prevention Cheat Sheet.
 ```
 
 ## Output Format
@@ -180,10 +185,10 @@ If CLAUDE.md is provided, check code against documented conventions:
 - Testing requirements
 - Error handling patterns
 
-When a finding violates a specific CLAUDE.md convention, populate the `convention_ref`
-field with the section path (e.g., "Code Style > Naming", "Core Principles > Async-First",
-"Architecture > Separation of Concerns"). This helps developers quickly locate the
-relevant documentation.
+When a finding violates a specific CLAUDE.md convention, populate
+the `convention_ref` field with the section path (e.g., "Code Style > Naming",
+"Core Principles > Async-First", "Architecture > Separation of Concerns").
+This helps developers quickly locate the relevant documentation.
 
 If CLAUDE.md is not available, apply general Python best practices.
 """
@@ -389,7 +394,8 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                 file_chunks = self._chunk_files(files_to_review, diff_content)
                 logger.info(
                     f"Review chunking: splitting {len(files_to_review)} files "
-                    f"into {len(file_chunks)} chunks ({estimated_tokens} estimated tokens)"
+                    f"into {len(file_chunks)} chunks "
+                    f"({estimated_tokens} estimated tokens)"
                 )
 
                 # Review each chunk separately and merge findings
@@ -398,7 +404,9 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                     logger.debug(f"Reviewing chunk {chunk_idx + 1}/{len(file_chunks)}")
 
                     # Get diff for this chunk
-                    chunk_diff = await self._get_diff_content(review_context, file_chunk)
+                    chunk_diff = await self._get_diff_content(
+                        review_context, file_chunk
+                    )
 
                     # Build prompt for this chunk
                     chunk_prompt = self._build_review_prompt(chunk_diff, conventions)
@@ -448,7 +456,8 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                 summary = f"Reviewed {len(files_to_review)} files, no issues found"
             else:
                 parts = [f"Reviewed {len(files_to_review)} files"]
-                parts.append(f"found {total_issues} issue{'s' if total_issues != 1 else ''}")
+                issue_word = "issues" if total_issues != 1 else "issue"
+                parts.append(f"found {total_issues} {issue_word}")
 
                 # Add severity breakdown
                 severity_parts = []
@@ -465,9 +474,9 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                         f"{severity_counts[ReviewSeverity.MINOR]} minor"
                     )
                 if severity_counts[ReviewSeverity.SUGGESTION] > 0:
-                    severity_parts.append(
-                        f"{severity_counts[ReviewSeverity.SUGGESTION]} suggestion{'s' if severity_counts[ReviewSeverity.SUGGESTION] != 1 else ''}"
-                    )
+                    count = severity_counts[ReviewSeverity.SUGGESTION]
+                    word = "suggestions" if count != 1 else "suggestion"
+                    severity_parts.append(f"{count} {word}")
 
                 if severity_parts:
                     parts.append(f"({', '.join(severity_parts)})")
@@ -502,7 +511,11 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
             # T045: Extract usage stats from messages and convert to UsageStats
             # For chunked reviews, messages is empty (no single usage to track)
             agent_usage = self._extract_usage(messages)
-            usage_stats = self._convert_to_usage_stats(agent_usage, duration_ms) if agent_usage else None
+            usage_stats = (
+                self._convert_to_usage_stats(agent_usage, duration_ms)
+                if agent_usage
+                else None
+            )
 
             # Get response_text for output (may be empty for chunked reviews)
             output_text = response_text if not chunks_used else ""
@@ -825,37 +838,42 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
 
         # Add conventions section if available (T036)
         if conventions:
-            prompt_parts.extend([
-                "\n## Project Conventions (CLAUDE.md)\n",
-                "Please check the code against these project conventions:\n",
-                "```markdown",
-                conventions,
-                "```\n",
-                "\nWhen a finding violates a specific CLAUDE.md convention, populate the "
-                "`convention_ref` field with the section path from CLAUDE.md.\n",
-                "Examples:\n",
-                "- 'Code Style > Naming' for naming convention violations\n",
-                "- 'Core Principles > Async-First' for async/sync violations\n",
-                "- 'Architecture > Separation of Concerns' for architectural issues\n",
-                "- 'Technology Stack' for dependency or tool violations\n",
-            ])
+            prompt_parts.extend(
+                [
+                    "\n## Project Conventions (CLAUDE.md)\n",
+                    "Please check the code against these project conventions:\n",
+                    "```markdown",
+                    conventions,
+                    "```\n",
+                    "\nWhen a finding violates a specific CLAUDE.md convention, "
+                    "populate the `convention_ref` field with the section path "
+                    "from CLAUDE.md.\n",
+                    "Examples:\n",
+                    "- 'Code Style > Naming' for naming convention violations\n",
+                    "- 'Core Principles > Async-First' for async/sync violations\n",
+                    "- 'Architecture > Separation of Concerns' for architecture\n",
+                    "- 'Technology Stack' for dependency or tool violations\n",
+                ]
+            )
 
         # Add JSON schema instruction
         schema = ReviewResult.model_json_schema()
-        prompt_parts.extend([
-            "\n## Output Format\n",
-            "Return your findings as a JSON object matching this schema:\n",
-            "```json",
-            json.dumps(schema, indent=2),
-            "```\n",
-            "\nProvide your response as valid JSON only, with:",
-            "- `success`: true if review completed",
-            "- `findings`: array of ReviewFinding objects",
-            "- `files_reviewed`: count of files analyzed",
-            "- `summary`: brief summary of the review outcome",
-            "\nEach finding must include: severity, file, line (optional), "
-            "message, and suggestion.",
-        ])
+        prompt_parts.extend(
+            [
+                "\n## Output Format\n",
+                "Return your findings as a JSON object matching this schema:\n",
+                "```json",
+                json.dumps(schema, indent=2),
+                "```\n",
+                "\nProvide your response as valid JSON only, with:",
+                "- `success`: true if review completed",
+                "- `findings`: array of ReviewFinding objects",
+                "- `files_reviewed`: count of files analyzed",
+                "- `summary`: brief summary of the review outcome",
+                "\nEach finding must include: severity, file, line (optional), "
+                "message, and suggestion.",
+            ]
+        )
 
         return "\n".join(prompt_parts)
 
@@ -1136,17 +1154,19 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
         for file_path in files:
             # Extract this file's diff section (heuristic: find the file's diff block)
             # This is approximate - we estimate based on the full diff content
-            file_pattern = rf"diff --git a/{re.escape(file_path)} b/{re.escape(file_path)}"
+            escaped_path = re.escape(file_path)
+            file_pattern = rf"diff --git a/{escaped_path} b/{escaped_path}"
             file_match = re.search(file_pattern, diff_content)
 
             if file_match:
                 # Find next file or end of diff
                 start_pos = file_match.start()
                 next_file_pattern = r"diff --git a/"
-                next_match = re.search(next_file_pattern, diff_content[start_pos + 1:])
+                next_match = re.search(next_file_pattern, diff_content[start_pos + 1 :])
 
                 if next_match:
-                    file_diff = diff_content[start_pos:start_pos + 1 + next_match.start()]
+                    end_pos = start_pos + 1 + next_match.start()
+                    file_diff = diff_content[start_pos:end_pos]
                 else:
                     file_diff = diff_content[start_pos:]
 

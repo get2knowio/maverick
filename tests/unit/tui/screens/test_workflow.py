@@ -5,6 +5,7 @@ uses TYPE_CHECKING imports for MaverickApp, which causes runtime NameErrors in t
 isinstance checks. These tests focus on testing the business logic that can be
 tested without triggering those runtime checks.
 """
+
 from __future__ import annotations
 
 from maverick.tui.screens.workflow import WorkflowScreen

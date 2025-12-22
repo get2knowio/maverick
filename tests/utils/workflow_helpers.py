@@ -3,6 +3,7 @@
 This module provides utilities for testing workflow execution, particularly
 for capturing progress events and validating workflow behavior.
 """
+
 from __future__ import annotations
 
 import time

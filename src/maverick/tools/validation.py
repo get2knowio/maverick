@@ -296,12 +296,15 @@ def create_validation_tools_server(
 
                 # Run command with timeout tracking
                 start_time = time.monotonic()
-                stdout, stderr, return_code, timed_out = (
-                    await _run_command_with_timeout(
-                        cmd,
-                        cwd=_config.project_root,
-                        timeout=float(_config.timeout_seconds),
-                    )
+                (
+                    stdout,
+                    stderr,
+                    return_code,
+                    timed_out,
+                ) = await _run_command_with_timeout(
+                    cmd,
+                    cwd=_config.project_root,
+                    timeout=float(_config.timeout_seconds),
                 )
                 duration_ms = int((time.monotonic() - start_time) * 1000)
 

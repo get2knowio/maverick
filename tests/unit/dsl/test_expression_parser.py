@@ -25,13 +25,15 @@ class TestExpressionKind:
         """Verify enum has expected values."""
         assert ExpressionKind.INPUT_REF == "input_ref"
         assert ExpressionKind.STEP_REF == "step_ref"
+        assert ExpressionKind.LOOP_VAR == "loop_var"
 
     def test_enum_members(self) -> None:
         """Verify all enum members are present."""
         members = list(ExpressionKind)
-        assert len(members) == 2
+        assert len(members) == 3
         assert ExpressionKind.INPUT_REF in members
         assert ExpressionKind.STEP_REF in members
+        assert ExpressionKind.LOOP_VAR in members
 
 
 class TestExpression:

@@ -8,6 +8,7 @@ Tests the enums, dataclasses, and theme constants used in the TUI:
 - Widget state models
 - Theme models and constants
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -1486,7 +1487,8 @@ class TestLogPanelState:
         """Test LogPanelState uses slots for memory efficiency."""
         state = LogPanelState()
 
-        # Mutable dataclasses with slots raise AttributeError when setting new attributes
+        # Mutable dataclasses with slots raise AttributeError when setting
+        # new attributes
         with pytest.raises((AttributeError, TypeError)):
             state.extra_field = "value"  # type: ignore[attr-defined]
 
@@ -2067,9 +2069,7 @@ class TestCodeLocation:
 
     def test_creation_with_all_fields(self) -> None:
         """Test creating CodeLocation with all fields."""
-        location = CodeLocation(
-            file_path="src/utils.py", line_number=10, end_line=20
-        )
+        location = CodeLocation(file_path="src/utils.py", line_number=10, end_line=20)
 
         assert location.file_path == "src/utils.py"
         assert location.line_number == 10
@@ -2088,9 +2088,7 @@ class TestCodeLocation:
 
     def test_multi_line_location(self) -> None:
         """Test multi-line location with end_line."""
-        location = CodeLocation(
-            file_path="src/app.py", line_number=100, end_line=110
-        )
+        location = CodeLocation(file_path="src/app.py", line_number=100, end_line=110)
         assert location.line_number == 100
         assert location.end_line == 110
 
@@ -2647,9 +2645,7 @@ class TestValidationStep:
     def test_different_statuses(self) -> None:
         """Test ValidationStep with different statuses."""
         for status in ValidationStepStatus:
-            step = ValidationStep(
-                name="test", display_name="Test", status=status
-            )
+            step = ValidationStep(name="test", display_name="Test", status=status)
             assert step.status == status
 
     def test_validation_step_is_frozen(self) -> None:
@@ -2932,9 +2928,7 @@ class TestAgentOutputState:
             content="Test",
         )
 
-        state = AgentOutputState(
-            messages=[msg1, msg2, msg3], filter_agent="agent-1"
-        )
+        state = AgentOutputState(messages=[msg1, msg2, msg3], filter_agent="agent-1")
 
         filtered = state.filtered_messages
         assert len(filtered) == 2
@@ -3483,9 +3477,7 @@ class TestPRSummaryState:
             url="https://github.com/org/repo/pull/123",
         )
 
-        state = PRSummaryState(
-            pr=pr, description_expanded=True, loading=False
-        )
+        state = PRSummaryState(pr=pr, description_expanded=True, loading=False)
 
         assert state.pr == pr
         assert state.description_expanded is True

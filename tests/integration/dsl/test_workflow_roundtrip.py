@@ -103,7 +103,10 @@ steps:
 
         assert "repo_name" in reparsed.inputs
         assert reparsed.inputs["repo_name"].type == workflow.inputs["repo_name"].type
-        assert reparsed.inputs["repo_name"].required == workflow.inputs["repo_name"].required
+        assert (
+            reparsed.inputs["repo_name"].required
+            == workflow.inputs["repo_name"].required
+        )
         assert reparsed.inputs["dry_run"].default == workflow.inputs["dry_run"].default
 
 

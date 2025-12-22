@@ -344,8 +344,8 @@ class FlyWorkflow:
         """Translate DSL progress events to FlyProgressEvent types.
 
         NOTE: This method has a duplicated pattern with RefuelWorkflow._translate_event.
-        Consider extracting to a shared base class or helper when refactoring refuel.py.
-        The common pattern is: DSL event type checking + input extraction + event mapping.
+        Consider extracting to a shared base class or helper when refactoring.
+        The common pattern is: DSL event type check + input extraction + event map.
 
         Maps DSL events to corresponding Fly workflow events based on step metadata
         and event types. Returns None for events that don't map to Fly events.
@@ -361,7 +361,11 @@ class FlyWorkflow:
             # Extract inputs from DSL event
             fly_inputs = FlyInputs(
                 branch_name=event.inputs.get("branch_name", "unknown"),
-                task_file=Path(event.inputs["task_file"]) if "task_file" in event.inputs else None,
+                task_file=(
+                    Path(event.inputs["task_file"])
+                    if "task_file" in event.inputs
+                    else None
+                ),
                 skip_review=event.inputs.get("skip_review", False),
                 skip_pr=event.inputs.get("skip_pr", False),
                 draft_pr=event.inputs.get("draft_pr", False),
@@ -383,8 +387,13 @@ class FlyWorkflow:
             stage = DSL_STEP_TO_STAGE.get(event.step_name)
             if stage:
                 # Result depends on the step
-                result: Any = {"success": event.success, "duration_ms": event.duration_ms}
-                return FlyStageCompleted(stage=stage, result=result, timestamp=event.timestamp)
+                result: Any = {
+                    "success": event.success,
+                    "duration_ms": event.duration_ms,
+                }
+                return FlyStageCompleted(
+                    stage=stage, result=result, timestamp=event.timestamp
+                )
 
         # WorkflowCompleted is handled separately in execute()
         return None
@@ -406,7 +415,9 @@ class FlyWorkflow:
             FlyResult instance with workflow outcome.
         """
         # Determine final stage based on workflow success
-        final_stage = WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
+        final_stage = (
+            WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
+        )
 
         # Build state from workflow result
         state = WorkflowState(
@@ -437,7 +448,12 @@ class FlyWorkflow:
             if state.pr_url:
                 summary += f". PR: {state.pr_url}"
         else:
-            summary = f"Fly workflow failed at step: {workflow_result.failed_step.name if workflow_result.failed_step else 'unknown'}"
+            failed_name = (
+                workflow_result.failed_step.name
+                if workflow_result.failed_step
+                else "unknown"
+            )
+            summary = f"Fly workflow failed at step: {failed_name}"
 
         # Create result
         return FlyResult(
@@ -482,7 +498,8 @@ class FlyWorkflow:
                     workflow_inputs["task_file"] = str(workflow_inputs["task_file"])
 
                 # Execute workflow and translate events
-                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
+                execution = self._executor.execute(workflow, inputs=workflow_inputs)
+                async for event in execution:
                     # Translate DSL events to FlyProgressEvent
                     fly_event = self._translate_event(event)
                     if fly_event:
@@ -529,6 +546,7 @@ class FlyWorkflow:
                 if self._git_runner is None:
                     try:
                         from maverick.runners.git import GitRunner
+
                         self._git_runner = GitRunner()
                     except Exception as e:
                         error_msg = f"Failed to initialize GitRunner: {e}"
@@ -581,7 +599,7 @@ class FlyWorkflow:
 
             yield FlyStageCompleted(
                 stage=WorkflowStage.INIT,
-                result={"branch": actual_branch, "tasks": tasks}
+                result={"branch": actual_branch, "tasks": tasks},
             )
 
             # IMPLEMENTATION Stage
@@ -599,7 +617,7 @@ class FlyWorkflow:
                     try:
                         # Agent may be mock or real - handle both cases
                         impl_result = await self._implementer_agent.execute()  # type: ignore[call-arg]
-                        if hasattr(impl_result, 'usage') and impl_result.usage:
+                        if hasattr(impl_result, "usage") and impl_result.usage:
                             self._usage_records.append(impl_result.usage)
                         self._state.implementation_result = impl_result
                     except Exception as e:
@@ -609,7 +627,7 @@ class FlyWorkflow:
 
             yield FlyStageCompleted(
                 stage=WorkflowStage.IMPLEMENTATION,
-                result=self._state.implementation_result
+                result=self._state.implementation_result,
             )
 
             # VALIDATION Stage (FR-007, FR-008, FR-009)
@@ -682,8 +700,7 @@ class FlyWorkflow:
                         )
 
             yield FlyStageCompleted(
-                stage=WorkflowStage.VALIDATION,
-                result=self._state.validation_result
+                stage=WorkflowStage.VALIDATION, result=self._state.validation_result
             )
 
             # CODE_REVIEW Stage
@@ -711,15 +728,14 @@ class FlyWorkflow:
                         try:
                             # Agent may be mock or real - handle both cases
                             review_result = await self._code_reviewer_agent.execute()  # type: ignore[call-arg]
-                            if hasattr(review_result, 'usage') and review_result.usage:
+                            if hasattr(review_result, "usage") and review_result.usage:
                                 self._usage_records.append(review_result.usage)
                             self._state.review_results.append(review_result)
                         except Exception as e:
                             logger.warning(f"Code review failed: {e}")
 
                 yield FlyStageCompleted(
-                    stage=WorkflowStage.CODE_REVIEW,
-                    result=self._state.review_results
+                    stage=WorkflowStage.CODE_REVIEW, result=self._state.review_results
                 )
 
             # Commit Stage - create commit with all changes
@@ -746,10 +762,12 @@ class FlyWorkflow:
                 # Generate commit message
                 if self._commit_generator is not None and diff_output:
                     try:
-                        commit_message = await self._commit_generator.generate({
-                            "diff": diff_output,
-                            "file_stats": {},
-                        })
+                        commit_message = await self._commit_generator.generate(
+                            {
+                                "diff": diff_output,
+                                "file_stats": {},
+                            }
+                        )
                     except Exception as e:
                         logger.warning(f"Commit message generation failed: {e}")
 
@@ -797,14 +815,16 @@ class FlyWorkflow:
             else:
                 if self._pr_generator is not None:
                     try:
-                        pr_body = await self._pr_generator.generate({
-                            "commits": [commit_message] if commit_message else [],
-                            "task_summary": f"Feature branch: {actual_branch}",
-                            "validation_results": {
-                                "passed": validation_passed,
-                                "failures": self._state.errors,
-                            },
-                        })
+                        pr_body = await self._pr_generator.generate(
+                            {
+                                "commits": [commit_message] if commit_message else [],
+                                "task_summary": f"Feature branch: {actual_branch}",
+                                "validation_results": {
+                                    "passed": validation_passed,
+                                    "failures": self._state.errors,
+                                },
+                            }
+                        )
                     except Exception as e:
                         logger.warning(f"PR description generation failed: {e}")
 
@@ -830,8 +850,7 @@ class FlyWorkflow:
                         logger.error(error_msg)
 
             yield FlyStageCompleted(
-                stage=WorkflowStage.PR_CREATION,
-                result={"pr_url": pr_url}
+                stage=WorkflowStage.PR_CREATION, result={"pr_url": pr_url}
             )
 
             # COMPLETE Stage
@@ -839,8 +858,7 @@ class FlyWorkflow:
             self._state.completed_at = datetime.now()
 
             summary = (
-                f"Workflow completed. PR: {pr_url}" if pr_url
-                else "Workflow completed"
+                f"Workflow completed. PR: {pr_url}" if pr_url else "Workflow completed"
             )
             self._result = FlyResult(
                 success=validation_passed and len(self._state.errors) == 0,

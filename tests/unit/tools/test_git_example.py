@@ -7,6 +7,7 @@ This file demonstrates best practices for testing MCP tools in Maverick:
 
 Use this as a reference when writing tests for other MCP tools.
 """
+
 from __future__ import annotations
 
 import json
@@ -180,9 +181,9 @@ class TestGitToolPatterns:
         server = create_git_tools_server()
         git_diff_stats = server["tools"]["git_diff_stats"]
 
-        # Call the tool
+        # Call the tool via handler
         with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
-            response = await git_diff_stats({})
+            response = await git_diff_stats.handler({})
 
         # Parse MCP response
         assert "content" in response
@@ -222,9 +223,9 @@ class TestGitToolPatterns:
         server = create_git_tools_server()
         git_current_branch = server["tools"]["git_current_branch"]
 
-        # Call the tool
+        # Call the tool via handler
         with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
-            response = await git_current_branch({})
+            response = await git_current_branch.handler({})
 
         # Validate error response structure
         assert "content" in response
@@ -237,9 +238,7 @@ class TestGitToolPatterns:
         assert data["error_code"] == "NOT_A_REPOSITORY"
 
     @pytest.mark.asyncio
-    async def test_multiple_subprocess_calls(
-        self, mock_subprocess: MagicMock
-    ) -> None:
+    async def test_multiple_subprocess_calls(self, mock_subprocess: MagicMock) -> None:
         """Demonstrate testing tools that make multiple git calls.
 
         Some tools make multiple subprocess calls (e.g., prerequisite
@@ -273,9 +272,9 @@ class TestGitToolPatterns:
         server = create_git_tools_server()
         git_current_branch = server["tools"]["git_current_branch"]
 
-        # Call the tool
+        # Call the tool via handler
         with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
-            response = await git_current_branch({})
+            response = await git_current_branch.handler({})
 
         # Verify multiple calls were made
         assert call_count >= 3  # version + git-dir check + actual command

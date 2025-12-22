@@ -317,7 +317,9 @@ class TestRefuelWorkflowIntegration:
                     mock_workflow.execute = mock_execute_gen
 
                     # Run refuel command
-                    result = runner.invoke(cli, ["refuel", "--label", "bug", "--limit", "2"])
+                    result = runner.invoke(
+                        cli, ["refuel", "--label", "bug", "--limit", "2"]
+                    )
 
                     # Verify
                     assert result.exit_code == ExitCode.SUCCESS
@@ -358,7 +360,9 @@ class TestRefuelWorkflowIntegration:
                     )
 
                     async def mock_execute_gen(inputs):
-                        mock_inputs = RefuelInputs(label="tech-debt", limit=5, dry_run=True)
+                        mock_inputs = RefuelInputs(
+                            label="tech-debt", limit=5, dry_run=True
+                        )
                         yield RefuelStarted(inputs=mock_inputs, issues_found=0)
                         yield RefuelCompleted(
                             result=RefuelResult(
@@ -506,7 +510,9 @@ class TestReviewCommandIntegration:
                     mock_agent.execute.return_value = mock_result
 
                     # Run review command with markdown output
-                    result = runner.invoke(cli, ["review", "123", "--output", "markdown"])
+                    result = runner.invoke(
+                        cli, ["review", "123", "--output", "markdown"]
+                    )
 
                     # Verify
                     assert result.exit_code == ExitCode.SUCCESS
@@ -727,9 +733,9 @@ class TestCLIStartupPerformance:
             assert result.exit_code == 0
             # Note: CliRunner has overhead, so we allow for a bit more time
             # In production, this should be measured directly
-            assert (
-                duration_ms < 1000
-            ), f"CLI startup took {duration_ms:.2f}ms (expected <1000ms in test)"
+            assert duration_ms < 1000, (
+                f"CLI startup took {duration_ms:.2f}ms (expected <1000ms in test)"
+            )
 
     def test_cli_version_startup_time(
         self,

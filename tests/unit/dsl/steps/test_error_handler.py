@@ -75,9 +75,7 @@ class TestErrorHandlerStep:
         assert result.output == "fallback_output"
 
     # T045: fallback fails
-    async def test_fallback_fails(
-        self, workflow_context: WorkflowContext
-    ) -> None:
+    async def test_fallback_fails(self, workflow_context: WorkflowContext) -> None:
         """When both primary and fallback fail, result should be failure."""
         primary = MockStep(name="primary", should_fail=True)
         fallback = MockStep(name="fallback", should_fail=True)

