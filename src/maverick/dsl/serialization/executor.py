@@ -165,11 +165,11 @@ class WorkflowFileExecutor:
                 current_inputs_hash = compute_inputs_hash(inputs)
                 if current_inputs_hash != checkpoint_data.inputs_hash:
                     raise ValueError(
-                        f"Cannot resume workflow '{workflow.name}': "
-                        f"Current inputs differ from checkpoint inputs. "
-                        f"Expected hash {checkpoint_data.inputs_hash}, "
-                        f"got {current_inputs_hash}. "
-                        f"Checkpoint was saved at {checkpoint_data.saved_at}."
+                        f"Cannot resume workflow '{workflow.name}' from checkpoint "
+                        f"'{checkpoint_data.checkpoint_id}': Current workflow inputs differ "
+                        f"from checkpoint inputs. To resume, use the same inputs as the "
+                        f"original run. Checkpoint was saved at {checkpoint_data.saved_at}. "
+                        f"Use `maverick workflow run {workflow.name} --help` to see required inputs."
                     )
                 
                 resume_after_step = checkpoint_data.checkpoint_id
@@ -969,10 +969,13 @@ class WorkflowFileExecutor:
         try:
             await self._checkpoint_store.save(workflow_name, checkpoint_data)
             logger.info(
-                f"Checkpoint saved: {checkpoint_id} for workflow {workflow_name}"
+                f"Checkpoint '{checkpoint_id}' saved for workflow '{workflow_name}'"
             )
         except Exception as e:
-            logger.error(f"Failed to save checkpoint {checkpoint_id}: {e}")
+            logger.error(
+                f"Failed to save checkpoint '{checkpoint_id}' for workflow "
+                f"'{workflow_name}': {e}"
+            )
             # Don't fail workflow on checkpoint save error (best effort)
 
         return {
