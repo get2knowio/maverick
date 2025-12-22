@@ -25,6 +25,7 @@ __all__ = [
     "ValidationConfig",
     "ModelConfig",
     "ParallelConfig",
+    "TuiMetricsConfig",
     "AgentConfig",
     "FlyConfig",
     "RefuelConfig",
@@ -108,6 +109,18 @@ class ParallelConfig(BaseModel):
     max_tasks: int = Field(default=5, gt=0, le=20)
 
 
+class TuiMetricsConfig(BaseModel):
+    """Settings for TUI widget performance metrics.
+
+    Attributes:
+        enabled: Enable widget metrics collection (opt-in, default: False).
+        max_entries: Maximum entries in rolling window per metric type.
+    """
+
+    enabled: bool = False
+    max_entries: int = Field(default=10000, ge=100, le=1000000)
+
+
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
@@ -171,6 +184,7 @@ class MaverickConfig(BaseSettings):
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
+    tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
     fly: FlyConfig = Field(default_factory=FlyConfig)
     refuel: RefuelConfig = Field(default_factory=RefuelConfig)

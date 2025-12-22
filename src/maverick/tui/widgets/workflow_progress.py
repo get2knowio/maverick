@@ -12,6 +12,7 @@ Features:
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -23,6 +24,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Collapsible, Label, LoadingIndicator, Static
 
+from maverick.tui.metrics import widget_metrics
 from maverick.tui.models import StageStatus, WorkflowProgressState, WorkflowStage
 
 # =============================================================================
@@ -126,6 +128,9 @@ class WorkflowProgress(Widget):
         Args:
             stages: Sequence of WorkflowStage objects in display order.
         """
+        # Track message throughput (stage updates)
+        widget_metrics.record_message("WorkflowProgress")
+
         self.state = replace(self.state, stages=tuple(stages))
         self._rebuild_stages()
 
@@ -206,6 +211,9 @@ class WorkflowProgress(Widget):
 
     def _rebuild_stages(self) -> None:
         """Rebuild the stages display."""
+        # Track render time
+        start_time = time.perf_counter() if widget_metrics.enabled else 0.0
+
         try:
             container = self.query_one("#workflow-progress-container", VerticalScroll)
         except Exception:
@@ -231,6 +239,11 @@ class WorkflowProgress(Widget):
         # Build stage widgets
         for stage in self.state.stages:
             container.mount(self._create_stage_widget(stage))
+
+        # Record render time
+        if widget_metrics.enabled:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            widget_metrics.record_render("WorkflowProgress", duration_ms)
 
     def _create_stage_widget(self, stage: WorkflowStage) -> Widget:
         """Create a widget for a single stage.

@@ -1081,6 +1081,9 @@ class AgentOutputState:
         auto_scroll: Whether to auto-scroll on new messages.
         search_query: Current search filter text.
         search_matches: Indices of messages matching search.
+        match_positions: List of (message_index, char_offset) for each match.
+        current_match_index: Index of currently highlighted match in match_positions.
+        total_matches: Count of all matches.
         filter_agent: Filter to specific agent ID.
         filter_message_type: Filter to specific message type.
         truncated: Whether old messages were discarded.
@@ -1091,6 +1094,9 @@ class AgentOutputState:
     auto_scroll: bool = True
     search_query: str | None = None
     search_matches: list[int] = field(default_factory=list)
+    match_positions: list[tuple[int, int]] = field(default_factory=list)
+    current_match_index: int = -1
+    total_matches: int = 0
     filter_agent: str | None = None
     filter_message_type: MessageType | None = None
     truncated: bool = False

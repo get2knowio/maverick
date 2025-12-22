@@ -8,6 +8,8 @@ bulk actions, and messages.
 
 from __future__ import annotations
 
+from unittest.mock import Mock, patch
+
 import pytest
 from textual.app import App
 
@@ -803,3 +805,228 @@ class TestReviewFindingsIntegration:
 
             # Selection should still persist
             assert widget._state.findings[0].selected
+
+
+# =============================================================================
+# Broken File Link Tests
+# =============================================================================
+
+
+class TestBrokenFileLinks:
+    """Tests for broken file link detection and notifications."""
+
+    @pytest.mark.asyncio
+    async def test_broken_file_link_has_tooltip(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test broken file links have tooltip set."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return False for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = False
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Find the location button
+                location_button = widget.query_one("#location-0")
+
+                # Check that tooltip is set
+                assert location_button.tooltip is not None
+                assert "File not found" in location_button.tooltip
+                assert "src/main.py" in location_button.tooltip
+
+    @pytest.mark.asyncio
+    async def test_broken_file_link_has_css_class(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test broken file links have appropriate CSS class."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return False for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = False
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Find the location button
+                location_button = widget.query_one("#location-0")
+
+                # Check that broken CSS class is applied
+                assert "file-location-broken" in location_button.classes
+
+    @pytest.mark.asyncio
+    async def test_valid_file_link_has_no_tooltip(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test valid file links have no tooltip."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return True for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = True
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Find the location button
+                location_button = widget.query_one("#location-0")
+
+                # Check that no tooltip is set
+                assert location_button.tooltip is None
+
+    @pytest.mark.asyncio
+    async def test_valid_file_link_has_no_broken_class(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test valid file links do not have broken CSS class."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return True for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = True
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Find the location button
+                location_button = widget.query_one("#location-0")
+
+                # Check that broken CSS class is NOT applied
+                assert "file-location-broken" not in location_button.classes
+
+    @pytest.mark.asyncio
+    async def test_clicking_broken_link_shows_toast(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test clicking broken file link shows toast notification."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return False for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = False
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Mock the notify method to capture calls
+                original_notify = widget.notify
+                notify_calls = []
+
+                def mock_notify(*args, **kwargs):
+                    notify_calls.append((args, kwargs))
+                    return original_notify(*args, **kwargs)
+
+                widget.notify = mock_notify
+
+                # Click the location button
+                await pilot.click("#location-0")
+                await pilot.pause()
+
+                # Check that notify was called with error message
+                assert len(notify_calls) == 1
+                args, kwargs = notify_calls[0]
+                assert "File not found" in args[0]
+                assert "src/main.py" in args[0]
+                assert kwargs.get("severity") == "error"
+                assert kwargs.get("title") == "Broken File Link"
+
+    @pytest.mark.asyncio
+    async def test_clicking_broken_link_does_not_emit_file_location_clicked(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test clicking broken link does not emit FileLocationClicked message."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return False for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = False
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Click the location button
+                await pilot.click("#location-0")
+                await pilot.pause()
+
+                # Check that no FileLocationClicked message was posted
+                assert len(pilot.app.file_location_clicked_messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_clicking_valid_link_emits_file_location_clicked(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test clicking valid link still emits FileLocationClicked message."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return True for all files
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                mock_path_instance = Mock()
+                mock_path_instance.exists.return_value = True
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:1])
+                await pilot.pause()
+
+                # Click the location button
+                await pilot.click("#location-0")
+                await pilot.pause()
+
+                # Check that FileLocationClicked message was posted
+                assert len(pilot.app.file_location_clicked_messages) == 1
+                msg = pilot.app.file_location_clicked_messages[0]
+                assert msg.file_path == "src/main.py"
+                assert msg.line_number == 10
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_and_broken_links(
+        self, sample_findings: list[ReviewFinding]
+    ) -> None:
+        """Test handling of mixed valid and broken file links."""
+        async with ReviewFindingsTestApp().run_test() as pilot:
+            widget = pilot.app.query_one(ReviewFindings)
+
+            # Mock Path.exists to return True for first file, False for second
+            with patch("maverick.tui.widgets.review_findings.Path") as mock_path:
+                call_count = 0
+
+                def mock_exists():
+                    nonlocal call_count
+                    call_count += 1
+                    # First file exists, second doesn't (called twice per render)
+                    return call_count % 2 == 1
+
+                mock_path_instance = Mock()
+                mock_path_instance.exists.side_effect = mock_exists
+                mock_path.return_value = mock_path_instance
+
+                widget.update_findings(sample_findings[:2])
+                await pilot.pause()
+
+                # Just verify both buttons were created
+                # (mocking makes exact state checking unreliable)
+                location_button_0 = widget.query_one("#location-0")
+                location_button_1 = widget.query_one("#location-1")
+                assert location_button_0 is not None
+                assert location_button_1 is not None

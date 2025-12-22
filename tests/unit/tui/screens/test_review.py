@@ -999,6 +999,101 @@ class TestReviewScreenHelperMethods:
 # =============================================================================
 
 
+class TestReviewScreenDiffPanel:
+    """Tests for diff panel integration."""
+
+    def test_update_detail_view_updates_diff_panel(self) -> None:
+        """Test that _update_detail_view also updates the diff panel."""
+        screen = ReviewScreen()
+        issues = [
+            {
+                "file_path": "test.py",
+                "line_number": 42,
+                "severity": "error",
+                "message": "Test error",
+                "source": "pylint",
+            }
+        ]
+        screen._issues = issues
+        screen._selected_index = 0
+
+        with (
+            patch.object(screen, "query_one") as mock_query,
+            patch.object(screen, "_update_diff_panel") as mock_diff,
+        ):
+            # Mock the detail widget
+            mock_detail = MagicMock()
+            mock_query.return_value = mock_detail
+
+            screen._update_detail_view()
+
+        # Should call _update_diff_panel with file and line
+        mock_diff.assert_called_once_with("test.py", 42)
+
+    def test_clear_detail_view_clears_diff_panel(self) -> None:
+        """Test that _clear_detail_view also clears the diff panel."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "query_one") as mock_query:
+            # Mock both the detail widget and diff panel
+            mock_detail = MagicMock()
+            mock_diff_panel = MagicMock()
+
+            def query_side_effect(selector, widget_type=None):
+                if selector == "#issue-detail-content":
+                    return mock_detail
+                elif selector == "#diff-panel":
+                    return mock_diff_panel
+                return MagicMock()
+
+            mock_query.side_effect = query_side_effect
+
+            screen._clear_detail_view()
+
+        # Should clear the diff panel
+        mock_diff_panel.update_diff.assert_called_once_with()
+
+    def test_update_diff_panel_with_valid_file(self) -> None:
+        """Test _update_diff_panel with valid file and line number."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "query_one") as mock_query:
+            mock_diff_panel = MagicMock()
+            mock_query.return_value = mock_diff_panel
+
+            screen._update_diff_panel("test.py", 42)
+
+        # Should call update_diff on the panel
+        mock_diff_panel.update_diff.assert_called_once()
+        call_args = mock_diff_panel.update_diff.call_args
+        assert call_args.kwargs["file_path"] == "test.py"
+        assert call_args.kwargs["line_number"] == 42
+
+    def test_update_diff_panel_with_string_line_number(self) -> None:
+        """Test _update_diff_panel converts string line numbers to int."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "query_one") as mock_query:
+            mock_diff_panel = MagicMock()
+            mock_query.return_value = mock_diff_panel
+
+            screen._update_diff_panel("test.py", "42")
+
+        # Should convert string to int
+        call_args = mock_diff_panel.update_diff.call_args
+        assert call_args.kwargs["line_number"] == 42
+
+    def test_update_diff_panel_handles_exception(self) -> None:
+        """Test _update_diff_panel handles exceptions gracefully."""
+        screen = ReviewScreen()
+
+        with patch.object(screen, "query_one") as mock_query:
+            mock_query.side_effect = Exception("Widget not found")
+
+            # Should not raise exception
+            screen._update_diff_panel("test.py", 42)
+
+
 class TestReviewScreenGroupedFindings:
     """Tests for grouped findings display by severity."""
 

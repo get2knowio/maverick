@@ -211,33 +211,25 @@ class TestFlyScreenWorkflowStartAndTransition:
         mock_app.push_screen.assert_not_called()
 
     def test_action_start_transitions_to_workflow_screen(self) -> None:
-        """Test that action_start transitions to WorkflowScreen."""
+        """Test that action_start starts workflow execution."""
         screen = FlyScreen()
         screen.branch_name = "feature/test"
         screen.is_valid = True
         screen.is_starting = False
 
-        mock_app = MagicMock()
-        mock_workflow_screen = MagicMock()
         mock_button = MagicMock(spec=Button)
 
         with (
-            patch.object(
-                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-            ),
-            patch(
-                "maverick.tui.screens.workflow.WorkflowScreen",
-                return_value=mock_workflow_screen,
-            ) as mock_workflow_class,
             patch.object(screen, "query_one", return_value=mock_button),
+            patch.object(screen, "_toggle_workflow_view") as mock_toggle,
+            patch.object(screen, "_start_workflow_execution") as mock_start,
         ):
             screen.action_start()
 
         assert screen.is_starting is True
-        mock_workflow_class.assert_called_once_with(
-            workflow_name="Fly", branch_name="feature/test"
-        )
-        mock_app.push_screen.assert_called_once_with(mock_workflow_screen)
+        assert screen.is_workflow_running is True
+        mock_toggle.assert_called_once_with(show=True)
+        mock_start.assert_called_once()
 
     def test_action_start_strips_whitespace_from_branch_name(self) -> None:
         """Test that action_start strips whitespace from branch name."""
@@ -246,25 +238,17 @@ class TestFlyScreenWorkflowStartAndTransition:
         screen.is_valid = True
         screen.is_starting = False
 
-        mock_app = MagicMock()
-        mock_workflow_screen = MagicMock()
         mock_button = MagicMock(spec=Button)
 
         with (
-            patch.object(
-                type(screen), "app", new_callable=PropertyMock, return_value=mock_app
-            ),
-            patch(
-                "maverick.tui.screens.workflow.WorkflowScreen",
-                return_value=mock_workflow_screen,
-            ) as mock_workflow_class,
             patch.object(screen, "query_one", return_value=mock_button),
+            patch.object(screen, "_toggle_workflow_view"),
+            patch.object(screen, "_start_workflow_execution"),
         ):
             screen.action_start()
 
-        mock_workflow_class.assert_called_once_with(
-            workflow_name="Fly", branch_name="feature/test"
-        )
+        # Verify state was updated correctly
+        assert screen.is_starting is True
 
     def test_start_button_pressed_calls_action_start(self) -> None:
         """Test that pressing start button calls action_start."""
@@ -348,3 +332,151 @@ class TestFlyScreenComponentIntegration:
 
         assert "escape" in binding_keys
         assert "ctrl+enter" in binding_keys
+
+
+# =============================================================================
+# FlyScreen WorkflowProgress Integration Tests (Issue #48)
+# =============================================================================
+
+
+class TestFlyScreenWorkflowProgressIntegration:
+    """Tests for WorkflowProgress widget integration."""
+
+    def test_toggle_workflow_view_shows_workflow_container(self) -> None:
+        """Test that _toggle_workflow_view shows workflow container."""
+        screen = FlyScreen()
+        mock_form = MagicMock()
+        mock_workflow = MagicMock()
+
+        def mock_query(selector: str, widget_type: type | None = None) -> MagicMock:
+            if selector == "#form-container":
+                return mock_form
+            elif selector == "#workflow-container":
+                return mock_workflow
+            raise Exception(f"Unexpected selector: {selector}")
+
+        with patch.object(screen, "query_one", side_effect=mock_query):
+            screen._toggle_workflow_view(show=True)
+
+        mock_form.add_class.assert_called_once_with("hidden")
+        mock_workflow.remove_class.assert_called_once_with("hidden")
+        assert screen.show_workflow_view is True
+
+    def test_toggle_workflow_view_hides_workflow_container(self) -> None:
+        """Test that _toggle_workflow_view hides workflow container."""
+        screen = FlyScreen()
+        mock_form = MagicMock()
+        mock_workflow = MagicMock()
+
+        def mock_query(selector: str, widget_type: type | None = None) -> MagicMock:
+            if selector == "#form-container":
+                return mock_form
+            elif selector == "#workflow-container":
+                return mock_workflow
+            raise Exception(f"Unexpected selector: {selector}")
+
+        with patch.object(screen, "query_one", side_effect=mock_query):
+            screen._toggle_workflow_view(show=False)
+
+        mock_workflow.add_class.assert_called_once_with("hidden")
+        mock_form.remove_class.assert_called_once_with("hidden")
+        assert screen.show_workflow_view is False
+
+    def test_initialize_workflow_stages_creates_stages(self) -> None:
+        """Test that _initialize_workflow_stages creates correct stages."""
+        screen = FlyScreen()
+        mock_progress_widget = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_progress_widget):
+            screen._initialize_workflow_stages()
+
+        # Verify update_stages was called with 6 stages
+        mock_progress_widget.update_stages.assert_called_once()
+        stages = mock_progress_widget.update_stages.call_args[0][0]
+        assert len(stages) == 6
+
+        # Verify stage names
+        stage_names = [stage.name for stage in stages]
+        assert "init" in stage_names
+        assert "implementation" in stage_names
+        assert "validation" in stage_names
+        assert "code_review" in stage_names
+        assert "convention_update" in stage_names
+        assert "pr_creation" in stage_names
+
+    def test_update_stage_status_updates_widget(self) -> None:
+        """Test that _update_stage_status updates the widget."""
+        screen = FlyScreen()
+        mock_progress_widget = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_progress_widget):
+            screen._update_stage_status("init", "active")
+
+        mock_progress_widget.update_stage_status.assert_called_once_with(
+            "init", "active", error_message=None
+        )
+
+    def test_update_stage_status_with_error_message(self) -> None:
+        """Test that _update_stage_status handles error messages."""
+        screen = FlyScreen()
+        mock_progress_widget = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_progress_widget):
+            screen._update_stage_status("validation", "failed", error_message="Test failed")
+
+        mock_progress_widget.update_stage_status.assert_called_once_with(
+            "validation", "failed", error_message="Test failed"
+        )
+
+    def test_add_agent_message_creates_message(self) -> None:
+        """Test that _add_agent_message adds message to widget."""
+        screen = FlyScreen()
+        mock_output_widget = MagicMock()
+
+        with patch.object(screen, "query_one", return_value=mock_output_widget):
+            screen._add_agent_message("Test message", agent_name="TestAgent")
+
+        # Verify add_message was called
+        mock_output_widget.add_message.assert_called_once()
+        message = mock_output_widget.add_message.call_args[0][0]
+        assert message.content == "Test message"
+        assert message.agent_name == "TestAgent"
+
+
+# =============================================================================
+# FlyScreen Auto-Transition Tests (Issue #49)
+# =============================================================================
+
+
+class TestFlyScreenAutoTransition:
+    """Tests for auto-transition to ReviewScreen after code review."""
+
+    def test_convert_review_results_to_findings_empty(self) -> None:
+        """Test _convert_review_results_to_findings with empty results."""
+        screen = FlyScreen()
+        findings = screen._convert_review_results_to_findings([])
+        assert findings == []
+
+    def test_convert_review_results_to_findings_with_data(self) -> None:
+        """Test _convert_review_results_to_findings with mock data."""
+        screen = FlyScreen()
+
+        # Create mock result with findings attribute
+        mock_finding = MagicMock()
+        mock_finding.file_path = "test.py"
+        mock_finding.line_number = 42
+        mock_finding.severity = "error"
+        mock_finding.message = "Test error"
+        mock_finding.source = "test-reviewer"
+
+        mock_result = MagicMock()
+        mock_result.findings = [mock_finding]
+
+        findings = screen._convert_review_results_to_findings([mock_result])
+
+        assert len(findings) == 1
+        assert findings[0]["file_path"] == "test.py"
+        assert findings[0]["line_number"] == 42
+        assert findings[0]["severity"] == "error"
+        assert findings[0]["message"] == "Test error"
+        assert findings[0]["source"] == "test-reviewer"

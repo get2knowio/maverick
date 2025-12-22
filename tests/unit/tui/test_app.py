@@ -360,7 +360,7 @@ class TestActionMethods:
         """Test that action_show_help makes log panel visible."""
         app = MaverickApp()
         mock_log_panel = Mock(spec=LogPanel)
-        mock_log_panel.visible = False
+        mock_log_panel.panel_visible = False
 
         with patch.object(app, "add_log"):
             with patch.object(app, "query_one", return_value=mock_log_panel):

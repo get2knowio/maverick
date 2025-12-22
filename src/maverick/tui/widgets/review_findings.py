@@ -9,7 +9,9 @@ expansion, and bulk actions.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual import on
@@ -20,6 +22,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Label, Static
 
+from maverick.tui.metrics import widget_metrics
 from maverick.tui.models import (
     FindingSeverity,
     ReviewFinding,
@@ -194,6 +197,9 @@ class ReviewFindings(Static):
         Args:
             findings: Sequence of finding data.
         """
+        # Track message throughput (finding updates)
+        widget_metrics.record_message("ReviewFindings")
+
         # Convert to ReviewFindingItem with selection state reset
         items = tuple(ReviewFindingItem(finding=f, selected=False) for f in findings)
 
@@ -331,6 +337,9 @@ class ReviewFindings(Static):
 
     def _refresh_display(self) -> None:
         """Refresh the widget display."""
+        # Track render time
+        start_time = time.perf_counter() if widget_metrics.enabled else 0.0
+
         # Remove all children and re-compose
         self.remove_children()
         if self._state.is_empty:
@@ -342,6 +351,11 @@ class ReviewFindings(Static):
             )
         else:
             self.mount(self._render_findings())
+
+        # Record render time
+        if widget_metrics.enabled:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            widget_metrics.record_render("ReviewFindings", duration_ms)
 
     def _render_findings(self) -> Vertical:
         """Render all findings grouped by severity.
@@ -478,12 +492,26 @@ class ReviewFindings(Static):
         # File location as clickable button styled as link
         location = item.finding.location
         location_text = f"{location.file_path}:{location.line_number}"
+
+        # Check if file exists
+        file_exists = Path(location.file_path).exists()
+
+        # Create location button with appropriate styling and tooltip
+        button_classes = (
+            "file-location-link file-location-broken"
+            if not file_exists
+            else "file-location-link"
+        )
         location_button = Button(
             location_text,
             id=f"location-{index}",
             variant="default",
-            classes="file-location-link",
+            classes=button_classes,
         )
+
+        # Set tooltip for broken links
+        if not file_exists:
+            location_button.tooltip = f"File not found: {location.file_path}"
 
         children.append(
             Horizontal(
@@ -605,10 +633,22 @@ class ReviewFindings(Static):
         except (IndexError, ValueError):
             return
 
-        # Get the finding and emit message
+        # Get the finding and check if file exists
         if 0 <= index < len(self._state.findings):
             finding = self._state.findings[index].finding
             location = finding.location
+
+            # Check if file exists
+            if not Path(location.file_path).exists():
+                # Show toast notification for broken links
+                self.notify(
+                    f"File not found: {location.file_path}",
+                    severity="error",
+                    title="Broken File Link",
+                )
+                return
+
+            # Emit message for valid file locations
             self._on_file_location_clicked(location.file_path, location.line_number)
 
     # ==========================================================================

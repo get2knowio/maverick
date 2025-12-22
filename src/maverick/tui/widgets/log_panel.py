@@ -27,8 +27,7 @@ class LogPanel(Widget):
 
     MAX_LINES = 1000
 
-    # Textual's reactive descriptor conflicts with bool type annotation at runtime
-    visible: reactive[bool] = reactive(False)  # type: ignore[override]
+    panel_visible: reactive[bool] = reactive(False)
     auto_scroll: reactive[bool] = reactive(True)
 
     def compose(self) -> ComposeResult:
@@ -55,14 +54,14 @@ class LogPanel(Widget):
 
         Uses CSS class toggle for fast response time (<200ms).
         """
-        self.visible = not self.visible
+        self.panel_visible = not self.panel_visible
 
-    def watch_visible(self, visible: bool) -> None:
+    def watch_panel_visible(self, panel_visible: bool) -> None:
         """Update CSS class on visibility change.
 
         This triggers CSS transitions for smooth show/hide.
         """
-        self.set_class(visible, "visible")
+        self.set_class(panel_visible, "visible")
 
     def add_log(
         self,

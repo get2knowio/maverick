@@ -16,6 +16,8 @@ Date: 2025-12-17
 
 from __future__ import annotations
 
+import time
+
 from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -26,6 +28,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
+from maverick.tui.metrics import widget_metrics
 from maverick.tui.models import AgentMessage, AgentOutputState, MessageType
 
 
@@ -129,11 +132,29 @@ class AgentOutput(Widget):
     AgentOutput .scroll-indicator.visible {
         display: block;
     }
+
+    AgentOutput .match-counter {
+        dock: top;
+        height: 1;
+        width: 100%;
+        background: $surface-elevated;
+        color: $text-muted;
+        text-align: right;
+        padding: 0 1;
+        display: none;
+    }
+
+    AgentOutput .match-counter.visible {
+        display: block;
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+f", "activate_search", "Search", show=True),
         Binding("escape", "clear_search", "Clear Search", show=False),
+        Binding("f3", "next_match", "Next Match", show=True),
+        Binding("shift+f3", "prev_match", "Previous Match", show=True),
+        Binding("enter", "next_match", "Next Match", show=False),
         Binding("pageup", "page_up", "Page Up", show=False),
         Binding("pagedown", "page_down", "Page Down", show=False),
         Binding("home", "scroll_home", "Go to top", show=False),
@@ -203,6 +224,11 @@ class AgentOutput(Widget):
         Returns:
             ComposeResult containing the vertical scroll container.
         """
+        yield Static(
+            "",
+            classes="match-counter",
+            id="match-counter",
+        )
         with VerticalScroll(id="message-scroll"):
             if self.state.is_empty:
                 yield Static(
@@ -225,6 +251,9 @@ class AgentOutput(Widget):
         Args:
             message: The message data to add.
         """
+        # Track message throughput
+        widget_metrics.record_message("AgentOutput")
+
         # Add to state first
         self.state.add_message(message)
 
@@ -248,12 +277,16 @@ class AgentOutput(Widget):
         if self.state.auto_scroll:
             self.scroll_to_bottom()
 
-    def _render_message(self, message: AgentMessage) -> None:
+    def _render_message(self, message: AgentMessage, message_index: int = -1) -> None:
         """Render a single message to the display.
 
         Args:
             message: The message to render.
+            message_index: Index in filtered_messages (for search highlighting).
         """
+        # Track render time
+        start_time = time.perf_counter() if widget_metrics.enabled else 0.0
+
         scroll_container = self.query_one("#message-scroll", VerticalScroll)
 
         # Create message container
@@ -263,15 +296,22 @@ class AgentOutput(Widget):
 
             # Render based on message type
             if message.message_type == MessageType.TEXT:
-                container.mount(self._create_text_content(message))
+                container.mount(self._create_text_content(message, message_index))
             elif message.message_type == MessageType.CODE:
                 container.mount(self._create_code_content(message))
             elif message.message_type == MessageType.TOOL_CALL:
                 container.mount(self._create_tool_call_content(message))
             elif message.message_type == MessageType.TOOL_RESULT:
-                container.mount(self._create_tool_result_content(message))
+                container.mount(
+                    self._create_tool_result_content(message, message_index)
+                )
 
             scroll_container.mount(container)
+
+        # Record render time
+        if widget_metrics.enabled:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            widget_metrics.record_render("AgentOutput", duration_ms)
 
     def _create_message_header(self, message: AgentMessage) -> Static:
         """Create the message header with timestamp and agent name.
@@ -286,16 +326,19 @@ class AgentOutput(Widget):
         header_text = f"[{timestamp_str}] {message.agent_name}"
         return Static(header_text, classes="message-header")
 
-    def _create_text_content(self, message: AgentMessage) -> Static:
+    def _create_text_content(
+        self, message: AgentMessage, message_index: int = -1
+    ) -> Static:
         """Create text message content.
 
         Args:
             message: The message to render.
+            message_index: Index in filtered_messages (for search highlighting).
 
         Returns:
             Static widget with message content.
         """
-        content = self._highlight_search(message.content)
+        content = self._highlight_search(message.content, message_index)
         return Static(content, classes="message-content", markup=True)
 
     def _create_code_content(self, message: AgentMessage) -> Static:
@@ -356,23 +399,27 @@ class AgentOutput(Widget):
 
         return collapsible
 
-    def _create_tool_result_content(self, message: AgentMessage) -> Static:
+    def _create_tool_result_content(
+        self, message: AgentMessage, message_index: int = -1
+    ) -> Static:
         """Create tool result content.
 
         Args:
             message: The message to render.
+            message_index: Index in filtered_messages (for search highlighting).
 
         Returns:
             Static widget with result content.
         """
-        content = self._highlight_search(f"Result: {message.content}")
+        content = self._highlight_search(f"Result: {message.content}", message_index)
         return Static(content, classes="message-content", markup=True)
 
-    def _highlight_search(self, text: str) -> str:
+    def _highlight_search(self, text: str, message_index: int = -1) -> str:
         """Highlight search matches in text.
 
         Args:
             text: The text to process.
+            message_index: Index in filtered_messages (for tracking current match).
 
         Returns:
             Text with search matches highlighted using Rich markup.
@@ -386,9 +433,31 @@ class AgentOutput(Widget):
         import re
 
         pattern = re.compile(re.escape(query), re.IGNORECASE)
-        highlighted = pattern.sub(
-            lambda m: f"[on yellow]{m.group(0)}[/on yellow]", text
-        )
+
+        # Track which match in this message is the current match
+        current_match_offset = -1
+        if self.state.current_match_index >= 0 and self.state.current_match_index < len(
+            self.state.match_positions
+        ):
+            msg_idx, char_offset = self.state.match_positions[
+                self.state.current_match_index
+            ]
+            if msg_idx == message_index:
+                current_match_offset = char_offset
+
+        # Highlight matches, with special highlighting for current match
+        def replace_match(match: re.Match[str]) -> str:
+            # Check if this is the current match
+            if match.start() == current_match_offset:
+                # Current match: bright highlight
+                return (
+                    f"[black on bright_yellow]{match.group(0)}[/black on bright_yellow]"
+                )
+            else:
+                # Other matches: dim highlight
+                return f"[on yellow]{match.group(0)}[/on yellow]"
+
+        highlighted = pattern.sub(replace_match, text)
         return highlighted
 
     def clear_messages(self) -> None:
@@ -443,8 +512,43 @@ class AgentOutput(Widget):
             query: Search string to filter/highlight, or None to clear.
         """
         self.state.search_query = query
+
+        # Compute match positions if query is set
+        if query:
+            self._compute_match_positions()
+            # Start at first match
+            self.state.current_match_index = 0 if self.state.total_matches > 0 else -1
+        else:
+            # Clear match tracking
+            self.state.match_positions.clear()
+            self.state.current_match_index = -1
+            self.state.total_matches = 0
+
         # Re-render all messages to update highlighting
         self._refresh_display()
+
+        # Update match counter display
+        self._update_match_counter()
+
+    def _compute_match_positions(self) -> None:
+        """Compute all match positions for the current search query."""
+        self.state.match_positions.clear()
+        self.state.total_matches = 0
+
+        if not self.state.search_query:
+            return
+
+        import re
+
+        pattern = re.compile(re.escape(self.state.search_query), re.IGNORECASE)
+
+        # Search through filtered messages
+        filtered_messages = self.state.filtered_messages
+        for msg_idx, message in enumerate(filtered_messages):
+            # Search in message content
+            for match in pattern.finditer(message.content):
+                self.state.match_positions.append((msg_idx, match.start()))
+                self.state.total_matches += 1
 
     def set_agent_filter(self, agent_id: str | None) -> None:
         """Filter messages to a specific agent.
@@ -468,6 +572,9 @@ class AgentOutput(Widget):
 
     def _refresh_display(self) -> None:
         """Refresh the entire display based on current filters."""
+        # Track render time for full refresh
+        start_time = time.perf_counter() if widget_metrics.enabled else 0.0
+
         # Only refresh if mounted
         if not self.is_mounted:
             return
@@ -489,8 +596,15 @@ class AgentOutput(Widget):
                     )
                 )
             else:
-                for msg in filtered:
-                    self._render_message(msg)
+                for idx, msg in enumerate(filtered):
+                    self._render_message(msg, idx)
+
+            # Record render time for full refresh
+            if widget_metrics.enabled:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                widget_metrics.record_render(
+                    "AgentOutput._refresh_display", duration_ms
+                )
         except NoMatches:
             # Scroll container not found (widget not mounted yet)
             pass
@@ -502,6 +616,94 @@ class AgentOutput(Widget):
     def action_clear_search(self) -> None:
         """Clear search query (Escape)."""
         self.set_search_query(None)
+
+    def action_next_match(self) -> None:
+        """Navigate to next search match (F3 or Enter).
+
+        Wraps around to the first match when reaching the end.
+        """
+        if not self.state.search_query or self.state.total_matches == 0:
+            return
+
+        # Move to next match
+        if self.state.current_match_index < self.state.total_matches - 1:
+            self.state.current_match_index += 1
+        else:
+            # Wrap around to first match
+            self.state.current_match_index = 0
+
+        # Scroll to the match
+        self._scroll_to_current_match()
+
+        # Update match counter
+        self._update_match_counter()
+
+    def action_prev_match(self) -> None:
+        """Navigate to previous search match (Shift+F3).
+
+        Wraps around to the last match when reaching the beginning.
+        """
+        if not self.state.search_query or self.state.total_matches == 0:
+            return
+
+        # Move to previous match
+        if self.state.current_match_index > 0:
+            self.state.current_match_index -= 1
+        else:
+            # Wrap around to last match
+            self.state.current_match_index = self.state.total_matches - 1
+
+        # Scroll to the match
+        self._scroll_to_current_match()
+
+        # Update match counter
+        self._update_match_counter()
+
+    def _scroll_to_current_match(self) -> None:
+        """Scroll to the currently selected match."""
+        if self.state.current_match_index < 0 or self.state.current_match_index >= len(
+            self.state.match_positions
+        ):
+            return
+
+        # Get the message index for the current match
+        message_index, _ = self.state.match_positions[self.state.current_match_index]
+
+        # Refresh display to update highlighting
+        self._refresh_display()
+
+        # Scroll to the message (message containers are scroll children)
+        try:
+            scroll_container = self.query_one("#message-scroll", VerticalScroll)
+            # Get all message containers
+            message_containers = list(scroll_container.query(".message-container"))
+            if message_index < len(message_containers):
+                message_containers[message_index].scroll_visible(animate=False)
+        except (NoMatches, IndexError):
+            # Container not found or index out of range
+            pass
+
+    def _update_match_counter(self) -> None:
+        """Update the match counter display."""
+        if not self.is_mounted:
+            return
+
+        try:
+            counter = self.query_one("#match-counter", Static)
+            if self.state.search_query and self.state.total_matches > 0:
+                # Show counter with current position
+                counter_text = (
+                    f"Match {self.state.current_match_index + 1} "
+                    f"of {self.state.total_matches}"
+                )
+                counter.update(counter_text)
+                counter.set_class(True, "visible")
+            else:
+                # Hide counter
+                counter.set_class(False, "visible")
+        except NoMatches:
+            # Counter not found (widget not mounted yet)
+            pass
 
     def watch_show_scroll_indicator(self, show: bool) -> None:
         """Update scroll indicator visibility.

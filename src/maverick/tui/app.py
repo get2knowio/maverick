@@ -257,7 +257,7 @@ class MaverickApp(App[None]):
         # Make sure log panel is visible to show help
         try:
             log_panel = self.query_one(LogPanel)
-            if not log_panel.visible:
+            if not log_panel.panel_visible:
                 log_panel.toggle()
         except Exception:
             # Widget not yet mounted, skip toggle

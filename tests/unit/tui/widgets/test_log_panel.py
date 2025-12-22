@@ -35,7 +35,7 @@ class TestLogPanelInitialization:
         async with LogPanelTestApp().run_test() as pilot:
             log_panel = pilot.app.query_one(LogPanel)
 
-            assert log_panel.visible is False
+            assert log_panel.panel_visible is False
             assert log_panel.auto_scroll is True
 
     @pytest.mark.asyncio
@@ -65,20 +65,20 @@ class TestLogPanelToggle:
 
     @pytest.mark.asyncio
     async def test_toggle_changes_visibility(self) -> None:
-        """Test toggle changes visible property."""
+        """Test toggle changes panel_visible property."""
         async with LogPanelTestApp().run_test() as pilot:
             log_panel = pilot.app.query_one(LogPanel)
 
             # Initially not visible
-            assert log_panel.visible is False
+            assert log_panel.panel_visible is False
 
             # Toggle to visible
             log_panel.toggle()
-            assert log_panel.visible is True
+            assert log_panel.panel_visible is True
 
             # Toggle back to not visible
             log_panel.toggle()
-            assert log_panel.visible is False
+            assert log_panel.panel_visible is False
 
     @pytest.mark.asyncio
     async def test_toggle_multiple_times(self) -> None:
@@ -86,40 +86,40 @@ class TestLogPanelToggle:
         async with LogPanelTestApp().run_test() as pilot:
             log_panel = pilot.app.query_one(LogPanel)
 
-            initial_state = log_panel.visible
+            initial_state = log_panel.panel_visible
             log_panel.toggle()
-            assert log_panel.visible is not initial_state
+            assert log_panel.panel_visible is not initial_state
 
             log_panel.toggle()
-            assert log_panel.visible is initial_state
+            assert log_panel.panel_visible is initial_state
 
             log_panel.toggle()
-            assert log_panel.visible is not initial_state
+            assert log_panel.panel_visible is not initial_state
 
     @pytest.mark.asyncio
-    async def test_watch_visible_adds_css_class(self) -> None:
-        """Test watch_visible adds CSS class when visible."""
+    async def test_watch_panel_visible_adds_css_class(self) -> None:
+        """Test watch_panel_visible adds CSS class when visible."""
         async with LogPanelTestApp().run_test() as pilot:
             log_panel = pilot.app.query_one(LogPanel)
 
             # Toggle to visible
-            log_panel.visible = True
+            log_panel.panel_visible = True
             await pilot.pause()
 
             # Check CSS class was added
             assert log_panel.has_class("visible")
 
     @pytest.mark.asyncio
-    async def test_watch_visible_removes_css_class(self) -> None:
-        """Test watch_visible removes CSS class when not visible."""
+    async def test_watch_panel_visible_removes_css_class(self) -> None:
+        """Test watch_panel_visible removes CSS class when not visible."""
         async with LogPanelTestApp().run_test() as pilot:
             log_panel = pilot.app.query_one(LogPanel)
 
             # Set visible then back to not visible
-            log_panel.visible = True
+            log_panel.panel_visible = True
             await pilot.pause()
 
-            log_panel.visible = False
+            log_panel.panel_visible = False
             await pilot.pause()
 
             # Check CSS class was removed
@@ -425,12 +425,12 @@ class TestLogPanelIntegration:
             log_panel = pilot.app.query_one(LogPanel)
 
             # Start hidden
-            assert log_panel.visible is False
+            assert log_panel.panel_visible is False
 
             # Toggle to show
             log_panel.toggle()
             await pilot.pause()
-            assert log_panel.visible is True
+            assert log_panel.panel_visible is True
 
             # Add various logs
             log_panel.add_log("Starting workflow", level="info", source="Workflow")
@@ -450,7 +450,7 @@ class TestLogPanelIntegration:
             # Toggle to hide
             log_panel.toggle()
             await pilot.pause()
-            assert log_panel.visible is False
+            assert log_panel.panel_visible is False
 
     @pytest.mark.asyncio
     async def test_state_persistence_across_visibility_changes(self) -> None:

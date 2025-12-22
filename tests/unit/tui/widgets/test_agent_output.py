@@ -770,3 +770,286 @@ def test_message_type_variety(agent_output: AgentOutput) -> None:
     assert agent_output.state.messages[1].message_type == MessageType.CODE
     assert agent_output.state.messages[2].message_type == MessageType.TOOL_CALL
     assert agent_output.state.messages[3].message_type == MessageType.TOOL_RESULT
+
+
+# =============================================================================
+# T045: Test Search Navigation
+# =============================================================================
+
+
+def test_compute_match_positions(agent_output: AgentOutput) -> None:
+    """Test that match positions are computed correctly.
+
+    T045: Verify match positions are tracked.
+    """
+    messages = [
+        AgentMessage(
+            id="1",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="This has error in it",
+        ),
+        AgentMessage(
+            id="2",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="Another error message",
+        ),
+        AgentMessage(
+            id="3",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="No issues here",
+        ),
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    assert agent_output.state.total_matches == 2
+    assert len(agent_output.state.match_positions) == 2
+    assert agent_output.state.current_match_index == 0
+
+
+def test_next_match_navigation(agent_output: AgentOutput) -> None:
+    """Test navigating to next match.
+
+    T045: Verify next match navigation works.
+    """
+    messages = [
+        AgentMessage(
+            id=str(i),
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content=f"Message {i} with error",
+        )
+        for i in range(3)
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Should start at first match
+    assert agent_output.state.current_match_index == 0
+
+    # Move to next match
+    agent_output.action_next_match()
+    assert agent_output.state.current_match_index == 1
+
+    # Move to next match
+    agent_output.action_next_match()
+    assert agent_output.state.current_match_index == 2
+
+
+def test_next_match_wraps_around(agent_output: AgentOutput) -> None:
+    """Test that next match wraps around to first.
+
+    T045: Verify wrap around behavior.
+    """
+    messages = [
+        AgentMessage(
+            id=str(i),
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content=f"Message {i} with error",
+        )
+        for i in range(3)
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Move to last match
+    agent_output.state.current_match_index = 2
+
+    # Move to next should wrap to first
+    agent_output.action_next_match()
+    assert agent_output.state.current_match_index == 0
+
+
+def test_prev_match_navigation(agent_output: AgentOutput) -> None:
+    """Test navigating to previous match.
+
+    T045: Verify previous match navigation works.
+    """
+    messages = [
+        AgentMessage(
+            id=str(i),
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content=f"Message {i} with error",
+        )
+        for i in range(3)
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Start at second match
+    agent_output.state.current_match_index = 1
+
+    # Move to previous match
+    agent_output.action_prev_match()
+    assert agent_output.state.current_match_index == 0
+
+
+def test_prev_match_wraps_around(agent_output: AgentOutput) -> None:
+    """Test that previous match wraps around to last.
+
+    T045: Verify wrap around behavior.
+    """
+    messages = [
+        AgentMessage(
+            id=str(i),
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content=f"Message {i} with error",
+        )
+        for i in range(3)
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Start at first match
+    assert agent_output.state.current_match_index == 0
+
+    # Move to previous should wrap to last
+    agent_output.action_prev_match()
+    assert agent_output.state.current_match_index == 2
+
+
+def test_match_counter_display(agent_output: AgentOutput) -> None:
+    """Test match counter shows correct count.
+
+    T045: Verify match counter displays "X of Y".
+    """
+    messages = [
+        AgentMessage(
+            id=str(i),
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content=f"Message {i} with error",
+        )
+        for i in range(5)
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Should have 5 matches
+    assert agent_output.state.total_matches == 5
+    assert agent_output.state.current_match_index == 0
+
+
+def test_no_matches_when_query_empty(agent_output: AgentOutput) -> None:
+    """Test that clearing search resets match tracking.
+
+    T045: Verify match tracking is cleared.
+    """
+    messages = [
+        AgentMessage(
+            id="1",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="Message with error",
+        ),
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+    assert agent_output.state.total_matches == 1
+
+    agent_output.set_search_query(None)
+    assert agent_output.state.total_matches == 0
+    assert agent_output.state.current_match_index == -1
+    assert len(agent_output.state.match_positions) == 0
+
+
+def test_next_match_with_no_query(agent_output: AgentOutput) -> None:
+    """Test that next match does nothing without search query.
+
+    T045: Verify navigation requires active search.
+    """
+    messages = [
+        AgentMessage(
+            id="1",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="Message with error",
+        ),
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    # No search query set
+    assert agent_output.state.search_query is None
+
+    # Should do nothing
+    agent_output.action_next_match()
+    assert agent_output.state.current_match_index == -1
+
+
+def test_multiple_matches_in_single_message(agent_output: AgentOutput) -> None:
+    """Test multiple matches within a single message.
+
+    T045: Verify multiple matches in one message are tracked separately.
+    """
+    messages = [
+        AgentMessage(
+            id="1",
+            timestamp=datetime.now(),
+            agent_id="agent1",
+            agent_name="Agent 1",
+            message_type=MessageType.TEXT,
+            content="error error error",
+        ),
+    ]
+
+    for msg in messages:
+        agent_output.add_message(msg)
+
+    agent_output.set_search_query("error")
+
+    # Should find 3 matches in the single message
+    assert agent_output.state.total_matches == 3
+    assert len(agent_output.state.match_positions) == 3
+
+    # All matches should be in message 0
+    for msg_idx, _ in agent_output.state.match_positions:
+        assert msg_idx == 0

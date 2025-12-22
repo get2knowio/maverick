@@ -222,8 +222,13 @@ WorkflowList .workflow-item.--selected {
     color: $text;
 }
 
+#review-main-container {
+    height: 100%;
+    width: 100%;
+}
+
 .issue-list {
-    width: 40%;
+    width: 25%;
     height: 100%;
     border: solid $border;
     background: $surface;
@@ -254,7 +259,7 @@ WorkflowList .workflow-item.--selected {
 }
 
 .issue-detail {
-    width: 60%;
+    width: 35%;
     height: 100%;
     padding: 1;
     border: solid $border;
@@ -264,6 +269,11 @@ WorkflowList .workflow-item.--selected {
 #issue-detail-content {
     padding: 1;
     height: auto;
+}
+
+#diff-panel {
+    width: 40%;
+    height: 100%;
 }
 
 .severity-error {
@@ -770,6 +780,26 @@ ReviewFindings .finding-row.--selected {
     border-left: solid $accent 2;
 }
 
+/* File location link styling */
+ReviewFindings .file-location-link {
+    color: $accent;
+    text-style: underline;
+}
+
+ReviewFindings .file-location-link:hover {
+    color: $accent 150%;
+}
+
+/* Broken file link styling */
+ReviewFindings .file-location-broken {
+    color: $text-muted;
+    text-style: strike underline;
+}
+
+ReviewFindings .file-location-broken:hover {
+    color: $text-muted 150%;
+}
+
 /* === Modal Dialogs (013-tui-interactive-screens) === */
 
 /* Modal Dialog Base */
@@ -1188,4 +1218,76 @@ ConnectivityIndicator .status-text {
 .workflow-resumed .resume-icon {
     color: $success;
     text-style: bold;
+}
+
+/* === RefuelScreen === */
+RefuelScreen {
+    layout: vertical;
+}
+
+#title {
+    height: 3;
+    content-align: center middle;
+    background: $surface;
+    border-bottom: solid $primary;
+    text-style: bold;
+}
+
+#config-section {
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border-bottom: solid $primary;
+}
+
+#config-section .label {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#label-input {
+    margin-bottom: 1;
+}
+
+#fetch-btn {
+    margin-bottom: 1;
+}
+
+#issue-section {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#issue-list {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#result-section {
+    height: auto;
+    max-height: 15;
+    padding: 1 2;
+    border-top: solid $primary;
+}
+
+#results {
+    height: auto;
+}
+
+#buttons {
+    height: 3;
+    align: center middle;
+    background: $surface;
+    border-top: solid $primary;
+}
+
+#buttons Button {
+    margin: 0 1;
+}
+
+.status-message {
+    height: auto;
+    padding: 1;
+    text-align: center;
+    color: $text-muted;
 }

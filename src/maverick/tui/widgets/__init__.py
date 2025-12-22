@@ -7,6 +7,7 @@ Includes widgets and their Textual Message classes for inter-widget communicatio
 from __future__ import annotations
 
 from maverick.tui.widgets.agent_output import AgentOutput
+from maverick.tui.widgets.diff_panel import DiffPanel
 from maverick.tui.widgets.form import (
     BranchInputField,
     NumericField,
@@ -58,6 +59,7 @@ ResultSummaryPRLinkClicked = ResultSummary.PRLinkClicked
 __all__ = [
     # Widgets
     "AgentOutput",
+    "DiffPanel",
     "IssueList",
     "IssueListItem",
     "LogPanel",

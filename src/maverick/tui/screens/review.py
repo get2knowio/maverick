@@ -14,6 +14,7 @@ from maverick.agents.issue_fixer import IssueFixerAgent
 from maverick.models.issue_fix import IssueFixerContext
 from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.base import MaverickScreen
+from maverick.tui.widgets import DiffPanel
 
 if TYPE_CHECKING:
     from textual.timer import Timer
@@ -72,7 +73,8 @@ class ReviewScreen(MaverickScreen):
         """Create the review screen layout.
 
         Yields:
-            ComposeResult: Review results display with issue list and detail view.
+            ComposeResult: Review results display with issue list, detail view,
+                          and diff panel.
         """
         yield Static("[bold]Code Review Results[/bold]", id="review-title")
 
@@ -86,7 +88,7 @@ class ReviewScreen(MaverickScreen):
             classes="hidden",
         )
 
-        with Horizontal():
+        with Horizontal(id="review-main-container"):
             # Left panel: Issue list
             with VerticalScroll(classes="issue-list", id="issue-list"):
                 yield Static(
@@ -94,7 +96,7 @@ class ReviewScreen(MaverickScreen):
                     id="issue-list-placeholder",
                 )
 
-            # Right panel: Issue detail view
+            # Middle panel: Issue detail view
             with Vertical(classes="issue-detail", id="issue-detail"):
                 yield Static(
                     (
@@ -103,6 +105,9 @@ class ReviewScreen(MaverickScreen):
                     ),
                     id="issue-detail-content",
                 )
+
+            # Right panel: Diff panel
+            yield DiffPanel(id="diff-panel")
 
     def on_mount(self) -> None:
         """Start polling timer when screen is mounted."""
@@ -363,7 +368,11 @@ class ReviewScreen(MaverickScreen):
         severity_raw = issue.get("severity", "info")
         severity = str(severity_raw)
         file_path = str(issue.get("file_path", "unknown"))
-        line_number = issue.get("line_number", 0)
+        line_number_raw = issue.get("line_number", 0)
+        # Ensure line_number is int or str
+        line_number: int | str = (
+            int(line_number_raw) if isinstance(line_number_raw, (int, str)) else 0
+        )
         message = str(issue.get("message", ""))
         source = str(issue.get("source", "unknown"))
 
@@ -388,12 +397,49 @@ class ReviewScreen(MaverickScreen):
         detail_widget = self.query_one("#issue-detail-content", Static)
         detail_widget.update(content)
 
+        # Update the diff panel with file content
+        self._update_diff_panel(file_path, line_number)
+
     def _clear_detail_view(self) -> None:
-        """Clear the detail view."""
+        """Clear the detail view and diff panel."""
         detail_widget = self.query_one("#issue-detail-content", Static)
         detail_widget.update(
             "[bold]Issue Details[/bold]\n\n[dim]No issue selected[/dim]"
         )
+
+        # Clear the diff panel
+        try:
+            diff_panel = self.query_one("#diff-panel", DiffPanel)
+            diff_panel.update_diff()
+        except Exception:
+            pass
+
+    def _update_diff_panel(self, file_path: str, line_number: int | str) -> None:
+        """Update the diff panel with the file content for the selected issue.
+
+        Args:
+            file_path: Path to the file containing the issue.
+            line_number: Line number of the issue (can be int or str).
+        """
+        try:
+            # Convert line_number to int if it's a string
+            if isinstance(line_number, str):
+                try:
+                    line_num = int(line_number)
+                except ValueError:
+                    line_num = 0
+            else:
+                line_num = int(line_number) if line_number else 0
+
+            # Update the diff panel
+            diff_panel = self.query_one("#diff-panel", DiffPanel)
+            diff_panel.update_diff(
+                file_path=file_path,
+                line_number=line_num,
+                working_directory=Path.cwd(),
+            )
+        except Exception as e:
+            logger.warning("Failed to update diff panel: %s", e)
 
     # =========================================================================
     # Review Action Methods (T033-T042a)
