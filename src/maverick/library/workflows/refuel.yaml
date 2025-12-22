@@ -131,14 +131,19 @@ steps:
         weight: 10
 
   # ============================================================================
-  # Note: Checkpoint After Issue Fetching
+  # Checkpoint: After Issue Fetching
   # ============================================================================
-  # Future: Add checkpoint functionality after successfully fetching issues
-  # to enable resumption from this point if the workflow is interrupted during
-  # analysis or processing.
-  #
-  # Checkpoint support is planned for a future release.
+  # Save workflow state after successfully fetching issues to enable resumption
+  # from this point if the workflow is interrupted during analysis or processing.
   # ============================================================================
+  - name: checkpoint_after_fetch
+    type: checkpoint
+    when: ${{ not inputs.dry_run }}
+    checkpoint_id: issues_fetched
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
 
   # ============================================================================
   # Stage 2: Analyze Issues for Conflicts
@@ -216,14 +221,20 @@ steps:
         weight: 60
 
   # ============================================================================
-  # Note: Checkpoint After Issue Processing
+  # Checkpoint: After Issue Processing
   # ============================================================================
-  # Future: Add checkpoint functionality after successfully processing issues
-  # to enable resumption from this point if the workflow is interrupted during
-  # summary generation.
-  #
-  # Checkpoint support is planned for a future release.
+  # Save workflow state after successfully processing issues to enable
+  # resumption from this point if the workflow is interrupted during summary
+  # generation.
   # ============================================================================
+  - name: checkpoint_after_processing
+    type: checkpoint
+    when: ${{ not inputs.dry_run }}
+    checkpoint_id: issues_processed
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
 
   # ============================================================================
   # Stage 4: Generate Summary Report

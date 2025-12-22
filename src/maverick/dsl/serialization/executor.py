@@ -12,8 +12,11 @@ import inspect
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
+from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
+from maverick.dsl.checkpoint.store import CheckpointStore, FileCheckpointStore
 from maverick.dsl.events import (
     ProgressEvent,
     StepCompleted,
@@ -28,6 +31,7 @@ from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
     BranchStepRecord,
+    CheckpointStepRecord,
     GenerateStepRecord,
     ParallelStepRecord,
     PythonStepRecord,
@@ -47,6 +51,7 @@ StepRecordType = (
     | SubWorkflowStepRecord
     | BranchStepRecord
     | ParallelStepRecord
+    | CheckpointStepRecord
 )
 
 
@@ -93,6 +98,7 @@ class WorkflowFileExecutor:
         self,
         registry: ComponentRegistry | None = None,
         config: Any = None,
+        checkpoint_store: CheckpointStore | None = None,
     ) -> None:
         """Initialize executor.
 
@@ -100,9 +106,12 @@ class WorkflowFileExecutor:
             registry: Component registry for resolving actions/agents/generators.
                 If None, creates a new empty registry.
             config: Optional configuration for validation stages.
+            checkpoint_store: Optional checkpoint store for workflow resumability.
+                If None, creates a FileCheckpointStore with default path.
         """
         self._registry = registry or ComponentRegistry()
         self._config = config
+        self._checkpoint_store = checkpoint_store or FileCheckpointStore()
         self._result: WorkflowResult | None = None
         self._cancelled = False
 
@@ -134,11 +143,13 @@ class WorkflowFileExecutor:
 
         # Build execution context
         # Context structure: {
+        #   "workflow_name": str,  # Added for checkpoint support
         #   "inputs": {...},
         #   "steps": {"step_name": {"output": ...}},
         #   "iteration": {"item": ..., "index": ...}  # Only in for_each loops
         # }
         context = {
+            "workflow_name": workflow.name,
             "inputs": inputs,
             "steps": {},  # Will hold step outputs: steps.<name>.output
         }
@@ -303,6 +314,8 @@ class WorkflowFileExecutor:
             return await self._execute_branch_step(step, resolved_inputs, context)
         elif isinstance(step, ParallelStepRecord):
             return await self._execute_parallel_step(step, resolved_inputs, context)
+        elif isinstance(step, CheckpointStepRecord):
+            return await self._execute_checkpoint_step(step, resolved_inputs, context)
         else:
             raise NotImplementedError(
                 f"Step type {step.type} not yet implemented in executor"
@@ -822,6 +835,76 @@ class WorkflowFileExecutor:
         iteration_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         return {"results": iteration_results}
+
+    async def _execute_checkpoint_step(
+        self,
+        step: CheckpointStepRecord,
+        resolved_inputs: dict[str, Any],
+        context: dict[str, Any],
+    ) -> Any:
+        """Execute a checkpoint step.
+
+        A checkpoint step marks a workflow state boundary for resumability.
+        When executed, it saves the current workflow state (inputs, completed
+        steps, outputs) to the checkpoint store. Returns success indicator.
+
+        Args:
+            step: CheckpointStepRecord containing checkpoint configuration.
+            resolved_inputs: Resolved values (unused for checkpoint).
+            context: Execution context with inputs and step outputs.
+
+        Returns:
+            Dictionary with checkpoint status:
+                - saved: Boolean indicating checkpoint was saved
+                - checkpoint_id: The checkpoint identifier used
+                - timestamp: ISO 8601 timestamp of save
+        """
+        # Determine checkpoint ID (use explicit ID or step name)
+        checkpoint_id = step.checkpoint_id or step.name
+
+        # Get workflow name and inputs from context
+        workflow_name = context.get("workflow_name", "unknown")
+        workflow_inputs = context.get("inputs", {})
+
+        # Compute input hash for validation on resume
+        inputs_hash = compute_inputs_hash(workflow_inputs)
+
+        # Serialize step results for persistence
+        # Convert StepResult objects to dicts
+        step_results_dicts = []
+        for step_name, step_data in context.get("steps", {}).items():
+            output = step_data.get("output")
+            # Store minimal data needed for resume
+            step_results_dicts.append({
+                "name": step_name,
+                "output": output,
+            })
+
+        # Create checkpoint data
+        timestamp = datetime.now(timezone.utc).isoformat()
+        checkpoint_data = CheckpointData(
+            checkpoint_id=checkpoint_id,
+            workflow_name=workflow_name,
+            inputs_hash=inputs_hash,
+            step_results=tuple(step_results_dicts),
+            saved_at=timestamp,
+        )
+
+        # Save checkpoint to store
+        try:
+            await self._checkpoint_store.save(workflow_name, checkpoint_data)
+            logger.info(
+                f"Checkpoint saved: {checkpoint_id} for workflow {workflow_name}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to save checkpoint {checkpoint_id}: {e}")
+            # Don't fail workflow on checkpoint save error (best effort)
+
+        return {
+            "saved": True,
+            "checkpoint_id": checkpoint_id,
+            "timestamp": timestamp,
+        }
 
     def get_result(self) -> WorkflowResult:
         """Get the final workflow result.
