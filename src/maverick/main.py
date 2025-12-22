@@ -5,6 +5,7 @@ This module defines the Click-based command-line interface for Maverick.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -43,6 +44,50 @@ from maverick.workflows.refuel import RefuelInputs, RefuelWorkflow
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
+
+
+@contextlib.contextmanager
+def cli_error_handler():
+    """Context manager for common CLI error handling.
+
+    Handles common error patterns across CLI commands:
+    - KeyboardInterrupt: Exit with code 130
+    - GitError: Format error with operation details
+    - AgentError: Format error with agent context
+    - MaverickError: Format error with message
+    - Generic exceptions: Log and format error
+
+    Example:
+        >>> with cli_error_handler():
+        >>>     # Command logic here
+        >>>     workflow.execute()
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        yield
+    except KeyboardInterrupt:
+        click.echo("\n\nInterrupted by user.", err=True)
+        raise SystemExit(ExitCode.INTERRUPTED) from None
+    except GitError as e:
+        error_msg = format_error(
+            e.message,
+            details=[f"Operation: {e.operation}"] if e.operation else None,
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except AgentError as e:
+        error_msg = format_error(e.message)
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except MaverickError as e:
+        error_msg = format_error(e.message)
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except Exception as e:
+        logger.exception("Unexpected error in command")
+        click.echo(f"Error: {e!s}", err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
 
 
 def create_registered_registry(strict: bool = False) -> ComponentRegistry:
@@ -255,7 +300,7 @@ async def fly(
     """
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T039: Validate branch exists
         logger.info(f"Validating branch '{branch_name}'...")
         is_valid, error_msg = validate_branch(branch_name)
@@ -305,32 +350,6 @@ async def fly(
         else:
             raise SystemExit(ExitCode.FAILURE)
 
-    except KeyboardInterrupt:
-        # T043: Handle KeyboardInterrupt with exit code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
-
-    except GitError as e:
-        # T044: Handle GitError
-        error_msg = format_error(
-            e.message,
-            details=[f"Operation: {e.operation}"] if e.operation else None,
-        )
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except MaverickError as e:
-        # T044: Handle MaverickError hierarchy
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in fly command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
 
 @cli.command()
 @click.option(
@@ -378,7 +397,7 @@ async def refuel(
     """
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T053: Check GitHub CLI authentication
         logger.info("Checking GitHub CLI authentication...")
         auth_status = check_git_auth()
@@ -463,25 +482,6 @@ async def refuel(
                 else:
                     raise SystemExit(ExitCode.FAILURE)
 
-    except KeyboardInterrupt:
-        # T056: Handle KeyboardInterrupt and exit with code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
-
-    except MaverickError as e:
-        # T056: Handle MaverickError and show formatted error message
-        error_msg = f"Error: {e.message}"
-        if hasattr(e, "details") and e.details:
-            error_msg += f"\n  {e.details}"
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in refuel command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
 
 @cli.command()
 @click.argument("pr_number", type=int)
@@ -520,7 +520,7 @@ async def review(
     cli_ctx: CLIContext = ctx.obj["cli_ctx"]
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T064: Validate PR exists using gh pr view
         logger.info(f"Validating PR #{pr_number}...")
         is_valid, error_msg, pr_data = validate_pr(pr_number)
@@ -566,29 +566,6 @@ async def review(
             raise SystemExit(ExitCode.SUCCESS)
         else:
             raise SystemExit(ExitCode.FAILURE)
-
-    except KeyboardInterrupt:
-        # Handle KeyboardInterrupt with exit code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
-
-    except AgentError as e:
-        # T068: Handle agent errors
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except MaverickError as e:
-        # Handle MaverickError hierarchy
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in review command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
 
 
 
@@ -1506,7 +1483,7 @@ async def workflow_run(
 
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # Determine if name_or_file is a file path or workflow name
         name_path = Path(name_or_file)
         workflow_file = None
@@ -1629,117 +1606,95 @@ async def workflow_run(
         total_steps = len(workflow_obj.steps)
 
         # Execute workflow and display progress
-        try:
-            async for event in executor.execute(
-                workflow_obj,
-                inputs=input_dict,
-                resume_from_checkpoint=resume,
-            ):
-                if isinstance(event, WorkflowStarted):
-                    # Already displayed header above
-                    pass
+        async for event in executor.execute(
+            workflow_obj,
+            inputs=input_dict,
+            resume_from_checkpoint=resume,
+        ):
+            if isinstance(event, WorkflowStarted):
+                # Already displayed header above
+                pass
 
-                elif isinstance(event, StepStarted):
-                    step_index += 1
+            elif isinstance(event, StepStarted):
+                step_index += 1
 
-                    # Step type icon mapping
-                    type_icons = {
-                        "python": "⚙",
-                        "agent": "🤖",
-                        "generate": "✍",
-                        "validate": "✓",
-                        "checkpoint": "💾",
-                    }
-                    icon = type_icons.get(event.step_type.value, "●")
+                # Step type icon mapping
+                type_icons = {
+                    "python": "⚙",
+                    "agent": "🤖",
+                    "generate": "✍",
+                    "validate": "✓",
+                    "checkpoint": "💾",
+                }
+                icon = type_icons.get(event.step_type.value, "●")
 
-                    # Display step start with progress counter
-                    step_name = event.step_name
-                    step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
-                    styled = click.style(step_header, fg="blue")
-                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+                # Display step start with progress counter
+                step_name = event.step_name
+                step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
+                styled = click.style(step_header, fg="blue")
+                click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
 
-                elif isinstance(event, StepCompleted):
-                    # Calculate duration
-                    duration_sec = event.duration_ms / 1000
+            elif isinstance(event, StepCompleted):
+                # Calculate duration
+                duration_sec = event.duration_ms / 1000
 
-                    if event.success:
-                        # Success indicator
-                        status_msg = click.style("✓", fg="green", bold=True)
-                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                        click.echo(f"{status_msg} {duration_msg}")
-                    else:
-                        # Failure indicator
-                        status_msg = click.style("✗", fg="red", bold=True)
-                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                        click.echo(f"{status_msg} {duration_msg}")
+                if event.success:
+                    # Success indicator
+                    status_msg = click.style("✓", fg="green", bold=True)
+                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                    click.echo(f"{status_msg} {duration_msg}")
+                else:
+                    # Failure indicator
+                    status_msg = click.style("✗", fg="red", bold=True)
+                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                    click.echo(f"{status_msg} {duration_msg}")
 
-                elif isinstance(event, WorkflowCompleted):
-                    # Workflow summary
-                    click.echo()
-                    total_sec = event.total_duration_ms / 1000
+            elif isinstance(event, WorkflowCompleted):
+                # Workflow summary
+                click.echo()
+                total_sec = event.total_duration_ms / 1000
 
-                    if event.success:
-                        summary_header = click.style(
-                            "Workflow completed successfully", fg="green", bold=True
-                        )
-                        click.echo(f"{summary_header} in {total_sec:.2f}s")
-                    else:
-                        summary_header = click.style(
-                            "Workflow failed", fg="red", bold=True
-                        )
-                        click.echo(f"{summary_header} after {total_sec:.2f}s")
-
-            # Get final result
-            result = executor.get_result()
-
-            # Display summary
-            click.echo()
-            completed_steps = sum(1 for step in result.step_results if step.success)
-
-            styled_completed = click.style(str(completed_steps), fg="green")
-            click.echo(f"Steps: {styled_completed}/{total_steps} completed")
-
-            if result.success:
-                # Display final output (truncated if too long)
-                if result.final_output is not None:
-                    output_str = str(result.final_output)
-                    if len(output_str) > 200:
-                        output_str = output_str[:197] + "..."
-                    click.echo(f"Final output: {click.style(output_str, fg='white')}")
-                raise SystemExit(ExitCode.SUCCESS)
-            else:
-                # Find and display the failed step
-                failed_step = result.failed_step
-                if failed_step:
-                    click.echo()
-                    error_msg = format_error(
-                        f"Step '{failed_step.name}' failed",
-                        details=[failed_step.error] if failed_step.error else None,
-                        suggestion="Check the step configuration and try again.",
+                if event.success:
+                    summary_header = click.style(
+                        "Workflow completed successfully", fg="green", bold=True
                     )
-                    click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
+                    click.echo(f"{summary_header} in {total_sec:.2f}s")
+                else:
+                    summary_header = click.style(
+                        "Workflow failed", fg="red", bold=True
+                    )
+                    click.echo(f"{summary_header} after {total_sec:.2f}s")
 
-        except Exception as exec_error:
-            logger.exception("Error during workflow execution")
-            error_msg = format_error(
-                f"Workflow execution failed: {exec_error}",
-                suggestion="Check logs for details.",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from exec_error
+        # Get final result
+        result = executor.get_result()
 
-    except KeyboardInterrupt:
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
+        # Display summary
+        click.echo()
+        completed_steps = sum(1 for step in result.step_results if step.success)
 
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error in workflow run command")
-        error_msg = format_error(f"Failed to run workflow: {e}")
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
+        styled_completed = click.style(str(completed_steps), fg="green")
+        click.echo(f"Steps: {styled_completed}/{total_steps} completed")
+
+        if result.success:
+            # Display final output (truncated if too long)
+            if result.final_output is not None:
+                output_str = str(result.final_output)
+                if len(output_str) > 200:
+                    output_str = output_str[:197] + "..."
+                click.echo(f"Final output: {click.style(output_str, fg='white')}")
+            raise SystemExit(ExitCode.SUCCESS)
+        else:
+            # Find and display the failed step
+            failed_step = result.failed_step
+            if failed_step:
+                click.echo()
+                error_msg = format_error(
+                    f"Step '{failed_step.name}' failed",
+                    details=[failed_step.error] if failed_step.error else None,
+                    suggestion="Check the step configuration and try again.",
+                )
+                click.echo(error_msg, err=True)
+            raise SystemExit(ExitCode.FAILURE)
 
 
 @cli.command()
