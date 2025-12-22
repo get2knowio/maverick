@@ -956,30 +956,3 @@ class StagesNotFoundError(WorkflowError):
         super().__init__(
             f"Validation stages config key '{config_key}' not found in configuration.",
         )
-
-
-class ContextBuilderError(WorkflowError):
-    """Raised when context builder fails or returns invalid type.
-
-    Attributes:
-        message: Human-readable error message.
-        step_name: Name of the step with the failing context builder.
-        original_error: The underlying exception that caused the failure.
-    """
-
-    def __init__(
-        self,
-        step_name: str,
-        original_error: Exception,
-    ) -> None:
-        """Initialize the ContextBuilderError.
-
-        Args:
-            step_name: Name of the step with the failing context builder.
-            original_error: The underlying exception that caused the failure.
-        """
-        self.step_name = step_name
-        self.original_error = original_error
-        super().__init__(
-            f"Context builder for step '{step_name}' failed: {original_error}",
-        )

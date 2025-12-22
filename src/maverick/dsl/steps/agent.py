@@ -16,7 +16,7 @@ from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.types import ContextBuilder, StepType
 
 if TYPE_CHECKING:
-    pass
+    from maverick.dsl.protocols import AgentProtocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ class AgentStep(StepDefinition):
     """
 
     name: str
-    agent: Any  # MaverickAgent
+    agent: AgentProtocol
     context: dict[str, Any] | ContextBuilder
     step_type: StepType = field(default=StepType.AGENT, init=False)
 

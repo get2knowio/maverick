@@ -44,7 +44,19 @@ from maverick.dsl.serialization.schema import (
     WorkflowFile,
 )
 
-__all__ = ["ASCIIGenerator"]
+# Module-level constants for ASCII diagram layout
+DEFAULT_WIDTH = 60  # Default diagram width per FR-021
+BORDER_CORNERS_WIDTH = 2  # Width of corner characters (┌ and ┐, etc.)
+BORDER_WITH_SPACE = 2  # Width of "│ " on each side
+TOTAL_PADDING_WIDTH = 4  # Total padding (BORDER_WITH_SPACE * 2)
+
+__all__ = [
+    "ASCIIGenerator",
+    "DEFAULT_WIDTH",
+    "BORDER_CORNERS_WIDTH",
+    "BORDER_WITH_SPACE",
+    "TOTAL_PADDING_WIDTH",
+]
 
 
 class ASCIIGenerator:
@@ -58,7 +70,7 @@ class ASCIIGenerator:
 
     """
 
-    def __init__(self, width: int = 60) -> None:
+    def __init__(self, width: int = DEFAULT_WIDTH) -> None:
         """Initialize ASCII generator.
 
         Args:
@@ -346,7 +358,7 @@ class ASCIIGenerator:
             Top border line.
 
         """
-        return "┌" + "─" * (self.width - 2) + "┐"
+        return "┌" + "─" * (self.width - BORDER_CORNERS_WIDTH) + "┐"
 
     def _draw_bottom_border(self) -> str:
         """Draw bottom border of box.
@@ -355,7 +367,7 @@ class ASCIIGenerator:
             Bottom border line.
 
         """
-        return "└" + "─" * (self.width - 2) + "┘"
+        return "└" + "─" * (self.width - BORDER_CORNERS_WIDTH) + "┘"
 
     def _draw_divider(self) -> str:
         """Draw section divider.
@@ -364,7 +376,7 @@ class ASCIIGenerator:
             Divider line.
 
         """
-        return "├" + "─" * (self.width - 2) + "┤"
+        return "├" + "─" * (self.width - BORDER_CORNERS_WIDTH) + "┤"
 
     def _draw_content_line(self, content: str) -> str:
         """Draw a content line within the box.
@@ -377,7 +389,7 @@ class ASCIIGenerator:
 
         """
         # Calculate available width for content
-        available_width = self.width - 4  # Account for "│ " and " │"
+        available_width = self.width - TOTAL_PADDING_WIDTH  # Account for "│ " and " │"
 
         # Truncate if too long using textwrap for Unicode-safe truncation
         if len(content) > available_width:

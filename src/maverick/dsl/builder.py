@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from maverick.dsl.protocols import AgentProtocol, GeneratorProtocol
 
 from maverick.dsl.steps.agent import AgentStep
 from maverick.dsl.steps.base import StepDefinition
@@ -202,7 +205,7 @@ class StepBuilder:
 
     def agent(
         self,
-        agent: Any,
+        agent: AgentProtocol,
         context: dict[str, Any] | ContextBuilder,
     ) -> StepDefinition:
         """Create an agent step that invokes a MaverickAgent.
@@ -229,7 +232,7 @@ class StepBuilder:
 
     def generate(
         self,
-        generator: Any,
+        generator: GeneratorProtocol,
         context: dict[str, Any] | ContextBuilder,
     ) -> StepDefinition:
         """Create a generate step that invokes a GeneratorAgent.

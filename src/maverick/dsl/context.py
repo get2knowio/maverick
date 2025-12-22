@@ -7,11 +7,38 @@ during workflow execution, including inputs, step results, and shared configurat
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from maverick.dsl.results import RollbackRegistration, StepResult
     from maverick.dsl.types import RollbackAction
+
+
+class ConfigProtocol(Protocol):
+    """Protocol for workflow configuration objects.
+
+    This defines the interface that config objects must implement to be used
+    with ValidateStep and other workflow components that need validation support.
+
+    Attributes:
+        validation_stages: Optional list of default validation stage names.
+
+    Methods:
+        run_validation_stages: Execute validation stages and return results.
+    """
+
+    validation_stages: list[str] | None
+
+    async def run_validation_stages(self, stages: list[str]) -> Any:
+        """Run validation stages and return results.
+
+        Args:
+            stages: List of validation stage names to execute.
+
+        Returns:
+            Validation result object with success status.
+        """
+        ...
 
 
 @dataclass
@@ -28,7 +55,8 @@ class WorkflowContext:
         results: Completed step results keyed by step name (mutable during execution).
             The workflow engine populates this dict as each step completes.
         config: Shared services/configuration needed by steps (e.g., MaverickConfig).
-            This can be any object that steps need to access during execution.
+            Must implement ConfigProtocol (validation_stages attribute and
+            run_validation_stages method).
         _pending_rollbacks: List of rollback actions registered during execution.
             These are executed in reverse order if workflow fails.
 
@@ -43,7 +71,7 @@ class WorkflowContext:
 
     inputs: dict[str, Any]
     results: dict[str, StepResult] = field(default_factory=dict)
-    config: Any = None
+    config: ConfigProtocol | None = None
     _pending_rollbacks: list[RollbackRegistration] = field(default_factory=list)
 
     def get_step_output(self, step_name: str, default: Any = None) -> Any:

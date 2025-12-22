@@ -154,23 +154,27 @@ async def _send_ntfy_request(
                     response_data = await response.json()
                     notification_id = response_data.get("id")
                     logger.info(
-                        f"Notification sent successfully (id: {notification_id})"
+                        "Notification sent successfully (id: %s)", notification_id
                     )
                     return (True, "Notification sent", notification_id)
                 else:
                     last_error = f"HTTP {response.status}: {await response.text()}"
                     logger.warning(
-                        f"Notification attempt {attempt + 1} failed: {last_error}"
+                        "Notification attempt %s failed: %s", attempt + 1, last_error
                     )
         except asyncio.TimeoutError:
             last_error = "Request timed out"
-            logger.warning(f"Notification attempt {attempt + 1} timed out")
+            logger.warning("Notification attempt %s timed out", attempt + 1)
         except aiohttp.ClientError as e:
             last_error = f"Client error: {e}"
-            logger.warning(f"Notification attempt {attempt + 1} failed: {last_error}")
+            logger.warning(
+                "Notification attempt %s failed: %s", attempt + 1, last_error
+            )
         except Exception as e:
             last_error = f"Unexpected error: {e}"
-            logger.warning(f"Notification attempt {attempt + 1} failed: {last_error}")
+            logger.warning(
+                "Notification attempt %s failed: %s", attempt + 1, last_error
+            )
 
         # Wait before retry (except on last attempt)
         if attempt < max_retries:
@@ -178,8 +182,9 @@ async def _send_ntfy_request(
 
     # All retries failed - gracefully degrade
     logger.warning(
-        f"Failed to deliver notification after {max_retries + 1} attempts. "
-        f"Last error: {last_error}"
+        "Failed to deliver notification after %s attempts. Last error: %s",
+        max_retries + 1,
+        last_error,
     )
     return (True, "Notification not delivered", None)
 
@@ -247,6 +252,9 @@ def create_notification_tools_server(
 
         Returns:
             MCP-formatted success or error response.
+
+        Raises:
+            Never raises - always returns MCP response format with success or error.
 
         Example:
             >>> await send_workflow_update({
@@ -367,6 +375,9 @@ def create_notification_tools_server(
             - notification_id: ntfy response ID if available
             - warning: Present if retry was needed or server unreachable
 
+        Raises:
+            Never raises - always returns MCP response format with success or error.
+
         Example:
             ```python
             result = await send_notification({
@@ -402,7 +413,7 @@ def create_notification_tools_server(
             # Validate tags is a list
             if not isinstance(tags, list):
                 logger.warning(
-                    f"send_notification called with invalid tags type: {type(tags)}"
+                    "send_notification called with invalid tags type: %s", type(tags)
                 )
                 return _error_response(
                     "Tags must be a list of strings",
@@ -415,7 +426,7 @@ def create_notification_tools_server(
         valid_priorities = {"min", "low", "default", "high", "urgent"}
         if priority not in valid_priorities:
             logger.warning(
-                f"send_notification called with invalid priority: {priority}"
+                "send_notification called with invalid priority: %s", priority
             )
             valid_list = ", ".join(sorted(valid_priorities))
             return _error_response(
@@ -424,8 +435,11 @@ def create_notification_tools_server(
             )
 
         logger.info(
-            f"Sending notification: message='{message[:50]}...', title={title}, "
-            f"priority={priority}, tags={tags}"
+            "Sending notification: message='%s...', title=%s, priority=%s, tags=%s",
+            message[:50],
+            title,
+            priority,
+            tags,
         )
 
         # Send notification with graceful degradation (T046)

@@ -156,3 +156,16 @@ try:
     )
 except ImportError:
     logger.debug("Context builder utilities not yet available")
+
+# Security utilities
+try:
+    from maverick.utils.security import is_potentially_secret, scrub_secrets
+
+    __all__.extend(
+        [
+            "is_potentially_secret",
+            "scrub_secrets",
+        ]
+    )
+except ImportError:
+    logger.debug("Security utilities not yet available")

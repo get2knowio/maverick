@@ -18,6 +18,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import subprocess
 import threading
@@ -35,6 +36,8 @@ from maverick.exceptions import (
     NothingToCommitError,
     PushRejectedError,
 )
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Constants & Validators
@@ -186,13 +189,16 @@ class GitOperations:
                     self._git_checked = True
 
         cmd = ["git", *args]
-        return subprocess.run(
+        logger.debug("Running git command: %s", " ".join(cmd))
+        result = subprocess.run(
             cmd,
             cwd=self._cwd,
             check=check,
             capture_output=capture_output,
             text=True,
         )
+        logger.debug("Git command completed with return code %d", result.returncode)
+        return result
 
     def _check_git_installed(self) -> None:
         """Check that git CLI is installed.
@@ -245,7 +251,10 @@ class GitOperations:
         if branch == "HEAD":
             # Detached HEAD - return full SHA
             result = self._run(["rev-parse", "HEAD"])
-            return result.stdout.strip()
+            sha = result.stdout.strip()
+            logger.info("Current branch: detached HEAD at %s", sha[:7])
+            return sha
+        logger.info("Current branch: %s", branch)
         return branch
 
     def status(self) -> GitStatus:
@@ -302,7 +311,7 @@ class GitOperations:
                 if worktree_status not in (" ", "?"):
                     unstaged.append(filename)
 
-        return GitStatus(
+        status = GitStatus(
             staged=tuple(staged),
             unstaged=tuple(unstaged),
             untracked=tuple(untracked),
@@ -310,6 +319,16 @@ class GitOperations:
             ahead=ahead,
             behind=behind,
         )
+        logger.info(
+            "Repository status: branch=%s, staged=%d, unstaged=%d, untracked=%d, ahead=%d, behind=%d",
+            branch,
+            len(staged),
+            len(unstaged),
+            len(untracked),
+            ahead,
+            behind,
+        )
+        return status
 
     def log(self, n: int = 10) -> list[CommitInfo]:
         """Get recent commit history.
@@ -347,6 +366,7 @@ class GitOperations:
                     )
                 )
 
+        logger.info("Retrieved %d commit(s) from git log", len(commits))
         return commits
 
     # -------------------------------------------------------------------------
@@ -378,8 +398,10 @@ class GitOperations:
             )
 
         if checkout:
+            logger.info("Creating and checking out branch: %s", name)
             self._run(["checkout", "-b", name])
         else:
+            logger.info("Creating branch: %s", name)
             self._run(["branch", name])
 
     def checkout(self, branch: str) -> None:
@@ -398,6 +420,7 @@ class GitOperations:
         self._check_repository()
         _validate_branch_name(branch)
 
+        logger.info("Checking out branch: %s", branch)
         result = self._run(["checkout", branch], check=False)
         if result.returncode != 0:
             stderr = result.stderr.lower()
@@ -437,7 +460,9 @@ class GitOperations:
         """
         self._check_repository()
 
+        logger.info("Creating commit: %s", message[:50])
         if add_all:
+            logger.debug("Staging all changes before commit")
             self._run(["add", "-A"])
 
         result = self._run(["commit", "-m", message], check=False)
@@ -453,7 +478,9 @@ class GitOperations:
 
         # Get the commit hash
         result = self._run(["rev-parse", "HEAD"])
-        return result.stdout.strip()
+        commit_hash = result.stdout.strip()
+        logger.info("Commit created: %s", commit_hash[:7])
+        return commit_hash
 
     def push(
         self,
@@ -474,6 +501,11 @@ class GitOperations:
         self._check_repository()
 
         branch = self.current_branch()
+        if set_upstream:
+            logger.info("Pushing branch %s to %s (set upstream)", branch, remote)
+        else:
+            logger.info("Pushing branch %s to %s", branch, remote)
+
         args = ["push"]
         if set_upstream:
             args.extend(["-u", remote, branch])
@@ -497,6 +529,7 @@ class GitOperations:
                 f"Push failed: {stderr.strip()}",
                 operation="push",
             )
+        logger.info("Push completed successfully")
 
     # -------------------------------------------------------------------------
     # Sync with Remote (User Story 5)
@@ -523,6 +556,7 @@ class GitOperations:
 
         # If branch is not specified, explicitly use the current branch
         target_branch = branch if branch else self.current_branch()
+        logger.info("Pulling branch %s from %s", target_branch, remote)
         args = ["pull", remote, target_branch]
 
         result = self._run(args, check=False)
@@ -559,6 +593,8 @@ class GitOperations:
                 operation="pull",
             )
 
+        logger.info("Pull completed successfully")
+
     # -------------------------------------------------------------------------
     # Diff Analysis (User Story 4)
     # -------------------------------------------------------------------------
@@ -578,6 +614,11 @@ class GitOperations:
             NotARepositoryError: If not in a git repository.
         """
         self._check_repository()
+
+        if head:
+            logger.info("Getting diff between %s and %s", base, head)
+        else:
+            logger.info("Getting diff from %s to working tree", base)
 
         args = ["diff", base]
         if head:

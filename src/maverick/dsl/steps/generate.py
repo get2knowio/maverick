@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.results import StepResult
 from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.types import ContextBuilder, StepType
+
+if TYPE_CHECKING:
+    from maverick.dsl.protocols import GeneratorProtocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +46,7 @@ class GenerateStep(StepDefinition):
     """
 
     name: str
-    generator: Any  # GeneratorAgent
+    generator: GeneratorProtocol
     context: dict[str, Any] | ContextBuilder
     step_type: StepType = field(default=StepType.GENERATE, init=False)
 

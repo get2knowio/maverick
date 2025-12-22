@@ -117,7 +117,7 @@ async def _run_command_with_timeout(
         ValidationToolsError: If command execution fails unexpectedly.
     """
     try:
-        logger.debug(f"Running command: {' '.join(cmd)}")
+        logger.debug("Running command: %s", " ".join(cmd))
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -135,11 +135,11 @@ async def _run_command_with_timeout(
             return_code = process.returncode or 0
             timed_out = False
 
-            logger.debug(f"Command completed with return code {return_code}")
+            logger.debug("Command completed with return code %s", return_code)
             return stdout, stderr, return_code, timed_out
 
         except asyncio.TimeoutError:
-            logger.warning(f"Command timed out after {timeout}s: {' '.join(cmd)}")
+            logger.warning("Command timed out after %ss: %s", timeout, " ".join(cmd))
             # Kill the process
             try:
                 process.kill()
@@ -147,14 +147,14 @@ async def _run_command_with_timeout(
                 stdout = stdout_bytes.decode("utf-8", errors="replace")
                 stderr = stderr_bytes.decode("utf-8", errors="replace")
             except Exception as e:
-                logger.error(f"Error killing timed-out process: {e}")
+                logger.error("Error killing timed-out process: %s", e)
                 stdout = ""
                 stderr = f"Process killed due to timeout ({timeout}s)"
 
             return stdout, stderr, -1, True
 
     except Exception as e:
-        logger.error(f"Command execution error: {e}")
+        logger.error("Command execution error: %s", e)
         raise ValidationToolsError(f"Failed to execute command: {' '.join(cmd)}") from e
 
 
@@ -242,7 +242,7 @@ def create_validation_tools_server(
             }
 
         Raises:
-            ValidationToolsError: If validation types are invalid.
+            Never raises - always returns MCP response format with success or error.
         """
         try:
             types_to_run: list[str] = args.get("types", [])
@@ -250,7 +250,7 @@ def create_validation_tools_server(
             # Validate types
             invalid_types = set(types_to_run) - VALIDATION_TYPES
             if invalid_types:
-                logger.error(f"Invalid validation types: {invalid_types}")
+                logger.error("Invalid validation types: %s", invalid_types)
                 return _error_response(
                     f"Invalid validation types: {invalid_types}. "
                     f"Valid types: {VALIDATION_TYPES}",
@@ -261,7 +261,7 @@ def create_validation_tools_server(
                 logger.warning("No validation types specified")
                 return _success_response({"success": True, "results": []})
 
-            logger.info(f"Running validation types: {types_to_run}")
+            logger.info("Running validation types: %s", types_to_run)
 
             # Map validation types to commands
             type_to_cmd: dict[str, list[str] | None] = {
@@ -279,7 +279,7 @@ def create_validation_tools_server(
                 cmd: list[str] | None = type_to_cmd.get(validation_type)
 
                 if cmd is None:
-                    logger.warning(f"No command configured for {validation_type}")
+                    logger.warning("No command configured for %s", validation_type)
                     results.append(
                         {
                             "type": validation_type,
@@ -316,21 +316,26 @@ def create_validation_tools_server(
                     status = "timeout"
                     success = False
                     logger.warning(
-                        f"Validation '{validation_type}' timed out "
-                        f"after {duration_ms}ms"
+                        "Validation '%s' timed out after %sms",
+                        validation_type,
+                        duration_ms,
                     )
                 elif return_code == 0:
                     status = "success"
                     success = True
                     logger.info(
-                        f"Validation '{validation_type}' succeeded in {duration_ms}ms"
+                        "Validation '%s' succeeded in %sms",
+                        validation_type,
+                        duration_ms,
                     )
                 else:
                     status = "failed"
                     success = False
                     logger.warning(
-                        f"Validation '{validation_type}' failed with code "
-                        f"{return_code} in {duration_ms}ms"
+                        "Validation '%s' failed with code %s in %sms",
+                        validation_type,
+                        return_code,
+                        duration_ms,
                     )
 
                 results.append(
@@ -346,11 +351,11 @@ def create_validation_tools_server(
                 if not success:
                     overall_success = False
 
-            logger.info(f"Validation complete: overall_success={overall_success}")
+            logger.info("Validation complete: overall_success=%s", overall_success)
             return _success_response({"success": overall_success, "results": results})
 
         except Exception as e:
-            logger.error(f"Validation execution error: {e}")
+            logger.error("Validation execution error: %s", e)
             return _error_response(str(e), "VALIDATION_EXECUTION_ERROR")
 
     @tool(
@@ -383,21 +388,21 @@ def create_validation_tools_server(
             }
 
         Raises:
-            ValidationToolsError: If parsing type is invalid.
+            Never raises - always returns MCP response format with success or error.
         """
         try:
             output: str = args.get("output", "")
             parse_type: str = args.get("type", "")
 
             if parse_type not in {"lint", "typecheck"}:
-                logger.error(f"Invalid parse type: {parse_type}")
+                logger.error("Invalid parse type: %s", parse_type)
                 return _error_response(
                     f"Invalid parse type: {parse_type}. "
                     f"Valid types: 'lint', 'typecheck'",
                     "INVALID_PARSE_TYPE",
                 )
 
-            logger.info(f"Parsing {parse_type} output ({len(output)} chars)")
+            logger.info("Parsing %s output (%s chars)", parse_type, len(output))
 
             errors: list[dict[str, Any]] = []
 
@@ -436,12 +441,14 @@ def create_validation_tools_server(
             truncated = total_count > MAX_ERRORS
 
             if truncated:
-                logger.warning(f"Truncating {total_count} errors to {MAX_ERRORS}")
+                logger.warning("Truncating %s errors to %s", total_count, MAX_ERRORS)
                 errors = errors[:MAX_ERRORS]
 
             logger.info(
-                f"Parsed {len(errors)} errors "
-                f"(total: {total_count}, truncated: {truncated})"
+                "Parsed %s errors (total: %s, truncated: %s)",
+                len(errors),
+                total_count,
+                truncated,
             )
 
             return _success_response(
@@ -453,7 +460,7 @@ def create_validation_tools_server(
             )
 
         except Exception as e:
-            logger.error(f"Parse validation output error: {e}")
+            logger.error("Parse validation output error: %s", e)
             return _error_response(str(e), "PARSE_ERROR")
 
     # Create and return MCP server with all tools

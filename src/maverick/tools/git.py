@@ -276,6 +276,9 @@ def create_git_tools_server(
         Returns:
             Success: {"success": true, "commit_sha": "...", "message": "..."}
             Error: {"isError": true, "error_code": "NOTHING_TO_COMMIT"|...}
+
+        Raises:
+            Never raises - always returns MCP response format with success or error.
         """
         # Extract arguments
         message = args.get("message", "").strip()
@@ -400,7 +403,9 @@ def create_git_tools_server(
         Returns:
             MCP response with push details or error.
 
-        Error codes:
+        Raises:
+            Never raises - always returns MCP response format with success or error.
+            Error codes returned:
             - NOT_A_REPOSITORY: Not inside a git repository
             - DETACHED_HEAD: Cannot push from detached HEAD
             - AUTHENTICATION_REQUIRED: Authentication failure
@@ -540,7 +545,9 @@ def create_git_tools_server(
             MCP response with branch name or error.
             Returns "(detached)" if in detached HEAD state.
 
-        Error codes:
+        Raises:
+            Never raises - always returns MCP response format with success or error.
+            Error codes returned:
             - NOT_A_REPOSITORY: Not inside a git repository
             - GIT_ERROR: Other git operation failures
         """
@@ -595,7 +602,9 @@ def create_git_tools_server(
             MCP response with diff statistics or error.
             Parses output like "3 files changed, 50 insertions(+), 20 deletions(-)"
 
-        Error codes:
+        Raises:
+            Never raises - always returns MCP response format with success or error.
+            Error codes returned:
             - NOT_A_REPOSITORY: Not inside a git repository
             - GIT_ERROR: Other git operation failures
         """
@@ -681,7 +690,9 @@ def create_git_tools_server(
         Returns:
             MCP response with branch creation details or error.
 
-        Error codes:
+        Raises:
+            Never raises - always returns MCP response format with success or error.
+            Error codes returned:
             - NOT_A_REPOSITORY: Not inside a git repository
             - INVALID_INPUT: Invalid branch name
             - BRANCH_EXISTS: Branch already exists

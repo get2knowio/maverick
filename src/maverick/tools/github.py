@@ -23,6 +23,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from maverick.exceptions import GitHubToolsError
+from maverick.utils.security import scrub_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -163,11 +164,19 @@ def _classify_error(stderr: str, stdout: str = "") -> tuple[str, str, int | None
 
     Returns:
         Tuple of (message, error_code, retry_after_seconds).
+
+    Note:
+        Error messages are scrubbed to prevent leaking secrets that might
+        appear in command output.
     """
     error_text = (stderr or stdout).lower()
 
     if "not found" in error_text or "could not find" in error_text:
-        return stderr or stdout or "Resource not found", "NOT_FOUND", None
+        return (
+            scrub_secrets(stderr or stdout or "Resource not found"),
+            "NOT_FOUND",
+            None,
+        )
 
     if "rate limit" in error_text:
         retry_after = _parse_rate_limit_wait(stderr or stdout)
@@ -178,13 +187,21 @@ def _classify_error(stderr: str, stdout: str = "") -> tuple[str, str, int | None
         return "GitHub CLI not authenticated. Run: gh auth login", "AUTH_ERROR", None
 
     if "network" in error_text or "connection" in error_text:
-        return f"Network error: {stderr or stdout}", "NETWORK_ERROR", None
+        return (
+            f"Network error: {scrub_secrets(stderr or stdout)}",
+            "NETWORK_ERROR",
+            None,
+        )
 
     if "timeout" in error_text:
-        return f"Operation timed out: {stderr or stdout}", "TIMEOUT", None
+        return (
+            f"Operation timed out: {scrub_secrets(stderr or stdout)}",
+            "TIMEOUT",
+            None,
+        )
 
     # Generic error
-    return stderr or stdout or "Unknown error", "INTERNAL_ERROR", None
+    return scrub_secrets(stderr or stdout or "Unknown error"), "INTERNAL_ERROR", None
 
 
 # =============================================================================
