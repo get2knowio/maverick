@@ -90,6 +90,10 @@ layout: default
 
 Complete spec-based development from tasks.md to pull request
 
+<div class="text-sm text-yellow-300 mb-4">
+<strong>Prerequisite:</strong> tasks.md must be generated via <code>/speckit.tasks</code> (<a href="https://speckit.org">speckit.org</a>)
+</div>
+
 <div class="grid grid-cols-2 gap-4 mt-8">
 
 <div>
@@ -129,9 +133,11 @@ Complete spec-based development from tasks.md to pull request
 <!--
 FlyWorkflow is Maverick's primary workflow for spec-based feature development. It takes you from a task list all the way to a pull request, handling all the intermediate steps.
 
+IMPORTANT: The tasks.md file must be generated using Speckit (speckit.org) via the /speckit.tasks command. We do not support manually created tasks.md files - they follow a specific format that speckit generates from your spec.md and plan.md files.
+
 Stage 1 - INIT: Ensures your workspace is ready by syncing your feature branch with the base branch and validating that spec files exist.
 
-Stage 2 - IMPLEMENTATION: Parses tasks.md and executes each task. Tasks marked with "P:" can run in parallel for efficiency.
+Stage 2 - IMPLEMENTATION: Parses the speckit-generated tasks.md and executes each task. Tasks marked with "P:" can run in parallel for efficiency.
 
 Stage 3 - VALIDATION: Runs format, lint, typecheck, and test stages. If validation fails, the workflow automatically invokes a fixer agent to attempt repairs, retrying up to 3 times.
 

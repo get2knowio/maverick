@@ -196,7 +196,7 @@ Six capabilities that make Maverick powerful and extensible
   v-click
   icon="📋"
   title="Spec-Driven Development"
-  description="Work from structured specifications with automated task generation and tracking"
+  description="Work from structured specifications with task generation via Speckit (speckit.org)"
 />
 
 </div>
@@ -239,7 +239,7 @@ This slide showcases Maverick's six core capabilities that make it a complete so
 
 5. **Extensible Architecture**: Clean separation of concerns (agents vs workflows vs tools) makes it easy to add custom behavior. Write a new agent, define a new workflow, or integrate a new tool.
 
-6. **Spec-Driven Development**: Start with a structured specification, automatically generate implementation tasks, and track progress. Ensures consistency and documentation.
+6. **Spec-Driven Development**: Start with a structured specification, use Speckit (speckit.org) to generate tasks.md via the /speckit.tasks command, and track progress. Manual creation of tasks.md is not supported - Speckit ensures the correct format.
 
 The bottom flow diagram shows the typical end-to-end journey - from spec to merged PR.
 -->

@@ -28,6 +28,8 @@ Maverick is a Python CLI/TUI application that orchestrates complex AI-powered de
 
 ## Getting Started
 
+**Prerequisites:** Python 3.10+, [GitHub CLI](https://cli.github.com/), [Speckit](https://speckit.org)
+
 ```bash
 # Clone the repository
 git clone https://github.com/get2knowio/maverick.git
@@ -38,6 +40,9 @@ pip install -e .
 
 # Initialize configuration
 maverick config init
+
+# Generate tasks.md using speckit (in Claude Code)
+/speckit.tasks
 
 # Run a workflow
 maverick fly feature-branch-name
@@ -61,6 +66,8 @@ Tool Layer (MCP Tools)
 |----------|---------|
 | **FlyWorkflow** | Complete spec-based development from tasks.md to PR |
 | **RefuelWorkflow** | Automated tech-debt resolution from GitHub issues |
+
+> **Important:** The `tasks.md` file used by FlyWorkflow must be generated using [Speckit](https://speckit.org) via the `/speckit.tasks` command. Manual creation of tasks.md is not supported.
 
 ## License
 

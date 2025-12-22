@@ -39,6 +39,7 @@ uv pip install -e .
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - Claude API access (set `ANTHROPIC_API_KEY` environment variable)
 - Git repository with remote origin
+- [Speckit](https://speckit.org) for task generation (tasks.md files must be generated via `/speckit.tasks`)
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
 - Optional: [ntfy](https://ntfy.sh) for push notifications
 
@@ -80,7 +81,13 @@ Complete spec-based development workflow for feature implementation:
 5. **Convention Update** - Update CLAUDE.md if significant learnings
 6. **PR Management** - Generate PR body, create/update via GitHub CLI
 
+> **Note:** The `tasks.md` file must be generated using [Speckit](https://speckit.org) via the `/speckit.tasks` command. Manual creation of tasks.md is not supported.
+
 ```bash
+# First, generate tasks.md using speckit (in Claude Code)
+/speckit.tasks
+
+# Then run the workflow
 maverick fly my-feature --task-file ./specs/my-feature/tasks.md
 ```
 
