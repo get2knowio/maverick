@@ -181,7 +181,7 @@ class TestGitHubToolsPerformance:
         start = time.perf_counter()
 
         # Call the tool with minimal parameters
-        result = await github_list_issues({
+        result = await github_list_issues.handler({
             "state": "open",
             "limit": 10,  # Small limit for faster response
         })
@@ -224,7 +224,7 @@ class TestGitHubToolsPerformance:
 
         # Call the tool with a potentially existing issue number
         # Using issue #1 as it's likely to exist in most repos
-        result = await github_get_issue({"issue_number": 1})
+        result = await github_get_issue.handler({"issue_number": 1})
 
         elapsed = time.perf_counter() - start
 
@@ -235,8 +235,7 @@ class TestGitHubToolsPerformance:
         assert result is not None
         assert "content" in result
 
-    @pytest.mark.asyncio
-    async def test_server_creation_performance(self) -> None:
+    def test_server_creation_performance(self) -> None:
         """Test create_github_tools_server() completes quickly.
 
         This test verifies that server creation (including prerequisite
@@ -245,11 +244,13 @@ class TestGitHubToolsPerformance:
         # Measure server creation time
         start = time.perf_counter()
 
+        # Run synchronously to allow internal asyncio.run() calls
         server_config = create_github_tools_server()
 
         elapsed = time.perf_counter() - start
 
         # Server creation should be fast (configurable threshold for CI/CD)
+        # Note: Verification involves subprocess calls so 10s is reasonable
         assert elapsed < PERF_THRESHOLD_SERVER_CREATION, f"Server creation took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SERVER_CREATION}s"
 
         # Verify server config is valid
@@ -270,7 +271,7 @@ class TestGitHubToolsPerformance:
         start = time.perf_counter()
 
         for _ in range(3):
-            result = await github_list_issues({
+            result = await github_list_issues.handler({
                 "state": "open",
                 "limit": 5,
             })
@@ -295,9 +296,9 @@ class TestGitHubToolsPerformance:
 
         # Execute 3 calls in parallel
         tasks = [
-            github_list_issues({"state": "open", "limit": 5}),
-            github_list_issues({"state": "closed", "limit": 5}),
-            github_list_issues({"state": "all", "limit": 5}),
+            github_list_issues.handler({"state": "open", "limit": 5}),
+            github_list_issues.handler({"state": "closed", "limit": 5}),
+            github_list_issues.handler({"state": "all", "limit": 5}),
         ]
 
         results = await asyncio.gather(*tasks)
@@ -342,7 +343,7 @@ class TestGitHubToolsErrorHandling:
         from maverick.tools.github import github_get_issue
 
         # Call with invalid (negative) issue number
-        result = await github_get_issue({"issue_number": -1})
+        result = await github_get_issue.handler({"issue_number": -1})
 
         # Verify error response structure
         assert result is not None
@@ -364,7 +365,7 @@ class TestGitHubToolsErrorHandling:
         from maverick.tools.github import github_get_issue
 
         # Use a very high issue number that's unlikely to exist
-        result = await github_get_issue({"issue_number": 999999999})
+        result = await github_get_issue.handler({"issue_number": 999999999})
 
         # Verify error response
         assert result is not None
@@ -391,7 +392,7 @@ class TestGitHubToolsErrorHandling:
         from maverick.tools.github import github_list_issues
 
         # Call with invalid state
-        result = await github_list_issues({
+        result = await github_list_issues.handler({
             "state": "invalid_state",
             "limit": 10,
         })
@@ -420,7 +421,7 @@ class TestGitHubToolsResponseFormats:
         """
         from maverick.tools.github import github_list_issues
 
-        result = await github_list_issues({
+        result = await github_list_issues.handler({
             "state": "open",
             "limit": 5,
         })
@@ -458,7 +459,7 @@ class TestGitHubToolsResponseFormats:
         from maverick.tools.github import github_get_issue
 
         # Try to get issue #1 (likely to exist)
-        result = await github_get_issue({"issue_number": 1})
+        result = await github_get_issue.handler({"issue_number": 1})
 
         # Verify MCP response structure
         assert "content" in result
@@ -491,7 +492,7 @@ class TestGitHubToolsResponseFormats:
         from maverick.tools.github import github_get_issue
 
         # Trigger an error with invalid input
-        result = await github_get_issue({"issue_number": 0})
+        result = await github_get_issue.handler({"issue_number": 0})
 
         # Verify error response structure
         assert "content" in result
