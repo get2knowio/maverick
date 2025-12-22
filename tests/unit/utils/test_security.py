@@ -206,11 +206,11 @@ class TestSecretPatternsComprehensive:
         result = scrub_secrets(secret_text)
         if should_be_scrubbed:
             # Should contain a redaction marker
-            assert (
-                "***" in result
-            ), f"Expected scrubbing in '{secret_text}' but got '{result}'"
+            assert "***" in result, (
+                f"Expected scrubbing in '{secret_text}' but got '{result}'"
+            )
         else:
             # Should be unchanged
-            assert (
-                result == secret_text
-            ), f"Unexpected scrubbing in '{secret_text}' -> '{result}'"
+            assert result == secret_text, (
+                f"Unexpected scrubbing in '{secret_text}' -> '{result}'"
+            )

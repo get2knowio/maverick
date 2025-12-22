@@ -522,9 +522,7 @@ class FlyScreen(MaverickScreen):
             # Widget not yet mounted
             pass
 
-    def _add_agent_message(
-        self, content: str, agent_name: str = "System"
-    ) -> None:
+    def _add_agent_message(self, content: str, agent_name: str = "System") -> None:
         """Add a message to the AgentOutput widget.
 
         Args:
@@ -549,9 +547,7 @@ class FlyScreen(MaverickScreen):
             # Widget not yet mounted
             pass
 
-    async def _handle_code_review_completion(
-        self, event: FlyStageCompleted
-    ) -> None:
+    async def _handle_code_review_completion(self, event: FlyStageCompleted) -> None:
         """Handle code review stage completion and auto-transition to ReviewScreen.
 
         Args:
