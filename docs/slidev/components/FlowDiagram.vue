@@ -13,19 +13,19 @@ defineProps({
 
 <template>
   <div
-    class="flex items-center justify-center gap-2"
+    class="flex items-center justify-center gap-1"
     :class="direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'"
   >
     <template v-for="(step, i) in steps" :key="i">
       <div
-        class="px-4 py-2 rounded-lg font-medium text-center min-w-24"
+        class="px-2 py-1 rounded-lg font-medium text-center text-sm min-w-20"
         :class="step.class || 'bg-slate-700 text-white'"
       >
         {{ step.name }}
       </div>
       <div
         v-if="i < steps.length - 1"
-        class="text-slate-500 text-xl"
+        class="text-slate-500 text-base"
       >
         {{ direction === 'vertical' ? '↓' : '→' }}
       </div>

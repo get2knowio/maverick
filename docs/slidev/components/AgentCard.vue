@@ -29,24 +29,24 @@ const badgeColors = {
 
 <template>
   <div
-    class="p-4 rounded-xl bg-gradient-to-br border-l-4 transition-all hover:scale-102"
+    class="p-2 rounded-xl bg-gradient-to-br border-l-4 transition-all hover:scale-102"
     :class="typeColors[type]"
   >
-    <div class="flex items-center justify-between mb-2">
-      <h3 class="font-bold text-lg text-white">{{ name }}</h3>
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-bold text-sm text-white">{{ name }}</h3>
       <span
-        class="px-2 py-0.5 rounded-full text-xs font-medium"
+        class="px-1.5 py-0.5 rounded-full text-xs font-medium"
         :class="badgeColors[type]"
       >
         {{ type }}
       </span>
     </div>
-    <p class="text-sm text-slate-300 mb-3">{{ description }}</p>
+    <p class="text-xs text-slate-300 mb-2 leading-snug">{{ description }}</p>
     <div v-if="tools.length" class="flex flex-wrap gap-1">
       <span
         v-for="tool in tools"
         :key="tool"
-        class="px-2 py-0.5 bg-slate-700/50 rounded text-xs text-slate-400"
+        class="px-1.5 py-0.5 bg-slate-700/50 rounded text-xs text-slate-400"
       >
         {{ tool }}
       </span>

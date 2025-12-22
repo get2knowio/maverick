@@ -34,19 +34,19 @@ const textColors = {
 
 <template>
   <div
-    class="p-4 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border-l-4"
+    class="p-2 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border-l-4"
     :class="borderColors[color]"
   >
-    <div class="flex items-center gap-2 mb-1">
+    <div class="flex items-center gap-1.5 mb-0.5">
       <span
-        class="font-mono font-bold"
+        class="font-mono font-bold text-sm"
         :class="textColors[color]"
       >
         {{ number }}.
       </span>
-      <h4 class="font-semibold text-white">{{ title }}</h4>
+      <h4 class="font-semibold text-white text-sm">{{ title }}</h4>
     </div>
-    <p class="text-sm text-slate-400">{{ description }}</p>
+    <p class="text-xs text-slate-400 leading-snug">{{ description }}</p>
     <slot></slot>
   </div>
 </template>

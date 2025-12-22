@@ -20,14 +20,14 @@ const colorClasses = {
 
 <template>
   <div
-    class="p-4 rounded-lg border-2 transition-all hover:scale-105"
+    class="p-2 rounded-lg border-2 transition-all hover:scale-105"
     :class="colorClasses[color]"
   >
-    <div class="flex items-center gap-2 mb-2">
-      <span v-if="icon" class="text-2xl">{{ icon }}</span>
-      <h3 class="font-bold text-lg">{{ title }}</h3>
+    <div class="flex items-center gap-1.5 mb-1">
+      <span v-if="icon" class="text-lg">{{ icon }}</span>
+      <h3 class="font-bold text-sm">{{ title }}</h3>
     </div>
-    <p class="text-sm opacity-80">{{ description }}</p>
+    <p class="text-xs opacity-80 leading-snug">{{ description }}</p>
     <slot></slot>
   </div>
 </template>

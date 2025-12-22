@@ -26,13 +26,13 @@ const statusClasses = {
 
 <template>
   <div
-    class="flex items-center gap-3 px-4 py-2 rounded-lg border transition-all"
+    class="flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all"
     :class="statusClasses[status]"
   >
-    <span class="text-xl font-mono">{{ statusIcons[status] }}</span>
+    <span class="text-base font-mono">{{ statusIcons[status] }}</span>
     <div>
-      <div class="font-semibold">{{ name }}</div>
-      <div v-if="description" class="text-xs opacity-70">{{ description }}</div>
+      <div class="font-semibold text-sm">{{ name }}</div>
+      <div v-if="description" class="text-xs opacity-70 leading-tight">{{ description }}</div>
     </div>
   </div>
 </template>

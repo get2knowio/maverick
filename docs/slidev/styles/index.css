@@ -11,14 +11,108 @@
   --maverick-bg-light: #1e293b;
 }
 
+/* Fix content overflow - scale slide content to fit */
+.slidev-layout {
+  @apply text-sm;
+  overflow: hidden;
+}
+
+/* Reduce vertical spacing */
+.slidev-layout h1 + * {
+  @apply mt-2;
+}
+
+.slidev-layout h2 {
+  @apply text-lg;
+}
+
+.slidev-layout h3 {
+  @apply text-base;
+}
+
+/* Compact code blocks */
+.slidev-code-wrapper pre {
+  @apply text-xs leading-tight py-2;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* Smaller mermaid diagrams */
+.mermaid {
+  @apply scale-90 origin-top;
+}
+
+/* Reduce grid gaps for dense layouts */
+.grid.grid-cols-2 {
+  @apply gap-3;
+}
+
+.grid.grid-cols-4 {
+  @apply gap-2;
+}
+
+/* Reduce margins on slide content */
+.slidev-layout > *:first-child {
+  @apply mt-0;
+}
+
+/* Compact spacing in lists */
+.slidev-layout ul,
+.slidev-layout ol {
+  @apply my-1 space-y-0.5;
+}
+
+.slidev-layout li {
+  @apply text-sm leading-snug;
+}
+
+/* Reduce padding on info boxes and alerts */
+.slidev-layout .p-4 {
+  @apply p-2;
+}
+
+.slidev-layout .p-3 {
+  @apply p-2;
+}
+
+/* More compact spacing */
+.slidev-layout .mt-8 {
+  @apply mt-4;
+}
+
+.slidev-layout .mt-6 {
+  @apply mt-3;
+}
+
+.slidev-layout .mb-3 {
+  @apply mb-2;
+}
+
+.slidev-layout .gap-6 {
+  @apply gap-3;
+}
+
+.slidev-layout .gap-4 {
+  @apply gap-2;
+}
+
+/* Compact space-y for stacked items */
+.slidev-layout .space-y-4 {
+  @apply space-y-2;
+}
+
+.slidev-layout .space-y-2 {
+  @apply space-y-1;
+}
+
 /* Custom heading styles */
 .slidev-layout h1 {
   @apply bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 bg-clip-text text-transparent;
 }
 
-/* Architecture diagram boxes */
+/* Architecture diagram boxes - compact */
 .arch-box {
-  @apply p-4 rounded-lg border-2 text-center font-semibold;
+  @apply p-2 rounded-lg border-2 text-center font-semibold text-sm;
 }
 
 .arch-box.cli {
@@ -59,9 +153,9 @@
   @apply rounded-xl overflow-hidden;
 }
 
-/* Feature cards */
+/* Feature cards - compact for better fit */
 .feature-card {
-  @apply p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-indigo-500 transition-all;
+  @apply p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-indigo-500 transition-all;
 }
 
 /* Agent type badges */
@@ -106,9 +200,9 @@
   @apply bg-red-500/20 text-red-300;
 }
 
-/* Principle cards */
+/* Principle cards - compact for dense slides */
 .principle-card {
-  @apply p-3 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border-l-4;
+  @apply p-2 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border-l-4;
 }
 
 /* Animate entrance */
