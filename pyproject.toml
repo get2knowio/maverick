@@ -79,6 +79,12 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports are OK in __init__.py (re-exports)
+"tests/**/*.py" = [
+    "B017",   # pytest.raises without match is acceptable in tests
+    "N806",   # Non-lowercase variables OK for mocks (e.g., MockClass)
+    "SIM117", # Nested with statements OK in test setup
+    "B023",   # Function uses loop variable - acceptable in test factories
+]
 
 [tool.mypy]
 strict = true
