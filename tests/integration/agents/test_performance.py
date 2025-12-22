@@ -47,34 +47,36 @@ class TestModuleImports:
         assert DEFAULT_MODEL is not None
 
     def test_import_time_is_reasonable(self) -> None:
-        """Test that module import time is under 500ms."""
-        import importlib
+        """Test that module import time is under 500ms.
+
+        Note: This test measures import time using a subprocess to avoid
+        polluting the test environment's module cache.
+        """
+        import subprocess
         import sys
 
-        # Save the current state of maverick.agents modules
-        saved_modules = {
-            k: v for k, v in sys.modules.items() if k.startswith("maverick.agents")
-        }
+        # Run import timing in a subprocess to avoid polluting sys.modules
+        code = """
+import time
+start = time.perf_counter()
+import maverick.agents
+elapsed = time.perf_counter() - start
+print(f"{elapsed:.6f}")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
 
-        try:
-            # Clear cached imports
-            modules_to_clear = [
-                k for k in sys.modules if k.startswith("maverick.agents")
-            ]
-            for mod in modules_to_clear:
-                del sys.modules[mod]
+        if result.returncode != 0:
+            raise AssertionError(f"Import failed: {result.stderr}")
 
-            # Time the import
-            start = time.perf_counter()
-            importlib.import_module("maverick.agents")
-            elapsed = time.perf_counter() - start
+        elapsed = float(result.stdout.strip())
 
-            # Should import quickly (under 500ms)
-            assert elapsed < 0.5, f"Import took {elapsed:.3f}s, expected < 0.5s"
-        finally:
-            # Restore the original modules to prevent test pollution
-            for mod_name, mod in saved_modules.items():
-                sys.modules[mod_name] = mod
+        # Should import quickly (under 500ms)
+        assert elapsed < 0.5, f"Import took {elapsed:.3f}s, expected < 0.5s"
 
 
 class TestDataclassPerformance:
