@@ -65,15 +65,17 @@ class TestGitHubCLIRunner:
         # Mock successful issue fetch
         issue_result = CommandResult(
             returncode=0,
-            stdout=json.dumps({
-                "number": 42,
-                "title": "Test",
-                "body": "",
-                "labels": [],
-                "state": "OPEN",
-                "assignees": [],
-                "url": "https://github.com/repo/issues/42",
-            }),
+            stdout=json.dumps(
+                {
+                    "number": 42,
+                    "title": "Test",
+                    "body": "",
+                    "labels": [],
+                    "state": "OPEN",
+                    "assignees": [],
+                    "url": "https://github.com/repo/issues/42",
+                }
+            ),
             stderr="",
             duration_ms=100,
             timed_out=False,
@@ -82,7 +84,9 @@ class TestGitHubCLIRunner:
         runner = GitHubCLIRunner()
         mock_runner = AsyncMock()
         # First call: auth check, second call: get issue, third call: get issue again
-        mock_runner.run = AsyncMock(side_effect=[auth_result, issue_result, issue_result])
+        mock_runner.run = AsyncMock(
+            side_effect=[auth_result, issue_result, issue_result]
+        )
         runner._command_runner = mock_runner
 
         # First call should check auth
@@ -106,15 +110,17 @@ class TestGitHubCLIRunner:
         )
         mock_result = CommandResult(
             returncode=0,
-            stdout=json.dumps({
-                "number": 42,
-                "title": "Test Issue",
-                "body": "Description",
-                "labels": [{"name": "bug"}],
-                "state": "OPEN",
-                "assignees": [{"login": "user1"}],
-                "url": "https://github.com/repo/issues/42",
-            }),
+            stdout=json.dumps(
+                {
+                    "number": 42,
+                    "title": "Test Issue",
+                    "body": "Description",
+                    "labels": [{"name": "bug"}],
+                    "state": "OPEN",
+                    "assignees": [{"login": "user1"}],
+                    "url": "https://github.com/repo/issues/42",
+                }
+            ),
             stderr="",
             duration_ms=100,
             timed_out=False,
@@ -141,17 +147,19 @@ class TestGitHubCLIRunner:
         )
         mock_result = CommandResult(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "number": 1,
-                    "title": "Issue 1",
-                    "body": "",
-                    "labels": [{"name": "bug"}],
-                    "state": "OPEN",
-                    "assignees": [],
-                    "url": "https://github.com/repo/issues/1",
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 1,
+                        "title": "Issue 1",
+                        "body": "",
+                        "labels": [{"name": "bug"}],
+                        "state": "OPEN",
+                        "assignees": [],
+                        "url": "https://github.com/repo/issues/1",
+                    },
+                ]
+            ),
             stderr="",
             duration_ms=100,
             timed_out=False,
@@ -182,17 +190,19 @@ class TestGitHubCLIRunner:
         )
         view_result = CommandResult(
             returncode=0,
-            stdout=json.dumps({
-                "number": 123,
-                "title": "Test PR",
-                "body": "PR body",
-                "state": "OPEN",
-                "url": "https://github.com/repo/pull/123",
-                "headRefName": "feature",
-                "baseRefName": "main",
-                "mergeable": True,
-                "isDraft": False,
-            }),
+            stdout=json.dumps(
+                {
+                    "number": 123,
+                    "title": "Test PR",
+                    "body": "PR body",
+                    "state": "OPEN",
+                    "url": "https://github.com/repo/pull/123",
+                    "headRefName": "feature",
+                    "baseRefName": "main",
+                    "mergeable": True,
+                    "isDraft": False,
+                }
+            ),
             stderr="",
             duration_ms=100,
             timed_out=False,
@@ -201,7 +211,9 @@ class TestGitHubCLIRunner:
         runner = GitHubCLIRunner()
         mock_runner = AsyncMock()
         # Auth check, create PR, then get_pr is called which doesn't check auth again
-        mock_runner.run = AsyncMock(side_effect=[auth_result, create_result, view_result])
+        mock_runner.run = AsyncMock(
+            side_effect=[auth_result, create_result, view_result]
+        )
         runner._command_runner = mock_runner
 
         pr = await runner.create_pr(title="Test PR", body="PR body")
@@ -218,20 +230,22 @@ class TestGitHubCLIRunner:
         )
         mock_result = CommandResult(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "test",
-                    "state": "completed",
-                    "conclusion": "success",
-                    "detailsUrl": "https://...",
-                },
-                {
-                    "name": "lint",
-                    "state": "in_progress",
-                    "conclusion": None,
-                    "detailsUrl": None,
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "test",
+                        "state": "completed",
+                        "conclusion": "success",
+                        "detailsUrl": "https://...",
+                    },
+                    {
+                        "name": "lint",
+                        "state": "in_progress",
+                        "conclusion": None,
+                        "detailsUrl": None,
+                    },
+                ]
+            ),
             stderr="",
             duration_ms=100,
             timed_out=False,
@@ -248,3 +262,81 @@ class TestGitHubCLIRunner:
         assert checks[0].name == "test"
         assert checks[0].passed is True
         assert checks[1].pending is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_issue_response_validation_error(self, mock_gh_available):
+        """Test that Pydantic provides clear error messages for malformed JSON."""
+        auth_result = CommandResult(
+            returncode=0, stdout="Logged in", stderr="", duration_ms=50, timed_out=False
+        )
+        # Malformed response: missing required 'number' field
+        malformed_result = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "title": "Test Issue",
+                    "body": "Description",
+                    "labels": [],
+                    "state": "OPEN",
+                    "assignees": [],
+                    "url": "https://github.com/repo/issues/42",
+                    # missing 'number' field
+                }
+            ),
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(side_effect=[auth_result, malformed_result])
+        runner._command_runner = mock_runner
+
+        # Should raise ValidationError with clear error message
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            await runner.get_issue(42)
+
+        # Verify error message mentions the missing field
+        error_msg = str(exc_info.value)
+        assert "number" in error_msg.lower()
+        assert "field required" in error_msg.lower() or "missing" in error_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_type_coercion_in_issue_response(self, mock_gh_available):
+        """Test that Pydantic handles type coercion automatically."""
+        auth_result = CommandResult(
+            returncode=0, stdout="Logged in", stderr="", duration_ms=50, timed_out=False
+        )
+        # Response with number as string (Pydantic should coerce to int)
+        coerced_result = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "number": "42",  # String instead of int
+                    "title": "Test Issue",
+                    "body": "Description",
+                    "labels": [{"name": "bug"}],
+                    "state": "OPEN",
+                    "assignees": [],
+                    "url": "https://github.com/repo/issues/42",
+                }
+            ),
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(side_effect=[auth_result, coerced_result])
+        runner._command_runner = mock_runner
+
+        # Should successfully parse and coerce the number field
+        issue = await runner.get_issue(42)
+
+        assert isinstance(issue.number, int)
+        assert issue.number == 42
+        assert issue.title == "Test Issue"
