@@ -26,6 +26,7 @@ from maverick.exceptions import (
     PushRejectedError,
 )
 from maverick.utils.git_operations import (
+    AsyncGitOperations,
     CommitInfo,
     DiffStats,
     GitOperations,
@@ -1580,3 +1581,178 @@ class TestBranchValidation:
 
         with pytest.raises(ValueError):
             ops.checkout("-invalid-start")
+
+# =============================================================================
+# Async Wrapper Tests
+# =============================================================================
+
+
+class TestAsyncGitOperations:
+    """Tests for AsyncGitOperations async wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_async_current_branch(self, temp_git_repo: Path) -> None:
+        """Test async current_branch returns branch name."""
+        ops = AsyncGitOperations(temp_git_repo)
+        branch = await ops.current_branch()
+        # Branch name depends on git version (master or main)
+        assert branch in ("main", "master")
+
+    @pytest.mark.asyncio
+    async def test_async_status(self, temp_git_repo: Path) -> None:
+        """Test async status returns GitStatus."""
+        # Create a file to show in status
+        test_file = temp_git_repo / "test.py"
+        test_file.write_text("print('test')")
+
+        ops = AsyncGitOperations(temp_git_repo)
+        status = await ops.status()
+
+        assert isinstance(status, GitStatus)
+        # Branch name depends on git version (master or main)
+        assert status.branch in ("main", "master")
+        assert "test.py" in status.untracked
+
+    @pytest.mark.asyncio
+    async def test_async_commit(self, temp_git_repo: Path) -> None:
+        """Test async commit creates a commit."""
+        # Create and stage a file
+        test_file = temp_git_repo / "new_file.py"
+        test_file.write_text("# New file")
+
+        ops = AsyncGitOperations(temp_git_repo)
+        commit_hash = await ops.commit("Add new file", add_all=True)
+
+        assert commit_hash
+        assert len(commit_hash) == 40  # Full SHA
+
+    @pytest.mark.asyncio
+    async def test_async_log(self, temp_git_repo: Path) -> None:
+        """Test async log returns commit history."""
+        ops = AsyncGitOperations(temp_git_repo)
+        commits = await ops.log(n=5)
+
+        assert isinstance(commits, list)
+        assert len(commits) >= 1  # At least the initial commit
+        assert all(isinstance(c, CommitInfo) for c in commits)
+        assert commits[0].message == "Initial commit"
+
+    @pytest.mark.asyncio
+    async def test_async_create_branch(self, temp_git_repo: Path) -> None:
+        """Test async create_branch creates and checks out branch."""
+        ops = AsyncGitOperations(temp_git_repo)
+        await ops.create_branch("feature-test", checkout=True)
+
+        branch = await ops.current_branch()
+        assert branch == "feature-test"
+
+    @pytest.mark.asyncio
+    async def test_async_checkout(self, temp_git_repo: Path) -> None:
+        """Test async checkout switches branches."""
+        # Create a branch first
+        ops = AsyncGitOperations(temp_git_repo)
+        await ops.create_branch("test-branch", checkout=False)
+
+        # Now checkout
+        await ops.checkout("test-branch")
+        branch = await ops.current_branch()
+        assert branch == "test-branch"
+
+    @pytest.mark.asyncio
+    async def test_async_diff(self, temp_git_repo: Path) -> None:
+        """Test async diff returns diff output."""
+        # Modify a file
+        readme = temp_git_repo / "README.md"
+        readme.write_text("# Modified Repo\n")
+
+        ops = AsyncGitOperations(temp_git_repo)
+        diff = await ops.diff()
+
+        assert isinstance(diff, str)
+        assert "Modified Repo" in diff
+
+    @pytest.mark.asyncio
+    async def test_async_diff_stats(self, temp_git_repo: Path) -> None:
+        """Test async diff_stats returns statistics."""
+        # Modify a file
+        readme = temp_git_repo / "README.md"
+        readme.write_text("# Modified Repo\nWith extra line\n")
+
+        ops = AsyncGitOperations(temp_git_repo)
+        stats = await ops.diff_stats()
+
+        assert isinstance(stats, DiffStats)
+        assert stats.files_changed == 1
+        assert "README.md" in stats.file_list
+
+    @pytest.mark.asyncio
+    async def test_async_stash_and_pop(self, temp_git_repo: Path) -> None:
+        """Test async stash and stash_pop."""
+        # Modify an existing tracked file (README.md from fixture)
+        readme = temp_git_repo / "README.md"
+        original_content = readme.read_text()
+        readme.write_text("# Modified content\n")
+
+        ops = AsyncGitOperations(temp_git_repo)
+
+        # Stash changes
+        await ops.stash("Test stash")
+
+        # Verify file is reverted
+        assert readme.read_text() == original_content
+
+        # Pop stash
+        await ops.stash_pop()
+
+        # Verify file has modified content back
+        assert readme.read_text() == "# Modified content\n"
+
+    @pytest.mark.asyncio
+    async def test_async_exceptions_propagate(self, non_git_dir: Path) -> None:
+        """Test that exceptions propagate through async wrapper."""
+        ops = AsyncGitOperations(non_git_dir)
+
+        with pytest.raises(NotARepositoryError):
+            await ops.current_branch()
+
+    @pytest.mark.asyncio
+    async def test_async_branch_exists_error(self, temp_git_repo: Path) -> None:
+        """Test that BranchExistsError propagates through async wrapper."""
+        ops = AsyncGitOperations(temp_git_repo)
+
+        # Create branch first time
+        await ops.create_branch("duplicate-branch", checkout=False)
+
+        # Try to create again
+        with pytest.raises(BranchExistsError):
+            await ops.create_branch("duplicate-branch", checkout=False)
+
+    @pytest.mark.asyncio
+    async def test_async_nothing_to_commit_error(self, temp_git_repo: Path) -> None:
+        """Test that NothingToCommitError propagates through async wrapper."""
+        ops = AsyncGitOperations(temp_git_repo)
+
+        # Try to commit with no changes
+        with pytest.raises(NothingToCommitError):
+            await ops.commit("Empty commit")
+
+    @pytest.mark.asyncio
+    async def test_async_operations_dont_block_event_loop(
+        self, temp_git_repo: Path
+    ) -> None:
+        """Test that multiple async operations can run concurrently."""
+        import asyncio
+
+        ops = AsyncGitOperations(temp_git_repo)
+
+        # Run multiple operations concurrently
+        results = await asyncio.gather(
+            ops.current_branch(),
+            ops.status(),
+            ops.log(n=1),
+        )
+
+        # Branch name depends on git version (master or main)
+        assert results[0] in ("main", "master")  # branch
+        assert isinstance(results[1], GitStatus)  # status
+        assert isinstance(results[2], list)  # log
