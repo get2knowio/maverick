@@ -12,24 +12,29 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from maverick.agents.result import AgentUsage
 from maverick.dsl.events import (
     ProgressEvent,
+)
+from maverick.dsl.events import (
     StepCompleted as DslStepCompleted,
+)
+from maverick.dsl.events import (
     StepStarted as DslStepStarted,
+)
+from maverick.dsl.events import (
     WorkflowCompleted as DslWorkflowCompleted,
+)
+from maverick.dsl.events import (
     WorkflowStarted as DslWorkflowStarted,
 )
 from maverick.dsl.results import WorkflowResult
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
-from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.workflows.base import WorkflowDSLMixin
 
@@ -346,7 +351,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         """
         # Initialize the mixin first
         super().__init__()
-        
+
         self._config = config or RefuelConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
@@ -796,17 +801,12 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     "auto_assign": inputs.auto_assign,
                 }
 
-                # Track if we've seen RefuelStarted
-                refuel_started_emitted = False
-
                 # Execute workflow and translate events
                 async for event in self._executor.execute(workflow, inputs=workflow_inputs):
                     # Translate DSL events to RefuelProgressEvent
                     refuel_event = self._translate_event(event)
                     if refuel_event:
                         yield refuel_event
-                        if isinstance(refuel_event, RefuelStarted):
-                            refuel_started_emitted = True
 
                     # Handle WorkflowCompleted specially
                     if isinstance(event, DslWorkflowCompleted):

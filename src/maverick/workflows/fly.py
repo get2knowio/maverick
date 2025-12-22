@@ -22,14 +22,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.dsl.events import (
     ProgressEvent,
+)
+from maverick.dsl.events import (
     StepCompleted as DslStepCompleted,
+)
+from maverick.dsl.events import (
     StepStarted as DslStepStarted,
+)
+from maverick.dsl.events import (
     WorkflowCompleted as DslWorkflowCompleted,
+)
+from maverick.dsl.events import (
     WorkflowStarted as DslWorkflowStarted,
 )
 from maverick.dsl.results import WorkflowResult
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
-from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.exceptions import (
     AgentError,  # noqa: F401 - required for Pydantic type resolution
@@ -253,8 +260,8 @@ class FlyWorkflow(WorkflowDSLMixin):
         validation_runner: ValidationRunner | None = None,
         github_runner: GitHubCLIRunner | None = None,
         coderabbit_runner: CodeRabbitRunner | None = None,
-        implementer_agent: "MaverickAgent[Any, Any]" | None = None,
-        code_reviewer_agent: "MaverickAgent[Any, Any]" | None = None,
+        implementer_agent: MaverickAgent[Any, Any] | None = None,
+        code_reviewer_agent: MaverickAgent[Any, Any] | None = None,
         commit_generator: CommitMessageGenerator | None = None,
         pr_generator: PRDescriptionGenerator | None = None,
     ) -> None:
@@ -274,7 +281,7 @@ class FlyWorkflow(WorkflowDSLMixin):
         """
         # Initialize the mixin first
         super().__init__()
-        
+
         self._config = config or FlyConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
