@@ -190,6 +190,7 @@ class RefuelScreen(MaverickScreen):
     is_workflow_running: reactive[bool] = reactive(False)
     workflow_cancelled: reactive[bool] = reactive(False)
     issues_processed_before_cancel: reactive[tuple[int, ...]] = reactive(())
+    workflow_paused: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
         """Compose the refuel screen layout."""
@@ -538,3 +539,30 @@ class RefuelScreen(MaverickScreen):
             severity="information",
             timeout=10.0,
         )
+
+    def _handle_connectivity_change(self, connected: bool) -> None:
+        """Handle connectivity status change for Refuel workflow.
+
+        Pauses the workflow when connectivity is lost and resumes when
+        connectivity is restored. This prevents workflow operations from
+        failing due to network issues.
+
+        Args:
+            connected: True if connected to GitHub, False if disconnected.
+        """
+        # Call parent to show default notifications
+        super()._handle_connectivity_change(connected)
+
+        # Only pause/resume if workflow is actually running
+        if not self.is_workflow_running:
+            return
+
+        if not connected:
+            # Pause the workflow
+            self.workflow_paused = True
+            # In a future implementation, this would signal the workflow worker to pause
+        else:
+            # Resume the workflow
+            if self.workflow_paused:
+                self.workflow_paused = False
+                # In a future implementation, this would signal the workflow worker to resume

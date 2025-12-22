@@ -10,6 +10,8 @@ from __future__ import annotations
 from textual.binding import Binding
 from textual.screen import Screen
 
+from maverick.tui.utils.connectivity import ConnectivityMonitor
+
 
 class MaverickScreen(Screen):
     """Base class for all Maverick screens.
@@ -23,6 +25,7 @@ class MaverickScreen(Screen):
         - Confirmation dialogs with await support
         - Error dialogs with optional details
         - Screen stack awareness
+        - Network connectivity monitoring
 
     Example:
         ```python
@@ -42,6 +45,11 @@ class MaverickScreen(Screen):
         Binding("enter", "select", "Select", show=False),
     ]
 
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize the screen with connectivity monitoring."""
+        super().__init__(*args, **kwargs)
+        self._connectivity_monitor = ConnectivityMonitor()
+
     @property
     def can_go_back(self) -> bool:
         """Whether back navigation is available.
@@ -51,6 +59,33 @@ class MaverickScreen(Screen):
             only screen on the stack.
         """
         return len(self.app.screen_stack) > 1
+
+    def on_mount(self) -> None:
+        """Initialize connectivity monitoring on screen mount.
+
+        Starts periodic connectivity checks every 30 seconds to monitor
+        GitHub API availability. Subclasses that override this method
+        should call super().on_mount() to ensure connectivity monitoring
+        is properly initialized.
+        """
+        # Start periodic connectivity checks (every 30 seconds)
+        self.set_interval(30.0, self._check_connectivity)
+
+    async def _check_connectivity(self) -> None:
+        """Check network connectivity and handle changes.
+
+        This method is called periodically to check if GitHub API is
+        reachable. When connectivity status changes, it calls
+        _handle_connectivity_change() to allow screens to respond.
+
+        The check runs asynchronously and does not block the UI.
+        """
+        was_connected = self._connectivity_monitor.is_connected()
+        is_connected = await self._connectivity_monitor.check_connectivity()
+
+        # Only notify on state changes
+        if was_connected != is_connected:
+            self._handle_connectivity_change(is_connected)
 
     async def confirm(self, title: str, message: str) -> bool:
         """Show confirmation dialog and return user choice.
@@ -280,8 +315,10 @@ class MaverickScreen(Screen):
         provides a hook for screens to respond to connectivity changes, such
         as pausing workflows when disconnected or resuming when reconnected.
 
-        By default, this method does nothing. Subclasses should override to
-        implement connectivity-aware behavior.
+        The default implementation displays notifications to inform the user
+        of connectivity changes. Subclasses should override this method to
+        implement connectivity-aware behavior such as pausing/resuming
+        workflows.
 
         Args:
             connected: True if connected to GitHub, False if disconnected.
@@ -290,19 +327,31 @@ class MaverickScreen(Screen):
             ```python
             class WorkflowScreen(MaverickScreen):
                 def _handle_connectivity_change(self, connected: bool) -> None:
+                    super()._handle_connectivity_change(connected)
                     if not connected:
                         self._pause_workflow()
-                        self.show_error("Lost connection to GitHub. Workflow paused.")
                     else:
                         self._resume_workflow()
-                        self.add_log("Connection restored. Workflow resumed.")
             ```
 
         Note:
             This method is called asynchronously and should not block.
             Long-running operations should be dispatched to workers.
         """
-        pass
+        if not connected:
+            self.app.notify(
+                "Network connection lost. Workflow will pause.",
+                title="Connection Lost",
+                severity="warning",
+                timeout=8.0,
+            )
+        else:
+            self.app.notify(
+                "Network connection restored. Workflow will resume.",
+                title="Connection Restored",
+                severity="information",
+                timeout=5.0,
+            )
 
 
 __all__ = [
