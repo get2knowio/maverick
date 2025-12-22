@@ -220,6 +220,33 @@ class FlyWorkflowFailed:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass(frozen=True, slots=True)
+class FlyPhaseStarted:
+    """Event emitted when a phase starts execution.
+
+    Used for phase-level task execution where Claude handles
+    parallelization of [P] marked tasks within each phase.
+    """
+
+    phase_name: str
+    phase_index: int
+    total_phases: int
+    task_count: int
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class FlyPhaseCompleted:
+    """Event emitted when a phase completes execution."""
+
+    phase_name: str
+    phase_index: int
+    success: bool
+    tasks_completed: int
+    tasks_failed: int
+    timestamp: float = field(default_factory=time.time)
+
+
 # Union type for event handling
 FlyProgressEvent = (
     FlyWorkflowStarted
@@ -227,7 +254,38 @@ FlyProgressEvent = (
     | FlyStageCompleted
     | FlyWorkflowCompleted
     | FlyWorkflowFailed
+    | FlyPhaseStarted
+    | FlyPhaseCompleted
 )
+
+
+def get_phase_names(task_file: str | Path) -> list[str]:
+    """Extract ordered phase names from a tasks.md file.
+
+    This helper function is used by the DSL workflow to iterate over phases,
+    enabling phase-level task execution where Claude handles parallelization
+    of [P] marked tasks within each phase.
+
+    Args:
+        task_file: Path to the tasks.md file.
+
+    Returns:
+        List of phase names in the order they appear in the file.
+
+    Raises:
+        FileNotFoundError: If task_file doesn't exist.
+        TaskParseError: If file format is invalid.
+
+    Example:
+        >>> phases = get_phase_names("specs/001/tasks.md")
+        >>> phases
+        ['Phase 1: Setup', 'Phase 2: Core', 'Phase 3: Integration']
+    """
+    from maverick.models.implementation import TaskFile
+
+    path = Path(task_file) if isinstance(task_file, str) else task_file
+    task_file_obj = TaskFile.parse(path)
+    return list(task_file_obj.phases.keys())
 
 
 class FlyWorkflow(WorkflowDSLMixin):
@@ -911,7 +969,11 @@ __all__ = [
     "FlyStageCompleted",
     "FlyWorkflowCompleted",
     "FlyWorkflowFailed",
+    "FlyPhaseStarted",
+    "FlyPhaseCompleted",
     "FlyProgressEvent",
+    # Helper Functions
+    "get_phase_names",
     # Workflow
     "FlyWorkflow",
 ]

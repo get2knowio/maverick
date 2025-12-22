@@ -443,6 +443,62 @@ class TaskFile(BaseModel):
 
 
 # =============================================================================
+# Phase Results
+# =============================================================================
+
+
+class PhaseResult(BaseModel):
+    """Result of executing all tasks in a single phase.
+
+    Represents the outcome of phase-level task execution where Claude
+    handles parallelization of [P] marked tasks within the phase.
+
+    Attributes:
+        phase_name: Name of the phase (from tasks.md header).
+        success: True if all tasks in phase completed successfully.
+        tasks_completed: Count of successful tasks.
+        tasks_failed: Count of failed tasks.
+        task_results: Individual results for each task in the phase.
+        files_changed: Aggregated file changes for the phase.
+        duration_ms: Total execution time in milliseconds.
+        error: Error message if phase failed.
+
+    Examples:
+        >>> result = PhaseResult(
+        ...     phase_name="Phase 1: Setup",
+        ...     success=True,
+        ...     tasks_completed=3,
+        ...     tasks_failed=0,
+        ...     task_results=[...],
+        ...     files_changed=[...],
+        ...     duration_ms=12500
+        ... )
+        >>> result.success
+        True
+    """
+
+    phase_name: str = Field(description="Phase name from tasks.md header")
+    success: bool = Field(description="True if all phase tasks succeeded")
+    tasks_completed: int = Field(ge=0, description="Count of completed tasks")
+    tasks_failed: int = Field(ge=0, description="Count of failed tasks")
+    task_results: list["TaskResult"] = Field(  # noqa: UP037
+        default_factory=list, description="Results per task in phase"
+    )
+    files_changed: list[FileChange] = Field(
+        default_factory=list, description="File changes in phase"
+    )
+    duration_ms: int = Field(default=0, ge=0, description="Execution duration")
+    error: str | None = Field(default=None, description="Error message if phase failed")
+
+    model_config = ConfigDict(frozen=True)
+
+    @property
+    def total_tasks(self) -> int:
+        """Total number of tasks in phase."""
+        return self.tasks_completed + self.tasks_failed
+
+
+# =============================================================================
 # Task Results (T026, T027)
 # =============================================================================
 
@@ -558,6 +614,7 @@ class ImplementerContext(BaseModel):
     Attributes:
         task_file: Path to tasks.md file (mutually exclusive with task_description).
         task_description: Direct task description (mutually exclusive with task_file).
+        phase_name: Optional phase name to filter tasks to a specific phase.
         branch: Git branch name for context.
         cwd: Working directory for execution.
         skip_validation: If True, skip validation steps.
@@ -569,6 +626,10 @@ class ImplementerContext(BaseModel):
         default=None,
         min_length=10,
         description="Direct task description",
+    )
+    phase_name: str | None = Field(
+        default=None,
+        description="Phase name to execute (enables phase-level execution mode)",
     )
     branch: str = Field(min_length=1, description="Git branch name")
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
@@ -584,9 +645,16 @@ class ImplementerContext(BaseModel):
             raise ValueError("Provide task_file OR task_description, not both")
         if not self.task_file and not self.task_description:
             raise ValueError("Must provide task_file or task_description")
+        if self.phase_name and self.task_description:
+            raise ValueError("phase_name requires task_file, not task_description")
         return self
 
     @property
     def is_single_task(self) -> bool:
         """Check if executing a single task description."""
         return self.task_description is not None
+
+    @property
+    def is_phase_mode(self) -> bool:
+        """Check if executing in phase-level mode."""
+        return self.phase_name is not None and self.task_file is not None

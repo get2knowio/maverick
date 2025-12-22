@@ -1110,3 +1110,244 @@ class TestImplementationResult:
 
             assert len(result.commits) == 1
             assert result.commits[0] == "abc123def456"
+
+
+# =============================================================================
+# Phase-Level Execution Tests
+# =============================================================================
+
+
+class TestPhaseLevelExecution:
+    """Tests for phase-level task execution where Claude handles parallelization."""
+
+    @pytest.fixture
+    def phase_task_file(self, tmp_path: Path) -> Path:
+        """Create a task file with multiple phases."""
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("""## Phase 1: Setup
+- [ ] T001 Create project structure
+- [ ] T002 [P] Add configuration files
+- [ ] T003 [P] Create utility modules
+
+## Phase 2: Core
+- [ ] T004 Implement main module
+- [ ] T005 [P] Add logging
+- [ ] T006 [P] Add error handling
+
+## Phase 3: Testing
+- [ ] T007 Write unit tests
+- [ ] T008 Write integration tests
+""")
+        return task_file
+
+    @pytest.fixture
+    def phase_context(self, tmp_path: Path, phase_task_file: Path) -> ImplementerContext:
+        """Create context for phase-level execution."""
+        return ImplementerContext(
+            task_file=phase_task_file,
+            phase_name="Phase 1: Setup",
+            branch="feature/phase-test",
+            cwd=tmp_path,
+            dry_run=True,
+        )
+
+    def test_context_is_phase_mode(self, phase_context: ImplementerContext) -> None:
+        """Test context correctly identifies phase mode."""
+        assert phase_context.is_phase_mode is True
+        assert phase_context.is_single_task is False
+
+    def test_context_phase_mode_requires_task_file(self, tmp_path: Path) -> None:
+        """Test phase_name without task_file raises validation error."""
+        with pytest.raises(ValueError, match="phase_name requires task_file"):
+            ImplementerContext(
+                task_description="Some task description",
+                phase_name="Phase 1",
+                branch="test",
+                cwd=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_execute_routes_to_phase_mode(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
+    ) -> None:
+        """Test execute routes to phase mode when phase_name is set."""
+        with patch.object(
+            agent, "_execute_phase_mode", new_callable=AsyncMock
+        ) as mock_phase:
+            mock_phase.return_value = ImplementationResult(
+                success=True,
+                tasks_completed=3,
+                tasks_failed=0,
+                tasks_skipped=0,
+            )
+
+            await agent.execute(phase_context)
+
+            mock_phase.assert_called_once_with(phase_context)
+
+    @pytest.mark.asyncio
+    async def test_execute_routes_to_task_mode_without_phase(
+        self, agent: ImplementerAgent, task_file_context: ImplementerContext
+    ) -> None:
+        """Test execute routes to task mode when phase_name is not set."""
+        with patch.object(
+            agent, "_execute_task_mode", new_callable=AsyncMock
+        ) as mock_task:
+            mock_task.return_value = ImplementationResult(
+                success=True,
+                tasks_completed=3,
+                tasks_failed=0,
+                tasks_skipped=0,
+            )
+
+            await agent.execute(task_file_context)
+
+            mock_task.assert_called_once_with(task_file_context)
+
+    @pytest.mark.asyncio
+    async def test_phase_execution_filters_to_phase(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
+    ) -> None:
+        """Test phase execution only includes tasks from the specified phase."""
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = [MagicMock(type="text", text="Phase completed")]
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+
+        with (
+            patch.object(agent, "query", side_effect=async_gen),
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            ),
+            patch.object(
+                agent, "_run_validation", new_callable=AsyncMock, return_value=[]
+            ),
+        ):
+            result = await agent.execute(phase_context)
+
+            # Phase 1 has 3 tasks (T001, T002, T003)
+            assert result.tasks_completed == 3
+            assert result.metadata.get("phase") == "Phase 1: Setup"
+            assert result.metadata.get("execution_mode") == "phase"
+
+    @pytest.mark.asyncio
+    async def test_phase_execution_raises_on_unknown_phase(
+        self, agent: ImplementerAgent, tmp_path: Path, phase_task_file: Path
+    ) -> None:
+        """Test phase execution raises error for unknown phase name."""
+        context = ImplementerContext(
+            task_file=phase_task_file,
+            phase_name="Nonexistent Phase",
+            branch="test",
+            cwd=tmp_path,
+        )
+
+        with pytest.raises(TaskParseError) as exc_info:
+            await agent.execute(context)
+
+        assert "not found" in str(exc_info.value).lower()
+        assert "Nonexistent Phase" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_phase_execution_returns_empty_for_completed_tasks(
+        self, agent: ImplementerAgent, tmp_path: Path
+    ) -> None:
+        """Test phase execution handles phases with all completed tasks."""
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("""## Phase 1: Done
+- [x] T001 Already completed
+- [x] T002 Also completed
+""")
+        context = ImplementerContext(
+            task_file=task_file,
+            phase_name="Phase 1: Done",
+            branch="test",
+            cwd=tmp_path,
+        )
+
+        result = await agent.execute(context)
+
+        assert result.success is True
+        assert result.tasks_completed == 0
+        assert len(result.task_results) == 0
+
+    def test_build_phase_prompt_includes_all_tasks(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test phase prompt includes all tasks in the phase."""
+        tasks = [
+            Task(id="T001", description="Setup config", parallel=False),
+            Task(id="T002", description="Add logging", parallel=True),
+            Task(id="T003", description="Add tests", parallel=True),
+        ]
+        context = ImplementerContext(
+            task_description="Placeholder for validation",
+            branch="test",
+        )
+
+        prompt = agent._build_phase_prompt("Phase 1", tasks, context)
+
+        assert "Phase 1" in prompt
+        assert "T001" in prompt
+        assert "T002" in prompt
+        assert "T003" in prompt
+        assert "Setup config" in prompt
+        assert "[P]" in prompt  # Parallel marker visible
+
+    def test_build_phase_prompt_marks_parallel_tasks(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test phase prompt shows [P] marker for parallel tasks."""
+        tasks = [
+            Task(id="T001", description="Sequential task", parallel=False),
+            Task(id="T002", description="Parallel task", parallel=True),
+        ]
+        context = ImplementerContext(
+            task_description="Placeholder for validation",
+            branch="test",
+        )
+
+        prompt = agent._build_phase_prompt("Test Phase", tasks, context)
+
+        # T001 should NOT have [P], T002 should have [P]
+        lines = prompt.split("\n")
+        t001_line = next(line for line in lines if "T001" in line)
+        t002_line = next(line for line in lines if "T002" in line)
+
+        assert "[P]" not in t001_line
+        assert "[P]" in t002_line
+
+    @pytest.mark.asyncio
+    async def test_phase_commit_message_format(
+        self, agent: ImplementerAgent, tmp_path: Path
+    ) -> None:
+        """Test phase commit generates appropriate commit message."""
+        context = ImplementerContext(
+            task_file=tmp_path / "tasks.md",
+            phase_name="Phase 1: Setup",
+            branch="test",
+            cwd=tmp_path,
+            dry_run=False,
+        )
+        # Create minimal task file
+        context.task_file.write_text("## Phase 1: Setup\n- [ ] T001 Task")
+
+        with (
+            patch(
+                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
+            ) as mock_changes,
+            patch(
+                "maverick.utils.git.create_commit", new_callable=AsyncMock
+            ) as mock_commit,
+        ):
+            mock_changes.return_value = True
+            mock_commit.return_value = "abc123"
+
+            await agent._create_phase_commit(context)
+
+            # Check commit message format
+            call_args = mock_commit.call_args[0][0]
+            assert "feat(" in call_args
+            assert "complete phase tasks" in call_args

@@ -101,7 +101,7 @@ Complete spec-based development from tasks.md to pull request
 </div>
 
 <div>
-  <WorkflowStage v-click name="2. IMPLEMENTATION" status="complete" description="Execute tasks from tasks.md (parallel for P: marked)" />
+  <WorkflowStage v-click name="2. IMPLEMENTATION" status="complete" description="Execute tasks phase-by-phase (Claude handles [P] parallelization)" />
 </div>
 
 <div>
@@ -137,7 +137,7 @@ IMPORTANT: The tasks.md file must be generated using Speckit (speckit.org) via t
 
 Stage 1 - INIT: Ensures your workspace is ready by syncing your feature branch with the base branch and validating that spec files exist.
 
-Stage 2 - IMPLEMENTATION: Parses the speckit-generated tasks.md and executes each task. Tasks marked with "P:" can run in parallel for efficiency.
+Stage 2 - IMPLEMENTATION: This is the key stage. The workflow iterates over each phase in tasks.md (e.g., "Phase 1: Setup", "Phase 2: Core"). For each phase, it hands ALL tasks in that phase to Claude in a single prompt. Claude then decides how to parallelize tasks marked with [P] using its Task tool. After each phase completes, the workflow runs validation, commits the phase changes, and checkpoints the progress. This phase-level approach gives Claude better context and produces atomic, meaningful commits per phase.
 
 Stage 3 - VALIDATION: Runs format, lint, typecheck, and test stages. If validation fails, the workflow automatically invokes a fixer agent to attempt repairs, retrying up to 3 times.
 

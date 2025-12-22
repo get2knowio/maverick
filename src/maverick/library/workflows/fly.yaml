@@ -160,30 +160,113 @@ steps:
         weight: 5
 
   # ============================================================================
-  # Stage 2: Implementation
+  # Stage 2: Get Phase Names
   # ============================================================================
-  # Execute all tasks from the task list using the Implementer agent.
+  # Extract phase names from tasks.md to enable phase-level iteration.
+  # Each phase will be executed separately with Claude handling parallelization
+  # of [P] marked tasks within the phase.
+  # ============================================================================
+  - name: get_phases
+    type: python
+    action: maverick.workflows.fly:get_phase_names
+    when: ${{ not inputs.dry_run and inputs.task_file }}
+    kwargs:
+      task_file: ${{ inputs.task_file }}
+    metadata:
+      progress:
+        stage: "initialization"
+        weight: 2
+
+  # ============================================================================
+  # Stage 2: Implementation by Phase
+  # ============================================================================
+  # Execute tasks phase-by-phase using the Implementer agent.
   #
-  # This step:
-  # - Parses tasks.md (auto-detected or explicitly provided)
-  # - Identifies parallel-eligible tasks (marked with "P:")
-  # - Executes tasks sequentially or in parallel based on dependencies
-  # - Updates task status as work progresses
+  # This step iterates over each phase in tasks.md:
+  # - Each phase is executed as a single Claude invocation
+  # - Claude handles parallelization of [P] marked tasks within the phase
+  # - After each phase: validate, commit, and checkpoint
+  #
+  # Benefits of phase-level execution:
+  # - Coarser-grained control with better context coherence
+  # - Claude decides optimal parallelization strategy
+  # - Atomic commits per phase for cleaner git history
+  # - Resume from any phase checkpoint on failure
   #
   # The implementer agent has access to:
   # - File read/write operations
   # - Git operations (commit, status, diff)
   # - Project context from the spec directory
   #
-  # Context builder: implementation_context
-  # - Includes: task file content, project structure, spec artifacts
-  #
-  # Output: Implementation results including completed tasks and any issues
+  # Output: Implementation results per phase including completed tasks
   # ============================================================================
-  - name: implement
+  - name: implement_by_phase
+    type: parallel
+    when: ${{ not inputs.dry_run and steps.get_phases.output }}
+    for_each: ${{ steps.get_phases.output }}
+    max_concurrency: 1  # Execute phases sequentially
+    steps:
+      # Execute all tasks in this phase
+      - name: implement_phase
+        type: agent
+        agent: implementer
+        context:
+          task_file: ${{ inputs.task_file }}
+          phase_name: ${{ iteration.item }}
+          branch: ${{ inputs.branch_name }}
+        metadata:
+          progress:
+            stage: "implementation"
+            phase: ${{ iteration.item }}
+            weight: 10
+
+      # Validate after each phase (fail fast)
+      - name: validate_phase
+        type: subworkflow
+        workflow: validate-and-fix
+        inputs:
+          stages:
+            - format
+            - lint
+            - typecheck
+            - test
+          max_attempts: 2  # Fewer attempts per phase
+          fixer_agent: validation_fixer
+        metadata:
+          progress:
+            stage: "validation"
+            phase: ${{ iteration.item }}
+            weight: 5
+
+      # Commit phase changes
+      - name: commit_phase
+        type: subworkflow
+        workflow: commit-and-push
+        when: ${{ steps.validate_phase.output.success }}
+        inputs:
+          push: false  # Don't push until all phases done
+          commit_message: "feat(${{ iteration.item }}): complete phase tasks"
+        metadata:
+          progress:
+            stage: "commit"
+            phase: ${{ iteration.item }}
+            weight: 2
+
+      # Checkpoint after phase completion
+      - name: checkpoint_phase
+        type: checkpoint
+        checkpoint_id: "phase_${{ iteration.index }}_complete"
+        metadata:
+          progress:
+            stage: "checkpoint"
+            phase: ${{ iteration.item }}
+            weight: 1
+
+  # Fallback: Single-phase implementation (no phases in task file)
+  - name: implement_no_phases
     type: agent
     agent: implementer
-    when: ${{ not inputs.dry_run }}
+    when: ${{ not inputs.dry_run and not steps.get_phases.output }}
     context:
       task_file: ${{ inputs.task_file }}
     metadata:
@@ -196,15 +279,15 @@ steps:
     action: log_dry_run
     when: ${{ inputs.dry_run }}
     kwargs:
-      operation: "implement_tasks"
-      details: "Would execute tasks from task file"
+      operation: "implement_tasks_by_phase"
+      details: "Would execute tasks from task file, phase by phase with per-phase validation and commits"
     metadata:
       progress:
         stage: "implementation"
         weight: 40
 
   # ============================================================================
-  # Checkpoint: After Implementation
+  # Checkpoint: After All Implementation
   # ============================================================================
   # Save workflow state after successful implementation to enable resumption
   # from this point if the workflow is interrupted during validation or review.
@@ -219,31 +302,15 @@ steps:
         weight: 1
 
   # ============================================================================
-  # Stage 3: Validation and Fix Loop
+  # Stage 3: Final Validation (if not done per-phase)
   # ============================================================================
-  # Run validation stages with automatic retry and fix loop.
-  #
-  # This invokes the validate_and_fix fragment, which:
-  # - Runs validation stages (format, lint, typecheck, test)
-  # - On failure, invokes fixer agent to attempt automatic fixes
-  # - Retries validation up to max_attempts times
-  # - Reports final validation status
-  #
-  # The default stages are:
-  # - format: Code formatting (ruff, black, etc.)
-  # - lint: Linting (ruff, pylint, etc.)
-  # - typecheck: Type checking (mypy)
-  # - test: Test suite execution (pytest)
-  #
-  # To customize validation stages, override this step's inputs or override
-  # the validate_and_fix fragment itself in your project.
-  #
-  # Output: Validation result with status and any remaining issues
+  # Run final validation if phases were not used (fallback path).
+  # When phases are used, validation happens per-phase above.
   # ============================================================================
   - name: validate_and_fix
     type: subworkflow
     workflow: validate-and-fix
-    when: ${{ not inputs.dry_run }}
+    when: ${{ not inputs.dry_run and not steps.get_phases.output }}
     inputs:
       stages:
         - format

@@ -92,6 +92,37 @@ After completing a task, output a JSON summary:
 }
 """
 
+PHASE_EXECUTION_PROMPT = """## Phase: {phase_name}
+
+Execute ALL tasks in this phase. Tasks marked with [P] can be executed
+in parallel using the Task tool. Sequential tasks must complete in order.
+
+### Tasks in this phase:
+{task_list}
+
+### Instructions:
+1. **For [P] tasks**: These can run in parallel. Use the Task tool to launch
+   parallel agents where beneficial for independent work.
+2. **For sequential tasks**: Complete in the order listed above.
+3. **TDD approach**: Write tests alongside implementation for each task.
+4. **Report results**: After completing ALL tasks, provide a summary.
+
+### Execution Strategy:
+- Group [P] tasks and execute them concurrently when they don't depend on each other
+- Execute non-[P] tasks one at a time in order
+- If a task fails, continue with remaining tasks (fail gracefully)
+
+### Output Format:
+After completing all tasks, provide a JSON summary:
+{{
+  "phase": "{phase_name}",
+  "tasks_completed": ["T001", "T002"],
+  "tasks_failed": [],
+  "files_changed": ["src/file.py", "tests/test_file.py"],
+  "summary": "Brief description of work done"
+}}
+"""
+
 
 # =============================================================================
 # ImplementerAgent
@@ -150,6 +181,27 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         Raises:
             TaskParseError: If task file has invalid format.
             AgentError: On unrecoverable execution errors.
+        """
+        # Route to phase mode if phase_name is specified
+        if context.is_phase_mode:
+            return await self._execute_phase_mode(context)
+
+        # Otherwise use task-by-task mode (original behavior)
+        return await self._execute_task_mode(context)
+
+    async def _execute_task_mode(
+        self, context: ImplementerContext
+    ) -> ImplementationResult:
+        """Execute tasks one by one with Maverick-managed parallelization.
+
+        This is the original execution mode where Maverick handles parallel
+        batching via asyncio.gather().
+
+        Args:
+            context: Execution context with task source and options.
+
+        Returns:
+            ImplementationResult with task outcomes and file changes.
         """
         start_time = time.monotonic()
         task_results: list[TaskResult] = []
@@ -468,3 +520,206 @@ After completion, provide a summary of changes made.
                 task_results.append(result)
 
         return task_results
+
+    async def _execute_phase_mode(
+        self, context: ImplementerContext
+    ) -> ImplementationResult:
+        """Execute all tasks in a phase with Claude handling parallelization.
+
+        In phase mode, Claude receives all tasks in the phase in a single prompt
+        and decides how to parallelize [P] marked tasks using the Task tool.
+
+        Args:
+            context: Execution context with phase_name and task_file.
+
+        Returns:
+            ImplementationResult with phase execution outcome.
+        """
+        start_time = time.monotonic()
+
+        assert context.task_file is not None
+        assert context.phase_name is not None
+
+        try:
+            # Parse task file
+            if not context.task_file.exists():
+                raise TaskParseError(f"Task file not found: {context.task_file}")
+
+            task_file = TaskFile.parse(context.task_file)
+
+            # Get tasks for specified phase
+            if context.phase_name not in task_file.phases:
+                raise TaskParseError(
+                    f"Phase '{context.phase_name}' not found in {context.task_file}. "
+                    f"Available phases: {list(task_file.phases.keys())}"
+                )
+
+            phase_tasks = [
+                t for t in task_file.phases[context.phase_name]
+                if t.status == TaskStatus.PENDING
+            ]
+
+            if not phase_tasks:
+                logger.info("No pending tasks in phase '%s'", context.phase_name)
+                return ImplementationResult(
+                    success=True,
+                    tasks_completed=0,
+                    tasks_failed=0,
+                    tasks_skipped=0,
+                    task_results=[],
+                    files_changed=[],
+                    commits=[],
+                    metadata={
+                        "branch": context.branch,
+                        "phase": context.phase_name,
+                        "duration_ms": int((time.monotonic() - start_time) * 1000),
+                        "dry_run": context.dry_run,
+                    },
+                )
+
+            logger.info(
+                "Executing phase '%s' with %d tasks",
+                context.phase_name,
+                len(phase_tasks),
+            )
+
+            # Build phase prompt with all tasks
+            prompt = self._build_phase_prompt(context.phase_name, phase_tasks, context)
+
+            # Execute via Claude SDK - Claude handles parallelization
+            messages = []
+            async for msg in self.query(prompt, cwd=context.cwd):
+                messages.append(msg)
+
+            # Detect file changes after phase execution
+            files_changed = await self._detect_file_changes(context.cwd)
+
+            # Run validation if not skipped
+            validation_results: list[ValidationResult] = []
+            if not context.skip_validation:
+                validation_results = await self._run_validation(context.cwd)
+
+            # Create commit if not dry run
+            commit_sha = None
+            if not context.dry_run:
+                commit_sha = await self._create_phase_commit(context)
+
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+
+            # Build task results (simplified - Claude executed all tasks)
+            task_results = [
+                TaskResult(
+                    task_id=task.id,
+                    status=TaskStatus.COMPLETED,
+                    files_changed=[],  # Aggregated at phase level
+                    duration_ms=duration_ms // len(phase_tasks),
+                    validation=validation_results if i == 0 else [],
+                )
+                for i, task in enumerate(phase_tasks)
+            ]
+
+            # Determine success based on validation results
+            validation_success = (
+                all(v.success for v in validation_results)
+                if validation_results
+                else True
+            )
+
+            return ImplementationResult(
+                success=validation_success,
+                tasks_completed=len(phase_tasks),
+                tasks_failed=0,
+                tasks_skipped=0,
+                task_results=task_results,
+                files_changed=files_changed,
+                commits=[commit_sha] if commit_sha else [],
+                validation_passed=validation_success,
+                metadata={
+                    "branch": context.branch,
+                    "phase": context.phase_name,
+                    "duration_ms": duration_ms,
+                    "dry_run": context.dry_run,
+                    "execution_mode": "phase",
+                },
+            )
+
+        except TaskParseError:
+            raise
+        except Exception as e:
+            logger.exception("Phase execution failed: %s", e)
+            return ImplementationResult(
+                success=False,
+                tasks_completed=0,
+                tasks_failed=0,
+                tasks_skipped=0,
+                task_results=[],
+                files_changed=[],
+                commits=[],
+                validation_passed=False,
+                errors=[str(e)],
+                metadata={
+                    "branch": context.branch,
+                    "phase": context.phase_name,
+                    "execution_mode": "phase",
+                },
+            )
+
+    def _build_phase_prompt(
+        self,
+        phase_name: str,
+        tasks: list[Task],
+        context: ImplementerContext,
+    ) -> str:
+        """Build prompt for phase-level execution.
+
+        Args:
+            phase_name: Name of the phase.
+            tasks: List of tasks in the phase.
+            context: Execution context.
+
+        Returns:
+            Formatted prompt for Claude.
+        """
+        # Format task list with [P] markers visible
+        task_lines = []
+        for task in tasks:
+            parallel_marker = "[P] " if task.parallel else ""
+            task_lines.append(f"- {task.id} {parallel_marker}{task.description}")
+
+        task_list = "\n".join(task_lines)
+
+        return PHASE_EXECUTION_PROMPT.format(
+            phase_name=phase_name,
+            task_list=task_list,
+        )
+
+    async def _create_phase_commit(self, context: ImplementerContext) -> str | None:
+        """Create a git commit for the completed phase.
+
+        Args:
+            context: Execution context with phase info.
+
+        Returns:
+            Commit SHA or None if no changes to commit.
+        """
+        from maverick.utils.git import create_commit, has_uncommitted_changes
+
+        try:
+            if not await has_uncommitted_changes(context.cwd):
+                return None
+
+            # Generate commit message for phase
+            phase_name = context.phase_name or "unknown"
+            # Clean phase name for commit scope (remove "Phase X:" prefix if present)
+            scope = phase_name.lower().replace(" ", "-").replace(":", "")
+            if scope.startswith("phase-"):
+                # Extract just the descriptive part after "phase-X-"
+                parts = scope.split("-", 2)
+                scope = parts[2] if len(parts) > 2 else scope
+
+            message = f"feat({scope}): complete phase tasks"
+
+            return await create_commit(message, context.cwd)
+        except Exception as e:
+            logger.warning("Could not create phase commit: %s", e)
+            return None
