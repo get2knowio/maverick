@@ -724,7 +724,7 @@ def config_edit(ctx: click.Context, user: bool, project: bool) -> None:
         config_file = Path.cwd() / "maverick.yaml"
 
     # Read existing content if file exists
-    content = config_file.read_text() if config_file.exists() else ""
+    content = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
 
     try:
         # Open editor
@@ -738,7 +738,7 @@ def config_edit(ctx: click.Context, user: bool, project: bool) -> None:
 
         # Write back if changed
         if result != content:
-            config_file.write_text(result)
+            config_file.write_text(result, encoding="utf-8")
             logger.info(f"Config file updated: {config_file}")
             click.echo(f"Configuration file updated: {config_file}")
         else:
@@ -965,7 +965,7 @@ def workflow_show(ctx: click.Context, name: str) -> None:
         if name_path.exists():
             # It's a file path - parse directly
             file_path = name_path
-            content = file_path.read_text()
+            content = file_path.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
             source_info = "file"
         else:
@@ -1088,7 +1088,7 @@ def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
         )
 
         # Read workflow file
-        content = file.read_text()
+        content = file.read_text(encoding="utf-8")
 
         # Parse workflow
         registry = None
@@ -1203,7 +1203,7 @@ def workflow_viz(
 
         if name_path.exists():
             # It's a file path - parse directly
-            content = name_path.read_text()
+            content = name_path.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
         else:
             # Look up in discovery (FR-014: use DiscoveryResult for workflow viz)
@@ -1242,7 +1242,7 @@ def workflow_viz(
 
         # Output diagram
         if output:
-            output.write_text(diagram)
+            output.write_text(diagram, encoding="utf-8")
             click.echo(f"Diagram written to {output}")
         else:
             click.echo(diagram)
@@ -1494,7 +1494,7 @@ async def workflow_run(
         if name_path.exists():
             # It's a file path - parse directly
             workflow_file = name_path
-            content = workflow_file.read_text()
+            content = workflow_file.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
         else:
             # Look up in discovery (FR-014: use DiscoveryResult for workflow run)
@@ -1530,7 +1530,7 @@ async def workflow_run(
 
         # Load from file first
         if input_file:
-            input_content = input_file.read_text()
+            input_content = input_file.read_text(encoding="utf-8")
             if input_file.suffix == ".json":
                 input_dict = json.loads(input_content)
             else:
