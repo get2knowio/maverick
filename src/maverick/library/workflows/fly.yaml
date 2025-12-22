@@ -204,14 +204,19 @@ steps:
         weight: 40
 
   # ============================================================================
-  # Note: Checkpoint After Implementation
+  # Checkpoint: After Implementation
   # ============================================================================
-  # Future: Add checkpoint functionality after successful implementation to
-  # enable resumption from this point if the workflow is interrupted during
-  # validation or review.
-  #
-  # Checkpoint support is planned for a future release.
+  # Save workflow state after successful implementation to enable resumption
+  # from this point if the workflow is interrupted during validation or review.
   # ============================================================================
+  - name: checkpoint_after_implementation
+    type: checkpoint
+    when: ${{ not inputs.dry_run }}
+    checkpoint_id: implementation_complete
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
 
   # ============================================================================
   # Stage 3: Validation and Fix Loop
@@ -265,14 +270,19 @@ steps:
         weight: 25
 
   # ============================================================================
-  # Note: Checkpoint After Validation
+  # Checkpoint: After Validation
   # ============================================================================
-  # Future: Add checkpoint functionality after successful validation to enable
-  # resumption from this point if the workflow is interrupted during
-  # commit/review/PR.
-  #
-  # Checkpoint support is planned for a future release.
+  # Save workflow state after successful validation to enable resumption from
+  # this point if the workflow is interrupted during commit/review/PR.
   # ============================================================================
+  - name: checkpoint_after_validation
+    type: checkpoint
+    when: ${{ not inputs.dry_run }}
+    checkpoint_id: validation_complete
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
 
   # ============================================================================
   # Stage 4: Commit and Push

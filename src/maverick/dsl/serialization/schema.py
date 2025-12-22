@@ -35,6 +35,7 @@ __all__ = [
     "BranchStepRecord",
     "BranchOptionRecord",
     "ParallelStepRecord",
+    "CheckpointStepRecord",
     # Discriminated union
     "StepRecordUnion",
     # Top-level workflow
@@ -250,6 +251,37 @@ class ParallelStepRecord(StepRecord):
         return v
 
 
+class CheckpointStepRecord(StepRecord):
+    """Checkpoint marker step (FR-022).
+
+    Marks a workflow state boundary for resumability. When a checkpoint
+    step succeeds, workflow state (inputs, completed steps, outputs) is
+    persisted to the checkpoint store. The workflow can later resume from
+    this checkpoint, skipping already-completed steps.
+
+    Fields:
+        checkpoint_id: Optional unique identifier for this checkpoint.
+            If omitted, defaults to the step name. Used as the key in
+            the checkpoint store for saving/loading state.
+
+    Usage:
+        # Basic checkpoint (uses step name as ID)
+        - name: after_implementation
+          type: checkpoint
+
+        # Explicit checkpoint ID (for multiple checkpoints with same name pattern)
+        - name: checkpoint_stage_1
+          type: checkpoint
+          checkpoint_id: implementation_complete
+    """
+
+    type: Literal[StepType.CHECKPOINT] = StepType.CHECKPOINT
+    checkpoint_id: str | None = Field(
+        None,
+        description="Unique checkpoint identifier (defaults to step name)",
+    )
+
+
 # =============================================================================
 # Discriminated Union
 # =============================================================================
@@ -264,7 +296,8 @@ StepRecordUnion = Annotated[
     | ValidateStepRecord
     | SubWorkflowStepRecord
     | BranchStepRecord
-    | ParallelStepRecord,
+    | ParallelStepRecord
+    | CheckpointStepRecord,
     Field(discriminator="type"),
 ]
 

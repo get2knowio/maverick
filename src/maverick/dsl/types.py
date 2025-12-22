@@ -28,6 +28,7 @@ class StepType(str, Enum):
     SUBWORKFLOW = "subworkflow"
     BRANCH = "branch"
     PARALLEL = "parallel"
+    CHECKPOINT = "checkpoint"
 
 
 # Type alias for context builder functions
