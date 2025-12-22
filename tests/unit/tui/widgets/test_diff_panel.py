@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
-
 from maverick.tui.widgets.diff_panel import DiffPanel
 
 
@@ -85,7 +83,7 @@ class TestDiffPanelUpdateDiff:
 
         with (
             patch.object(panel, "_read_file_with_context") as mock_read,
-            patch.object(panel, "_display_content") as mock_display,
+            patch.object(panel, "_display_content"),
         ):
             mock_read.return_value = ("content", 1, 2)
             panel.update_diff(

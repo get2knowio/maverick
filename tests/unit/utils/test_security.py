@@ -36,7 +36,7 @@ class TestScrubSecrets:
             ("apikey: mykey123456789", "apikey=***REDACTED***"),
             ("API-KEY=secret123456", "API-KEY=***REDACTED***"),
         ]
-        for input_text, expected_pattern in test_cases:
+        for input_text, _expected_pattern in test_cases:
             result = scrub_secrets(input_text)
             assert "***REDACTED***" in result, f"Failed to scrub: {input_text}"
             # The actual key should not be present
@@ -199,7 +199,9 @@ class TestSecretPatternsComprehensive:
             ("User: john.doe@example.com", False),
         ],
     )
-    def test_pattern_detection(self, secret_text: str, should_be_scrubbed: bool) -> None:
+    def test_pattern_detection(
+        self, secret_text: str, should_be_scrubbed: bool
+    ) -> None:
         """Test that patterns are correctly detected and scrubbed."""
         result = scrub_secrets(secret_text)
         if should_be_scrubbed:

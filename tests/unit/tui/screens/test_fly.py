@@ -422,7 +422,9 @@ class TestFlyScreenWorkflowProgressIntegration:
         mock_progress_widget = MagicMock()
 
         with patch.object(screen, "query_one", return_value=mock_progress_widget):
-            screen._update_stage_status("validation", "failed", error_message="Test failed")
+            screen._update_stage_status(
+                "validation", "failed", error_message="Test failed"
+            )
 
         mock_progress_widget.update_stage_status.assert_called_once_with(
             "validation", "failed", error_message="Test failed"

@@ -253,13 +253,8 @@ class DiffPanel(Widget):
             content_widget.remove_class("error-state")
             content_widget.update("")
 
-            # Remove old children and add new ones
+            # Remove old children and rebuild the content
             content_widget.update("")
-            # Create a new static with header
-            header = Static(header_text, classes="panel-header")
-            code_static = Static(syntax_markup, classes="code-content")
-
-            # We need to rebuild the content
             self._rebuild_content(header_text, syntax_markup)
 
         except Exception as e:

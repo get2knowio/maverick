@@ -14,7 +14,8 @@ Example:
         start = time.perf_counter()
     # ... render logic ...
     if widget_metrics.enabled:
-        widget_metrics.record_render("AgentOutput", (time.perf_counter() - start) * 1000)
+        elapsed = (time.perf_counter() - start) * 1000
+        widget_metrics.record_render("AgentOutput", elapsed)
 
     # Get stats
     stats = widget_metrics.get_stats("AgentOutput")

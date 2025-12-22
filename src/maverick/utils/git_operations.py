@@ -320,7 +320,8 @@ class GitOperations:
             behind=behind,
         )
         logger.info(
-            "Repository status: branch=%s, staged=%d, unstaged=%d, untracked=%d, ahead=%d, behind=%d",
+            "Repository status: branch=%s, staged=%d, unstaged=%d, "
+            "untracked=%d, ahead=%d, behind=%d",
             branch,
             len(staged),
             len(unstaged),
