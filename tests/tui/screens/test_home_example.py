@@ -61,7 +61,7 @@ async def test_workflow_list_renders_header() -> None:
     async with app.run_test() as pilot:
         # Header should be present
         header = pilot.app.query_one("#header", Static)
-        assert "Test Workflow List" in str(header.content)
+        assert "Test Workflow List" in str(header.renderable)
 
 
 @pytest.mark.asyncio
@@ -212,7 +212,7 @@ async def test_workflow_list_empty_state() -> None:
 
         # Should display empty message
         empty_message = pilot.app.query_one(".workflow-empty-message", Static)
-        assert "No workflows available" in str(empty_message.content)
+        assert "No workflows available" in str(empty_message.renderable)
 
 
 # =============================================================================

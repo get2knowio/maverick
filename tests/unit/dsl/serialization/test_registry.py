@@ -10,7 +10,10 @@ from typing import Any
 
 import pytest
 
-from maverick.dsl.serialization.errors import DuplicateComponentError, ReferenceResolutionError
+from maverick.dsl.serialization.errors import (
+    DuplicateComponentError,
+    ReferenceResolutionError,
+)
 from maverick.dsl.serialization.registry import (
     ActionRegistry,
     ComponentRegistry,

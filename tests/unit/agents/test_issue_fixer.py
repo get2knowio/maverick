@@ -8,6 +8,7 @@ Tests the issue fixer agent's functionality including:
 - Commit creation
 - Error handling
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -71,7 +72,8 @@ def sample_issue_data() -> dict:
         "number": 42,
         "title": "Bug: NullPointerException in UserService",
         "body": """## Description
-When calling getUserById with null parameter, the application crashes with NullPointerException.
+When calling getUserById with null parameter,
+the application crashes with NullPointerException.
 
 ## Steps to Reproduce
 1. Call `userService.getUserById(null)`
@@ -117,7 +119,8 @@ class TestIssueFixerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "issue-fixer"
         assert agent.system_prompt == ISSUE_FIXER_SYSTEM_PROMPT
-        # Compare as sets since allowed_tools is a list and ISSUE_FIXER_TOOLS is a frozenset
+        # Compare as sets since allowed_tools is a list and
+        # ISSUE_FIXER_TOOLS is a frozenset
         assert set(agent.allowed_tools) == set(ISSUE_FIXER_TOOLS)
 
     def test_custom_model(self) -> None:
@@ -148,9 +151,7 @@ class TestIssueFixerAgentInitialization:
         assert "verification" in prompt.lower() or "Verification" in prompt
         assert "test" in prompt.lower()
 
-    def test_system_prompt_includes_commit_format(
-        self, agent: IssueFixerAgent
-    ) -> None:
+    def test_system_prompt_includes_commit_format(self, agent: IssueFixerAgent) -> None:
         """Test system prompt specifies commit message format."""
         prompt = agent.system_prompt
         assert "fix(" in prompt.lower() or "Fixes #" in prompt
@@ -197,7 +198,8 @@ class TestIssueFixerConstants:
         expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
         actual_tools = set(ISSUE_FIXER_TOOLS)
         assert actual_tools == expected_tools, (
-            f"IssueFixerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
+            f"IssueFixerAgent tools mismatch. "
+            f"Expected: {expected_tools}, Got: {actual_tools}"
         )
 
     def test_allowed_tools_uses_centralized_constants(
@@ -243,18 +245,14 @@ class TestExecuteMethod:
     ) -> None:
         """Test execute returns a FixResult on success."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
             patch.object(
                 agent, "_run_validation", new_callable=AsyncMock
             ) as mock_validate,
@@ -291,18 +289,14 @@ class TestExecuteMethod:
     ) -> None:
         """Test execute fetches issue when given issue_number."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
@@ -323,18 +317,14 @@ class TestExecuteMethod:
     ) -> None:
         """Test execute uses pre-fetched issue_data when provided."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = issue_context_with_data.issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
@@ -362,18 +352,14 @@ class TestExecuteMethod:
         )
 
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
             patch.object(
                 agent, "_create_commit", new_callable=AsyncMock
             ) as mock_commit,
@@ -412,18 +398,14 @@ class TestExecuteMethod:
         )
 
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
             patch.object(
                 agent, "_run_validation", new_callable=AsyncMock
             ) as mock_validate,
@@ -448,18 +430,14 @@ class TestExecuteMethod:
     ) -> None:
         """Test execute includes duration in metadata."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
@@ -955,9 +933,7 @@ class TestErrorHandling:
         issue_context: IssueFixerContext,
     ) -> None:
         """Test execute raises GitHubError when issue fetch fails."""
-        with patch.object(
-            agent, "_fetch_issue", new_callable=AsyncMock
-        ) as mock_fetch:
+        with patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.side_effect = GitHubError("Issue #42 not found")
 
             with pytest.raises(GitHubError) as exc_info:
@@ -974,9 +950,7 @@ class TestErrorHandling:
     ) -> None:
         """Test execute returns failed FixResult on AgentError."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
@@ -999,9 +973,7 @@ class TestErrorHandling:
     ) -> None:
         """Test execute returns failed FixResult on unexpected exceptions."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
@@ -1026,18 +998,14 @@ class TestErrorHandling:
     ) -> None:
         """Test execute returns partial FixResult when verification fails."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
@@ -1062,18 +1030,14 @@ class TestErrorHandling:
     ) -> None:
         """Test execute returns partial FixResult when validation fails."""
         with (
-            patch.object(
-                agent, "_fetch_issue", new_callable=AsyncMock
-            ) as mock_fetch,
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(
-                agent, "_verify_fix", new_callable=AsyncMock
-            ) as mock_verify,
+            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
             patch.object(
                 agent, "_run_validation", new_callable=AsyncMock
             ) as mock_validate,

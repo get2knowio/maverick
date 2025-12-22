@@ -77,23 +77,12 @@ class UsageStats(BaseModel):
         1500
     """
 
-    input_tokens: int = Field(
-        ge=0,
-        description="Number of tokens in input/prompt"
-    )
-    output_tokens: int = Field(
-        ge=0,
-        description="Number of tokens in response"
-    )
+    input_tokens: int = Field(ge=0, description="Number of tokens in input/prompt")
+    output_tokens: int = Field(ge=0, description="Number of tokens in response")
     total_cost: float | None = Field(
-        default=None,
-        ge=0,
-        description="Estimated cost in USD"
+        default=None, ge=0, description="Estimated cost in USD"
     )
-    duration_ms: int = Field(
-        ge=0,
-        description="Execution time in milliseconds"
-    )
+    duration_ms: int = Field(ge=0, description="Execution time in milliseconds")
 
     @property
     def total_tokens(self) -> int:
@@ -125,8 +114,8 @@ class ReviewFinding(BaseModel):
         ...     severity=ReviewSeverity.CRITICAL,
         ...     file="src/api/auth.py",
         ...     line=42,
-        ...     message="SQL query uses string interpolation, vulnerable to injection",
-        ...     suggestion="Use parameterized queries: cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))"
+        ...     message="SQL uses string interpolation, vulnerable to injection",
+        ...     suggestion="Use parameterized queries instead"
         ... )
         >>> finding.severity
         <ReviewSeverity.CRITICAL: 'critical'>
@@ -135,25 +124,21 @@ class ReviewFinding(BaseModel):
     severity: ReviewSeverity = Field(
         description="Severity level: critical, major, minor, or suggestion"
     )
-    file: str = Field(
-        description="File path relative to repository root"
-    )
+    file: str = Field(description="File path relative to repository root")
     line: int | None = Field(
         default=None,
         ge=1,
-        description="Line number (1-indexed) or None for file-level findings"
+        description="Line number (1-indexed) or None for file-level findings",
     )
     message: str = Field(
-        min_length=10,
-        description="Clear description of the issue found"
+        min_length=10, description="Clear description of the issue found"
     )
     suggestion: str = Field(
         default="",
-        description="Actionable fix recommendation with code example if applicable"
+        description="Actionable fix recommendation with code example if applicable",
     )
     convention_ref: str | None = Field(
-        default=None,
-        description="Reference to violated convention in CLAUDE.md"
+        default=None, description="Reference to violated convention in CLAUDE.md"
     )
 
     model_config = ConfigDict(
@@ -164,20 +149,20 @@ class ReviewFinding(BaseModel):
                     "severity": "critical",
                     "file": "src/api/auth.py",
                     "line": 42,
-                    "message": "SQL query uses string interpolation, vulnerable to injection",
-                    "suggestion": "Use parameterized queries: cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))",
-                    "convention_ref": None
+                    "message": "SQL uses string interpolation",
+                    "suggestion": "Use parameterized queries",
+                    "convention_ref": None,
                 },
                 {
                     "severity": "minor",
                     "file": "src/utils/helpers.py",
                     "line": 15,
-                    "message": "Function name 'getData' uses camelCase instead of snake_case",
-                    "suggestion": "Rename to 'get_data' per Python conventions",
-                    "convention_ref": "Code Style > Naming"
-                }
+                    "message": "Name uses camelCase not snake_case",
+                    "suggestion": "Rename to 'get_data'",
+                    "convention_ref": "Code Style > Naming",
+                },
             ]
-        }
+        },
     )
 
 
@@ -210,39 +195,26 @@ class ReviewResult(BaseModel):
         False
     """
 
-    success: bool = Field(
-        description="True if review completed, False if failed"
-    )
+    success: bool = Field(description="True if review completed, False if failed")
     findings: list[ReviewFinding] = Field(
-        default_factory=list,
-        description="List of issues found during review"
+        default_factory=list, description="List of issues found during review"
     )
     files_reviewed: int = Field(
-        ge=0,
-        description="Number of files analyzed (excludes binary files)"
+        ge=0, description="Number of files analyzed (excludes binary files)"
     )
-    summary: str = Field(
-        description="Human-readable summary of review outcome"
-    )
+    summary: str = Field(description="Human-readable summary of review outcome")
     truncated: bool = Field(
-        default=False,
-        description="True if diff exceeded size limits and was truncated"
+        default=False, description="True if diff exceeded size limits and was truncated"
     )
-    output: str = Field(
-        default="",
-        description="Raw agent output for debugging"
-    )
+    output: str = Field(default="", description="Raw agent output for debugging")
     metadata: dict = Field(
-        default_factory=dict,
-        description="Additional context (branch, timestamp, etc.)"
+        default_factory=dict, description="Additional context (branch, timestamp, etc.)"
     )
     errors: list[str] = Field(
-        default_factory=list,
-        description="Non-fatal errors encountered during review"
+        default_factory=list, description="Non-fatal errors encountered during review"
     )
     usage: UsageStats | None = Field(
-        default=None,
-        description="Token usage and cost statistics"
+        default=None, description="Token usage and cost statistics"
     )
 
     model_config = ConfigDict(
@@ -253,7 +225,7 @@ class ReviewResult(BaseModel):
                     "findings": [],
                     "files_reviewed": 0,
                     "summary": "No changes to review",
-                    "truncated": False
+                    "truncated": False,
                 },
                 {
                     "success": True,
@@ -262,14 +234,14 @@ class ReviewResult(BaseModel):
                             "severity": "major",
                             "file": "src/api/handlers.py",
                             "line": 87,
-                            "message": "Missing error handling for database connection failure",
-                            "suggestion": "Wrap in try/except and return appropriate HTTP 500 response"
+                            "message": "Missing error handling for DB failure",
+                            "suggestion": "Wrap in try/except, return 500",
                         }
                     ],
                     "files_reviewed": 12,
                     "summary": "Reviewed 12 files, found 1 major issue",
-                    "truncated": False
-                }
+                    "truncated": False,
+                },
             ]
         }
     )
@@ -344,20 +316,15 @@ class ReviewContext(BaseModel):
         'feature/add-auth'
     """
 
-    branch: str = Field(
-        description="Feature branch name to review"
-    )
+    branch: str = Field(description="Feature branch name to review")
     base_branch: str = Field(
-        default="main",
-        description="Base branch for diff comparison"
+        default="main", description="Base branch for diff comparison"
     )
     file_list: list[str] | None = Field(
-        default=None,
-        description="Optional list of specific files to review (None = all changed files)"
+        default=None, description="Specific files to review (None = all changed)"
     )
     cwd: Path = Field(
-        default_factory=Path.cwd,
-        description="Working directory for git operations"
+        default_factory=Path.cwd, description="Working directory for git operations"
     )
 
     model_config = ConfigDict(
@@ -368,14 +335,14 @@ class ReviewContext(BaseModel):
                     "branch": "feature/add-auth",
                     "base_branch": "main",
                     "file_list": None,
-                    "cwd": "/path/to/repo"
+                    "cwd": "/path/to/repo",
                 },
                 {
                     "branch": "bugfix/fix-login",
                     "base_branch": "develop",
                     "file_list": ["src/api/auth.py", "tests/test_auth.py"],
-                    "cwd": "/path/to/repo"
-                }
+                    "cwd": "/path/to/repo",
+                },
             ]
-        }
+        },
     )

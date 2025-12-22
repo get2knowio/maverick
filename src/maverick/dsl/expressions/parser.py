@@ -166,7 +166,9 @@ def tokenize(expression: str) -> list[str]:
                 tokens.append(expr[start : i + 1])  # Include quotes
                 i += 1
             # Handle numeric indices
-            elif expr[i].isdigit() or (expr[i] == "-" and i + 1 < len(expr) and expr[i + 1].isdigit()):
+            elif expr[i].isdigit() or (
+                expr[i] == "-" and i + 1 < len(expr) and expr[i + 1].isdigit()
+            ):
                 start = i
                 if expr[i] == "-":
                     i += 1
@@ -266,10 +268,10 @@ def parse_expression(expression: str) -> Expression:
         ExpressionSyntaxError: For invalid expression syntax
 
     Examples:
-        >>> parse_expression("${{ inputs.name }}")
-        Expression(raw='${{ inputs.name }}', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'name'), negated=False)
-        >>> parse_expression("not inputs.dry_run")
-        Expression(raw='not inputs.dry_run', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'dry_run'), negated=True)
+        >>> parse_expression("${{ inputs.name }}")  # doctest: +ELLIPSIS
+        Expression(raw='${{ inputs.name }}', kind=..., path=..., negated=False)
+        >>> parse_expression("not inputs.dry_run")  # doctest: +ELLIPSIS
+        Expression(raw='not inputs.dry_run', kind=..., path=..., negated=True)
     """
     # Store original for raw field
     original = expression
@@ -394,7 +396,8 @@ def parse_expression(expression: str) -> Expression:
         kind = ExpressionKind.INDEX_REF
     else:
         raise ExpressionSyntaxError(
-            f"Expression must start with 'inputs', 'steps', 'item', or 'index', got '{first_element}'",
+            f"Expression must start with 'inputs', 'steps', 'item', "
+            f"or 'index', got '{first_element}'",
             expression=original,
             position=0,
         )
@@ -424,8 +427,8 @@ def extract_all(text: str) -> list[Expression]:
         ExpressionSyntaxError: For invalid expression syntax in any match
 
     Examples:
-        >>> extract_all("Hello ${{ inputs.name }}")
-        [Expression(raw='${{ inputs.name }}', kind=<ExpressionKind.INPUT_REF: 'input_ref'>, path=('inputs', 'name'), negated=False)]
+        >>> extract_all("Hello ${{ inputs.name }}")  # doctest: +ELLIPSIS
+        [Expression(raw='${{ inputs.name }}', kind=..., path=..., negated=False)]
         >>> extract_all("No expressions here")
         []
     """

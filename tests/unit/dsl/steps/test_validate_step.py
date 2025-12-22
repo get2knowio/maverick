@@ -207,7 +207,9 @@ class TestValidateStepStagesResolution:
         config.run_validation_stages.assert_called_once_with(custom_stages)
 
     @pytest.mark.asyncio
-    async def test_execute_returns_failed_result_if_string_key_not_in_config(self) -> None:
+    async def test_execute_returns_failed_result_if_string_key_not_in_config(
+        self,
+    ) -> None:
         """Test returns failed StepResult if string key not found in config."""
         config = MockConfig()
         context = WorkflowContext(inputs={}, config=config)

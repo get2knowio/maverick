@@ -3,6 +3,7 @@
 This module tests the AgentRegistry class which manages registration,
 retrieval, and instantiation of MaverickAgent subclasses.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

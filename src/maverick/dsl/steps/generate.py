@@ -87,7 +87,10 @@ class GenerateStep(StepDefinition):
                 success=False,
                 output=None,
                 duration_ms=duration_ms,
-                error=f"Context builder for step '{self.name}' failed: {type(e).__name__}: {e}",
+                error=(
+                    f"Context builder for step '{self.name}' failed: "
+                    f"{type(e).__name__}: {e}"
+                ),
             )
 
         try:

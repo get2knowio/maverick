@@ -7,4 +7,5 @@ This package contains YAML workflow files for Maverick's canonical workflows:
 - validate: Validation with optional fixes workflow
 - quick_fix: Quick issue fix workflow
 """
+
 from __future__ import annotations

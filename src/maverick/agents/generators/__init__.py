@@ -15,6 +15,7 @@ Example:
     >>> generator = CommitMessageGenerator()
     >>> message = await generator.generate({"diff": "...", "file_stats": {}})
 """
+
 from __future__ import annotations
 
 from maverick.agents.generators.base import (

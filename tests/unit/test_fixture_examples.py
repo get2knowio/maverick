@@ -7,6 +7,7 @@ per test).
 Each test demonstrates a specific fixture or combination of fixtures with
 clear docstrings explaining the pattern.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 
 
 def test_mock_text_message_factory(
-    mock_text_message: Callable[..., MockMessage]
+    mock_text_message: Callable[..., MockMessage],
 ) -> None:
     """Demonstrate creating text messages from Claude Agent SDK.
 
@@ -48,7 +49,7 @@ def test_mock_text_message_factory(
 
 
 def test_mock_text_message_default(
-    mock_text_message: Callable[..., MockMessage]
+    mock_text_message: Callable[..., MockMessage],
 ) -> None:
     """Demonstrate using default text message values.
 
@@ -62,7 +63,7 @@ def test_mock_text_message_default(
 
 
 def test_mock_result_message_factory(
-    mock_result_message: Callable[..., MockMessage]
+    mock_result_message: Callable[..., MockMessage],
 ) -> None:
     """Demonstrate creating result messages with usage metrics.
 
@@ -82,7 +83,7 @@ def test_mock_result_message_factory(
 
 
 def test_mock_result_message_defaults(
-    mock_result_message: Callable[..., MockMessage]
+    mock_result_message: Callable[..., MockMessage],
 ) -> None:
     """Demonstrate using default result message values.
 
@@ -204,9 +205,7 @@ def test_sample_config_structure(sample_config: MaverickConfig) -> None:
     assert sample_config.parallel.max_agents == 2
 
 
-def test_sample_config_isolation(
-    sample_config: MaverickConfig, temp_dir: Path
-) -> None:
+def test_sample_config_isolation(sample_config: MaverickConfig, temp_dir: Path) -> None:
     """Demonstrate config isolation with temp_dir.
 
     Pattern: sample_config uses temp_dir internally to ensure test isolation.
@@ -498,9 +497,7 @@ async def test_verify_boilerplate_limit_async_complex(
 
     Even with 4 fixtures and async, total boilerplate is well under 20 lines.
     """
-    mock_sdk_client.queue_response(
-        [mock_text_message("Done"), mock_result_message()]
-    )
+    mock_sdk_client.queue_response([mock_text_message("Done"), mock_result_message()])
     messages = [msg async for msg in mock_sdk_client.receive_response()]
 
     assert len(messages) == 2

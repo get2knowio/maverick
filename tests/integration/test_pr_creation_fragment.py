@@ -9,13 +9,19 @@ verifying:
 - GitHub PR creation with generated content
 - Integration with mocked GitHub operations
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
 
-from maverick.dsl.events import StepCompleted, StepStarted, WorkflowCompleted, WorkflowStarted
+from maverick.dsl.events import (
+    StepCompleted,
+    StepStarted,
+    WorkflowCompleted,
+    WorkflowStarted,
+)
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.builtins import DefaultBuiltinLibrary
@@ -126,7 +132,8 @@ class TestCreatePRWithSummaryFragment:
         events = []
         # Provide explicit default values for base_branch and draft
         async for event in executor.execute(
-            fragment, inputs={"title": custom_title, "base_branch": "main", "draft": False}
+            fragment,
+            inputs={"title": custom_title, "base_branch": "main", "draft": False},
         ):
             events.append(event)
 
@@ -137,8 +144,8 @@ class TestCreatePRWithSummaryFragment:
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]
 
-        # generate_title branch step should run (it's a branch step that conditionally runs inner step)
-        # But the inner generate_title_inner should NOT run
+        # generate_title branch step should run (it's a branch step that
+        # conditionally runs inner step). The inner step should NOT run.
         assert "generate_title" in step_names
 
         # generate_body SHOULD run
@@ -156,11 +163,16 @@ class TestCreatePRWithSummaryFragment:
         assert result.success is True
 
         # Find create_pr step result
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["pr_title"] == custom_title
         assert create_pr_step.output["pr_number"] == 123
-        assert create_pr_step.output["pr_url"] == "https://github.com/get2knowio/maverick/pull/123"
+        assert (
+            create_pr_step.output["pr_url"]
+            == "https://github.com/get2knowio/maverick/pull/123"
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.skip(
@@ -210,7 +222,9 @@ class TestCreatePRWithSummaryFragment:
         assert result.success is True
 
         # Find create_pr step result
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         # Title should be the generated one
         assert "feat(library)" in create_pr_step.output["pr_title"]
@@ -242,7 +256,9 @@ class TestCreatePRWithSummaryFragment:
 
         # Verify result
         result = executor.get_result()
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["draft"] is True
 
@@ -267,7 +283,9 @@ class TestCreatePRWithSummaryFragment:
             events.append(event)
 
         result = executor.get_result()
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["draft"] is False
 
@@ -295,7 +313,9 @@ class TestCreatePRWithSummaryFragment:
             events.append(event)
 
         result = executor.get_result()
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["base_branch"] == custom_base
 
@@ -319,7 +339,9 @@ class TestCreatePRWithSummaryFragment:
             events.append(event)
 
         result = executor.get_result()
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["base_branch"] == "main"
 
@@ -382,14 +404,14 @@ class TestCreatePRWithSummaryFragment:
 
         # Verify order: generate_title < generate_body < create_pr
         if generate_title_start is not None and generate_body_start is not None:
-            assert (
-                generate_title_start < generate_body_start
-            ), "generate_title should come before generate_body"
+            assert generate_title_start < generate_body_start, (
+                "generate_title should come before generate_body"
+            )
 
         if generate_body_start is not None and create_pr_start is not None:
-            assert (
-                generate_body_start < create_pr_start
-            ), "generate_body should come before create_pr"
+            assert generate_body_start < create_pr_start, (
+                "generate_body should come before create_pr"
+            )
 
     @pytest.mark.asyncio
     @pytest.mark.skip(
@@ -427,7 +449,9 @@ class TestCreatePRWithSummaryFragment:
         assert "## Testing" in body
 
         # Verify create_pr received the generated body
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["pr_body"] == body
 
@@ -457,7 +481,9 @@ class TestCreatePRWithSummaryFragment:
         result = executor.get_result()
 
         # Verify create_pr step has a generated title
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         # Title should be from the generator
         assert "feat(library)" in create_pr_step.output["pr_title"]
@@ -520,7 +546,9 @@ class TestCreatePRWithSummaryFragment:
             events.append(event)
 
         result = executor.get_result()
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None
         assert create_pr_step.output["pr_title"] == "feat(custom): custom PR title"
         assert create_pr_step.output["base_branch"] == "develop"
@@ -583,5 +611,7 @@ class TestCreatePRWithSummaryFragment:
 
         # Verify PR was created (we can't easily verify which title path was used
         # without inspecting step execution details)
-        create_pr_step = next((s for s in result.step_results if s.name == "create_pr"), None)
+        create_pr_step = next(
+            (s for s in result.step_results if s.name == "create_pr"), None
+        )
         assert create_pr_step is not None

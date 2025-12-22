@@ -66,9 +66,13 @@ def sample_workflow_file(temp_dir: Path, sample_workflow_yaml: str) -> Path:
 
 @pytest.fixture
 def workflows_dir(temp_dir: Path) -> Path:
-    """Create a workflows directory with sample files."""
-    workflows = temp_dir / "workflows"
-    workflows.mkdir(exist_ok=True)
+    """Create a workflows directory with sample files.
+
+    Creates workflows in .maverick/workflows/ which is the project workflow directory
+    that discovery will find.
+    """
+    workflows = temp_dir / ".maverick" / "workflows"
+    workflows.mkdir(parents=True, exist_ok=True)
 
     # Create a few sample workflow files
     (workflows / "workflow-1.yaml").write_text("""version: "1.0"
@@ -110,7 +114,8 @@ class TestWorkflowCommandGroup:
         """Test that 'maverick workflow' shows help text.
 
         Verifies:
-        - Command exists and shows help (exit code 2 is expected for group without command)
+        - Command exists and shows help
+          (exit code 2 is expected for group without command)
         - Help text is displayed
         - Shows available subcommands
         """
@@ -121,13 +126,18 @@ class TestWorkflowCommandGroup:
 
         result = cli_runner.invoke(cli, ["workflow"])
 
-        # Click groups without invoke_without_command=True return 2 without subcommand
+        # Click groups without invoke_without_command=True
+        # return 2 without subcommand
         # This is expected behavior - we just verify help is shown
         assert result.exit_code in (0, 2)
         # Should show usage/help text
         assert "workflow" in result.output.lower() or "usage" in result.output.lower()
         # Should mention subcommands
-        assert "list" in result.output.lower() or "show" in result.output.lower() or "commands" in result.output.lower()
+        assert (
+            "list" in result.output.lower()
+            or "show" in result.output.lower()
+            or "commands" in result.output.lower()
+        )
 
     def test_workflow_help_flag(
         self,
@@ -200,7 +210,7 @@ class TestWorkflowList:
 
         Verifies:
         - Command succeeds even with no workflows
-        - Shows empty message or empty list
+        - Shows builtin workflows (always available)
         """
         import os
 
@@ -211,8 +221,8 @@ class TestWorkflowList:
 
         # Should succeed
         assert result.exit_code == 0
-        # Should indicate no workflows found
-        assert "no workflow" in result.output.lower() or len(result.output.strip()) == 0
+        # Should show builtin workflows (always available)
+        assert "fly" in result.output or "builtin" in result.output
 
     def test_list_with_workflow_files_present(
         self,
@@ -224,19 +234,20 @@ class TestWorkflowList:
         """Test workflow list with workflow files present.
 
         Verifies:
-        - Discovers workflow files in ./workflows directory
+        - Discovers workflow files in .maverick/workflows/ directory
         - Shows workflow names and descriptions
         - Default text/table format
+        - Also shows builtin workflows
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(cli, ["workflow", "list"])
 
         assert result.exit_code == 0
-        # Should list both workflows
+        # Should list both project workflows and builtin workflows
         assert "workflow-1" in result.output
         assert "workflow-2" in result.output
         # Should show descriptions
@@ -259,8 +270,8 @@ class TestWorkflowList:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(cli, ["workflow", "list", "--format", "json"])
 
@@ -269,7 +280,7 @@ class TestWorkflowList:
         try:
             data = json.loads(result.output)
             assert isinstance(data, list)
-            # Should have at least 2 workflows
+            # Should have at least 2 workflows (builtin + project workflows)
             assert len(data) >= 2
             # Each entry should have name and description
             for workflow in data:
@@ -294,14 +305,15 @@ class TestWorkflowList:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(cli, ["workflow", "list", "--format", "yaml"])
 
         assert result.exit_code == 0
         # Output should be valid YAML
         import yaml
+
         try:
             data = yaml.safe_load(result.output)
             assert isinstance(data, list)
@@ -329,8 +341,8 @@ class TestWorkflowShow:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(cli, ["workflow", "show", "workflow-1"])
 
@@ -487,8 +499,8 @@ class TestWorkflowViz:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(
             cli, ["workflow", "viz", "workflow-1", "--format", "ascii"]
@@ -516,8 +528,8 @@ class TestWorkflowViz:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(
             cli, ["workflow", "viz", "workflow-1", "--format", "mermaid"]
@@ -545,10 +557,10 @@ class TestWorkflowViz:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
-        output_file = workflows_dir.parent / "diagram.txt"
+        output_file = workflows_dir.parent.parent / "diagram.txt"
 
         result = cli_runner.invoke(
             cli,
@@ -585,8 +597,8 @@ class TestWorkflowViz:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         result = cli_runner.invoke(
             cli,
@@ -644,13 +656,18 @@ class TestWorkflowRun:
             ],
         )
 
-        # Workflow will fail because actions aren't registered, but it should parse and start
+        # Workflow will fail because actions aren't registered,
+        # but it should parse and start
         # The important thing is that it doesn't crash on parsing
-        assert result.exit_code == 1  # Expected to fail due to missing actions
+        # Expected to fail due to missing actions
+        assert result.exit_code == 1
         # Should show workflow name
         assert "test-workflow" in result.output
         # Should show it attempted execution
-        assert "Executing workflow" in result.output or "process" in result.output
+        assert (
+            "Executing workflow" in result.output
+            or "process" in result.output
+        )
 
     def test_run_workflow_from_file(
         self,
@@ -883,8 +900,8 @@ class TestWorkflowCommandIntegration:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         # List workflows
         list_result = cli_runner.invoke(cli, ["workflow", "list"])
@@ -918,8 +935,8 @@ class TestWorkflowCommandIntegration:
         """
         import os
 
-        os.chdir(workflows_dir.parent)
-        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent)
+        os.chdir(workflows_dir.parent.parent)
+        monkeypatch.setattr(Path, "home", lambda: workflows_dir.parent.parent)
 
         workflow_file = workflows_dir / "workflow-1.yaml"
 

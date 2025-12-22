@@ -5,6 +5,7 @@ Tests the generator agent base class functionality including:
 - Tool permissions (should be empty)
 - Abstract interface requirements
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -95,21 +96,27 @@ class TestGeneratorAgentInitialization:
     def test_raises_on_empty_name(self) -> None:
         """Test generator raises ValueError with empty name."""
         with pytest.raises(ValueError, match="name must be non-empty"):
+
             class BadGenerator(GeneratorAgent):
                 def __init__(self):
                     super().__init__(name="", system_prompt="test")
+
                 async def generate(self, context: dict) -> str:
                     return "test"
+
             BadGenerator()
 
     def test_raises_on_empty_system_prompt(self) -> None:
         """Test generator raises ValueError with empty system_prompt."""
         with pytest.raises(ValueError, match="system_prompt must be non-empty"):
+
             class BadGenerator(GeneratorAgent):
                 def __init__(self):
                     super().__init__(name="test", system_prompt="")
+
                 async def generate(self, context: dict) -> str:
                     return "test"
+
             BadGenerator()
 
 

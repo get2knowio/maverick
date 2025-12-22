@@ -8,6 +8,7 @@ Tests the CLI context management, exit codes, and utilities:
 - RefuelCommandInputs dataclass
 - ReviewCommandInputs dataclass
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -680,9 +681,7 @@ class TestReviewCommandInputs:
 
     def test_review_command_inputs_with_markdown_output(self) -> None:
         """Test ReviewCommandInputs with markdown output format."""
-        inputs = ReviewCommandInputs(
-            pr_number=222, output_format=OutputFormat.MARKDOWN
-        )
+        inputs = ReviewCommandInputs(pr_number=222, output_format=OutputFormat.MARKDOWN)
 
         assert inputs.pr_number == 222
         assert inputs.output_format == OutputFormat.MARKDOWN

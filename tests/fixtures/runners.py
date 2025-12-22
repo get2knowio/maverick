@@ -8,6 +8,7 @@ Provides:
 - mock_validation_runner: Mock ValidationRunner with configurable validation results
 - mock_github_runner: Mock GitHubCLIRunner with configurable GitHub operations
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -15,7 +16,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from maverick.runners.git import GitResult
-from maverick.runners.models import GitHubIssue, PullRequest, StageResult, ValidationOutput
+from maverick.runners.models import (
+    GitHubIssue,
+    PullRequest,
+    StageResult,
+    ValidationOutput,
+)
 
 
 @pytest.fixture

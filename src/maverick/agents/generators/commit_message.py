@@ -3,6 +3,7 @@
 This module provides the CommitMessageGenerator class that creates conventional
 commit messages from git diffs and file statistics.
 """
+
 from __future__ import annotations
 
 import logging

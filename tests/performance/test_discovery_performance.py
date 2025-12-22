@@ -3,6 +3,7 @@
 This module validates that workflow discovery meets performance requirements:
 - T064: Discovery must complete in under 500ms for 100 workflow files
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,8 +65,7 @@ steps:
 
         # Verify performance requirement: < 500ms
         assert result.discovery_time_ms < 500, (
-            f"Discovery took {result.discovery_time_ms:.2f}ms, "
-            f"requirement is < 500ms"
+            f"Discovery took {result.discovery_time_ms:.2f}ms, requirement is < 500ms"
         )
 
         # Report performance metrics
@@ -153,8 +153,7 @@ steps:
 
         # Verify performance requirement: < 500ms
         assert result.discovery_time_ms < 500, (
-            f"Discovery took {result.discovery_time_ms:.2f}ms, "
-            f"requirement is < 500ms"
+            f"Discovery took {result.discovery_time_ms:.2f}ms, requirement is < 500ms"
         )
 
         # Report performance metrics
@@ -217,8 +216,7 @@ steps:
 
         # Verify performance requirement: < 500ms
         assert result.discovery_time_ms < 500, (
-            f"Discovery took {result.discovery_time_ms:.2f}ms, "
-            f"requirement is < 500ms"
+            f"Discovery took {result.discovery_time_ms:.2f}ms, requirement is < 500ms"
         )
 
         # Report performance metrics

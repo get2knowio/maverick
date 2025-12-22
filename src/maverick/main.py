@@ -983,8 +983,7 @@ def workflow_show(ctx: click.Context, name: str) -> None:
                     suggestion = f"Available workflows: {available_str}"
                 else:
                     suggestion = (
-                        "No workflows discovered. "
-                        "Check your workflow directories."
+                        "No workflows discovered. Check your workflow directories."
                     )
 
                 error_msg = format_error(
@@ -1222,8 +1221,7 @@ def workflow_viz(
                     suggestion = f"Available workflows: {available_str}"
                 else:
                     suggestion = (
-                        "No workflows discovered. "
-                        "Check your workflow directories."
+                        "No workflows discovered. Check your workflow directories."
                     )
 
                 error_msg = format_error(
@@ -1514,8 +1512,7 @@ async def workflow_run(
                     suggestion = f"Available workflows: {available_str}"
                 else:
                     suggestion = (
-                        "No workflows discovered. "
-                        "Check your workflow directories."
+                        "No workflows discovered. Check your workflow directories."
                     )
 
                 error_msg = format_error(

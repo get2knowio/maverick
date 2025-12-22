@@ -112,7 +112,9 @@ class TestSettingField:
             assert switch.value is True
 
     @pytest.mark.asyncio
-    async def test_int_field_validation(self, int_definition: SettingDefinition) -> None:
+    async def test_int_field_validation(
+        self, int_definition: SettingDefinition
+    ) -> None:
         """Test integer field enforces min/max constraints."""
 
         class TestApp(App):

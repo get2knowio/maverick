@@ -3,6 +3,7 @@
 This module implements the discovery data models defined in the contracts.
 All models use frozen dataclasses with slots for efficiency and immutability.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

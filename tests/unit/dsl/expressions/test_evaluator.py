@@ -469,9 +469,7 @@ class TestEvaluateStringMethod:
                 }
             },
         )
-        result = evaluator.evaluate_string(
-            "Result: ${{ steps.fetch.output.status }}"
-        )
+        result = evaluator.evaluate_string("Result: ${{ steps.fetch.output.status }}")
         assert result == "Result: success"
 
     def test_expression_with_boolean_stringified(self) -> None:

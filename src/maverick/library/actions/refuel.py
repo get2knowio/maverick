@@ -60,7 +60,7 @@ async def process_selected_issues(
         for issue, raw_result in zip(issues, raw_results):
             if isinstance(raw_result, Exception):
                 # Issue processing raised an exception - record as failed
-                # This satisfies FR-021: graceful handling without crashing entire workflow
+                # Satisfies FR-021: graceful handling without crashing workflow
                 logger.error(
                     f"Issue {issue.get('number')} failed with exception: {raw_result}"
                 )

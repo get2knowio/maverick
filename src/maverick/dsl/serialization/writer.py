@@ -76,7 +76,7 @@ class WorkflowWriter:
             workflow: WorkflowFile instance to convert.
 
         Returns:
-            Dictionary representation with proper field ordering and None values omitted.
+            Dictionary with proper field ordering and None values omitted.
 
         Example:
             >>> workflow = WorkflowFile(version="1.0", name="test", steps=[...])
@@ -103,9 +103,7 @@ class WorkflowWriter:
             }
 
         # Add steps (always present, validated by schema)
-        result["steps"] = [
-            self._serialize_step(step) for step in workflow.steps
-        ]
+        result["steps"] = [self._serialize_step(step) for step in workflow.steps]
 
         return result
 

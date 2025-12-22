@@ -234,7 +234,9 @@ class TestAgentStepExecution:
         assert result.final_output == "Agent processed: from input"
 
     @pytest.mark.asyncio
-    async def test_agent_step_with_context_builder(self, registry_with_agent, registry_with_context_builder):
+    async def test_agent_step_with_context_builder(
+        self, registry_with_agent, registry_with_context_builder
+    ):
         """Test agent step using a context builder."""
         # Merge registries
         registry = registry_with_agent
@@ -271,7 +273,9 @@ class TestAgentStepExecution:
         assert result.final_output["built_field"] == "from_builder"
 
     @pytest.mark.asyncio
-    async def test_agent_step_with_async_context_builder(self, registry_with_agent, registry_with_async_context_builder):
+    async def test_agent_step_with_async_context_builder(
+        self, registry_with_agent, registry_with_async_context_builder
+    ):
         """Test agent step using an async context builder."""
         # Merge registries
         registry = registry_with_agent
@@ -445,7 +449,9 @@ class TestGenerateStepExecution:
         assert result.final_output == "Async generated: Async prompt"
 
     @pytest.mark.asyncio
-    async def test_generate_step_with_expression_in_context(self, registry_with_generator):
+    async def test_generate_step_with_expression_in_context(
+        self, registry_with_generator
+    ):
         """Test generate step with expression resolution in context."""
         workflow = WorkflowFile(
             version="1.0",
@@ -461,7 +467,9 @@ class TestGenerateStepExecution:
         )
 
         executor = WorkflowFileExecutor(registry=registry_with_generator)
-        async for _ in executor.execute(workflow, inputs={"user_prompt": "Custom prompt"}):
+        async for _ in executor.execute(
+            workflow, inputs={"user_prompt": "Custom prompt"}
+        ):
             pass
 
         result = executor.get_result()
@@ -469,7 +477,9 @@ class TestGenerateStepExecution:
         assert result.final_output == "Generated: Custom prompt"
 
     @pytest.mark.asyncio
-    async def test_generate_step_with_context_builder(self, registry_with_generator, registry_with_context_builder):
+    async def test_generate_step_with_context_builder(
+        self, registry_with_generator, registry_with_context_builder
+    ):
         """Test generate step using a context builder."""
         # Merge registries
         registry = registry_with_generator
@@ -746,7 +756,9 @@ class TestBranchStepExecution:
         )
 
         executor = WorkflowFileExecutor(registry=registry)
-        async for _ in executor.execute(workflow, inputs={"choose_a": True, "choose_b": False}):
+        async for _ in executor.execute(
+            workflow, inputs={"choose_a": True, "choose_b": False}
+        ):
             pass
 
         result = executor.get_result()
@@ -795,7 +807,9 @@ class TestBranchStepExecution:
         )
 
         executor = WorkflowFileExecutor(registry=registry)
-        async for _ in executor.execute(workflow, inputs={"choose_a": False, "choose_b": True}):
+        async for _ in executor.execute(
+            workflow, inputs={"choose_a": False, "choose_b": True}
+        ):
             pass
 
         result = executor.get_result()
@@ -1095,7 +1109,9 @@ class TestParallelStepExecution:
         # One result is "success", the other is a RuntimeError exception
         assert "success" in result.final_output["results"]
         # Check that one of the results is an exception
-        exceptions = [r for r in result.final_output["results"] if isinstance(r, Exception)]
+        exceptions = [
+            r for r in result.final_output["results"] if isinstance(r, Exception)
+        ]
         assert len(exceptions) == 1
         assert "Failed!" in str(exceptions[0])
 

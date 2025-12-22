@@ -318,6 +318,7 @@ class TestRefuelScreenIssueFetching:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Fetching issues populates the issue list."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -349,6 +350,7 @@ class TestRefuelScreenIssueFetching:
     @pytest.mark.asyncio
     async def test_fetch_empty_results(self, refuel_screen: MockRefuelScreen) -> None:
         """Fetching with no matching issues returns empty list."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return []
 
@@ -372,6 +374,7 @@ class TestRefuelScreenIssueSelection:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Toggling issue selection updates state."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -392,6 +395,7 @@ class TestRefuelScreenIssueSelection:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Selecting multiple issues updates selected_count."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -412,6 +416,7 @@ class TestRefuelScreenIssueSelection:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Toggling selected issue deselects it."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -431,6 +436,7 @@ class TestRefuelScreenIssueSelection:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """selected_issues property returns selected issues."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -466,6 +472,7 @@ class TestRefuelScreenStartButton:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Start button enabled when issues are selected."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -480,6 +487,7 @@ class TestRefuelScreenStartButton:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Start button disabled during issue fetching."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -497,6 +505,7 @@ class TestRefuelScreenStartButton:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Start button disabled during workflow processing."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -563,6 +572,7 @@ class TestRefuelScreenWorkflowExecution:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Workflow results are stored in state."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -599,6 +609,7 @@ class TestRefuelScreenWorkflowExecution:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Successful workflow includes PR links."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -626,6 +637,7 @@ class TestRefuelScreenWorkflowExecution:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Failed workflow includes error message."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -666,6 +678,7 @@ class TestRefuelScreenStateProperties:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """is_empty is False when issues are loaded."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
@@ -683,13 +696,12 @@ class TestRefuelScreenStateProperties:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """has_results is True after workflow completion."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 
         async def mock_start() -> list[RefuelResultItem]:
-            return [
-                RefuelResultItem(issue_number=101, success=True)
-            ]
+            return [RefuelResultItem(issue_number=101, success=True)]
 
         refuel_screen._fetch_callback = mock_fetch
         refuel_screen._start_callback = mock_start
@@ -714,6 +726,7 @@ class TestRefuelScreenScenarios:
         self, refuel_screen: MockRefuelScreen, sample_issues: list[GitHubIssue]
     ) -> None:
         """Complete refuel workflow from configuration to results."""
+
         async def mock_fetch(label: str) -> list[GitHubIssue]:
             return sample_issues
 

@@ -137,9 +137,7 @@ class TestRetryStep:
             assert calls[1] == 2.0  # After 2nd attempt
 
     # T044: jitter applied
-    async def test_jitter_applied(
-        self, workflow_context: WorkflowContext
-    ) -> None:
+    async def test_jitter_applied(self, workflow_context: WorkflowContext) -> None:
         """Verify jitter is applied to backoff delays."""
         flaky = FlakyStep(fail_count=5, output=None)  # Fail all attempts
         retry_step = RetryStep(
@@ -152,8 +150,9 @@ class TestRetryStep:
         # Mock random.random to return a fixed value
         # Jitter calculation: delay *= 0.5 + random.random()
         # If random.random() returns 0.3, multiplier is 0.8
-        with patch("asyncio.sleep") as mock_sleep, patch(
-            "random.random", return_value=0.3
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch("random.random", return_value=0.3),
         ):
             await retry_step.execute(workflow_context)
 

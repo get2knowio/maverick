@@ -3,6 +3,7 @@
 This module provides the IssueFixerAgent that resolves GitHub issues
 with minimal, targeted code changes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,11 +24,13 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer focused on minimal, targeted bug fixes within an orchestrated workflow.
+ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer.
+You focus on minimal, targeted bug fixes within an orchestrated workflow.
 
 ## Your Role
 
-You implement bug fixes by analyzing issues and modifying code. The orchestration layer handles:
+You implement bug fixes by analyzing issues and modifying code.
+The orchestration layer handles:
 - Fetching issue details from GitHub (issue data is provided to you)
 - Git operations (commits are created after you complete your work)
 - Validation execution (tests run after implementation)
@@ -178,7 +181,9 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
             # Create commit
             commit_sha = None
             if not context.dry_run and files_changed:
-                commit_sha = await self._create_commit(issue_number, fix_description, context)
+                commit_sha = await self._create_commit(
+                    issue_number, fix_description, context
+                )
 
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -227,6 +232,7 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
             return context.issue_data
 
         from maverick.utils.github import fetch_issue
+
         return await fetch_issue(context.issue_number or 0, context.cwd)
 
     async def _analyze_and_fix(
@@ -266,12 +272,12 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
 
         return f"""Fix the following GitHub issue:
 
-**Issue #{issue_data.get('number', 0)}**: {title}
+**Issue #{issue_data.get("number", 0)}**: {title}
 
 **Description**:
 {body}
 
-**Labels**: {', '.join(labels) if labels else 'None'}
+**Labels**: {", ".join(labels) if labels else "None"}
 
 Follow the minimal fix approach:
 1. Understand the issue completely

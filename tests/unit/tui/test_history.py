@@ -6,6 +6,7 @@ Tests cover:
 - T089: WorkflowHistoryStore.get_recent(10) returns newest first
 - T090: WorkflowHistoryEntry.display_status, display_timestamp
 """
+
 from __future__ import annotations
 
 import json

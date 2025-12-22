@@ -3,6 +3,7 @@
 This module provides functions for parsing tasks.md files into structured
 Task objects following the .specify format conventions.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,10 +23,10 @@ logger = logging.getLogger(__name__)
 # Format: - [ ] T001 [P] [US1] Description text here
 TASK_LINE_PATTERN = re.compile(
     r"^-\s*\[([xX\s])\]\s*"  # Checkbox: [ ], [x], or [X]
-    r"(T\d{3,})\s*"           # Task ID: T001, T123, etc.
-    r"(?:\[P\]|P:)?\s*"       # Optional parallel marker: [P] or P:
-    r"(?:\[(US\d+)\])?\s*"    # Optional user story: [US1], [US2]
-    r"(.+)$",                 # Description (rest of line)
+    r"(T\d{3,})\s*"  # Task ID: T001, T123, etc.
+    r"(?:\[P\]|P:)?\s*"  # Optional parallel marker: [P] or P:
+    r"(?:\[(US\d+)\])?\s*"  # Optional user story: [US1], [US2]
+    r"(.+)$",  # Description (rest of line)
     re.IGNORECASE,
 )
 
@@ -41,7 +42,9 @@ PHASE_HEADER_PATTERN = re.compile(r"^##\s+(.+)$")
 # =============================================================================
 
 
-def parse_task_line(line: str, line_number: int, current_phase: str | None = None) -> Task | None:
+def parse_task_line(
+    line: str, line_number: int, current_phase: str | None = None
+) -> Task | None:
     """Parse a single task line into a Task object.
 
     Args:

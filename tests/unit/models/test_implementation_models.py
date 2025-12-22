@@ -5,6 +5,7 @@ Tests the Pydantic models used in the implementation workflow:
 - FileChange
 - ValidationResult
 """
+
 from __future__ import annotations
 
 import pytest

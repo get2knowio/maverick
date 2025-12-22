@@ -3,6 +3,7 @@
 This module defines data models for GitHub issue resolution,
 fix results, and agent context.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,18 +40,23 @@ class FixResult(BaseModel):
         metadata: Additional context.
         errors: List of error messages encountered.
     """
+
     success: bool = Field(description="True if issue was fixed")
     issue_number: int = Field(ge=1, description="GitHub issue number")
     issue_title: str = Field(description="Issue title")
     issue_url: str = Field(default="", description="GitHub issue URL")
     root_cause: str = Field(default="", description="Identified root cause")
     fix_description: str = Field(default="", description="Description of fix applied")
-    files_changed: list[FileChange] = Field(default_factory=list, description="Files modified")
-    commit_sha: str | None = Field(default=None, description="Commit SHA if committed")
-    verification_passed: bool = Field(default=False, description="True if fix was verified")
-    validation_passed: bool = Field(default=True, description="True if validation passed")
+    files_changed: list[FileChange] = Field(
+        default_factory=list, description="Files modified"
+    )
+    commit_sha: str | None = Field(default=None, description="Commit SHA")
+    verification_passed: bool = Field(default=False, description="Fix verified")
+    validation_passed: bool = Field(default=True, description="Validation passed")
     output: str = Field(default="", description="Raw output for debugging")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional context")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional context"
+    )
     errors: list[str] = Field(default_factory=list, description="Error messages")
 
     @property
@@ -68,7 +74,9 @@ class FixResult(BaseModel):
         status = "Fixed" if self.success else "Failed"
         parts = [f"{status} #{self.issue_number}: {self.issue_title}"]
         if self.files_changed:
-            parts.append(f"{len(self.files_changed)} files, {self.total_lines_changed} lines")
+            file_count = len(self.files_changed)
+            lines = self.total_lines_changed
+            parts.append(f"{file_count} files, {lines} lines")
         if self.verification_passed:
             parts.append("verified")
         return " | ".join(parts)
@@ -91,15 +99,20 @@ class IssueFixerContext(BaseModel):
         skip_validation: If True, skip validation steps.
         dry_run: If True, don't commit changes.
     """
-    issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
-    issue_data: dict[str, Any] | None = Field(default=None, description="Pre-fetched issue data")
+
+    issue_number: int | None = Field(
+        default=None, ge=1, description="GitHub issue number"
+    )
+    issue_data: dict[str, Any] | None = Field(
+        default=None, description="Pre-fetched issue data"
+    )
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")
     dry_run: bool = Field(default=False, description="Don't create commits")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_issue_source(self) -> "IssueFixerContext":
         """Ensure exactly one issue source is provided."""
         if self.issue_number and self.issue_data:

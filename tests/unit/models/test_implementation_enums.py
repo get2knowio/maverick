@@ -5,6 +5,7 @@ Tests the enums used in the implementation models:
 - ChangeType
 - ValidationStep
 """
+
 from __future__ import annotations
 
 import pytest

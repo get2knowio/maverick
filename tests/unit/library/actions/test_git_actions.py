@@ -20,7 +20,9 @@ from maverick.library.actions.git import (
 )
 
 
-def create_mock_process(returncode: int = 0, stdout: str = "", stderr: str = "") -> MagicMock:
+def create_mock_process(
+    returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> MagicMock:
     """Create a mock subprocess with configured return values."""
     mock_proc = MagicMock()
     mock_proc.returncode = returncode
@@ -56,7 +58,9 @@ class TestGitCommit:
         """Test creates commit with provided message."""
         message = "feat: add new feature"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
@@ -76,7 +80,9 @@ class TestGitCommit:
         """Test stages all changes with 'git add .' when add_all=True."""
         message = "fix: bug fix"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
@@ -97,7 +103,9 @@ class TestGitCommit:
         """Test skips 'git add .' when add_all=False."""
         message = "chore: cleanup"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git commit (no add)
                 create_mock_process(0, stdout="sha456\n"),  # git rev-parse HEAD
@@ -117,7 +125,9 @@ class TestGitCommit:
         """Test includes Claude attribution by default."""
         message = "feat: new feature"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
@@ -140,7 +150,9 @@ class TestGitCommit:
         """Test excludes attribution when include_attribution=False."""
         message = "fix: bug fix"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
@@ -164,11 +176,15 @@ class TestGitCommit:
         message = "test: add tests"
         expected_sha = "1a2b3c4d5e6f"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
-                create_mock_process(0, stdout=f"{expected_sha}\n"),  # git rev-parse HEAD
+                create_mock_process(
+                    0, stdout=f"{expected_sha}\n"
+                ),  # git rev-parse HEAD
                 create_mock_process(0, stdout=""),  # git diff-tree
             ]
 
@@ -181,24 +197,34 @@ class TestGitCommit:
         """Test returns list of files committed."""
         message = "feat: update files"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
                 create_mock_process(0, stdout="sha\n"),  # git rev-parse HEAD
-                create_mock_process(0, stdout="src/file1.py\nsrc/file2.py\ntests/test.py\n"),
+                create_mock_process(
+                    0, stdout="src/file1.py\nsrc/file2.py\ntests/test.py\n"
+                ),
             ]
 
             result = await git_commit(message)
 
-            assert result["files_committed"] == ("src/file1.py", "src/file2.py", "tests/test.py")
+            assert result["files_committed"] == (
+                "src/file1.py",
+                "src/file2.py",
+                "tests/test.py",
+            )
 
     @pytest.mark.asyncio
     async def test_handles_empty_commit(self) -> None:
         """Test handles commit with no files changed."""
         message = "chore: update"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(0),  # git commit
@@ -215,10 +241,14 @@ class TestGitCommit:
         """Test handles git commit command failure gracefully."""
         message = "feat: new feature"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
-                create_mock_process(1, stderr="fatal: nothing to commit"),  # git commit fails
+                create_mock_process(
+                    1, stderr="fatal: nothing to commit"
+                ),  # git commit fails
             ]
 
             result = await git_commit(message)
@@ -236,9 +266,13 @@ class TestGitPush:
     @pytest.mark.asyncio
     async def test_pushes_current_branch(self) -> None:
         """Test pushes current branch to origin."""
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
-                create_mock_process(0, stdout="feature/test\n"),  # git rev-parse --abbrev-ref HEAD
+                create_mock_process(
+                    0, stdout="feature/test\n"
+                ),  # git rev-parse --abbrev-ref HEAD
                 create_mock_process(0),  # git push
             ]
 
@@ -252,9 +286,13 @@ class TestGitPush:
     @pytest.mark.asyncio
     async def test_sets_upstream_by_default(self) -> None:
         """Test sets upstream tracking by default."""
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
-                create_mock_process(0, stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
+                create_mock_process(
+                    0, stdout="main\n"
+                ),  # git rev-parse --abbrev-ref HEAD
                 create_mock_process(0),  # git push
             ]
 
@@ -270,7 +308,9 @@ class TestGitPush:
     @pytest.mark.asyncio
     async def test_skips_upstream_when_set_upstream_false(self) -> None:
         """Test skips upstream flag when set_upstream=False."""
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0, stdout="feature/branch\n"),  # git rev-parse
                 create_mock_process(0),  # git push
@@ -288,10 +328,14 @@ class TestGitPush:
     @pytest.mark.asyncio
     async def test_handles_push_failure(self) -> None:
         """Test handles git push command failure gracefully."""
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0, stdout="main\n"),  # git rev-parse
-                create_mock_process(1, stderr="fatal: remote rejected"),  # git push fails
+                create_mock_process(
+                    1, stderr="fatal: remote rejected"
+                ),  # git push fails
             ]
 
             result = await git_push()
@@ -303,7 +347,9 @@ class TestGitPush:
     @pytest.mark.asyncio
     async def test_handles_branch_name_retrieval_failure(self) -> None:
         """Test handles failure to get current branch name."""
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(128, stderr="fatal: not a git repository"),
             ]
@@ -324,7 +370,9 @@ class TestCreateGitBranch:
         branch_name = "feature/new"
         base = "main"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # git rev-parse (branch doesn't exist)
                 create_mock_process(0),  # git checkout base
@@ -345,7 +393,9 @@ class TestCreateGitBranch:
         branch_name = "feature/existing"
         base = "main"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git rev-parse (branch exists)
                 create_mock_process(0),  # git checkout branch_name
@@ -367,7 +417,9 @@ class TestCreateGitBranch:
         """Test uses 'main' as default base branch."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # Branch doesn't exist
                 create_mock_process(0),  # git checkout main
@@ -389,7 +441,9 @@ class TestCreateGitBranch:
         branch_name = "feature/test"
         base = "develop"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # Branch doesn't exist
                 create_mock_process(0),  # git checkout develop
@@ -411,7 +465,9 @@ class TestCreateGitBranch:
         branch_name = "feature/new-feature"
         base = "main"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # Branch doesn't exist
                 create_mock_process(0),  # git checkout base
@@ -435,11 +491,15 @@ class TestCreateGitBranch:
         """Test handles git checkout failure gracefully."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # Branch doesn't exist
                 create_mock_process(0),  # git checkout main
-                create_mock_process(1, stderr="fatal: invalid reference"),  # checkout -b fails
+                create_mock_process(
+                    1, stderr="fatal: invalid reference"
+                ),  # checkout -b fails
             ]
 
             result = await create_git_branch(branch_name)
@@ -454,10 +514,14 @@ class TestCreateGitBranch:
         branch_name = "feature/test"
         base = "nonexistent"
 
-        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(1),  # Branch doesn't exist
-                create_mock_process(1, stderr=f"error: pathspec '{base}' did not match"),
+                create_mock_process(
+                    1, stderr=f"error: pathspec '{base}' did not match"
+                ),
             ]
 
             result = await create_git_branch(branch_name, base)

@@ -2,6 +2,7 @@
 
 This module implements the exception types defined in the discovery contract.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,7 +40,5 @@ class WorkflowConflictError(WorkflowDiscoveryError):
         self.source = source
         self.conflicting_paths = conflicting_paths
         paths_str = ", ".join(str(p) for p in conflicting_paths)
-        message = (
-            f"Multiple workflows named '{name}' at {source} level: {paths_str}"
-        )
+        message = f"Multiple workflows named '{name}' at {source} level: {paths_str}"
         super().__init__(message)

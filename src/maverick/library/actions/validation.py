@@ -154,7 +154,7 @@ def _build_fix_prompt(
 
     return f"""Fix validation failures (Attempt {attempt_number}):
 
-Validation Stages Run: {', '.join(stages)}
+Validation Stages Run: {", ".join(stages)}
 
 Errors:
 {errors_text}
@@ -175,9 +175,7 @@ def _summarize_errors(validation_result: dict[str, Any]) -> str:
     """
     stage_results = validation_result.get("stages", [])
     failed_stages = [
-        s.get("stage", "unknown")
-        for s in stage_results
-        if not s.get("success", True)
+        s.get("stage", "unknown") for s in stage_results if not s.get("success", True)
     ]
     if failed_stages:
         return f"{len(failed_stages)} stage(s): {', '.join(failed_stages)}"
@@ -228,9 +226,7 @@ async def generate_validation_report(
         # Extract stage names from initial_result
         raw_stages = initial_result.get("stages", [])
         stages = [
-            s.get("stage", s.get("name", ""))
-            for s in raw_stages
-            if isinstance(s, dict)
+            s.get("stage", s.get("name", "")) for s in raw_stages if isinstance(s, dict)
         ]
         stages = [s for s in stages if s]  # Filter empty names
 
@@ -353,12 +349,14 @@ def _aggregate_stage_results(
             errors = [f"Stage '{stage_name}' was not executed"]
             duration_ms = 0
 
-        stage_results.append({
-            "name": stage_name,
-            "passed": passed,
-            "errors": errors,
-            "duration_ms": duration_ms,
-        })
+        stage_results.append(
+            {
+                "name": stage_name,
+                "passed": passed,
+                "errors": errors,
+                "duration_ms": duration_ms,
+            }
+        )
 
     return stage_results
 

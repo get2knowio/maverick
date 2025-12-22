@@ -6,6 +6,7 @@ This module validates the complete workflow discovery flow, including:
 - Error resilience (invalid files don't break discovery)
 - Fragment discovery with same precedence rules
 """
+
 from __future__ import annotations
 
 import os
@@ -354,9 +355,7 @@ steps: []
         )
         user_fragments_dir.mkdir(parents=True)
 
-        project_fragments_dir = (
-            temp_dir / ".maverick" / "workflows" / "fragments"
-        )
+        project_fragments_dir = temp_dir / ".maverick" / "workflows" / "fragments"
         project_fragments_dir.mkdir(parents=True)
 
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -442,8 +441,7 @@ steps:
         # Verify override tracking for fragment
         assert len(validate_fragment.overrides) > 0
         assert any(
-            str(user_fragment_path) in str(p)
-            for p in validate_fragment.overrides
+            str(user_fragment_path) in str(p) for p in validate_fragment.overrides
         )
 
         # Verify user-only fragment is from user source
@@ -479,8 +477,7 @@ steps:
         expected_builtins = {"fly", "refuel", "review", "validate", "quick_fix"}
         found_builtins = expected_builtins.intersection(workflow_names)
         assert len(found_builtins) > 0, (
-            f"Expected at least one builtin workflow, "
-            f"found: {workflow_names}"
+            f"Expected at least one builtin workflow, found: {workflow_names}"
         )
 
         # Verify all found workflows are from builtin source
@@ -525,8 +522,7 @@ steps:
         }
         found_fragments = expected_fragments.intersection(fragment_names)
         assert len(found_fragments) > 0, (
-            f"Expected at least one builtin fragment, "
-            f"found: {fragment_names}"
+            f"Expected at least one builtin fragment, found: {fragment_names}"
         )
 
         # Verify all found fragments are from builtin source

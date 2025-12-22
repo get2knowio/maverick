@@ -108,11 +108,7 @@ class MockIssueList:
 
     def get_selected_issues(self) -> list[GitHubIssue]:
         """Get all selected issues."""
-        return [
-            self.issues[i]
-            for i, item in enumerate(self.items)
-            if item.selected
-        ]
+        return [self.issues[i] for i, item in enumerate(self.items) if item.selected]
 
 
 # =============================================================================

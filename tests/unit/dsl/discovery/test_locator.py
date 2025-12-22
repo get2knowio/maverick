@@ -234,7 +234,8 @@ class TestWorkflowLocator:
     def test_scan_logs_debug_when_no_files_found(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Should log debug message when no workflow files found in existing directory."""
+        """Should log debug message when no workflow files found in
+        existing directory."""
         locator = WorkflowLocator()
 
         # Create some non-YAML files

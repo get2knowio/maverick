@@ -3,6 +3,7 @@
 This module provides functions for running code validation (format, lint,
 typecheck, test) with automatic retry and auto-fix support.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,10 +40,12 @@ VALIDATION_COMMANDS: dict[ValidationStep, tuple[str, ...]] = {
 }
 
 # Steps that can be auto-fixed
-AUTO_FIXABLE_STEPS: frozenset[ValidationStep] = frozenset({
-    ValidationStep.FORMAT,
-    ValidationStep.LINT,
-})
+AUTO_FIXABLE_STEPS: frozenset[ValidationStep] = frozenset(
+    {
+        ValidationStep.FORMAT,
+        ValidationStep.LINT,
+    }
+)
 
 
 # =============================================================================
@@ -180,7 +183,9 @@ async def run_validation_pipeline(
             if is_fixable and attempt < retries - 1:
                 logger.warning(
                     "Validation %s failed (attempt %d/%d), retrying with auto-fix...",
-                    step.value, attempt + 1, retries,
+                    step.value,
+                    attempt + 1,
+                    retries,
                 )
                 continue
 

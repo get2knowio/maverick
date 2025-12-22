@@ -128,9 +128,7 @@ async def fetch_github_issues(
                     "number": issue["number"],
                     "title": issue["title"],
                     "body": issue.get("body"),
-                    "labels": tuple(
-                        label["name"] for label in issue.get("labels", [])
-                    ),
+                    "labels": tuple(label["name"] for label in issue.get("labels", [])),
                     "assignee": (
                         issue.get("assignees", [{}])[0].get("login")
                         if issue.get("assignees")
@@ -186,9 +184,7 @@ async def fetch_github_issue(issue_number: int) -> dict[str, Any]:
                 "number": issue["number"],
                 "title": issue["title"],
                 "body": issue.get("body"),
-                "labels": tuple(
-                    label["name"] for label in issue.get("labels", [])
-                ),
+                "labels": tuple(label["name"] for label in issue.get("labels", [])),
                 "assignee": (
                     issue.get("assignees", [{}])[0].get("login")
                     if issue.get("assignees")

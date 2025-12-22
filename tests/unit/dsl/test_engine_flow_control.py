@@ -143,18 +143,24 @@ class TestEngineFlowControl:
         @workflow(name="full_flow")
         def full_flow_workflow(skip_conditional: bool):
             # Conditional step (skip if condition false)
-            r1 = yield step("conditional").when(lambda ctx: not skip_conditional).python(
-                action=lambda: "conditional-ran"
+            r1 = (
+                yield step("conditional")
+                .when(lambda ctx: not skip_conditional)
+                .python(action=lambda: "conditional-ran")
             )
 
             # Step with retry (succeeds on 2nd attempt)
-            r2 = yield step("retry").retry(max_attempts=3, backoff=0.01).python(
-                action=retry_action
+            r2 = (
+                yield step("retry")
+                .retry(max_attempts=3, backoff=0.01)
+                .python(action=retry_action)
             )
 
             # Step with rollback registered
-            r3 = yield step("with_rollback").with_rollback(rollback_action).python(
-                action=lambda: "rollback-registered"
+            r3 = (
+                yield step("with_rollback")
+                .with_rollback(rollback_action)
+                .python(action=lambda: "rollback-registered")
             )
 
             # Checkpoint step

@@ -157,12 +157,7 @@ class TestParseAndEvaluate:
 
         expr = parse_expression("${{ steps.analyze.output.tests_passed }}")
         assert evaluator.evaluate(expr) is True
-        assert (
-            evaluator.evaluate(
-                parse_expression("${{ not inputs.dry_run }}")
-            )
-            is True
-        )
+        assert evaluator.evaluate(parse_expression("${{ not inputs.dry_run }}")) is True
 
         # Evaluate template strings
         message = evaluator.evaluate_string(

@@ -133,36 +133,47 @@ class TestStepResult:
         """Test output serialization for primitive types."""
         # String
         result = StepResult(
-            name="s", step_type=StepType.PYTHON, success=True,
-            output="test", duration_ms=1
+            name="s",
+            step_type=StepType.PYTHON,
+            success=True,
+            output="test",
+            duration_ms=1,
         )
         assert result.to_dict()["output"] == "test"
 
         # Integer
         result = StepResult(
-            name="i", step_type=StepType.PYTHON, success=True,
-            output=42, duration_ms=1
+            name="i", step_type=StepType.PYTHON, success=True, output=42, duration_ms=1
         )
         assert result.to_dict()["output"] == 42
 
         # Float
         result = StepResult(
-            name="f", step_type=StepType.PYTHON, success=True,
-            output=3.14, duration_ms=1
+            name="f",
+            step_type=StepType.PYTHON,
+            success=True,
+            output=3.14,
+            duration_ms=1,
         )
         assert result.to_dict()["output"] == 3.14
 
         # Boolean
         result = StepResult(
-            name="b", step_type=StepType.PYTHON, success=True,
-            output=True, duration_ms=1
+            name="b",
+            step_type=StepType.PYTHON,
+            success=True,
+            output=True,
+            duration_ms=1,
         )
         assert result.to_dict()["output"] is True
 
         # None
         result = StepResult(
-            name="n", step_type=StepType.PYTHON, success=True,
-            output=None, duration_ms=1
+            name="n",
+            step_type=StepType.PYTHON,
+            success=True,
+            output=None,
+            duration_ms=1,
         )
         assert result.to_dict()["output"] is None
 
@@ -215,6 +226,7 @@ class TestStepResult:
 
     def test_serialize_output_object_with_to_dict(self) -> None:
         """Test output serialization for objects with to_dict() method."""
+
         class CustomObject:
             def to_dict(self) -> dict:
                 return {"custom": "serialized"}
@@ -230,6 +242,7 @@ class TestStepResult:
 
     def test_serialize_output_list_with_to_dict_objects(self) -> None:
         """Test output serialization for lists containing objects with to_dict()."""
+
         class CustomObject:
             def __init__(self, value: str):
                 self.value = value
@@ -251,6 +264,7 @@ class TestStepResult:
 
     def test_serialize_output_unknown_type(self) -> None:
         """Test output serialization for unknown types converts to string."""
+
         class CustomClass:
             def __repr__(self) -> str:
                 return "CustomClass()"
@@ -266,6 +280,7 @@ class TestStepResult:
 
     def test_serialize_output_list_with_unknown_types(self) -> None:
         """Test output serialization for lists with unknown types."""
+
         class CustomClass:
             def __repr__(self) -> str:
                 return "Custom"

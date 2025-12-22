@@ -184,9 +184,7 @@ class TestCreateSafetyHooks:
         """Test bash validation can be disabled."""
         from maverick.hooks import create_safety_hooks
 
-        config = HookConfig(
-            safety=SafetyConfig(bash_validation_enabled=False)
-        )
+        config = HookConfig(safety=SafetyConfig(bash_validation_enabled=False))
         hooks = create_safety_hooks(config)
         # Should only have file write hook
         assert len(hooks) == 1
@@ -195,9 +193,7 @@ class TestCreateSafetyHooks:
         """Test file write validation can be disabled."""
         from maverick.hooks import create_safety_hooks
 
-        config = HookConfig(
-            safety=SafetyConfig(file_write_validation_enabled=False)
-        )
+        config = HookConfig(safety=SafetyConfig(file_write_validation_enabled=False))
         hooks = create_safety_hooks(config)
         # Should only have bash hook
         assert len(hooks) == 1
@@ -219,9 +215,7 @@ class TestCreateSafetyHooks:
         """Test HookMatcher uses timeout from config."""
         from maverick.hooks import create_safety_hooks
 
-        config = HookConfig(
-            safety=SafetyConfig(hook_timeout_seconds=30)
-        )
+        config = HookConfig(safety=SafetyConfig(hook_timeout_seconds=30))
         hooks = create_safety_hooks(config)
         # All hooks should have the configured timeout
         for hook in hooks:
@@ -243,7 +237,11 @@ class TestCreateSafetyHooks:
 
         hooks = create_safety_hooks()
         # Find the file write hook (should match "Write" or "Edit")
-        write_hooks = [h for h in hooks if h.matcher and ("Write" in h.matcher or "Edit" in h.matcher)]
+        write_hooks = [
+            h
+            for h in hooks
+            if h.matcher and ("Write" in h.matcher or "Edit" in h.matcher)
+        ]
         assert len(write_hooks) == 1
 
 

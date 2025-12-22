@@ -115,6 +115,7 @@ class TestConditionalStep:
         self, workflow_context: WorkflowContext
     ) -> None:
         """When predicate raises exception, step should be skipped."""
+
         # Arrange
         def raising_predicate(ctx: WorkflowContext) -> bool:
             raise ValueError("Something went wrong")
@@ -155,6 +156,7 @@ class TestConditionalStep:
         self, workflow_context: WorkflowContext
     ) -> None:
         """Async predicates should work correctly when returning True."""
+
         # Arrange
         async def async_predicate(ctx: WorkflowContext) -> bool:
             return True
@@ -179,6 +181,7 @@ class TestConditionalStep:
         self, workflow_context: WorkflowContext
     ) -> None:
         """Async predicates should work correctly when returning False."""
+
         # Arrange
         async def async_predicate(ctx: WorkflowContext) -> bool:
             return False

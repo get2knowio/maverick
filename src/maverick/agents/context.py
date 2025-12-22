@@ -3,6 +3,7 @@
 This module defines the AgentContext dataclass for passing runtime context
 to agent execution.
 """
+
 from __future__ import annotations
 
 import subprocess

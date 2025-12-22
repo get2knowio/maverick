@@ -7,4 +7,5 @@ This package contains Jinja2 templates for generating new workflows:
 
 Templates are available in both YAML (.yaml.j2) and Python (.py.j2) formats.
 """
+
 from __future__ import annotations

@@ -4,6 +4,7 @@ This module provides the default implementation of workflow discovery
 that scans multiple locations (builtin, user, project) and applies
 precedence rules.
 """
+
 from __future__ import annotations
 
 import time

@@ -1,4 +1,5 @@
 """Unit tests for git utilities."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,9 +38,7 @@ class TestHasUncommittedChanges:
     async def test_returns_true_when_changes_exist(self) -> None:
         """Test returns True when uncommitted changes exist."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b" M src/file.py\n", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b" M src/file.py\n", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -81,9 +80,7 @@ class TestStashChanges:
         """Test stash_changes returns True when changes were stashed."""
         # First call to has_uncommitted_changes
         mock_status_process = AsyncMock()
-        mock_status_process.communicate = AsyncMock(
-            return_value=(b" M file.py\n", b"")
-        )
+        mock_status_process.communicate = AsyncMock(return_value=(b" M file.py\n", b""))
         mock_status_process.returncode = 0
 
         # Second call to stash push
@@ -110,9 +107,7 @@ class TestStashChanges:
     async def test_stash_changes_uses_custom_message(self) -> None:
         """Test stash_changes uses provided message."""
         mock_status_process = AsyncMock()
-        mock_status_process.communicate = AsyncMock(
-            return_value=(b" M file.py\n", b"")
-        )
+        mock_status_process.communicate = AsyncMock(return_value=(b" M file.py\n", b""))
         mock_status_process.returncode = 0
 
         mock_stash_process = AsyncMock()
@@ -298,18 +293,14 @@ class TestCreateCommit:
     @pytest.mark.asyncio
     async def test_create_commit_raises_git_error_on_failure(self) -> None:
         """Test create_commit raises GitError on failure."""
-        with patch(
-            "maverick.utils.git.stage_files", new_callable=AsyncMock
-        ):
+        with patch("maverick.utils.git.stage_files", new_callable=AsyncMock):
             mock_process = AsyncMock()
             mock_process.communicate = AsyncMock(
                 return_value=(b"", b"nothing to commit")
             )
             mock_process.returncode = 1
 
-            with patch(
-                "asyncio.create_subprocess_exec", return_value=mock_process
-            ):
+            with patch("asyncio.create_subprocess_exec", return_value=mock_process):
                 with pytest.raises(GitError):
                     await create_commit("Test", Path("/repo"), auto_recover=False)
 
@@ -340,9 +331,7 @@ class TestCreateCommit:
         mock_sha_process.communicate = AsyncMock(return_value=(b"abc1234", b""))
         mock_sha_process.returncode = 0
 
-        with patch(
-            "maverick.utils.git.stage_files", new_callable=AsyncMock
-        ):
+        with patch("maverick.utils.git.stage_files", new_callable=AsyncMock):
             processes = [
                 mock_fail_process,
                 mock_ruff_process,
@@ -383,9 +372,7 @@ class TestGetHeadSha:
     async def test_get_head_sha_strips_whitespace(self) -> None:
         """Test get_head_sha strips whitespace from output."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"  abc1234  \n\n", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"  abc1234  \n\n", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):

@@ -100,6 +100,7 @@ See Also:
     - maverick.agents.MaverickAgent: Base class using these tool sets
     - FR-002 in spec: Tool validation requirements
 """
+
 from __future__ import annotations
 
 __all__: list[str] = [

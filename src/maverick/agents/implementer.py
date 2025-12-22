@@ -3,6 +3,7 @@
 This module provides the ImplementerAgent that executes tasks from tasks.md
 files or direct descriptions using TDD approach and conventional commits.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-IMPLEMENTER_SYSTEM_PROMPT = """You are an expert software engineer focused on methodical, test-driven implementation within an orchestrated workflow.
+IMPLEMENTER_SYSTEM_PROMPT = """You are an expert software engineer.
+You focus on methodical, test-driven implementation within an orchestrated workflow.
 
 ## Your Role
 You implement tasks by writing and modifying code. The orchestration layer handles:
@@ -160,12 +162,14 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             # Parse tasks
             if context.is_single_task:
                 # Create synthetic single-task TaskFile
-                tasks = [Task(
-                    id="T000",
-                    description=context.task_description or "",
-                    status=TaskStatus.PENDING,
-                    parallel=False,
-                )]
+                tasks = [
+                    Task(
+                        id="T000",
+                        description=context.task_description or "",
+                        status=TaskStatus.PENDING,
+                        parallel=False,
+                    )
+                ]
                 task_file = TaskFile(path=Path("direct-task"), tasks=tasks, phases={})
             else:
                 if not context.task_file or not context.task_file.exists():
@@ -199,13 +203,17 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                             if task_result.commit_sha:
                                 commits.append(task_result.commit_sha)
                         else:
-                            errors.append(
-                                task_result.error or f"Task {task_result.task_id} failed"
+                            error_msg = (
+                                task_result.error
+                                or f"Task {task_result.task_id} failed"
                             )
+                            errors.append(error_msg)
 
                     # Remove executed tasks from remaining
                     executed_ids = {t.id for t in parallel_batch}
-                    remaining_tasks = [t for t in remaining_tasks if t.id not in executed_ids]
+                    remaining_tasks = [
+                        t for t in remaining_tasks if t.id not in executed_ids
+                    ]
                 else:
                     # Execute single sequential task
                     task = remaining_tasks.pop(0)
@@ -223,7 +231,9 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             # Compute summary
             tasks_completed = sum(1 for r in task_results if r.succeeded)
             tasks_failed = sum(1 for r in task_results if r.status == TaskStatus.FAILED)
-            tasks_skipped = sum(1 for r in task_results if r.status == TaskStatus.SKIPPED)
+            tasks_skipped = sum(
+                1 for r in task_results if r.status == TaskStatus.SKIPPED
+            )
 
             return ImplementationResult(
                 success=tasks_failed == 0,
@@ -235,7 +245,8 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                 commits=commits,
                 validation_passed=all(
                     all(v.success for v in r.validation)
-                    for r in task_results if r.validation
+                    for r in task_results
+                    if r.validation
                 ),
                 metadata={
                     "branch": context.branch,
@@ -249,10 +260,11 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             raise
         except Exception as e:
             logger.exception("Implementation failed: %s", e)
+            completed = sum(1 for r in task_results if r.succeeded)
             return ImplementationResult(
                 success=False,
-                tasks_completed=sum(1 for r in task_results if r.succeeded),
-                tasks_failed=len(task_results) - sum(1 for r in task_results if r.succeeded),
+                tasks_completed=completed,
+                tasks_failed=len(task_results) - completed,
                 tasks_skipped=0,
                 task_results=task_results,
                 files_changed=all_files_changed,
@@ -309,7 +321,9 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                 task_id=task.id,
                 status=TaskStatus.COMPLETED,
                 files_changed=files_changed,
-                tests_added=[f.file_path for f in files_changed if "test" in f.file_path.lower()],
+                tests_added=[
+                    f.file_path for f in files_changed if "test" in f.file_path.lower()
+                ],
                 commit_sha=commit_sha,
                 duration_ms=duration_ms,
                 validation=validation_results,
@@ -371,7 +385,9 @@ After completion, provide a summary of changes made.
             logger.warning("Validation failed: %s", e)
             return []
 
-    async def _create_commit(self, task: Task, context: ImplementerContext) -> str | None:
+    async def _create_commit(
+        self, task: Task, context: ImplementerContext
+    ) -> str | None:
         """Create a git commit for the task."""
         from maverick.utils.git import create_commit, has_uncommitted_changes
 
@@ -440,7 +456,9 @@ After completion, provide a summary of changes made.
         task_results: list[TaskResult] = []
         for task, result in zip(tasks, results):
             if isinstance(result, Exception):
-                logger.error("Parallel task %s failed with exception: %s", task.id, result)
+                logger.error(
+                    "Parallel task %s failed with exception: %s", task.id, result
+                )
                 task_results.append(
                     TaskResult(
                         task_id=task.id,

@@ -3,6 +3,7 @@
 This module provides async functions for common git operations with
 automatic error recovery following Constitution Principle IV.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,7 +52,8 @@ async def _run_git_command(
         asyncio.TimeoutError: If command times out.
     """
     process = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -113,7 +115,8 @@ async def has_uncommitted_changes(cwd: Path) -> bool:
         True if there are uncommitted changes.
     """
     stdout, _, _ = await _run_git_command(
-        "status", "--porcelain",
+        "status",
+        "--porcelain",
         cwd=cwd,
         check=False,
     )
@@ -134,7 +137,10 @@ async def stash_changes(cwd: Path, message: str = "maverick-auto-stash") -> bool
         return False
 
     await _run_git_command(
-        "stash", "push", "-m", message,
+        "stash",
+        "push",
+        "-m",
+        message,
         cwd=cwd,
     )
     logger.debug("Stashed uncommitted changes: %s", message)
@@ -153,7 +159,8 @@ async def unstash_changes(cwd: Path, message: str = "maverick-auto-stash") -> bo
     """
     # List stashes to find our auto-stash
     stdout, _, _ = await _run_git_command(
-        "stash", "list",
+        "stash",
+        "list",
         cwd=cwd,
         check=False,
     )
@@ -167,7 +174,9 @@ async def unstash_changes(cwd: Path, message: str = "maverick-auto-stash") -> bo
             # Extract stash ref (e.g., "stash@{0}")
             stash_ref = line.split(":")[0]
             await _run_git_command(
-                "stash", "pop", stash_ref,
+                "stash",
+                "pop",
+                stash_ref,
                 cwd=cwd,
             )
             logger.debug("Restored stashed changes: %s", stash_ref)
@@ -216,7 +225,9 @@ async def create_commit(
 
             # Create the commit
             stdout, _, _ = await _run_git_command(
-                "commit", "-m", message,
+                "commit",
+                "-m",
+                message,
                 cwd=cwd,
             )
 
@@ -231,7 +242,9 @@ async def create_commit(
 
             # Try recovery
             if e.recoverable:
-                logger.warning("Commit failed (attempt %d), attempting recovery: %s", attempt + 1, e.message)
+                logger.warning(
+                    "Commit failed (attempt %d), recovery: %s", attempt + 1, e.message
+                )
                 await _attempt_recovery(cwd, e)
             else:
                 raise
@@ -254,7 +267,9 @@ async def _attempt_recovery(cwd: Path, error: GitError) -> None:
         try:
             # Run ruff format to fix formatting
             process = await asyncio.create_subprocess_exec(
-                "ruff", "format", ".",
+                "ruff",
+                "format",
+                ".",
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -277,7 +292,8 @@ async def get_head_sha(cwd: Path) -> str:
         Full commit SHA.
     """
     stdout, _, _ = await _run_git_command(
-        "rev-parse", "HEAD",
+        "rev-parse",
+        "HEAD",
         cwd=cwd,
     )
     return stdout.strip()
@@ -293,7 +309,9 @@ async def get_current_branch(cwd: Path) -> str:
         Branch name.
     """
     stdout, _, _ = await _run_git_command(
-        "rev-parse", "--abbrev-ref", "HEAD",
+        "rev-parse",
+        "--abbrev-ref",
+        "HEAD",
         cwd=cwd,
     )
     return stdout.strip()
@@ -315,7 +333,9 @@ async def get_diff_stats(cwd: Path, ref: str = "HEAD") -> dict[str, tuple[int, i
         Dict mapping file paths to (lines_added, lines_removed) tuples.
     """
     stdout, _, return_code = await _run_git_command(
-        "diff", "--numstat", ref,
+        "diff",
+        "--numstat",
+        ref,
         cwd=cwd,
         check=False,
     )

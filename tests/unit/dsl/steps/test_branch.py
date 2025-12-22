@@ -146,7 +146,8 @@ class TestBranchStep:
     async def test_branch_result_structure(
         self, workflow_context: WorkflowContext
     ) -> None:
-        """BranchResult should contain selected_index, selected_step_name, and inner_output."""
+        """BranchResult should contain selected_index, selected_step_name,
+        and inner_output."""
         # Verify BranchResult has correct structure
         step = MockStep(name="test_step", output="test_output")
 
@@ -175,9 +176,7 @@ class TestBranchStep:
         assert branch_result.selected_step_name == "test_step"
         assert branch_result.inner_output == "test_output"
 
-    async def test_catch_all_branch(
-        self, workflow_context: WorkflowContext
-    ) -> None:
+    async def test_catch_all_branch(self, workflow_context: WorkflowContext) -> None:
         """Catch-all branch (lambda ctx: True) should always match."""
         # Create branch with catch-all as last option
         step1 = MockStep(name="specific_step", output="specific_result")

@@ -363,8 +363,7 @@ def branch(
         raise ValueError("Branch must have at least one option")
 
     branch_options = tuple(
-        BranchOption(predicate=pred, step=step_def)
-        for pred, step_def in options
+        BranchOption(predicate=pred, step=step_def) for pred, step_def in options
     )
     return BranchStep(name=name, options=branch_options)
 

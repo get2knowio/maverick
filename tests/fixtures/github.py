@@ -9,6 +9,7 @@ Provides:
 - MockGitHubCLI: Mock GitHub CLI with configurable responses
 - mock_github_cli fixture for easy test integration
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

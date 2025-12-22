@@ -1,4 +1,5 @@
 """Unit tests for TaskFile model."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -234,7 +235,8 @@ class TestGetParallelBatch:
         assert task_file.get_parallel_batch() == []
 
     def test_get_parallel_batch_empty_when_first_is_sequential(self) -> None:
-        """Test get_parallel_batch returns empty when first pending task is sequential."""
+        """Test get_parallel_batch returns empty when first pending task is
+        sequential."""
         tasks = [
             Task(
                 id="T001",
@@ -365,7 +367,9 @@ class TestGetNextSequential:
 
         assert task_file.get_next_sequential() is None
 
-    def test_get_next_sequential_returns_none_when_all_pending_are_parallel(self) -> None:
+    def test_get_next_sequential_returns_none_when_all_pending_are_parallel(
+        self,
+    ) -> None:
         """Test get_next_sequential returns None when all pending are parallel."""
         tasks = [
             Task(

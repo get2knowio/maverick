@@ -1,4 +1,5 @@
 """Unit tests for agent tool permission constants."""
+
 from __future__ import annotations
 
 import pytest
@@ -64,29 +65,25 @@ class TestToolSetValidity:
     def test_reviewer_tools_are_valid(self) -> None:
         """Test all REVIEWER_TOOLS exist in BUILTIN_TOOLS."""
         assert REVIEWER_TOOLS.issubset(BUILTIN_TOOLS), (
-            f"Invalid tools in REVIEWER_TOOLS: "
-            f"{REVIEWER_TOOLS - BUILTIN_TOOLS}"
+            f"Invalid tools in REVIEWER_TOOLS: {REVIEWER_TOOLS - BUILTIN_TOOLS}"
         )
 
     def test_implementer_tools_are_valid(self) -> None:
         """Test all IMPLEMENTER_TOOLS exist in BUILTIN_TOOLS."""
         assert IMPLEMENTER_TOOLS.issubset(BUILTIN_TOOLS), (
-            f"Invalid tools in IMPLEMENTER_TOOLS: "
-            f"{IMPLEMENTER_TOOLS - BUILTIN_TOOLS}"
+            f"Invalid tools in IMPLEMENTER_TOOLS: {IMPLEMENTER_TOOLS - BUILTIN_TOOLS}"
         )
 
     def test_fixer_tools_are_valid(self) -> None:
         """Test all FIXER_TOOLS exist in BUILTIN_TOOLS."""
         assert FIXER_TOOLS.issubset(BUILTIN_TOOLS), (
-            f"Invalid tools in FIXER_TOOLS: "
-            f"{FIXER_TOOLS - BUILTIN_TOOLS}"
+            f"Invalid tools in FIXER_TOOLS: {FIXER_TOOLS - BUILTIN_TOOLS}"
         )
 
     def test_issue_fixer_tools_are_valid(self) -> None:
         """Test all ISSUE_FIXER_TOOLS exist in BUILTIN_TOOLS."""
         assert ISSUE_FIXER_TOOLS.issubset(BUILTIN_TOOLS), (
-            f"Invalid tools in ISSUE_FIXER_TOOLS: "
-            f"{ISSUE_FIXER_TOOLS - BUILTIN_TOOLS}"
+            f"Invalid tools in ISSUE_FIXER_TOOLS: {ISSUE_FIXER_TOOLS - BUILTIN_TOOLS}"
         )
 
     def test_generator_tools_are_valid(self) -> None:
@@ -278,8 +275,7 @@ class TestToolSetRelationships:
 
         # Filter to read-only (no Write, no Edit)
         read_only_sets = [
-            s for s in non_empty_sets
-            if "Write" not in s and "Edit" not in s
+            s for s in non_empty_sets if "Write" not in s and "Edit" not in s
         ]
 
         # REVIEWER_TOOLS should be the only read-only set
@@ -315,12 +311,7 @@ class TestToolSetOperations:
     def test_common_tools_across_all_non_empty_sets(self) -> None:
         """Test the intersection of all non-empty tool sets."""
         # Only Read should be common to all non-empty sets
-        common = (
-            REVIEWER_TOOLS
-            & IMPLEMENTER_TOOLS
-            & FIXER_TOOLS
-            & ISSUE_FIXER_TOOLS
-        )
+        common = REVIEWER_TOOLS & IMPLEMENTER_TOOLS & FIXER_TOOLS & ISSUE_FIXER_TOOLS
         assert common == {"Read"}
 
     def test_implementer_and_issue_fixer_are_identical(self) -> None:

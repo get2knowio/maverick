@@ -58,9 +58,7 @@ class TestQuickFixWorkflowIntegration:
         registry.actions.register("fetch_github_issue", github.fetch_github_issue)
 
         # Mock git actions
-        async def mock_create_git_branch(
-            branch_name: str, base: str
-        ) -> dict[str, Any]:
+        async def mock_create_git_branch(branch_name: str, base: str) -> dict[str, Any]:
             """Mock branch creation."""
             return {
                 "success": True,
@@ -76,9 +74,7 @@ class TestQuickFixWorkflowIntegration:
             async def fix_issue(self, context: dict[str, Any]) -> dict[str, Any]:
                 return {
                     "fixed": True,
-                    "changes": [
-                        {"file": "src/test.py", "changes": "Fixed the issue"}
-                    ],
+                    "changes": [{"file": "src/test.py", "changes": "Fixed the issue"}],
                     "summary": "Successfully fixed the issue",
                 }
 
@@ -153,9 +149,7 @@ class TestQuickFixWorkflowIntegration:
 
                 return await original_execute(self, step, context)
 
-            with patch.object(
-                WorkflowFileExecutor, "_execute_step", mock_execute_step
-            ):
+            with patch.object(WorkflowFileExecutor, "_execute_step", mock_execute_step):
                 # Execute workflow
                 executor = WorkflowFileExecutor(registry=registry)
                 events = []
@@ -214,9 +208,7 @@ class TestQuickFixWorkflowIntegration:
 
             # Workflow should handle error gracefully
             # The fetch_issue step should return an error result
-            step_completed_events = [
-                e for e in events if isinstance(e, StepCompleted)
-            ]
+            step_completed_events = [e for e in events if isinstance(e, StepCompleted)]
             fetch_issue_event = next(
                 (e for e in step_completed_events if e.step_name == "fetch_issue"),
                 None,
@@ -268,9 +260,7 @@ class TestQuickFixWorkflowIntegration:
 
                 return await original_execute(self, step, context)
 
-            with patch.object(
-                WorkflowFileExecutor, "_execute_step", mock_execute_step
-            ):
+            with patch.object(WorkflowFileExecutor, "_execute_step", mock_execute_step):
                 executor = WorkflowFileExecutor(registry=registry)
                 events = []
                 async for event in executor.execute(
@@ -318,9 +308,7 @@ class TestQuickFixWorkflowIntegration:
                     return {"success": True}
                 return await original_execute(self, step, context)
 
-            with patch.object(
-                WorkflowFileExecutor, "_execute_step", mock_execute_step
-            ):
+            with patch.object(WorkflowFileExecutor, "_execute_step", mock_execute_step):
                 executor = WorkflowFileExecutor(registry=registry)
                 events = []
                 async for event in executor.execute(

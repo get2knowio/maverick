@@ -30,7 +30,7 @@ Fixtures:
         Returns MagicMock with AsyncMock execute() returning ImplementationResult.
 
     mock_commit_generator: Mock CommitMessageGenerator for workflow testing.
-        Returns MagicMock with AsyncMock generate() returning conventional commit messages.
+        Returns MagicMock with AsyncMock generate() returning commit messages.
 
 Runner Mocks (from tests/fixtures/runners.py)
 ----------------------------------------------
@@ -38,7 +38,7 @@ Runner Mocks (from tests/fixtures/runners.py)
 Fixtures:
     mock_git_runner: Mock GitRunner for testing git operations.
         Returns MagicMock with AsyncMock methods returning GitResult instances.
-        Supports all git operations: create_branch, checkout, commit, push, add, status, diff.
+        Supports: create_branch, checkout, commit, push, add, status, diff.
 
     mock_validation_runner: Mock ValidationRunner for testing validation stages.
         Returns MagicMock with AsyncMock run() returning ValidationOutput.

@@ -10,6 +10,7 @@ Submodules:
 - agents: Agent registration functions
 - generators: Generator registration functions
 """
+
 from __future__ import annotations
 
 from maverick.library.agents import register_all_agents

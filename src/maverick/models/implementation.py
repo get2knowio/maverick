@@ -3,6 +3,7 @@
 This module defines data models for task execution, file changes,
 validation results, and implementation outcomes.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -460,14 +461,19 @@ class TaskResult(BaseModel):
         duration_ms: Execution time in milliseconds.
         validation: Validation results for this task.
     """
+
     task_id: str = Field(description="Task ID")
     status: TaskStatus = Field(description="Final task status")
-    files_changed: list[FileChange] = Field(default_factory=list, description="Files modified")
+    files_changed: list[FileChange] = Field(
+        default_factory=list, description="Files modified"
+    )
     tests_added: list[str] = Field(default_factory=list, description="Test files added")
     commit_sha: str | None = Field(default=None, description="Commit SHA if committed")
     error: str | None = Field(default=None, description="Error message if failed")
     duration_ms: int = Field(default=0, ge=0, description="Execution duration")
-    validation: list[ValidationResult] = Field(default_factory=list, description="Validation results")
+    validation: list[ValidationResult] = Field(
+        default_factory=list, description="Validation results"
+    )
 
     @property
     def succeeded(self) -> bool:
@@ -491,16 +497,23 @@ class ImplementationResult(BaseModel):
         metadata: Additional context.
         errors: List of error messages.
     """
+
     success: bool = Field(description="True if all tasks succeeded")
     tasks_completed: int = Field(ge=0, description="Count of completed tasks")
     tasks_failed: int = Field(ge=0, description="Count of failed tasks")
     tasks_skipped: int = Field(ge=0, description="Count of skipped tasks")
-    task_results: list[TaskResult] = Field(default_factory=list, description="Results per task")
-    files_changed: list[FileChange] = Field(default_factory=list, description="All file changes")
+    task_results: list[TaskResult] = Field(
+        default_factory=list, description="Results per task"
+    )
+    files_changed: list[FileChange] = Field(
+        default_factory=list, description="All file changes"
+    )
     commits: list[str] = Field(default_factory=list, description="Commit SHAs created")
     validation_passed: bool = Field(default=True, description="Final validation status")
     output: str = Field(default="", description="Raw output for debugging")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional context")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional context"
+    )
     errors: list[str] = Field(default_factory=list, description="Error messages")
 
     @property
@@ -551,6 +564,7 @@ class ImplementerContext(BaseModel):
         skip_validation: If True, skip validation steps.
         dry_run: If True, don't commit changes.
     """
+
     task_file: Path | None = Field(default=None, description="Path to tasks.md file")
     task_description: str | None = Field(
         default=None,
@@ -564,7 +578,7 @@ class ImplementerContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_task_source(self) -> "ImplementerContext":
         """Ensure exactly one task source is provided."""
         if self.task_file and self.task_description:

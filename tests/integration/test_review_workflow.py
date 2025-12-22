@@ -48,8 +48,12 @@ class TestReviewWorkflowIntegration:
         from maverick.library.actions import review
 
         registry.actions.register("review.gather_pr_context", review.gather_pr_context)
-        registry.actions.register("review.run_coderabbit_review", review.run_coderabbit_review)
-        registry.actions.register("review.combine_review_results", review.combine_review_results)
+        registry.actions.register(
+            "review.run_coderabbit_review", review.run_coderabbit_review
+        )
+        registry.actions.register(
+            "review.combine_review_results", review.combine_review_results
+        )
 
         # Mock code_reviewer agent
         class MockCodeReviewer:
@@ -111,7 +115,10 @@ class TestReviewWorkflowIntegration:
                 # git diff
                 MagicMock(
                     returncode=0,
-                    stdout="diff --git a/src/review.py b/src/review.py\n+def new_function():\n+    pass\n",
+                    stdout=(
+                        "diff --git a/src/review.py b/src/review.py\n"
+                        "+def new_function():\n+    pass\n"
+                    ),
                 ),
                 # git diff --name-only
                 MagicMock(returncode=0, stdout="src/review.py\ntests/test_review.py\n"),
@@ -277,11 +284,13 @@ class TestReviewWorkflowActions:
             mock_run.side_effect = [
                 MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "number": 123,
-                        "title": "Test",
-                        "labels": [],
-                    }),
+                    stdout=json.dumps(
+                        {
+                            "number": 123,
+                            "title": "Test",
+                            "labels": [],
+                        }
+                    ),
                 ),
                 MagicMock(returncode=0, stdout="diff\n"),
                 MagicMock(returncode=0, stdout="file.py\n"),
@@ -320,11 +329,17 @@ class TestReviewWorkflowActions:
         with patch("maverick.library.actions.review.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
-                stdout=json.dumps({
-                    "findings": [
-                        {"file": "test.py", "message": "Issue", "severity": "warning"}
-                    ]
-                }),
+                stdout=json.dumps(
+                    {
+                        "findings": [
+                            {
+                                "file": "test.py",
+                                "message": "Issue",
+                                "severity": "warning",
+                            }
+                        ]
+                    }
+                ),
             )
 
             result = await run_coderabbit_review(123, context)
@@ -344,9 +359,7 @@ class TestReviewWorkflowActions:
             ]
         }
         coderabbit_review = {
-            "findings": [
-                {"file": "b.py", "message": "CR issue", "severity": "info"}
-            ]
+            "findings": [{"file": "b.py", "message": "CR issue", "severity": "info"}]
         }
         pr_metadata = {
             "number": 123,
@@ -382,7 +395,9 @@ class TestReviewWorkflowEdgeCases:
             mock_which.return_value = None
 
             mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=json.dumps({"number": 123, "labels": []})),
+                MagicMock(
+                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
+                ),
                 MagicMock(returncode=0, stdout=""),  # Empty diff
                 MagicMock(returncode=0, stdout=""),  # No files
                 MagicMock(returncode=0, stdout=""),  # No commits

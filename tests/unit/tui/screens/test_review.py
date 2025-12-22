@@ -1,4 +1,5 @@
 """Unit tests for ReviewScreen."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -75,8 +76,9 @@ class TestReviewScreenLoadIssues:
             }
         ]
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.load_issues(issues)
 
@@ -110,8 +112,9 @@ class TestReviewScreenLoadIssues:
             },
         ]
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.load_issues(issues)
 
@@ -137,8 +140,9 @@ class TestReviewScreenFilterBySeverity:
         ]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.filter_by_severity("error")
 
@@ -155,8 +159,9 @@ class TestReviewScreenFilterBySeverity:
         ]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.filter_by_severity("warning")
 
@@ -172,8 +177,9 @@ class TestReviewScreenFilterBySeverity:
         ]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.filter_by_severity(None)
 
@@ -188,8 +194,9 @@ class TestReviewScreenFilterBySeverity:
         ]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_clear_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_clear_detail_view"),
         ):
             screen.filter_by_severity("warning")
 
@@ -214,8 +221,9 @@ class TestReviewScreenNavigateToIssue:
         ]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.navigate_to_issue(1)
 
@@ -227,8 +235,9 @@ class TestReviewScreenNavigateToIssue:
         issues = [{"severity": "error", "message": "Error 1"}]
         screen._issues = issues
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.navigate_to_issue(0)
 
@@ -280,8 +289,9 @@ class TestReviewScreenActions:
         screen._issues = issues
         screen._selected_index = 0
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.action_next_issue()
 
@@ -314,8 +324,9 @@ class TestReviewScreenActions:
         screen._issues = issues
         screen._selected_index = 1
 
-        with patch.object(screen, "_update_issue_list"), patch.object(
-            screen, "_update_detail_view"
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
         ):
             screen.action_prev_issue()
 
@@ -378,8 +389,10 @@ class TestReviewScreenApproveAction:
         """Test approve action when user confirms."""
         screen = ReviewScreen()
 
-        with patch.object(screen, "confirm", new=AsyncMock(return_value=True)), \
-             patch.object(screen, "_submit_approval") as mock_submit:
+        with (
+            patch.object(screen, "confirm", new=AsyncMock(return_value=True)),
+            patch.object(screen, "_submit_approval") as mock_submit,
+        ):
             await screen.action_approve()
 
         mock_submit.assert_called_once()
@@ -389,8 +402,10 @@ class TestReviewScreenApproveAction:
         """Test approve action when user cancels."""
         screen = ReviewScreen()
 
-        with patch.object(screen, "confirm", new=AsyncMock(return_value=False)), \
-             patch.object(screen, "_submit_approval") as mock_submit:
+        with (
+            patch.object(screen, "confirm", new=AsyncMock(return_value=False)),
+            patch.object(screen, "_submit_approval") as mock_submit,
+        ):
             await screen.action_approve()
 
         mock_submit.assert_not_called()
@@ -401,13 +416,14 @@ class TestReviewScreenApproveAction:
         screen = ReviewScreen()
         mock_confirm = AsyncMock(return_value=False)
 
-        with patch.object(screen, "confirm", new=mock_confirm), \
-             patch.object(screen, "_submit_approval"):
+        with (
+            patch.object(screen, "confirm", new=mock_confirm),
+            patch.object(screen, "_submit_approval"),
+        ):
             await screen.action_approve()
 
         mock_confirm.assert_called_once_with(
-            "Approve Review",
-            "Are you sure you want to approve this review?"
+            "Approve Review", "Are you sure you want to approve this review?"
         )
 
 
@@ -420,8 +436,12 @@ class TestReviewScreenRequestChangesAction:
         screen = ReviewScreen()
         test_comment = "Please fix the issues"
 
-        with patch.object(screen, "prompt_input", new=AsyncMock(return_value=test_comment)), \
-             patch.object(screen, "_submit_request_changes") as mock_submit:
+        with (
+            patch.object(
+                screen, "prompt_input", new=AsyncMock(return_value=test_comment)
+            ),
+            patch.object(screen, "_submit_request_changes") as mock_submit,
+        ):
             await screen.action_request_changes()
 
         mock_submit.assert_called_once_with(test_comment)
@@ -431,8 +451,10 @@ class TestReviewScreenRequestChangesAction:
         """Test request changes action when user cancels."""
         screen = ReviewScreen()
 
-        with patch.object(screen, "prompt_input", new=AsyncMock(return_value=None)), \
-             patch.object(screen, "_submit_request_changes") as mock_submit:
+        with (
+            patch.object(screen, "prompt_input", new=AsyncMock(return_value=None)),
+            patch.object(screen, "_submit_request_changes") as mock_submit,
+        ):
             await screen.action_request_changes()
 
         mock_submit.assert_not_called()
@@ -442,8 +464,10 @@ class TestReviewScreenRequestChangesAction:
         """Test request changes action when user provides empty comment."""
         screen = ReviewScreen()
 
-        with patch.object(screen, "prompt_input", new=AsyncMock(return_value="")), \
-             patch.object(screen, "_submit_request_changes") as mock_submit:
+        with (
+            patch.object(screen, "prompt_input", new=AsyncMock(return_value="")),
+            patch.object(screen, "_submit_request_changes") as mock_submit,
+        ):
             await screen.action_request_changes()
 
         mock_submit.assert_not_called()
@@ -463,8 +487,10 @@ class TestReviewScreenDismissAction:
         screen._issues = issues
         screen._selected_index = 1
 
-        with patch.object(screen, "_update_issue_list"), \
-             patch.object(screen, "_update_detail_view"):
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
+        ):
             screen.action_dismiss()
 
         # Should remove the second issue
@@ -482,8 +508,10 @@ class TestReviewScreenDismissAction:
         screen._issues = issues
         screen._selected_index = 1
 
-        with patch.object(screen, "_update_issue_list"), \
-             patch.object(screen, "_update_detail_view"):
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_update_detail_view"),
+        ):
             screen.action_dismiss()
 
         # Selection should move back if we're at the end
@@ -508,8 +536,10 @@ class TestReviewScreenDismissAction:
         screen._issues = issues
         screen._selected_index = 0
 
-        with patch.object(screen, "_update_issue_list"), \
-             patch.object(screen, "_clear_detail_view"):
+        with (
+            patch.object(screen, "_update_issue_list"),
+            patch.object(screen, "_clear_detail_view"),
+        ):
             screen.action_dismiss()
 
         assert len(screen._issues) == 0
@@ -528,8 +558,10 @@ class TestReviewScreenFixAllAction:
             {"id": "2", "severity": "warning", "message": "Warning 1"},
         ]
 
-        with patch.object(screen, "confirm", new=AsyncMock(return_value=True)), \
-             patch.object(screen, "_execute_fix_all") as mock_execute:
+        with (
+            patch.object(screen, "confirm", new=AsyncMock(return_value=True)),
+            patch.object(screen, "_execute_fix_all") as mock_execute,
+        ):
             await screen.action_fix_all()
 
         mock_execute.assert_called_once()
@@ -539,8 +571,10 @@ class TestReviewScreenFixAllAction:
         """Test fix all action when user cancels."""
         screen = ReviewScreen()
 
-        with patch.object(screen, "confirm", new=AsyncMock(return_value=False)), \
-             patch.object(screen, "_execute_fix_all") as mock_execute:
+        with (
+            patch.object(screen, "confirm", new=AsyncMock(return_value=False)),
+            patch.object(screen, "_execute_fix_all") as mock_execute,
+        ):
             await screen.action_fix_all()
 
         mock_execute.assert_not_called()
@@ -811,8 +845,10 @@ class TestReviewScreenRefreshFindings:
         screen = ReviewScreen()
         screen.has_new_findings = False
 
-        with patch.object(screen, "_fetch_new_findings", return_value=[]), \
-             patch.object(screen, "_update_issue_list"):
+        with (
+            patch.object(screen, "_fetch_new_findings", return_value=[]),
+            patch.object(screen, "_update_issue_list"),
+        ):
             screen.refresh_findings()
 
         # Banner state should be updated
@@ -824,8 +860,10 @@ class TestReviewScreenRefreshFindings:
         screen._issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
         new_findings = [{"id": "2", "severity": "warning", "message": "Warning 1"}]
 
-        with patch.object(screen, "_fetch_new_findings", return_value=new_findings), \
-             patch.object(screen, "_update_issue_list"):
+        with (
+            patch.object(screen, "_fetch_new_findings", return_value=new_findings),
+            patch.object(screen, "_update_issue_list"),
+        ):
             screen.refresh_findings()
 
         # Should set banner flag when new findings exist
@@ -836,8 +874,10 @@ class TestReviewScreenRefreshFindings:
         screen = ReviewScreen()
         screen._issues = [{"id": "1", "severity": "error", "message": "Error 1"}]
 
-        with patch.object(screen, "_fetch_new_findings", return_value=[]), \
-             patch.object(screen, "_update_issue_list"):
+        with (
+            patch.object(screen, "_fetch_new_findings", return_value=[]),
+            patch.object(screen, "_update_issue_list"),
+        ):
             screen.refresh_findings()
 
         # Should not set banner flag when no new findings
@@ -927,11 +967,36 @@ class TestReviewScreenGroupedFindings:
         """Test that _update_issue_list groups issues by severity."""
         screen = ReviewScreen()
         issues = [
-            {"severity": "warning", "message": "Warning 1", "file_path": "a.py", "line_number": 1},
-            {"severity": "error", "message": "Error 1", "file_path": "b.py", "line_number": 2},
-            {"severity": "info", "message": "Info 1", "file_path": "c.py", "line_number": 3},
-            {"severity": "error", "message": "Error 2", "file_path": "d.py", "line_number": 4},
-            {"severity": "suggestion", "message": "Suggestion 1", "file_path": "e.py", "line_number": 5},
+            {
+                "severity": "warning",
+                "message": "Warning 1",
+                "file_path": "a.py",
+                "line_number": 1,
+            },
+            {
+                "severity": "error",
+                "message": "Error 1",
+                "file_path": "b.py",
+                "line_number": 2,
+            },
+            {
+                "severity": "info",
+                "message": "Info 1",
+                "file_path": "c.py",
+                "line_number": 3,
+            },
+            {
+                "severity": "error",
+                "message": "Error 2",
+                "file_path": "d.py",
+                "line_number": 4,
+            },
+            {
+                "severity": "suggestion",
+                "message": "Suggestion 1",
+                "file_path": "e.py",
+                "line_number": 5,
+            },
         ]
         screen._issues = issues
 
@@ -948,19 +1013,42 @@ class TestReviewScreenGroupedFindings:
 
         # Verify headers are present by checking IDs
         header_ids = [
-            w.id for w in mounted_widgets
+            w.id
+            for w in mounted_widgets
             if hasattr(w, "id") and w.id and "severity-header" in w.id
         ]
         assert len(header_ids) == 4  # error, warning, suggestion, info
 
     def test_update_issue_list_severity_order(self) -> None:
-        """Test that severities are displayed in correct order: errors, warnings, suggestions, info."""
+        """Test that severities are displayed in correct order: errors,
+        warnings, suggestions, info.
+        """
         screen = ReviewScreen()
         issues = [
-            {"severity": "info", "message": "Info 1", "file_path": "a.py", "line_number": 1},
-            {"severity": "suggestion", "message": "Suggestion 1", "file_path": "b.py", "line_number": 2},
-            {"severity": "warning", "message": "Warning 1", "file_path": "c.py", "line_number": 3},
-            {"severity": "error", "message": "Error 1", "file_path": "d.py", "line_number": 4},
+            {
+                "severity": "info",
+                "message": "Info 1",
+                "file_path": "a.py",
+                "line_number": 1,
+            },
+            {
+                "severity": "suggestion",
+                "message": "Suggestion 1",
+                "file_path": "b.py",
+                "line_number": 2,
+            },
+            {
+                "severity": "warning",
+                "message": "Warning 1",
+                "file_path": "c.py",
+                "line_number": 3,
+            },
+            {
+                "severity": "error",
+                "message": "Error 1",
+                "file_path": "d.py",
+                "line_number": 4,
+            },
         ]
         screen._issues = issues
 
@@ -973,15 +1061,34 @@ class TestReviewScreenGroupedFindings:
             screen._update_issue_list()
 
         # Check that headers appear in correct order
-        header_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "severity-header" in w.id]
-        assert header_ids == ["severity-header-error", "severity-header-warning", "severity-header-suggestion", "severity-header-info"]
+        header_ids = [
+            w.id
+            for w in mounted_widgets
+            if hasattr(w, "id") and w.id and "severity-header" in w.id
+        ]
+        assert header_ids == [
+            "severity-header-error",
+            "severity-header-warning",
+            "severity-header-suggestion",
+            "severity-header-info",
+        ]
 
     def test_update_issue_list_skips_empty_severity_groups(self) -> None:
         """Test that severity groups with no issues are not displayed."""
         screen = ReviewScreen()
         issues = [
-            {"severity": "error", "message": "Error 1", "file_path": "a.py", "line_number": 1},
-            {"severity": "error", "message": "Error 2", "file_path": "b.py", "line_number": 2},
+            {
+                "severity": "error",
+                "message": "Error 1",
+                "file_path": "a.py",
+                "line_number": 1,
+            },
+            {
+                "severity": "error",
+                "message": "Error 2",
+                "file_path": "b.py",
+                "line_number": 2,
+            },
         ]
         screen._issues = issues
 
@@ -995,15 +1102,29 @@ class TestReviewScreenGroupedFindings:
 
         # Should only have 1 header (error) + 2 issue items = 3 widgets
         assert len(mounted_widgets) == 3
-        header_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "severity-header" in w.id]
+        header_ids = [
+            w.id
+            for w in mounted_widgets
+            if hasattr(w, "id") and w.id and "severity-header" in w.id
+        ]
         assert header_ids == ["severity-header-error"]
 
     def test_update_issue_list_global_index_across_groups(self) -> None:
         """Test that issue indices continue across severity groups."""
         screen = ReviewScreen()
         issues = [
-            {"severity": "error", "message": "Error 1", "file_path": "a.py", "line_number": 1},
-            {"severity": "warning", "message": "Warning 1", "file_path": "b.py", "line_number": 2},
+            {
+                "severity": "error",
+                "message": "Error 1",
+                "file_path": "a.py",
+                "line_number": 1,
+            },
+            {
+                "severity": "warning",
+                "message": "Warning 1",
+                "file_path": "b.py",
+                "line_number": 2,
+            },
         ]
         screen._issues = issues
 
@@ -1016,5 +1137,9 @@ class TestReviewScreenGroupedFindings:
             screen._update_issue_list()
 
         # Check that issue items have sequential IDs
-        issue_ids = [w.id for w in mounted_widgets if hasattr(w, "id") and w.id and "issue-item" in w.id]
+        issue_ids = [
+            w.id
+            for w in mounted_widgets
+            if hasattr(w, "id") and w.id and "issue-item" in w.id
+        ]
         assert issue_ids == ["issue-item-0", "issue-item-1"]

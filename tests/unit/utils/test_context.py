@@ -3,6 +3,7 @@
 Tests cover all context builder functions and supporting utilities with
 both happy path and error scenarios per SC-005.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -155,7 +156,10 @@ def mock_github_issue() -> MagicMock:
     issue = MagicMock()
     issue.number = 42
     issue.title = "Fix token estimation bug"
-    issue.body = "The file src/utils/context.py has incorrect token counting.\nAlso check tests/test_context.py"
+    issue.body = (
+        "The file src/utils/context.py has incorrect token counting.\n"
+        "Also check tests/test_context.py"
+    )
     issue.labels = ("bug", "priority-high")
     issue.state = "open"
     issue.assignees = ("developer",)
@@ -167,7 +171,12 @@ def mock_github_issue() -> MagicMock:
 def temp_task_file(tmp_path: Path) -> Path:
     """Create a temporary task file."""
     task_file = tmp_path / "tasks.md"
-    task_file.write_text("# Tasks\n\n- [ ] T001 Create module\n- [ ] T002 Add tests\n- [x] T003 Write docs\n")
+    task_file.write_text(
+        "# Tasks\n\n"
+        "- [ ] T001 Create module\n"
+        "- [ ] T002 Add tests\n"
+        "- [x] T003 Write docs\n"
+    )
     return task_file
 
 
@@ -175,7 +184,14 @@ def temp_task_file(tmp_path: Path) -> Path:
 def temp_conventions_file(tmp_path: Path) -> Path:
     """Create a temporary CLAUDE.md file."""
     conventions = tmp_path / "CLAUDE.md"
-    conventions.write_text("# CLAUDE.md\n\n## Project Overview\n\nThis is a test project.\n\n## Code Style\n\n- Use snake_case for functions\n- Use PascalCase for classes\n")
+    conventions.write_text(
+        "# CLAUDE.md\n\n"
+        "## Project Overview\n\n"
+        "This is a test project.\n\n"
+        "## Code Style\n\n"
+        "- Use snake_case for functions\n"
+        "- Use PascalCase for classes\n"
+    )
     return conventions
 
 
@@ -251,7 +267,9 @@ class TestReadFileSafely:
 class TestReadConventions:
     """Tests for _read_conventions internal utility."""
 
-    def test_read_conventions_no_claude_md_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_read_conventions_no_claude_md_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test _read_conventions when no CLAUDE.md exists anywhere."""
         # Use tmp_path as cwd (no CLAUDE.md exists)
         monkeypatch.chdir(tmp_path)
@@ -322,7 +340,9 @@ class TestDetectSecrets:
 
     def test_private_key_pattern(self) -> None:
         """Detects private key headers."""
-        content = "key = '''-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----'''"
+        content = (
+            "key = '''-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----'''"
+        )
         findings = detect_secrets(content)
         assert len(findings) == 1
         assert findings[0][1] == "private_key"
@@ -336,7 +356,12 @@ class TestDetectSecrets:
 
     def test_multiple_secrets_different_lines(self) -> None:
         """Detects secrets on multiple lines."""
-        content = "line1\napi_key = 'sk-12345678901234567890'\nline3\npassword = 'secret123456'"
+        content = (
+            "line1\n"
+            "api_key = 'sk-12345678901234567890'\n"
+            "line3\n"
+            "password = 'secret123456'"
+        )
         findings = detect_secrets(content)
         assert len(findings) == 2
         assert findings[0] == (2, "api_key")
@@ -391,7 +416,9 @@ class TestTruncateFile:
     def test_custom_context_lines(self) -> None:
         """Custom context_lines parameter is respected."""
         content = "\n".join(f"line {i}" for i in range(1, 101))
-        result = truncate_file(content, max_lines=20, around_lines=[50], context_lines=5)
+        result = truncate_file(
+            content, max_lines=20, around_lines=[50], context_lines=5
+        )
         assert "line 50" in result
         assert "line 45" in result
         assert "line 55" in result
@@ -416,7 +443,7 @@ class TestTruncateFile:
     def test_truncate_file_window_scaling(self) -> None:
         """Test window scaling when requested context exceeds budget."""
         content = "\n".join(f"line {i}" for i in range(1, 101))
-        
+
         # Request context around 3 points that would exceed max_lines
         # 3 * (10 + 10 + 1) = 63 lines if context_lines=10
         # Budget is 15 lines -> scaling forced
@@ -426,7 +453,7 @@ class TestTruncateFile:
             around_lines=[20, 50, 80],
             context_lines=10,
         )
-        
+
         assert "line 20" in result
         assert "line 50" in result
         assert "line 80" in result
@@ -504,7 +531,9 @@ class TestBuildImplementationContext:
         temp_conventions_file: Path,
     ) -> None:
         """Returns complete context with all expected keys (T017)."""
-        with patch("maverick.utils.context.Path.cwd", return_value=temp_conventions_file.parent):
+        with patch(
+            "maverick.utils.context.Path.cwd", return_value=temp_conventions_file.parent
+        ):
             context = build_implementation_context(
                 task_file=temp_task_file,
                 git=mock_git,
@@ -682,7 +711,10 @@ class TestBuildReviewContext:
         )
 
         # Should have truncation indicator in metadata
-        assert context["_metadata"]["truncated"] or str(large_file) not in context["changed_files"]
+        assert (
+            context["_metadata"]["truncated"]
+            or str(large_file) not in context["changed_files"]
+        )
 
     def test_no_changes_empty_diff(self) -> None:
         """No changes returns empty diff with stats (T027)."""
@@ -861,8 +893,20 @@ class TestBuildFixContext:
         validation.stages = (
             MagicMock(
                 errors=(
-                    MagicMock(file=str(source_file), line=48, message="Error 1", severity="error", code="E001"),
-                    MagicMock(file=str(source_file), line=52, message="Error 2", severity="error", code="E002"),
+                    MagicMock(
+                        file=str(source_file),
+                        line=48,
+                        message="Error 1",
+                        severity="error",
+                        code="E001",
+                    ),
+                    MagicMock(
+                        file=str(source_file),
+                        line=52,
+                        message="Error 2",
+                        severity="error",
+                        code="E002",
+                    ),
                 )
             ),
         )
@@ -881,7 +925,7 @@ class TestBuildFixContext:
     def test_build_fix_context_read_errors(self, tmp_path: Path) -> None:
         """Test error handling when reading files in build_fix_context."""
         source_file = tmp_path / "error.py"
-        
+
         validation = MagicMock()
         validation.success = False
         validation.stages = [
@@ -890,14 +934,14 @@ class TestBuildFixContext:
                 passed=False,
                 output="error",
                 duration_ms=10,
-                errors=(
-                    MockParsedError(file=str(source_file), line=1, message="Err"),
-                ),
+                errors=(MockParsedError(file=str(source_file), line=1, message="Err"),),
             )
         ]
 
         # Mock read failure
-        with patch("maverick.utils.context._read_file_safely", return_value=("", False)):
+        with patch(
+            "maverick.utils.context._read_file_safely", return_value=("", False)
+        ):
             context = build_fix_context(validation, [source_file])
             assert str(source_file) not in context["source_files"]
 
@@ -957,7 +1001,9 @@ class TestBuildIssueContext:
             context = build_issue_context(issue=issue, git=mock_git)
 
         # Should have found the referenced file
-        assert len(context["related_files"]) >= 0  # May or may not find depending on path matching
+        assert (
+            len(context["related_files"]) >= 0
+        )  # May or may not find depending on path matching
 
     def test_nonexistent_files_handled(
         self,
@@ -1038,7 +1084,9 @@ class TestFitToBudget:
         budget = 5000
         result = fit_to_budget(sections, budget=budget)
 
-        total_tokens = estimate_tokens(result["a"]) + estimate_tokens(result.get("b", ""))
+        total_tokens = estimate_tokens(result["a"]) + estimate_tokens(
+            result.get("b", "")
+        )
         # Allow some tolerance since truncation adds markers
         assert total_tokens <= budget * 1.1  # 10% tolerance for markers
 
@@ -1117,5 +1165,7 @@ class TestIntegration:
         }
         fitted = fit_to_budget(sections, budget=500)
 
-        total_tokens = sum(estimate_tokens(v) for k, v in fitted.items() if k != "_metadata")
+        total_tokens = sum(
+            estimate_tokens(v) for k, v in fitted.items() if k != "_metadata"
+        )
         assert total_tokens <= 600  # Allow small tolerance

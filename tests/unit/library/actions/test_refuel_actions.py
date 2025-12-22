@@ -287,10 +287,22 @@ class TestGenerateRefuelSummary:
         """Test collects all PR URLs from successful issues."""
         parallel_result = {
             "processed": [
-                {"issue_number": 1, "status": "fixed", "pr_url": "https://github.com/org/repo/pull/1"},
-                {"issue_number": 2, "status": "fixed", "pr_url": "https://github.com/org/repo/pull/2"},
+                {
+                    "issue_number": 1,
+                    "status": "fixed",
+                    "pr_url": "https://github.com/org/repo/pull/1",
+                },
+                {
+                    "issue_number": 2,
+                    "status": "fixed",
+                    "pr_url": "https://github.com/org/repo/pull/2",
+                },
                 {"issue_number": 3, "status": "failed", "pr_url": None},
-                {"issue_number": 4, "status": "fixed", "pr_url": "https://github.com/org/repo/pull/4"},
+                {
+                    "issue_number": 4,
+                    "status": "fixed",
+                    "pr_url": "https://github.com/org/repo/pull/4",
+                },
             ],
         }
 

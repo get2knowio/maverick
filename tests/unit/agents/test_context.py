@@ -1,4 +1,5 @@
 """Unit tests for AgentContext dataclass."""
+
 from __future__ import annotations
 
 import subprocess
@@ -43,9 +44,10 @@ def test_agent_context_frozen_immutable(temp_dir: Path) -> None:
         context.cwd = Path("/different/path")  # type: ignore[misc]
 
     # Check that it's a dataclass frozen error
-    assert "frozen" in str(exc_info.value).lower() or "cannot assign" in str(
-        exc_info.value
-    ).lower()
+    assert (
+        "frozen" in str(exc_info.value).lower()
+        or "cannot assign" in str(exc_info.value).lower()
+    )
 
 
 def test_agent_context_no_dict_attribute(temp_dir: Path) -> None:

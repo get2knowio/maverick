@@ -5,6 +5,7 @@ configurable sections (Summary, Changes, Testing by default). It uses commit
 history, diff statistics, task summaries, and validation results to produce
 comprehensive PR descriptions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -202,8 +203,7 @@ class PRDescriptionGenerator(GeneratorAgent):
 
         # Build prompt sections
         prompt_parts = [
-            "Generate a pull request description based on the following "
-            "context:\n",
+            "Generate a pull request description based on the following context:\n",
             f"**Task Summary**:\n{task_summary}\n",
             "\n**Commits**:\n" + "\n".join(f"- {commit}" for commit in commits),
         ]

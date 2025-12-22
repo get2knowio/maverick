@@ -3,6 +3,7 @@
 This module provides assertion helpers for testing AgentResult objects
 with clear, descriptive error messages.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -39,7 +40,8 @@ class AgentResultAssertion:
             raise AssertionError(
                 f"Expected successful result, but got failure.\n"
                 f"Errors: {error_msgs}\n"
-                f"Output: {result.output[:500]}..." if len(result.output) > 500
+                f"Output: {result.output[:500]}..."
+                if len(result.output) > 500
                 else f"Output: {result.output}"
             )
 
@@ -59,7 +61,7 @@ class AgentResultAssertion:
         """
         if result.success:
             raise AssertionError(
-                f"Expected failed result, but got success.\n" f"Output: {result.output}"
+                f"Expected failed result, but got success.\nOutput: {result.output}"
             )
 
         if error_type is not None:
@@ -85,7 +87,8 @@ class AgentResultAssertion:
         if expected not in result.output:
             raise AssertionError(
                 f"Expected output to contain '{expected}'.\n"
-                f"Actual output: {result.output[:1000]}..." if len(result.output) > 1000
+                f"Actual output: {result.output[:1000]}..."
+                if len(result.output) > 1000
                 else f"Actual output: {result.output}"
             )
 
@@ -103,7 +106,8 @@ class AgentResultAssertion:
         if unexpected in result.output:
             raise AssertionError(
                 f"Expected output to NOT contain '{unexpected}'.\n"
-                f"Actual output: {result.output[:1000]}..." if len(result.output) > 1000
+                f"Actual output: {result.output[:1000]}..."
+                if len(result.output) > 1000
                 else f"Actual output: {result.output}"
             )
 
@@ -145,7 +149,9 @@ class AgentResultAssertion:
                 )
 
     @staticmethod
-    def assert_metadata_contains(result: AgentResult, key: str, value: object = ...) -> None:
+    def assert_metadata_contains(
+        result: AgentResult, key: str, value: object = ...
+    ) -> None:
         """Assert that metadata contains a specific key (and optionally value).
 
         Args:

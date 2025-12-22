@@ -351,8 +351,11 @@ class TestAgentStepExecute:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_execute_with_agent_exception_returns_failed_result(self) -> None:
-        """Test that execute() handles agent exceptions and returns failed StepResult."""
+    async def test_execute_with_agent_exception_returns_failed_result(
+        self,
+    ) -> None:
+        """Test that execute() handles agent exceptions and returns
+        failed StepResult."""
         agent = FailingMockAgent(name="failing-agent")
 
         step = AgentStep(

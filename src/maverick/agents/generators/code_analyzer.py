@@ -3,6 +3,7 @@
 This module provides the CodeAnalyzer generator that analyzes code snippets
 with different analysis types: explain, review, or summarize.
 """
+
 from __future__ import annotations
 
 import logging
@@ -212,8 +213,7 @@ class CodeAnalyzer(GeneratorAgent):
             )
         elif analysis_type == "summarize":
             prompt_parts.append(
-                "\nPlease provide a brief summary of this code's "
-                "purpose and structure."
+                "\nPlease provide a brief summary of this code's purpose and structure."
             )
 
         return "".join(prompt_parts)

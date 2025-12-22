@@ -62,8 +62,6 @@ class RollbackStep(StepDefinition):
             "name": self.name,
             "step_type": self.step_type.value,
             "wrapper": "rollback",
-            "rollback_action": getattr(
-                self.rollback_action, "__name__", "<lambda>"
-            ),
+            "rollback_action": getattr(self.rollback_action, "__name__", "<lambda>"),
             "inner": self.inner.to_dict(),
         }

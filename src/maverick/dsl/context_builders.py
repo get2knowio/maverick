@@ -29,28 +29,33 @@ logger = logging.getLogger(__name__)
 
 class ImplementationInputs(TypedDict, total=False):
     """Inputs for implementation context builder."""
+
     task_file: str
     branch_name: str
 
 
 class ReviewInputs(TypedDict, total=False):
     """Inputs for review context builder."""
+
     base_branch: str
     pr_number: int
 
 
 class IssueFixInputs(TypedDict, total=False):
     """Inputs for issue fix context builder."""
+
     issue_number: int
 
 
 class CommitMessageInputs(TypedDict, total=False):
     """Inputs for commit message context builder."""
+
     message: str
 
 
 class PRBodyInputs(TypedDict, total=False):
     """Inputs for PR body context builder."""
+
     base_branch: str
     draft: bool
     title: str
@@ -59,6 +64,7 @@ class PRBodyInputs(TypedDict, total=False):
 
 class PRTitleInputs(TypedDict, total=False):
     """Inputs for PR title context builder."""
+
     title: str
     branch_name: str
     task_summary: str
@@ -66,6 +72,7 @@ class PRTitleInputs(TypedDict, total=False):
 
 class IssueAnalyzerInputs(TypedDict, total=False):
     """Inputs for issue analyzer context builder."""
+
     parallel: bool
     limit: int
 
@@ -85,7 +92,8 @@ async def _run_git_command(*args: str) -> tuple[str, str, int]:
         Tuple of (stdout, stderr, returncode).
     """
     process = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -110,13 +118,14 @@ async def _get_project_structure(max_depth: int = 3) -> str:
 
     # Try using tree command if available
     ignore_pattern = (
-        "__pycache__|*.pyc|.git|.venv|venv|node_modules|"
-        ".pytest_cache|.ruff_cache"
+        "__pycache__|*.pyc|.git|.venv|venv|node_modules|.pytest_cache|.ruff_cache"
     )
     process = await asyncio.create_subprocess_exec(
         "tree",
-        "-L", str(max_depth),
-        "-I", ignore_pattern,
+        "-L",
+        str(max_depth),
+        "-I",
+        ignore_pattern,
         "--dirsfirst",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -138,12 +147,23 @@ async def _get_project_structure(max_depth: int = 3) -> str:
             items = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
             # Filter out common ignore patterns
             items = [
-                item for item in items
-                if item.name not in {
-                    "__pycache__", ".git", ".venv", "venv",
-                    "node_modules", ".pytest_cache", ".ruff_cache",
-                    ".mypy_cache", "dist", "build", "*.egg-info"
-                } and not item.name.endswith(".pyc")
+                item
+                for item in items
+                if item.name
+                not in {
+                    "__pycache__",
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "node_modules",
+                    ".pytest_cache",
+                    ".ruff_cache",
+                    ".mypy_cache",
+                    "dist",
+                    "build",
+                    "*.egg-info",
+                }
+                and not item.name.endswith(".pyc")
             ]
 
             for i, item in enumerate(items):
@@ -175,9 +195,7 @@ async def _get_spec_artifacts() -> dict[str, str]:
     cwd = Path.cwd()
 
     # Look for spec directory based on branch name
-    stdout, _, returncode = await _run_git_command(
-        "rev-parse", "--abbrev-ref", "HEAD"
-    )
+    stdout, _, returncode = await _run_git_command("rev-parse", "--abbrev-ref", "HEAD")
     if returncode == 0:
         branch_name = stdout
         # Try to find spec directory matching branch name
@@ -229,9 +247,7 @@ async def _get_changed_files(ref: str = "HEAD") -> list[str]:
     Returns:
         List of changed file paths.
     """
-    stdout, _, returncode = await _run_git_command(
-        "diff", "--name-only", ref
-    )
+    stdout, _, returncode = await _run_git_command("diff", "--name-only", ref)
     if returncode != 0 or not stdout:
         return []
     return [line.strip() for line in stdout.split("\n") if line.strip()]
@@ -246,9 +262,7 @@ async def _get_file_stats(ref: str = "HEAD") -> dict[str, dict[str, int]]:
     Returns:
         Dict mapping file paths to stats with 'additions' and 'deletions' keys.
     """
-    stdout, _, returncode = await _run_git_command(
-        "diff", "--numstat", ref
-    )
+    stdout, _, returncode = await _run_git_command("diff", "--numstat", ref)
     if returncode != 0 or not stdout:
         return {}
 
@@ -324,8 +338,7 @@ async def _find_related_files(issue_body: str, issue_title: str) -> list[str]:
             # Find files with this extension
             for path in cwd.rglob(f"*{ext}"):
                 if path.is_file() and not any(
-                    part.startswith(".") or part == "__pycache__"
-                    for part in path.parts
+                    part.startswith(".") or part == "__pycache__" for part in path.parts
                 ):
                     related_files.append(str(path.relative_to(cwd)))
 
@@ -606,9 +619,7 @@ async def pr_title_context(
     commits = await _get_commits_on_branch(base_branch)
 
     # Get current branch name
-    stdout, _, returncode = await _run_git_command(
-        "rev-parse", "--abbrev-ref", "HEAD"
-    )
+    stdout, _, returncode = await _run_git_command("rev-parse", "--abbrev-ref", "HEAD")
     branch_name = stdout if returncode == 0 else inputs.get("branch_name", "")
 
     # Get brief diff overview (just file names and stats)

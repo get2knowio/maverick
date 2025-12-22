@@ -1,4 +1,5 @@
 """Unit tests for ScaffoldService."""
+
 from __future__ import annotations
 
 import ast
@@ -43,9 +44,7 @@ def custom_template_dir(tmp_path: Path) -> Path:
     (template_dir / "basic.yaml.j2").write_text(
         "name: {{ name }}\ndescription: {{ description }}\n"
     )
-    (template_dir / "basic.py.j2").write_text(
-        '"""{{ name }}"""\n# {{ description }}\n'
-    )
+    (template_dir / "basic.py.j2").write_text('"""{{ name }}"""\n# {{ description }}\n')
 
     return template_dir
 
@@ -306,7 +305,8 @@ def test_scaffold_raises_invalid_name_error_for_invalid_names(
 def test_scaffold_raises_output_exists_error_when_file_exists(
     service: ScaffoldService, basic_yaml_request: ScaffoldRequest
 ):
-    """Test that scaffold raises OutputExistsError when file exists and overwrite=False."""
+    """Test that scaffold raises OutputExistsError when file exists and
+    overwrite=False."""
     # Create file first time
     result = service.scaffold(basic_yaml_request)
     assert result.success
@@ -566,7 +566,8 @@ def test_create_scaffold_service_with_custom_template_dir(
 def test_create_scaffold_service_raises_value_error_for_missing_template_dir(
     tmp_path: Path,
 ):
-    """Test that ScaffoldService raises ValueError if template directory doesn't exist."""
+    """Test that ScaffoldService raises ValueError if template directory
+    doesn't exist."""
     # Create a path to a non-existent directory
     missing_dir = tmp_path / "nonexistent" / "templates"
 

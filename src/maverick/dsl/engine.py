@@ -175,7 +175,10 @@ class WorkflowEngine:
             # Save checkpoint if this is a checkpoint step
             if isinstance(step, CheckpointStep) and step_result.success:
                 actual_workflow_id = workflow_id or workflow_name
-                logger.debug(f"Saving checkpoint for step '{step.name}' (workflow_id={actual_workflow_id})")
+                logger.debug(
+                    f"Saving checkpoint for step '{step.name}' "
+                    f"(workflow_id={actual_workflow_id})"
+                )
                 await self._save_checkpoint(
                     workflow_name=workflow_name,
                     workflow_id=actual_workflow_id,
@@ -283,7 +286,10 @@ class WorkflowEngine:
         workflow_def: WorkflowDefinition = workflow_func.__workflow_def__  # type: ignore[attr-defined]
         workflow_name = workflow_def.name
 
-        logger.info(f"Resuming workflow '{workflow_name}' from checkpoint '{checkpoint.checkpoint_id}'")
+        logger.info(
+            f"Resuming workflow '{workflow_name}' "
+            f"from checkpoint '{checkpoint.checkpoint_id}'"
+        )
 
         # Restore step results from checkpoint
         restored_results: dict[str, StepResult] = {}
@@ -376,7 +382,10 @@ class WorkflowEngine:
 
             # Save checkpoint if this is a checkpoint step
             if isinstance(step, CheckpointStep) and step_result.success:
-                logger.debug(f"Saving checkpoint for step '{step.name}' (workflow_id={workflow_id})")
+                logger.debug(
+                    f"Saving checkpoint for step '{step.name}' "
+                    f"(workflow_id={workflow_id})"
+                )
                 await self._save_checkpoint(
                     workflow_name=workflow_name,
                     workflow_id=workflow_id,
@@ -488,7 +497,9 @@ class WorkflowEngine:
                     await result
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
-                logger.error(f"Rollback failed for step '{registration.step_name}': {error_msg}")
+                logger.error(
+                    f"Rollback failed for step '{registration.step_name}': {error_msg}"
+                )
                 yield RollbackError(
                     step_name=registration.step_name,
                     error=error_msg,

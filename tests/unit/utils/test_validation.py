@@ -1,4 +1,5 @@
 """Unit tests for validation utilities."""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,9 +27,7 @@ class TestRunValidationStep:
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.FORMAT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         assert result.step == ValidationStep.FORMAT
         assert result.success is True
@@ -42,9 +41,7 @@ class TestRunValidationStep:
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.LINT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.LINT, Path("/repo"))
 
         assert result.step == ValidationStep.LINT
         assert result.success is True
@@ -57,9 +54,7 @@ class TestRunValidationStep:
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.TYPECHECK, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.TYPECHECK, Path("/repo"))
 
         assert result.step == ValidationStep.TYPECHECK
         assert result.success is True
@@ -72,9 +67,7 @@ class TestRunValidationStep:
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.TEST, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.TEST, Path("/repo"))
 
         assert result.step == ValidationStep.TEST
         assert result.success is True
@@ -89,9 +82,7 @@ class TestRunValidationStep:
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.FORMAT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         assert result.success is False
         assert "Error" in result.output
@@ -100,9 +91,7 @@ class TestRunValidationStep:
     async def test_run_validation_step_timeout(self) -> None:
         """Test validation step handles timeout."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            side_effect=asyncio.TimeoutError()
-        )
+        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             result = await run_validation_step(
@@ -116,14 +105,12 @@ class TestRunValidationStep:
     async def test_run_validation_step_tool_not_found(self) -> None:
         """Test validation step handles missing tool gracefully."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            side_effect=FileNotFoundError("ruff")
-        )
+        mock_process.communicate = AsyncMock(side_effect=FileNotFoundError("ruff"))
 
-        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("ruff")):
-            result = await run_validation_step(
-                ValidationStep.FORMAT, Path("/repo")
-            )
+        with patch(
+            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("ruff")
+        ):
+            result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         # Should skip if tool not found (success=True)
         assert result.success is True
@@ -133,15 +120,11 @@ class TestRunValidationStep:
     async def test_run_validation_step_detects_auto_fix(self) -> None:
         """Test validation step detects auto-fix in format step."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Formatted 5 files", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"Formatted 5 files", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.FORMAT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         assert result.success is True
         assert result.auto_fixed is True
@@ -150,15 +133,11 @@ class TestRunValidationStep:
     async def test_run_validation_step_detects_fixes_in_lint(self) -> None:
         """Test validation step detects fixes in lint step."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Fixed 3 issues", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"Fixed 3 issues", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.LINT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.LINT, Path("/repo"))
 
         assert result.auto_fixed is True
 
@@ -170,9 +149,7 @@ class TestRunValidationStep:
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.FORMAT, Path("/repo")
-            )
+            result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         assert result.duration_ms >= 0
 
@@ -227,9 +204,7 @@ class TestRunValidationPipeline:
             return process
 
         with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-            results = await run_validation_pipeline(
-                Path("/repo"), stop_on_failure=True
-            )
+            results = await run_validation_pipeline(Path("/repo"), stop_on_failure=True)
 
         # Should stop after lint failure (after retries)
         assert len(results) == 2
@@ -241,9 +216,7 @@ class TestRunValidationPipeline:
         """Test pipeline continues on failure when stop_on_failure=False."""
         # All steps fail
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"error")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -309,9 +282,7 @@ class TestRunValidationPipeline:
         """Test pipeline doesn't retry non-auto-fixable steps."""
         # Typecheck fails
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"type error")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"", b"type error"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:
@@ -331,9 +302,7 @@ class TestRunValidationPipeline:
         """Test pipeline respects max_retries limit."""
         # Always fail
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"error")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:

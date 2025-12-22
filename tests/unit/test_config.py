@@ -8,6 +8,7 @@ import pytest
 def test_load_defaults_when_no_config(clean_env: None, temp_dir: Path) -> None:
     """Test that defaults are used when no config file exists."""
     import os
+
     os.chdir(temp_dir)
 
     from maverick.config import MaverickConfig, load_config
@@ -26,6 +27,7 @@ def test_load_project_config(
 ) -> None:
     """Test loading configuration from maverick.yaml."""
     import os
+
     os.chdir(temp_dir)
 
     config_path = temp_dir / "maverick.yaml"
@@ -43,6 +45,7 @@ def test_load_project_config(
 def test_env_var_overrides(clean_env: None, temp_dir: Path) -> None:
     """Test that MAVERICK_* environment variables override config."""
     import os
+
     os.chdir(temp_dir)
     os.environ["MAVERICK_GITHUB__OWNER"] = "env-org"
     os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "2048"
@@ -57,6 +60,7 @@ def test_env_var_overrides(clean_env: None, temp_dir: Path) -> None:
 def test_invalid_config_raises_config_error(clean_env: None, temp_dir: Path) -> None:
     """Test that invalid configuration raises ConfigError."""
     import os
+
     os.chdir(temp_dir)
 
     invalid_yaml = """
@@ -83,6 +87,7 @@ def test_unknown_keys_ignored(
     """Test that unknown configuration keys are ignored."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     yaml_with_unknown = """
@@ -107,6 +112,7 @@ unknown_section:
 def test_secrets_not_exposed_from_yaml(clean_env: None, temp_dir: Path) -> None:
     """Test that secret-like fields are not loaded from YAML files."""
     import os
+
     os.chdir(temp_dir)
 
     yaml_with_secrets = """
@@ -133,18 +139,19 @@ def test_load_user_config(
 ) -> None:
     """Test loading user configuration from ~/.config/maverick/config.yaml."""
     import os
+
     os.chdir(temp_dir)
 
     # Create fake user config directory
     user_config_dir = temp_dir / ".config" / "maverick"
     user_config_dir.mkdir(parents=True)
     user_config_path = user_config_dir / "config.yaml"
-    user_config_path.write_text('''
+    user_config_path.write_text("""
 notifications:
   server: "https://custom-ntfy.example.com"
 model:
   temperature: 0.3
-''')
+""")
 
     # Patch Path.home() to return temp_dir
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -161,25 +168,26 @@ def test_project_config_overrides_user_config(
 ) -> None:
     """Test that project config overrides user config."""
     import os
+
     os.chdir(temp_dir)
 
     # Create user config
     user_config_dir = temp_dir / ".config" / "maverick"
     user_config_dir.mkdir(parents=True)
     user_config_path = user_config_dir / "config.yaml"
-    user_config_path.write_text('''
+    user_config_path.write_text("""
 github:
   owner: "user-org"
 model:
   max_tokens: 4096
-''')
+""")
 
     # Create project config that overrides some settings
     project_config_path = temp_dir / "maverick.yaml"
-    project_config_path.write_text('''
+    project_config_path.write_text("""
 github:
   owner: "project-org"
-''')
+""")
 
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
@@ -197,26 +205,27 @@ def test_merge_partial_configs(
 ) -> None:
     """Test merging partial user and project configs."""
     import os
+
     os.chdir(temp_dir)
 
     # User config sets some values
     user_config_dir = temp_dir / ".config" / "maverick"
     user_config_dir.mkdir(parents=True)
     user_config_path = user_config_dir / "config.yaml"
-    user_config_path.write_text('''
+    user_config_path.write_text("""
 notifications:
   topic: "user-notifications"
 model:
   temperature: 0.2
-''')
+""")
 
     # Project config sets different values
     project_config_path = temp_dir / "maverick.yaml"
-    project_config_path.write_text('''
+    project_config_path.write_text("""
 github:
   repo: "my-project"
 verbosity: "debug"
-''')
+""")
 
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
@@ -239,6 +248,7 @@ def test_empty_config_file_uses_defaults_with_warning(
     """Test that empty config file uses defaults and logs a warning."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     # Create an empty config file
@@ -266,6 +276,7 @@ def test_empty_config_with_comments_uses_defaults(
     """Test that config file with only comments/whitespace uses defaults."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     # Create config file with only comments and whitespace
@@ -295,6 +306,7 @@ def test_invalid_env_var_value_produces_error(
 ) -> None:
     """Test that invalid env var values produce clear validation errors."""
     import os
+
     os.chdir(temp_dir)
     os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "not-a-number"
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -315,6 +327,7 @@ def test_missing_user_config_directory_works(
 ) -> None:
     """Test that missing user config directory doesn't cause errors."""
     import os
+
     os.chdir(temp_dir)
     # Don't create .config/maverick/ directory
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -332,6 +345,7 @@ def test_notification_enabled_without_topic_logs_warning(
     """Test that enabling notifications without a topic logs a warning."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     # Create config with notifications enabled but no topic
@@ -361,6 +375,7 @@ def test_notification_enabled_with_topic_no_warning(
     """Test that enabling notifications with a topic does not log a warning."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     # Create config with notifications enabled with a topic
@@ -382,7 +397,8 @@ notifications:
 
     # Should not log a warning about notifications
     notification_warnings = [
-        record for record in caplog.records
+        record
+        for record in caplog.records
         if "notifications" in record.message.lower()
         and "topic" in record.message.lower()
     ]
@@ -395,6 +411,7 @@ def test_notification_disabled_without_topic_no_warning(
     """Test that disabled notifications without a topic does not log a warning."""
     import logging
     import os
+
     os.chdir(temp_dir)
 
     # Create config with notifications disabled (default)
@@ -415,7 +432,8 @@ notifications:
 
     # Should not log a warning about notifications
     notification_warnings = [
-        record for record in caplog.records
+        record
+        for record in caplog.records
         if "notifications" in record.message.lower()
         and "topic" in record.message.lower()
     ]

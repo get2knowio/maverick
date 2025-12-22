@@ -624,7 +624,8 @@ class TestCheckStatus:
     """Tests for CheckStatus dataclass."""
 
     def test_passed_property_when_completed_successfully(self) -> None:
-        """Test passed property returns True when status=completed and conclusion=success."""
+        """Test passed property returns True when status=completed and
+        conclusion=success."""
         check = CheckStatus(
             name="test",
             status="completed",

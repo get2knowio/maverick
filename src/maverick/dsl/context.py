@@ -71,6 +71,7 @@ class WorkflowContext:
             action: Callable to execute during rollback.
         """
         from maverick.dsl.results import RollbackRegistration
+
         self._pending_rollbacks.append(
             RollbackRegistration(step_name=step_name, action=action)
         )
@@ -85,5 +86,6 @@ class WorkflowContext:
             True if step exists and its output is a SkipMarker.
         """
         from maverick.dsl.results import SkipMarker
+
         output = self.get_step_output(step_name)
         return isinstance(output, SkipMarker)

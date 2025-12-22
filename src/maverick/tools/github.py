@@ -6,7 +6,8 @@ Tools are async functions decorated with @tool that return MCP-formatted respons
 Usage:
     from maverick.tools.github import create_github_tools_server
 
-    server = create_github_tools_server()  # Raises GitHubToolsError if prerequisites not met
+    # Raises GitHubToolsError if prerequisites not met
+    server = create_github_tools_server()
     agent = MaverickAgent(mcp_servers={"github-tools": server})
 """
 
@@ -464,7 +465,10 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Getting issue #%d", issue_number)
 
-    fields = "number,title,body,url,state,labels,assignees,author,comments,createdAt,updatedAt"
+    fields = (
+        "number,title,body,url,state,labels,assignees,"
+        "author,comments,createdAt,updatedAt"
+    )
     cmd_args = ["issue", "view", str(issue_number), "--json", fields]
 
     try:
@@ -590,7 +594,10 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Getting status for PR #%d", pr_number)
 
-    fields = "number,state,mergeable,mergeStateStatus,reviews,statusCheckRollup,headRefName,baseRefName"
+    fields = (
+        "number,state,mergeable,mergeStateStatus,reviews,"
+        "statusCheckRollup,headRefName,baseRefName"
+    )
     cmd_args = ["pr", "view", str(pr_number), "--json", fields]
 
     try:
@@ -639,7 +646,8 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(merge_state, str):
             merge_state = merge_state.lower()
 
-        # Convert mergeable to boolean (API returns "MERGEABLE", "CONFLICTING", "UNKNOWN", or null)
+        # Convert mergeable to boolean
+        # API returns "MERGEABLE", "CONFLICTING", "UNKNOWN", or null
         if mergeable_raw in (True, "MERGEABLE"):
             mergeable = True
         elif mergeable_raw in (False, "CONFLICTING"):

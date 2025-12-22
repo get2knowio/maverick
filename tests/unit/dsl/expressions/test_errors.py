@@ -425,6 +425,7 @@ class TestErrorUsagePatterns:
 
     def test_catch_specific_then_general(self) -> None:
         """Test catching specific error before general error."""
+
         def raise_syntax_error() -> None:
             raise ExpressionSyntaxError("bad syntax", expression="x +")
 

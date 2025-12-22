@@ -27,6 +27,7 @@ Public API:
 Submodules:
     generators: Lightweight text generators (CommitMessageGenerator, etc.)
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -200,7 +200,9 @@ class TestMermaidGenerator:
                 GraphNode(id="step2", label="Step 2", step_type="python"),
             ),
             edges=(
-                GraphEdge(source="step1", target="step2", edge_type=EdgeType.SEQUENTIAL),
+                GraphEdge(
+                    source="step1", target="step2", edge_type=EdgeType.SEQUENTIAL
+                ),
             ),
         )
 
@@ -215,7 +217,9 @@ class TestMermaidGenerator:
             name="test",
             description="",
             nodes=(
-                GraphNode(id="check", label="Check", step_type="validate", is_conditional=True),
+                GraphNode(
+                    id="check", label="Check", step_type="validate", is_conditional=True
+                ),
                 GraphNode(id="success", label="Success", step_type="python"),
                 GraphNode(id="fail", label="Fail", step_type="python"),
             ),
@@ -251,7 +255,12 @@ class TestMermaidGenerator:
                 GraphNode(id="fix", label="Fix Issues", step_type="python"),
             ),
             edges=(
-                GraphEdge(source="validate", target="fix", label="fail", edge_type=EdgeType.RETRY),
+                GraphEdge(
+                    source="validate",
+                    target="fix",
+                    label="fail",
+                    edge_type=EdgeType.RETRY,
+                ),
                 GraphEdge(source="fix", target="validate", edge_type=EdgeType.RETRY),
             ),
         )
@@ -341,20 +350,35 @@ class TestMermaidGenerator:
         """Test generating diagram for complex workflow with multiple step types."""
         nodes = (
             GraphNode(id="setup", label="Setup", step_type="python"),
-            GraphNode(id="parallel", label="Parallel Tasks", step_type="parallel", children=(
-                GraphNode(id="task1", label="Task 1", step_type="agent"),
-                GraphNode(id="task2", label="Task 2", step_type="generate"),
-            )),
+            GraphNode(
+                id="parallel",
+                label="Parallel Tasks",
+                step_type="parallel",
+                children=(
+                    GraphNode(id="task1", label="Task 1", step_type="agent"),
+                    GraphNode(id="task2", label="Task 2", step_type="generate"),
+                ),
+            ),
             GraphNode(id="task1", label="Task 1", step_type="agent"),
             GraphNode(id="task2", label="Task 2", step_type="generate"),
-            GraphNode(id="validate", label="Validate", step_type="validate", is_conditional=True),
+            GraphNode(
+                id="validate",
+                label="Validate",
+                step_type="validate",
+                is_conditional=True,
+            ),
             GraphNode(id="deploy", label="Deploy", step_type="python"),
         )
         edges = (
             GraphEdge(source="START", target="setup"),
             GraphEdge(source="setup", target="parallel"),
             GraphEdge(source="parallel", target="validate"),
-            GraphEdge(source="validate", target="deploy", label="pass", edge_type=EdgeType.CONDITIONAL),
+            GraphEdge(
+                source="validate",
+                target="deploy",
+                label="pass",
+                edge_type=EdgeType.CONDITIONAL,
+            ),
             GraphEdge(source="deploy", target="END"),
         )
         graph = WorkflowGraph(
@@ -527,9 +551,7 @@ class TestMermaidGenerator:
                 GraphNode(id="step1", label="Step 1", step_type="python"),
                 GraphNode(id="step2", label="Step 2", step_type="python"),
             ),
-            edges=(
-                GraphEdge(source="step1", target="step2", label=""),
-            ),
+            edges=(GraphEdge(source="step1", target="step2", label=""),),
         )
 
         generator = MermaidGenerator()
@@ -549,9 +571,15 @@ class TestMermaidGenerator:
         )
         edges = (
             GraphEdge(source="n1", target="n2", edge_type=EdgeType.SEQUENTIAL),
-            GraphEdge(source="n2", target="n3", edge_type=EdgeType.CONDITIONAL, label="cond"),
-            GraphEdge(source="n3", target="n4", edge_type=EdgeType.BRANCH, label="branch"),
-            GraphEdge(source="n4", target="n3", edge_type=EdgeType.RETRY, label="retry"),
+            GraphEdge(
+                source="n2", target="n3", edge_type=EdgeType.CONDITIONAL, label="cond"
+            ),
+            GraphEdge(
+                source="n3", target="n4", edge_type=EdgeType.BRANCH, label="branch"
+            ),
+            GraphEdge(
+                source="n4", target="n3", edge_type=EdgeType.RETRY, label="retry"
+            ),
         )
         graph = WorkflowGraph(
             name="test",

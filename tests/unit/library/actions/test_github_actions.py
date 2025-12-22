@@ -545,7 +545,10 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_includes_pr_body(self) -> None:
         """Test includes PR body in creation."""
-        pr_body = "## Summary\n\nThis PR adds feature X\n\n## Changes\n- Added file A\n- Updated file B"
+        pr_body = (
+            "## Summary\n\nThis PR adds feature X\n\n"
+            "## Changes\n- Added file A\n- Updated file B"
+        )
 
         with patch("maverick.library.actions.github.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(

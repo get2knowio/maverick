@@ -4,6 +4,7 @@ This module provides the FixerAgent that applies minimal, focused fixes to
 specific files based on explicit error information. It is the most constrained
 agent with the smallest tool set (Read, Write, Edit only).
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-FIXER_SYSTEM_PROMPT = """You are a validation fixer applying targeted corrections to specific files.
+FIXER_SYSTEM_PROMPT = """You are a validation fixer.
+You apply targeted corrections to specific files.
 
 Your role:
 - Apply the exact fix described in the prompt

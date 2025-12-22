@@ -39,20 +39,24 @@ class TestGatherPRContext:
                 # gh pr view
                 MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "number": 123,
-                        "title": "Add new feature",
-                        "body": "This PR adds a new feature",
-                        "author": {"login": "testuser"},
-                        "labels": [{"name": "enhancement"}, {"name": "feature"}],
-                    }),
+                    stdout=json.dumps(
+                        {
+                            "number": 123,
+                            "title": "Add new feature",
+                            "body": "This PR adds a new feature",
+                            "author": {"login": "testuser"},
+                            "labels": [{"name": "enhancement"}, {"name": "feature"}],
+                        }
+                    ),
                 ),
                 # git diff
                 MagicMock(returncode=0, stdout="diff --git a/file.py b/file.py\n"),
                 # git diff --name-only
                 MagicMock(returncode=0, stdout="src/file1.py\nsrc/file2.py\n"),
                 # git log
-                MagicMock(returncode=0, stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
+                MagicMock(
+                    returncode=0, stdout="abc123 feat: add feature\ndef456 fix: bug\n"
+                ),
             ]
 
             result = await gather_pr_context(pr_number, base_branch)
@@ -86,13 +90,15 @@ class TestGatherPRContext:
                 # gh pr view
                 MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "number": 456,
-                        "title": "Test PR",
-                        "body": "Test description",
-                        "author": {"login": "author"},
-                        "labels": [],
-                    }),
+                    stdout=json.dumps(
+                        {
+                            "number": 456,
+                            "title": "Test PR",
+                            "body": "Test description",
+                            "author": {"login": "author"},
+                            "labels": [],
+                        }
+                    ),
                 ),
                 # git diff
                 MagicMock(returncode=0, stdout="diff content\n"),
@@ -150,7 +156,9 @@ class TestGatherPRContext:
         ):
             mock_which.return_value = "/usr/local/bin/coderabbit"
             mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=json.dumps({"number": 123, "labels": []})),
+                MagicMock(
+                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
+                ),
                 MagicMock(returncode=0, stdout="diff\n"),
                 MagicMock(returncode=0, stdout="file.py\n"),
                 MagicMock(returncode=0, stdout="sha1 msg\n"),
@@ -173,7 +181,9 @@ class TestGatherPRContext:
         ):
             mock_which.return_value = None
             mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=json.dumps({"number": 123, "labels": []})),
+                MagicMock(
+                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
+                ),
                 MagicMock(returncode=0, stdout="diff\n"),
                 MagicMock(returncode=0, stdout="file.py\n"),
                 MagicMock(returncode=0, stdout="sha1 msg\n"),
@@ -195,7 +205,9 @@ class TestGatherPRContext:
         ):
             mock_which.return_value = None
             mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=json.dumps({"number": 123, "labels": []})),
+                MagicMock(
+                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
+                ),
                 MagicMock(returncode=0, stdout=""),  # empty diff
                 MagicMock(returncode=0, stdout=""),  # no files
                 MagicMock(returncode=0, stdout=""),  # no commits
@@ -573,9 +585,7 @@ class TestCombineReviewResults:
     async def test_handles_findings_key_in_agent_review(self) -> None:
         """Test handles agent review with 'findings' key."""
         agent_review = {
-            "findings": [
-                {"file": "test.py", "message": "Finding", "severity": "info"}
-            ]
+            "findings": [{"file": "test.py", "message": "Finding", "severity": "info"}]
         }
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
@@ -591,9 +601,7 @@ class TestCombineReviewResults:
     async def test_handles_comments_key_in_agent_review(self) -> None:
         """Test handles agent review with 'comments' key."""
         agent_review = {
-            "comments": [
-                {"file": "test.py", "message": "Comment", "severity": "info"}
-            ]
+            "comments": [{"file": "test.py", "message": "Comment", "severity": "info"}]
         }
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
@@ -688,9 +696,7 @@ class TestCombineReviewResults:
     async def test_recommends_request_changes_for_errors(self) -> None:
         """Test recommends request changes when errors found."""
         agent_review = {
-            "issues": [
-                {"file": "a.py", "message": "Error found", "severity": "error"}
-            ]
+            "issues": [{"file": "a.py", "message": "Error found", "severity": "error"}]
         }
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
@@ -767,11 +773,7 @@ class TestCombineReviewResults:
     @pytest.mark.asyncio
     async def test_handles_missing_file_line_info(self) -> None:
         """Test handles issues without file or line information."""
-        agent_review = {
-            "issues": [
-                {"message": "General issue", "severity": "info"}
-            ]
-        }
+        agent_review = {"issues": [{"message": "General issue", "severity": "info"}]}
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
 
