@@ -173,7 +173,7 @@ class TestGitHubToolsServerCreation:
 @pytest.mark.integration
 @pytest.mark.skipif(
     SKIP_PERF_TESTS_IN_CI,
-    reason="Performance tests skipped (set MAVERICK_SKIP_PERF_TESTS_IN_CI=false to run)",
+    reason="Performance tests skipped (set MAVERICK_SKIP_PERF_TESTS_IN_CI=false)",
 )
 class TestGitHubToolsPerformance:
     """Test T053: Performance benchmark test."""
@@ -269,7 +269,8 @@ class TestGitHubToolsPerformance:
         # Server creation should be fast (configurable threshold for CI/CD)
         # Note: Verification involves subprocess calls so 10s is reasonable
         assert elapsed < PERF_THRESHOLD_SERVER_CREATION, (
-            f"Server creation took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SERVER_CREATION}s"
+            f"Server creation took {elapsed:.2f}s, "
+            f"expected < {PERF_THRESHOLD_SERVER_CREATION}s"
         )
 
         # Verify server config is valid
@@ -328,10 +329,11 @@ class TestGitHubToolsPerformance:
 
         elapsed = time.perf_counter() - start
 
-        # Parallel calls should be faster than sequential (configurable threshold for CI/CD)
-        # Should complete in reasonable time (allowing for some overhead)
+        # Parallel calls should be faster than sequential
+        # (configurable threshold for CI/CD overhead)
         assert elapsed < PERF_THRESHOLD_PARALLEL, (
-            f"3 parallel calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_PARALLEL}s"
+            f"3 parallel calls took {elapsed:.2f}s, "
+            f"expected < {PERF_THRESHOLD_PARALLEL}s"
         )
 
         # Verify all results are valid

@@ -330,7 +330,7 @@ class TestEnumComparisons:
         validation_test = ValidationStep.TEST
 
         # Different enum types
-        assert type(task_completed) != type(validation_test)
+        assert type(task_completed) is not type(validation_test)
 
     def test_enum_sorting(self) -> None:
         """Test enums can be sorted by value."""

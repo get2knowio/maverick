@@ -438,7 +438,7 @@ class TestTruncateFile:
         # Should still produce valid output
         assert "..." in result
         result_lines = result.splitlines()
-        assert len([l for l in result_lines if not l.startswith("...")]) <= 15
+        assert len([line for line in result_lines if not line.startswith("...")]) <= 15
 
     def test_truncate_file_window_scaling(self) -> None:
         """Test window scaling when requested context exceeds budget."""

@@ -543,7 +543,7 @@ class TestSettingsScreenIntegration:
                 # Implementation determines exact behavior
 
 
-class TestSettingsScreenState:
+class TestSettingsScreenStateModel:
     """Test suite for SettingsScreenState model integration."""
 
     def test_state_has_unsaved_changes_property(self) -> None:
