@@ -12,26 +12,31 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from maverick.agents.result import AgentUsage
 from maverick.dsl.events import (
     ProgressEvent,
+)
+from maverick.dsl.events import (
     StepCompleted as DslStepCompleted,
+)
+from maverick.dsl.events import (
     StepStarted as DslStepStarted,
+)
+from maverick.dsl.events import (
     WorkflowCompleted as DslWorkflowCompleted,
+)
+from maverick.dsl.events import (
     WorkflowStarted as DslWorkflowStarted,
 )
 from maverick.dsl.results import WorkflowResult
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
-from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.registry import ComponentRegistry
-from maverick.library.builtins import create_builtin_library
+from maverick.workflows.base import WorkflowDSLMixin
 
 if TYPE_CHECKING:
     from maverick.agents.generators.commit_message import CommitMessageGenerator
@@ -307,7 +312,7 @@ def _convert_runner_issue_to_workflow_issue(
     )
 
 
-class RefuelWorkflow:
+class RefuelWorkflow(WorkflowDSLMixin):
     """Refuel workflow orchestrator.
 
     Orchestrates tech-debt resolution workflow:
@@ -344,6 +349,9 @@ class RefuelWorkflow:
             issue_fixer_agent: Issue fixer agent (injected for testing).
             commit_generator: Commit message generator (injected for testing).
         """
+        # Initialize the mixin first
+        super().__init__()
+
         self._config = config or RefuelConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
@@ -354,38 +362,6 @@ class RefuelWorkflow:
 
         # DSL executor
         self._executor: WorkflowFileExecutor | None = None
-        self._use_dsl = False  # Flag to enable DSL execution
-
-    def enable_dsl_execution(self) -> None:
-        """Enable DSL-based workflow execution.
-
-        When enabled, the workflow will use the WorkflowFileExecutor to execute
-        the refuel.yaml workflow definition instead of the legacy Python implementation.
-        """
-        self._use_dsl = True
-
-    # NOTE: The following methods (_load_workflow, _translate_event, _build_*_result)
-    # share common patterns with fly.py. Future refactoring could extract shared logic
-    # into a base class or helper module (e.g., WorkflowDSLMixin or dsl_utils.py).
-    # However, each workflow has unique event types and step mappings, so extraction
-    # should preserve type safety and avoid over-abstraction.
-
-    def _load_workflow(self, workflow_name: str) -> Any:
-        """Load workflow file from built-in library.
-
-        Args:
-            workflow_name: Name of the workflow to load (e.g., "refuel").
-
-        Returns:
-            Parsed WorkflowFile instance.
-
-        Raises:
-            KeyError: If workflow name is not a built-in.
-            WorkflowParseError: If workflow file is invalid.
-        """
-        # Use builtin library to load workflow
-        builtin_lib = create_builtin_library()
-        return builtin_lib.get_workflow(workflow_name)
 
     def _translate_event(self, event: ProgressEvent) -> RefuelProgressEvent | None:
         """Translate DSL progress events to RefuelProgressEvent types.
@@ -825,17 +801,12 @@ class RefuelWorkflow:
                     "auto_assign": inputs.auto_assign,
                 }
 
-                # Track if we've seen RefuelStarted
-                refuel_started_emitted = False
-
                 # Execute workflow and translate events
                 async for event in self._executor.execute(workflow, inputs=workflow_inputs):
                     # Translate DSL events to RefuelProgressEvent
                     refuel_event = self._translate_event(event)
                     if refuel_event:
                         yield refuel_event
-                        if isinstance(refuel_event, RefuelStarted):
-                            refuel_started_emitted = True
 
                     # Handle WorkflowCompleted specially
                     if isinstance(event, DslWorkflowCompleted):

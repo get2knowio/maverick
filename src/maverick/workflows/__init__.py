@@ -12,6 +12,16 @@ logger = logging.getLogger(__name__)
 __all__: list[str] = []
 
 try:
+    from maverick.workflows.base import WorkflowDSLMixin
+
+    __all__.extend(["WorkflowDSLMixin"])
+except ImportError as e:
+    if "base" in str(e).lower():
+        logger.debug("Workflow base not yet available")
+    else:
+        raise  # Re-raise unexpected import errors
+
+try:
     from maverick.workflows.validation import ValidationWorkflow, create_python_workflow
 
     __all__.extend(
