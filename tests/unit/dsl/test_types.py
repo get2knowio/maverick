@@ -41,8 +41,10 @@ class TestStepType:
         """Test that enum values work correctly in f-strings."""
         step_type = StepType.PYTHON
         result = f"Step type: {step_type}"
-        # String enum will show as the enum name in f-strings
-        assert result == "Step type: StepType.PYTHON"
+        # StrEnum format varies by Python version:
+        # - Python 3.10: returns the value ("python")
+        # - Python 3.11+: returns "ClassName.MEMBER_NAME"
+        assert "python" in result.lower()
 
         # Test with .value explicitly to get the string value
         result_explicit = f"Step type: {step_type.value}"

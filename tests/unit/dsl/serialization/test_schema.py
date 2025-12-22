@@ -66,8 +66,10 @@ class TestInputType:
         """Test that enum values work correctly in f-strings."""
         input_type = InputType.STRING
         result = f"Input type: {input_type}"
-        # String enum will show as the enum name in f-strings
-        assert result == "Input type: InputType.STRING"
+        # StrEnum format varies by Python version:
+        # - Python 3.10: returns the value ("string")
+        # - Python 3.11+: returns "ClassName.MEMBER_NAME"
+        assert "string" in result.lower()
 
         # Test with .value explicitly to get the string value
         result_explicit = f"Input type: {input_type.value}"
