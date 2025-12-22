@@ -201,30 +201,28 @@ class TestInitWorkspace:
     @pytest.mark.asyncio
     async def test_returns_none_when_no_task_file_found(self, tmp_path: Path) -> None:
         """Test returns None for task_file_path when no task file exists."""
+        import os
+
         branch_name = "feature-test"
+        original_cwd = os.getcwd()
 
-        with (
-            patch("maverick.library.actions.workspace.subprocess.run") as mock_run,
-            patch("pathlib.Path") as mock_path_class,
-        ):
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(returncode=0, stdout=""),  # Status clean
-            ]
+        try:
+            # Use tmp_path which has no task files
+            os.chdir(tmp_path)
 
-            # Mock Path to simulate no files exist
-            def path_factory(path_str):
-                mock_p = MagicMock(spec=Path)
-                mock_p.__str__ = lambda s: path_str
-                mock_p.exists.return_value = False
-                return mock_p
+            with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0),  # Branch exists
+                    MagicMock(returncode=0),  # Checkout success
+                    MagicMock(returncode=0, stdout=""),  # Status clean
+                ]
 
-            mock_path_class.side_effect = path_factory
+                result = await init_workspace(branch_name)
 
-            result = await init_workspace(branch_name)
-
-            assert result["task_file_path"] is None
+                # No task file in tmp_path, so should be None
+                assert result["task_file_path"] is None
+        finally:
+            os.chdir(original_cwd)
 
     @pytest.mark.asyncio
     async def test_handles_git_errors_gracefully(self, tmp_path: Path) -> None:

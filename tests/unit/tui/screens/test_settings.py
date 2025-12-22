@@ -175,9 +175,7 @@ class TestSettingsScreenState:
                 field = fields.first()
                 original_value = field.value.current_value
                 # Modify the field's value
-                new_val = (
-                    "modified_value" if isinstance(original_value, str) else True
-                )
+                new_val = "modified_value" if isinstance(original_value, str) else True
                 field.value = SettingValue(
                     definition=field.value.definition,
                     current_value=new_val,
@@ -230,9 +228,7 @@ class TestSettingsScreenState:
                 )
                 # Post a change message so the screen knows
                 field.post_message(
-                    field.Changed(
-                        field.value.definition.key, field.value.current_value
-                    )
+                    field.Changed(field.value.definition.key, field.value.current_value)
                 )
                 await pilot.pause()
 

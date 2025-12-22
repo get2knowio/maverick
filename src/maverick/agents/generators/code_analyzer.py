@@ -165,8 +165,7 @@ class CodeAnalyzer(GeneratorAgent):
         # Call the base class _query method with the system prompt override
         if return_usage:
             return await self._query_with_usage(
-                prompt,
-                system_prompt=analysis_system_prompt
+                prompt, system_prompt=analysis_system_prompt
             )
         return await self._query(prompt, system_prompt=analysis_system_prompt)
 

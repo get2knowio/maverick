@@ -706,8 +706,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                             logger.warning(f"Code review failed: {e}")
 
                 yield FlyStageCompleted(
-                    stage=WorkflowStage.CODE_REVIEW,
-                    result=self._state.review_results
+                    stage=WorkflowStage.CODE_REVIEW, result=self._state.review_results
                 )
 
             # CONVENTION_UPDATE Stage (Task #87)
@@ -725,10 +724,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                 # separate command /speckit.constitution
                 logger.info("Convention update stage (placeholder)")
 
-            yield FlyStageCompleted(
-                stage=WorkflowStage.CONVENTION_UPDATE,
-                result=None
-            )
+            yield FlyStageCompleted(stage=WorkflowStage.CONVENTION_UPDATE, result=None)
 
             # Commit Stage - create commit with all changes
             if self._cancel_event.is_set():
