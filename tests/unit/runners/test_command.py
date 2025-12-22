@@ -172,6 +172,7 @@ class TestCommandRunner:
             assert lines[0].stream == "stdout"
             assert lines[1].content == "line 2"
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_stream_with_timeout(self, mock_process: MagicMock) -> None:
         """Test streaming handles timeout correctly."""

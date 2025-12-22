@@ -198,6 +198,33 @@ class TestValidateBashCommand:
         # Should block (fail closed)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
+    @pytest.mark.asyncio
+    async def test_fail_open_when_configured(self) -> None:
+        """Test fail-open behavior when configured (T090)."""
+        config = SafetyConfig(fail_closed=False)
+        # Force an exception by mocking something or passing bad data
+        # Passing bad data (None for command) triggers exception in logic before it handles it
+        # Actually in the code:
+        # tool_input = input_data.get("tool_input", {})
+        # command = tool_input.get("command", "")
+        # if not command: return _deny_response...
+        # So empty command is handled. We need to cause an exception *during* validation.
+        # We can mock parse_compound_command to raise an exception.
+
+        from unittest.mock import patch
+        with patch("maverick.hooks.safety.parse_compound_command", side_effect=ValueError("Parse error")):
+             input_data = {
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls -la"},
+            }
+             # Should return empty dict (allow) because fail_closed=False
+             try:
+                 result = await validate_bash_command(input_data, None, None, config=config)
+                 assert result == {}
+             except Exception:
+                 pytest.fail("Should not raise exception when fail_closed=False")
+
+
 
 class TestNormalizePath:
     """Tests for path normalization."""
@@ -330,6 +357,28 @@ class TestValidateFileWrite:
         }
         result = await validate_file_write(input_data, None, None)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    @pytest.mark.asyncio
+    async def test_fail_open_on_exception_configured(self) -> None:
+        """Test fail-open behavior on exception when configured (T091)."""
+        from maverick.hooks.config import SafetyConfig
+        from maverick.hooks.safety import validate_file_write
+        from unittest.mock import patch
+
+        config = SafetyConfig(fail_closed=False)
+        
+        # Force exception by mocking normalize_path
+        with patch("maverick.hooks.safety.normalize_path", side_effect=ValueError("Path error")):
+            input_data = {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "/tmp/test.txt"},
+            }
+            try:
+                result = await validate_file_write(input_data, None, None, config=config)
+                assert result == {}
+            except Exception:
+                pytest.fail("Should not raise exception when fail_closed=False")
+
 
     @pytest.mark.asyncio
     async def test_edit_tool_also_blocked(self) -> None:

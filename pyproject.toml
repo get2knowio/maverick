@@ -116,6 +116,11 @@ addopts = [
     "--cov-report=html",
     "--timeout=30",
 ]
+markers = [
+    "slow: marks tests as slow (>5s execution time)",
+    "integration: marks tests requiring external services",
+    "tui: marks TUI-specific tests requiring Textual pilot",
+]
 timeout = 30  # 30-second default timeout for async tests (FR-026)
 
 [tool.coverage.run]

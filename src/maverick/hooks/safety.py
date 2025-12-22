@@ -257,7 +257,10 @@ async def validate_bash_command(
         if config.fail_closed:
             logger.error(f"Hook exception (fail-closed): {e}")
             return _deny_response(f"Hook validation error: {e}", "exception")
-        raise
+        
+        # Fail open - allow operation but log error
+        logger.warning(f"Hook exception (fail-open): {e}")
+        return {}
 
 
 def _deny_response(reason: str, pattern: str | None) -> dict[str, Any]:
@@ -401,4 +404,7 @@ async def validate_file_write(
         if config.fail_closed:
             logger.error(f"Hook exception (fail-closed): {e}")
             return _deny_response(f"Hook validation error: {e}", "exception")
-        raise
+        
+        # Fail open - allow operation but log error
+        logger.warning(f"Hook exception (fail-open): {e}")
+        return {}

@@ -234,3 +234,6 @@ __all__ = [
     "assert_not_has_class",
     "assert_widget_count",
 ]
+
+# Apply TUI marker to all tests in this directory
+pytestmark = pytest.mark.tui

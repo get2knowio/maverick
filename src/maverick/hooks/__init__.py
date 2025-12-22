@@ -90,10 +90,6 @@ def create_logging_hooks(
     logging_config = config.logging
     metrics_config = config.metrics
 
-    # If neither logging nor metrics enabled, return empty list
-    if not logging_config.enabled and not metrics_config.enabled:
-        return []
-
     # Create internal collector if needed and metrics enabled
     if metrics_config.enabled and metrics_collector is None:
         metrics_collector = MetricsCollector(metrics_config)

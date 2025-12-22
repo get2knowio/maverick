@@ -1646,6 +1646,76 @@ def test_review_output_markdown_option(
                 )
 
 
+def test_review_output_text_option(
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test review --output text option - outputs plain text.
+
+    Verifies:
+    - --output text flag is accepted
+    - Output is formatted as plain text
+    - Contains review summary
+    """
+    import json
+    import os
+
+    os.chdir(temp_dir)
+    monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+    # Mock check_dependencies
+    from maverick.cli.validators import DependencyStatus
+
+    with patch("maverick.main.check_dependencies") as mock_check_deps:
+        mock_check_deps.return_value = [
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
+        ]
+
+        # Mock gh pr view
+        with patch("subprocess.run") as mock_subprocess:
+            pr_data = {"headRefName": "feature-123", "baseRefName": "main"}
+            mock_subprocess.side_effect = [
+                MagicMock(returncode=0, stdout="PR #123", stderr=""),
+                MagicMock(returncode=0, stdout=json.dumps(pr_data), stderr=""),
+            ]
+
+            # Mock CodeReviewerAgent
+            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+                mock_agent = MagicMock()
+                mock_agent_cls.return_value = mock_agent
+
+                # Mock agent execution
+                async def mock_execute(context):
+                    from maverick.models.review import ReviewResult
+
+                    return ReviewResult(
+                        success=True,
+                        findings=[],
+                        files_reviewed=3,
+                        summary="Reviewed 3 files, no issues found",
+                        metadata={"branch": "feature-123", "base_branch": "main"},
+                    )
+
+                mock_agent.execute = mock_execute
+
+                result = cli_runner.invoke(
+                    cli, ["review", "123", "--output", "text"]
+                )
+
+                assert result.exit_code == 0
+                # Verify text formatting (should contain summary)
+                assert "Reviewed 3 files" in result.output
+                # Should NOT look like JSON (simple heuristic)
+                assert not result.output.strip().startswith("{")
+
+
 def test_review_with_nonexistent_pr_error(
     cli_runner: CliRunner,
     temp_dir: Path,
