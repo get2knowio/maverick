@@ -1,16 +1,20 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
+Version change: 1.1.0 → 1.2.0
 Modified principles:
-  - IV. Fail Gracefully → Enhanced with forward progress mandate
+  - V. Test-First → Enhanced with anti-deferral rules from debt analysis
+  - VI. Type Safety → Enhanced with Protocol usage and no magic numbers
+  - VII. Simplicity → Enhanced with DRY and hardening requirements
 Added sections:
-  - VIII. Relentless Progress (new principle for autonomous operation)
+  - IX. Debt Prevention (new principle based on analysis of issues #61-#152)
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
-  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with new resilience principle)
+  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with resilience principle)
+Propagation:
+  - CLAUDE.md: ✅ Updated with Debt Prevention Guidelines section
 Follow-up TODOs: None
 -->
 
@@ -74,36 +78,46 @@ forward progress over early termination.
 get results from successful operations even when some fail. Unattended operation requires
 the system to recover from transient failures without human intervention.
 
-### V. Test-First
+### V. Test-First (Anti-Deferral)
 
 Every public class and function MUST have tests. Testing is mandatory, not optional.
+No PR shall be merged without tests covering new functionality.
 
 - Use pytest fixtures for common setup
 - Mock external dependencies (Claude API, GitHub CLI, filesystem)
 - TUI tests use Textual's `pilot` fixture
 - Async tests use `pytest.mark.asyncio`
 - Tests are written BEFORE implementation (Red-Green-Refactor)
+- Do NOT comment out or skip failing tests; fix them immediately
+- For async components (Agents/Workflows), testing MUST verify concurrency and error states,
+  not just happy paths
 
 **Rationale**: TDD catches design problems early. Comprehensive tests enable confident
-refactoring and serve as executable documentation.
+refactoring and serve as executable documentation. Deferring tests creates debt that
+compounds over time (learned from issues #61-#152).
 
-### VI. Type Safety
+### VI. Type Safety & Constants
 
-Complete type hints are required throughout the codebase.
+Complete type hints are required throughout the codebase. No magic numbers or strings.
 
 - All public functions MUST have complete type annotations
 - Use `TypeAlias` for complex types to improve readability
 - Prefer `@dataclass` or Pydantic `BaseModel` over plain dicts for structured data
-- Use `Protocol` for interfaces when duck typing is needed
+- Use `Protocol` for interfaces when duck typing is needed (avoids circular dependencies)
 - Use `@dataclass(frozen=True)` for immutable value objects
 - Use `@dataclass(slots=True)` for frequently instantiated objects
+- No magic numbers or string literals in logic code; extract to named constants or config
+- Use `Protocol` (structural typing) to define interfaces between components
+  (e.g., between DSL and Agents) to avoid circular dependencies and tight coupling
 
 **Rationale**: Static typing catches errors at development time, improves IDE support,
-and serves as inline documentation.
+and serves as inline documentation. Named constants prevent "magic value" bugs and
+enable centralized configuration changes.
 
-### VII. Simplicity
+### VII. Simplicity & DRY
 
 Avoid over-engineering. Start simple and add complexity only when justified.
+Zero tolerance for duplication.
 
 - No global mutable state
 - No massive god-classes; prefer composition over inheritance
@@ -111,9 +125,13 @@ Avoid over-engineering. Start simple and add complexity only when justified.
 - No premature abstractions; three similar lines are better than a premature helper
 - No `shell=True` in subprocess calls without explicit security justification
 - No `print()` for output; use logging or TUI updates
+- If logic regarding Git operations, Validation, or GitHub API calls is needed in a
+  second location, refactor to a shared utility IMMEDIATELY—do not wait for "cleanup"
+- Use Mixins or Composition over inheritance for shared agent capabilities
 
 **Rationale**: YAGNI (You Aren't Gonna Need It). Simple code is easier to understand,
-test, and maintain.
+test, and maintain. Copy-paste creates maintenance nightmares and inconsistent behavior
+(learned from `ImplementerAgent` vs `IssueFixerAgent` duplication in issues #61-#152).
 
 ### VIII. Relentless Progress
 
@@ -139,6 +157,23 @@ Recovery hierarchy (in order of preference):
 expensive and slow. The system must be resilient to transient failures, network issues,
 API rate limits, and unexpected errors. Forward progress is more valuable than early
 termination with a clean error message.
+
+### IX. Hardening by Default
+
+All external interactions MUST assume unreliable networks and resources.
+Never assume external calls will succeed on the first attempt.
+
+- All external calls (GitHub API, Git subprocesses) MUST have:
+  - Explicit timeouts (no infinite waits)
+  - Retry logic with exponential backoff for network operations
+  - Specific exception handling (no bare `except Exception`)
+- Validate at system boundaries (user input, external APIs) but trust internal code
+- Documentation examples MUST be treated as code—add tests that validate code snippets
+  in `README.md` or `docs/quickstart.md` to ensure they remain executable
+
+**Rationale**: Transient failures are inevitable in distributed systems. Proper hardening
+prevents cascading failures and makes debugging easier. Bare exception handlers hide bugs.
+(Learned from network reliability issues in #61-#152.)
 
 ## Technology Stack
 
@@ -246,4 +281,4 @@ MUST comply with these principles.
 - Complexity deviations MUST be justified in PR descriptions
 - Use `.specify/memory/constitution.md` as the authoritative reference
 
-**Version**: 1.1.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-14
+**Version**: 1.2.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-22
