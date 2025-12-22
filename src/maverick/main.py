@@ -636,8 +636,10 @@ def config_init(ctx: click.Context, force: bool) -> None:
 
     try:
         # Write config file
-        with open(config_file, "w") as f:
-            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+        yaml_content = yaml.dump(
+            default_config, default_flow_style=False, sort_keys=False
+        )
+        config_file.write_text(yaml_content, encoding="utf-8")
 
         logger.info(f"Config file created: {config_file}")
         click.echo(f"Configuration file created: {config_file}")
