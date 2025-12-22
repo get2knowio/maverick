@@ -43,10 +43,11 @@ def get_scaffolder():
     # Try a simple template render to see if templates are working
     try:
         from pathlib import Path
+
         from maverick.library.scaffold import (
             ScaffoldRequest,
-            TemplateType,
             TemplateFormat,
+            TemplateType,
         )
 
         test_request = ScaffoldRequest(

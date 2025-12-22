@@ -842,7 +842,7 @@ class TestConstants:
 
     def test_validation_types_contains_all_types(self) -> None:
         """Test VALIDATION_TYPES contains expected types."""
-        assert VALIDATION_TYPES == {"format", "lint", "build", "typecheck", "test"}
+        assert {"format", "lint", "build", "typecheck", "test"} == VALIDATION_TYPES
 
     def test_server_name_value(self) -> None:
         """Test SERVER_NAME is set correctly."""

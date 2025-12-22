@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,7 +15,6 @@ import click
 
 from maverick import __version__
 from maverick.agents.code_reviewer import CodeReviewerAgent
-from maverick.agents.context import AgentContext
 from maverick.cli.context import CLIContext, ExitCode, async_command
 from maverick.cli.helpers import (
     count_tasks,
@@ -39,15 +39,19 @@ from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
 from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
 from maverick.library.generators import register_all_generators
-from maverick.workflows.fly import FlyInputs, FlyWorkflow
-from maverick.workflows.refuel import RefuelInputs, RefuelWorkflow
+from maverick.models.review import ReviewContext
+from maverick.workflows.fly import FlyInputs, FlyWorkflow, FlyWorkflowCompleted
+from maverick.workflows.refuel import (
+    RefuelInputs,
+    RefuelWorkflow,
+)
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
 
 @contextlib.contextmanager
-def cli_error_handler():
+def cli_error_handler() -> Generator[None, None, None]:
     """Context manager for common CLI error handling.
 
     Handles common error patterns across CLI commands:
@@ -339,15 +343,22 @@ async def fly(
 
         workflow = FlyWorkflow()
 
-        # Execute workflow
-        result = await workflow.execute(inputs)
+        # Execute workflow and consume events
+        result = None
+        async for event in workflow.execute(inputs):
+            if isinstance(event, FlyWorkflowCompleted):
+                result = event.result
+            # Optionally log progress events here
 
         # Show summary
-        click.echo(f"\n{result.summary}")
-
-        if result.success:
-            raise SystemExit(ExitCode.SUCCESS)
+        if result:
+            click.echo(f"\n{result.summary}")
+            if result.success:
+                raise SystemExit(ExitCode.SUCCESS)
+            else:
+                raise SystemExit(ExitCode.FAILURE)
         else:
+            click.echo("Workflow did not complete")
             raise SystemExit(ExitCode.FAILURE)
 
 
@@ -452,31 +463,31 @@ async def refuel(
                 click.echo(msg)
 
             elif isinstance(event, IssueProcessingCompleted):
-                result = event.result
-                if result.status.value == "fixed":
-                    click.echo(f"  ✓ Fixed: {result.pr_url}")
-                elif result.status.value == "failed":
-                    click.echo(f"  ✗ Failed: {result.error}")
-                elif result.status.value == "skipped":
+                issue_result = event.result
+                if issue_result.status.value == "fixed":
+                    click.echo(f"  ✓ Fixed: {issue_result.pr_url}")
+                elif issue_result.status.value == "failed":
+                    click.echo(f"  ✗ Failed: {issue_result.error}")
+                elif issue_result.status.value == "skipped":
                     click.echo("  ⊘ Skipped")
 
             elif isinstance(event, RefuelCompleted):
-                result = event.result
+                refuel_result = event.result
                 click.echo("\nSummary:")
-                click.echo(f"  Total issues: {result.issues_found}")
-                click.echo(f"  Fixed: {result.issues_fixed}")
-                click.echo(f"  Failed: {result.issues_failed}")
-                click.echo(f"  Skipped: {result.issues_skipped}")
+                click.echo(f"  Total issues: {refuel_result.issues_found}")
+                click.echo(f"  Fixed: {refuel_result.issues_fixed}")
+                click.echo(f"  Failed: {refuel_result.issues_failed}")
+                click.echo(f"  Skipped: {refuel_result.issues_skipped}")
 
-                if result.total_cost_usd > 0:
-                    click.echo(f"  Cost: ${result.total_cost_usd:.4f}")
+                if refuel_result.total_cost_usd > 0:
+                    click.echo(f"  Cost: ${refuel_result.total_cost_usd:.4f}")
 
                 # Determine exit code
                 # Success: no failures (dry-run or all skipped)
-                if result.issues_failed == 0:
+                if refuel_result.issues_failed == 0:
                     raise SystemExit(ExitCode.SUCCESS)
                 # Partial: some fixed, some failed
-                elif result.issues_failed > 0 and result.issues_fixed > 0:
+                elif refuel_result.issues_failed > 0 and refuel_result.issues_fixed > 0:
                     raise SystemExit(ExitCode.PARTIAL)
                 # Failure: only failures, no fixes
                 else:
@@ -517,7 +528,7 @@ async def review(
         maverick review 123 --output markdown
         maverick review 123 --output text
     """
-    cli_ctx: CLIContext = ctx.obj["cli_ctx"]
+    _cli_ctx: CLIContext = ctx.obj["cli_ctx"]  # Reserved for future use
     logger = logging.getLogger(__name__)
 
     with cli_error_handler():
@@ -537,16 +548,11 @@ async def review(
 
         agent = CodeReviewerAgent()
 
-        # Create AgentContext for the review
-        context = AgentContext(
+        # Create ReviewContext for the review
+        context = ReviewContext(
             branch=branch,
+            base_branch=base_branch,
             cwd=Path.cwd(),
-            config=cli_ctx.config,
-            extra={
-                "base_branch": base_branch,
-                "pr_number": pr_number,
-                "fix": fix,
-            },
         )
 
         # Execute the review
@@ -810,7 +816,8 @@ def _get_discovery_result(ctx: click.Context) -> DiscoveryResult:
     if "discovery_result" not in ctx.obj:
         discovery = create_discovery()
         ctx.obj["discovery_result"] = discovery.discover()
-    return ctx.obj["discovery_result"]
+    result: DiscoveryResult = ctx.obj["discovery_result"]
+    return result
 
 
 @cli.group()
@@ -904,7 +911,7 @@ def workflow_list(ctx: click.Context, fmt: str, source: str) -> None:
             )
 
         # Sort by name
-        workflows.sort(key=lambda w: w["name"])
+        workflows.sort(key=lambda w: str(w["name"]))
 
         # Format output
         if fmt == "json":
@@ -915,7 +922,12 @@ def workflow_list(ctx: click.Context, fmt: str, source: str) -> None:
             # Table format with source column
             headers = ["Name", "Version", "Source", "Description"]
             rows = [
-                [wf["name"], wf["version"], wf["source"], wf["description"][:40]]
+                [
+                    str(wf["name"]),
+                    str(wf["version"]),
+                    str(wf["source"]),
+                    str(wf["description"])[:40],
+                ]
                 for wf in workflows
             ]
             click.echo(format_table(headers, rows))
@@ -1481,8 +1493,6 @@ async def workflow_run(
 
     import yaml
 
-    logger = logging.getLogger(__name__)
-
     with cli_error_handler():
         # Determine if name_or_file is a file path or workflow name
         name_path = Path(name_or_file)
@@ -1724,6 +1734,10 @@ def status(ctx: click.Context, fmt: str) -> None:
         if error_msg:
             click.echo(error_msg, err=True)
             raise SystemExit(ExitCode.FAILURE)
+
+        # Ensure we have a valid branch name
+        if not branch:
+            branch = "(unknown)"
 
         # Detect pending tasks from tasks.md
         task_file_found = False

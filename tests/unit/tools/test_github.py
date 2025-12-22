@@ -2277,7 +2277,7 @@ class TestTimeoutAndExceptionHandling:
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
-            mock_run.side_effect = IOError("Unexpected error")
+            mock_run.side_effect = OSError("Unexpected error")
 
             result = await github_get_pr_diff.handler({"pr_number": 123})
 

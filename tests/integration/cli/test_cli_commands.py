@@ -439,9 +439,11 @@ class TestReviewCommandIntegration:
                 # 3. gh pr view (PR validation)
                 # 4. gh pr view --json (get PR details)
                 mock_run.side_effect = [
-                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
-                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
-                    MagicMock(returncode=0, stdout="PR #123"),              # gh pr view
+                    MagicMock(
+                        returncode=0, stdout="git version 2.34.1"
+                    ),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),  # gh --version
+                    MagicMock(returncode=0, stdout="PR #123"),  # gh pr view
                     MagicMock(
                         returncode=0,
                         stdout='{"headRefName": "feature-test", "baseRefName": "main"}',
@@ -499,9 +501,11 @@ class TestReviewCommandIntegration:
                 # 3. gh pr view (PR validation)
                 # 4. gh pr view --json (get PR details)
                 mock_run.side_effect = [
-                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
-                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
-                    MagicMock(returncode=0, stdout="PR #123"),              # gh pr view
+                    MagicMock(
+                        returncode=0, stdout="git version 2.34.1"
+                    ),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),  # gh --version
+                    MagicMock(returncode=0, stdout="PR #123"),  # gh pr view
                     MagicMock(
                         returncode=0,
                         stdout='{"headRefName": "feature-test", "baseRefName": "main"}',
@@ -556,8 +560,10 @@ class TestReviewCommandIntegration:
                 # 2. gh --version (dependency check)
                 # 3. gh pr view (PR validation - fail)
                 mock_run.side_effect = [
-                    MagicMock(returncode=0, stdout="git version 2.34.1"),  # git --version
-                    MagicMock(returncode=0, stdout="gh version 2.0.0"),     # gh --version
+                    MagicMock(
+                        returncode=0, stdout="git version 2.34.1"
+                    ),  # git --version
+                    MagicMock(returncode=0, stdout="gh version 2.0.0"),  # gh --version
                     MagicMock(
                         returncode=1,
                         stderr="PR not found",

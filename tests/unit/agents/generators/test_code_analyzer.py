@@ -61,8 +61,7 @@ class TestCodeAnalyzerGenerate:
             result = await analyzer.generate(
                 {
                     "code": (
-                        "def factorial(n): "
-                        "return 1 if n == 0 else n * factorial(n-1)"
+                        "def factorial(n): return 1 if n == 0 else n * factorial(n-1)"
                     ),
                     "analysis_type": "explain",
                 }
@@ -97,8 +96,7 @@ class TestCodeAnalyzerGenerate:
             result = await analyzer.generate(
                 {
                     "code": (
-                        "def factorial(n): "
-                        "return 1 if n == 0 else n * factorial(n-1)"
+                        "def factorial(n): return 1 if n == 0 else n * factorial(n-1)"
                     ),
                     "analysis_type": "review",
                 }
@@ -130,8 +128,7 @@ class TestCodeAnalyzerGenerate:
             result = await analyzer.generate(
                 {
                     "code": (
-                        "def factorial(n): "
-                        "return 1 if n == 0 else n * factorial(n-1)"
+                        "def factorial(n): return 1 if n == 0 else n * factorial(n-1)"
                     ),
                     "analysis_type": "summarize",
                 }

@@ -20,9 +20,7 @@ Test scenarios:
 from __future__ import annotations
 
 import json
-from typing import Any
 
-import pytest
 import yaml
 
 from maverick.dsl.serialization.schema import (
@@ -40,7 +38,6 @@ from maverick.dsl.serialization.schema import (
 )
 from maverick.dsl.serialization.writer import WorkflowWriter
 from maverick.dsl.types import StepType
-
 
 # =============================================================================
 # Basic to_dict Tests

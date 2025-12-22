@@ -13,11 +13,11 @@ from maverick.library.builtins import create_builtin_library
 
 class WorkflowDSLMixin:
     """Mixin providing common DSL integration utilities for workflow classes.
-    
+
     This mixin extracts shared patterns from FlyWorkflow and RefuelWorkflow:
     - Workflow file loading from built-in library
     - Common DSL execution patterns
-    
+
     Workflows using this mixin should:
     1. Define their own event translation logic (_translate_event)
     2. Define their own result building logic (_build_*_result)
@@ -26,7 +26,7 @@ class WorkflowDSLMixin:
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize DSL execution state.
-        
+
         Note: This should be called via super() in subclass __init__.
         """
         super().__init__(*args, **kwargs)

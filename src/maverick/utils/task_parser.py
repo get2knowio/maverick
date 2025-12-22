@@ -6,8 +6,8 @@ Task objects following the .specify format conventions.
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from pathlib import Path
 
 from maverick.exceptions import TaskParseError

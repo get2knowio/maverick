@@ -7,6 +7,7 @@ including validation error/warning/result dataclasses.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
@@ -21,12 +22,10 @@ from maverick.dsl.serialization.schema import (
     SubWorkflowStepRecord,
     ValidateStepRecord,
     ValidationError,
-    ValidationWarning,
     ValidationResult,
+    ValidationWarning,
 )
 from maverick.dsl.types import StepType
-from pydantic import ValidationError as PydanticValidationError
-
 
 # =============================================================================
 # InputType Tests

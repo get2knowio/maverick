@@ -9,8 +9,8 @@ Tests the workspace.py action module including:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 from subprocess import CalledProcessError
+from unittest.mock import MagicMock, patch
 
 import pytest
 

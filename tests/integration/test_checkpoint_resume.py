@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -131,64 +130,64 @@ async def test_resume_from_checkpoint(
 
     # Create registry and register test actions
     registry = ComponentRegistry()
-    
+
     # Track which actions were called
     calls = []
-    
+
     def tracked_action_1(input: str) -> str:
         calls.append("action_1")
         return f"step1_result_{input}"
-    
+
     def tracked_action_2(input: str) -> str:
         calls.append("action_2")
         return f"step2_result_{input}"
-    
+
     def tracked_action_3(input: str) -> str:
         calls.append("action_3")
         return f"step3_result_{input}"
-    
+
     registry.actions.register("mock_action_1", tracked_action_1)
     registry.actions.register("mock_action_2", tracked_action_2)
     registry.actions.register("mock_action_3", tracked_action_3)
 
     # Create executor with checkpoint store
     checkpoint_store = FileCheckpointStore(base_path=checkpoint_dir)
-    
+
     # First execution: run until checkpoint
     executor1 = WorkflowFileExecutor(
         registry=registry,
         checkpoint_store=checkpoint_store,
     )
-    
+
     inputs = {"value": "test"}
-    async for event in executor1.execute(workflow, inputs=inputs):
+    async for _event in executor1.execute(workflow, inputs=inputs):
         pass
-    
+
     result1 = executor1.get_result()
     assert result1.success
-    
+
     # Verify all actions were called in first execution
     assert calls == ["action_1", "action_2", "action_3"]
-    
+
     # Reset calls tracker
     calls.clear()
-    
+
     # Second execution: resume from checkpoint
     executor2 = WorkflowFileExecutor(
         registry=registry,
         checkpoint_store=checkpoint_store,
     )
-    
-    async for event in executor2.execute(
+
+    async for _event in executor2.execute(
         workflow,
         inputs=inputs,
         resume_from_checkpoint=True,
     ):
         pass
-    
+
     result2 = executor2.get_result()
     assert result2.success
-    
+
     # Verify only actions after checkpoint were called
     # action_1 should NOT be called (before checkpoint)
     # action_2 and action_3 should be called (after checkpoint)
@@ -214,31 +213,31 @@ async def test_resume_with_mismatched_inputs_fails(
 
     # Create executor with checkpoint store
     checkpoint_store = FileCheckpointStore(base_path=checkpoint_dir)
-    
+
     # First execution with inputs "test"
     executor1 = WorkflowFileExecutor(
         registry=registry,
         checkpoint_store=checkpoint_store,
     )
-    
+
     inputs1 = {"value": "test"}
-    async for event in executor1.execute(workflow, inputs=inputs1):
+    async for _event in executor1.execute(workflow, inputs=inputs1):
         pass
-    
+
     result1 = executor1.get_result()
     assert result1.success
-    
+
     # Second execution with different inputs "different"
     executor2 = WorkflowFileExecutor(
         registry=registry,
         checkpoint_store=checkpoint_store,
     )
-    
+
     inputs2 = {"value": "different"}
-    
+
     # Should raise ValueError due to input mismatch
     with pytest.raises(ValueError, match="Cannot resume workflow.*inputs differ"):
-        async for event in executor2.execute(
+        async for _event in executor2.execute(
             workflow,
             inputs=inputs2,
             resume_from_checkpoint=True,
@@ -270,7 +269,7 @@ async def test_checkpoint_persists_to_file(
 
     # Execute workflow
     inputs = {"value": "test"}
-    async for event in executor.execute(workflow, inputs=inputs):
+    async for _event in executor.execute(workflow, inputs=inputs):
         pass
 
     # Verify checkpoint file exists
@@ -279,6 +278,7 @@ async def test_checkpoint_persists_to_file(
 
     # Verify file contains valid JSON
     import json
+
     checkpoint_data = json.loads(checkpoint_file.read_text())
     assert checkpoint_data["checkpoint_id"] == "after_step1"
     assert checkpoint_data["workflow_name"] == "test-checkpoint"

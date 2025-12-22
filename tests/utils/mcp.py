@@ -130,11 +130,10 @@ class MCPToolValidator:
                 errors.append(
                     f"{path or 'root'}: expected boolean, got {type(value).__name__}"
                 )
-        elif schema_type == "null":
-            if value is not None:
-                errors.append(
-                    f"{path or 'root'}: expected null, got {type(value).__name__}"
-                )
+        elif schema_type == "null" and value is not None:
+            errors.append(
+                f"{path or 'root'}: expected null, got {type(value).__name__}"
+            )
 
     def _validate_object(
         self, value: Any, schema: dict[str, Any], path: str, errors: list[str]

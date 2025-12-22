@@ -1,13 +1,12 @@
 """Unit tests for MaverickScreen connectivity monitoring integration."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from textual.app import App
 
 from maverick.tui.screens.base import MaverickScreen
-from maverick.tui.utils.connectivity import ConnectivityStatus
 
 
 class TestMaverickScreenConnectivity:
@@ -114,9 +113,10 @@ class TestMaverickScreenConnectivity:
             screen._handle_connectivity_change(False)
             mock_app.notify.assert_called_once()
             call_args = mock_app.notify.call_args
-            assert "lost" in call_args[0][0].lower() or "lost" in str(
-                call_args[1].get("title", "")
-            ).lower()
+            assert (
+                "lost" in call_args[0][0].lower()
+                or "lost" in str(call_args[1].get("title", "")).lower()
+            )
             assert call_args[1].get("severity") == "warning"
 
             # Reset mock
@@ -126,9 +126,10 @@ class TestMaverickScreenConnectivity:
             screen._handle_connectivity_change(True)
             mock_app.notify.assert_called_once()
             call_args = mock_app.notify.call_args
-            assert "restored" in call_args[0][0].lower() or "restored" in str(
-                call_args[1].get("title", "")
-            ).lower()
+            assert (
+                "restored" in call_args[0][0].lower()
+                or "restored" in str(call_args[1].get("title", "")).lower()
+            )
             assert call_args[1].get("severity") == "information"
 
 
@@ -176,7 +177,9 @@ class TestMaverickScreenConnectivityOverride:
         ):
             # Mock connectivity monitor
             screen._connectivity_monitor.is_connected = MagicMock(return_value=True)
-            screen._connectivity_monitor.check_connectivity = AsyncMock(return_value=False)
+            screen._connectivity_monitor.check_connectivity = AsyncMock(
+                return_value=False
+            )
 
             await screen._check_connectivity()
 

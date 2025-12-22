@@ -199,7 +199,7 @@ class MaverickApp(App[None]):
             # Widget not yet mounted, skip toggle
             pass
 
-    def action_pop_screen(self) -> None:
+    async def action_pop_screen(self) -> None:
         """Go back to previous screen (Escape)."""
         if len(self.screen_stack) > 1:
             self.pop_screen()
@@ -243,7 +243,7 @@ class MaverickApp(App[None]):
             )
         self.pop_screen()
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         """Quit the application (q)."""
         self.exit()
 
@@ -387,7 +387,7 @@ class MaverickApp(App[None]):
         self._current_branch = ""
         try:
             header = self.query_one(Header)
-            header.sub_title = ""
+            header.subtitle = ""  # type: ignore[attr-defined]
         except Exception:
             # Widget not yet mounted, skip clear
             pass
@@ -423,7 +423,7 @@ class MaverickApp(App[None]):
             subtitle += f" - {time_str}"
             try:
                 header = self.query_one(Header)
-                header.sub_title = subtitle
+                header.subtitle = subtitle  # type: ignore[attr-defined]
             except Exception:
                 # Widget not yet mounted, skip update
                 pass

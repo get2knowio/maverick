@@ -126,7 +126,7 @@ steps:
 
         @registry.actions.register("square_value")
         def square_value(n):
-            return n ** 2
+            return n**2
 
         workflow = parse_workflow(yaml_content)
         executor = WorkflowFileExecutor(registry=registry)

@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from maverick.utils.context import (
+    _read_conventions,
+    _read_file_safely,
     build_fix_context,
     build_implementation_context,
     build_issue_context,
@@ -24,8 +26,6 @@ from maverick.utils.context import (
     fit_to_budget,
     truncate_file,
     truncate_line,
-    _read_file_safely,
-    _read_conventions,
 )
 
 if TYPE_CHECKING:

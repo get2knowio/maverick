@@ -824,7 +824,7 @@ class TestExecuteMethod:
                 TaskResult(task_id="T002", status=TaskStatus.COMPLETED),
             ]
 
-            result = await agent.execute(context)
+            await agent.execute(context)
 
             # Should have called parallel batch once for T001 and T002
             assert mock_parallel.call_count == 1

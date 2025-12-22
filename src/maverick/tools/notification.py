@@ -15,13 +15,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiohttp
 from claude_agent_sdk import create_sdk_mcp_server, tool
-
-if TYPE_CHECKING:
-    from mcp import FastMCP
+from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.config import NotificationConfig
 
@@ -193,7 +191,7 @@ async def _send_ntfy_request(
 
 def create_notification_tools_server(
     config: NotificationConfig | None = None,
-) -> FastMCP:
+) -> McpSdkServerConfig:
     """Create MCP server with all notification tools registered (T047).
 
     This factory function creates an MCP server instance with all notification
@@ -468,7 +466,8 @@ def create_notification_tools_server(
 
     # Store tool functions for test access
     # This allows tests to call tools directly while keeping config in closure
-    server["_test_tools"] = {
+    # Type ignore because we're adding to the dict for test purposes
+    server["_test_tools"] = {  # type: ignore[typeddict-unknown-key]
         "send_workflow_update": send_workflow_update,
         "send_notification": send_notification,
     }

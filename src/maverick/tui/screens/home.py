@@ -56,7 +56,7 @@ class HomeScreen(MaverickScreen):
         yield Static("Recent Workflows:", id="recent-label")
         yield WorkflowList(id="workflow-list")
 
-    async def on_mount(self) -> None:
+    def on_mount(self) -> None:
         """Initialize the home screen and load workflow history."""
         self._load_history()
         self.refresh_recent_workflows()

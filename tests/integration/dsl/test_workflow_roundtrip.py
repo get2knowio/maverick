@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 import yaml
 
 from maverick.dsl.serialization.parser import parse_workflow
@@ -464,7 +463,6 @@ steps:
 
         # Parse JSON and create WorkflowFile from dict
         json_data = json.loads(json_str)
-        from maverick.dsl.serialization.schema import WorkflowFile
 
         reparsed = WorkflowFile(**json_data)
 
@@ -500,7 +498,6 @@ steps:
 
         # Parse JSON
         json_data = json.loads(json_str)
-        from maverick.dsl.serialization.schema import WorkflowFile
 
         reparsed = WorkflowFile(**json_data)
 

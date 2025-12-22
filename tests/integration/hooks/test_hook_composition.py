@@ -300,8 +300,7 @@ class TestLoggingHooksIntegration:
                 "tool_name": "Bash",
                 "tool_input": {
                     "command": (
-                        "curl -H 'Authorization: Bearer "
-                        "sk-1234567890abcdefghijklmnop'"
+                        "curl -H 'Authorization: Bearer sk-1234567890abcdefghijklmnop'"
                     )
                 },
                 "output": "success",

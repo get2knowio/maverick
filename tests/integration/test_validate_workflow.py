@@ -10,16 +10,13 @@ This module validates end-to-end execution of the validate workflow:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from subprocess import CalledProcessError
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from maverick.dsl.events import (
-    StepCompleted,
     StepStarted,
     WorkflowCompleted,
     WorkflowStarted,
@@ -211,7 +208,6 @@ steps:
         registry.workflows.register("validate-and-fix", mock_vaf_workflow)
 
         # Mock validate step to fail
-        original_execute_validate = WorkflowFileExecutor._execute_validate_step
 
         async def mock_execute_validate(self, step, resolved_inputs, context):
             """Mock validation that fails."""

@@ -12,7 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 # =============================================================================
 # Enums (T009)
 # =============================================================================
@@ -306,7 +305,7 @@ class TaskFile(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def parse(cls, path: Path, content: str | None = None) -> "TaskFile":
+    def parse(cls, path: Path, content: str | None = None) -> TaskFile:
         """Parse a tasks.md file into a TaskFile object.
 
         Args:
@@ -332,7 +331,7 @@ class TaskFile(BaseModel):
         return cls(path=path, tasks=tasks, phases=phases)
 
     @classmethod
-    async def parse_async(cls, path: Path, content: str | None = None) -> "TaskFile":
+    async def parse_async(cls, path: Path, content: str | None = None) -> TaskFile:
         """Parse a tasks.md file asynchronously.
 
         Args:
@@ -405,7 +404,7 @@ class TaskFile(BaseModel):
                 return task
         return None
 
-    def mark_task_status(self, task_id: str, status: TaskStatus) -> "TaskFile":
+    def mark_task_status(self, task_id: str, status: TaskStatus) -> TaskFile:
         """Create a new TaskFile with one task's status updated.
 
         Since tasks are frozen, this creates new Task instances.
@@ -437,7 +436,7 @@ class TaskFile(BaseModel):
 
         # Update phases dict
         new_phases: dict[str, list[Task]] = {}
-        for phase_name, phase_tasks in self.phases.items():
+        for phase_name, _phase_tasks in self.phases.items():
             new_phases[phase_name] = [t for t in new_tasks if t.phase == phase_name]
 
         return TaskFile(path=self.path, tasks=new_tasks, phases=new_phases)
@@ -579,7 +578,7 @@ class ImplementerContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
-    def validate_task_source(self) -> "ImplementerContext":
+    def validate_task_source(self) -> ImplementerContext:
         """Ensure exactly one task source is provided."""
         if self.task_file and self.task_description:
             raise ValueError("Provide task_file OR task_description, not both")

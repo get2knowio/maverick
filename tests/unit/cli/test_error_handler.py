@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from click.testing import CliRunner
 
 from maverick.cli.context import ExitCode
 from maverick.exceptions import AgentError, GitError, MaverickError
@@ -12,9 +11,8 @@ from maverick.main import cli_error_handler
 
 def test_cli_error_handler_keyboard_interrupt(capfd):
     """Test cli_error_handler handles KeyboardInterrupt correctly."""
-    with pytest.raises(SystemExit) as exc_info:
-        with cli_error_handler():
-            raise KeyboardInterrupt()
+    with pytest.raises(SystemExit) as exc_info, cli_error_handler():
+        raise KeyboardInterrupt()
 
     # Should exit with INTERRUPTED code (130)
     assert exc_info.value.code == ExitCode.INTERRUPTED
@@ -26,9 +24,8 @@ def test_cli_error_handler_keyboard_interrupt(capfd):
 
 def test_cli_error_handler_git_error(capfd):
     """Test cli_error_handler handles GitError correctly."""
-    with pytest.raises(SystemExit) as exc_info:
-        with cli_error_handler():
-            raise GitError("Failed to commit", operation="commit")
+    with pytest.raises(SystemExit) as exc_info, cli_error_handler():
+        raise GitError("Failed to commit", operation="commit")
 
     # Should exit with FAILURE code (1)
     assert exc_info.value.code == ExitCode.FAILURE
@@ -41,9 +38,8 @@ def test_cli_error_handler_git_error(capfd):
 
 def test_cli_error_handler_agent_error(capfd):
     """Test cli_error_handler handles AgentError correctly."""
-    with pytest.raises(SystemExit) as exc_info:
-        with cli_error_handler():
-            raise AgentError("Agent failed to execute")
+    with pytest.raises(SystemExit) as exc_info, cli_error_handler():
+        raise AgentError("Agent failed to execute")
 
     # Should exit with FAILURE code (1)
     assert exc_info.value.code == ExitCode.FAILURE
@@ -55,9 +51,8 @@ def test_cli_error_handler_agent_error(capfd):
 
 def test_cli_error_handler_maverick_error(capfd):
     """Test cli_error_handler handles MaverickError correctly."""
-    with pytest.raises(SystemExit) as exc_info:
-        with cli_error_handler():
-            raise MaverickError("Something went wrong")
+    with pytest.raises(SystemExit) as exc_info, cli_error_handler():
+        raise MaverickError("Something went wrong")
 
     # Should exit with FAILURE code (1)
     assert exc_info.value.code == ExitCode.FAILURE
@@ -69,9 +64,8 @@ def test_cli_error_handler_maverick_error(capfd):
 
 def test_cli_error_handler_generic_exception(capfd):
     """Test cli_error_handler handles generic exceptions correctly."""
-    with pytest.raises(SystemExit) as exc_info:
-        with cli_error_handler():
-            raise ValueError("Unexpected error")
+    with pytest.raises(SystemExit) as exc_info, cli_error_handler():
+        raise ValueError("Unexpected error")
 
     # Should exit with FAILURE code (1)
     assert exc_info.value.code == ExitCode.FAILURE

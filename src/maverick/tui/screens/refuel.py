@@ -565,4 +565,5 @@ class RefuelScreen(MaverickScreen):
             # Resume the workflow
             if self.workflow_paused:
                 self.workflow_paused = False
-                # In a future implementation, this would signal the workflow worker to resume
+                # In a future implementation, this would signal the workflow
+                # worker to resume

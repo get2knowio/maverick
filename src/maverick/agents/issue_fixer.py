@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.agents.utils import extract_all_text
-from maverick.exceptions import AgentError, GitHubError
+from maverick.exceptions import GitHubError
 from maverick.models.implementation import ChangeType, FileChange, ValidationResult
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
@@ -268,7 +268,7 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         """Build the prompt for fixing an issue."""
         title = issue_data.get("title", "")
         body = issue_data.get("body", "")
-        labels = [l.get("name", "") for l in issue_data.get("labels", [])]
+        labels = [label.get("name", "") for label in issue_data.get("labels", [])]
 
         return f"""Fix the following GitHub issue:
 
@@ -310,8 +310,8 @@ After fixing, provide:
         # Run tests to verify fix
         # (simplified - full verification in enhancement phase)
         try:
-            from maverick.utils.validation import run_validation_step
             from maverick.models.implementation import ValidationStep
+            from maverick.utils.validation import run_validation_step
 
             result = await run_validation_step(ValidationStep.TEST, context.cwd)
             return result.success

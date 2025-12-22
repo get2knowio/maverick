@@ -69,7 +69,7 @@ steps:
         )
 
         # Report performance metrics
-        print(f"\n=== Discovery Performance Metrics ===")
+        print("\n=== Discovery Performance Metrics ===")
         print(f"Workflows discovered: {len(result.workflows)}")
         print(f"Discovery time: {result.discovery_time_ms:.2f}ms")
         print(f"Average per workflow: {result.discovery_time_ms / 100:.2f}ms")
@@ -157,7 +157,7 @@ steps:
         )
 
         # Report performance metrics
-        print(f"\n=== Discovery Performance Metrics (Mixed) ===")
+        print("\n=== Discovery Performance Metrics (Mixed) ===")
         print(f"Workflows discovered: {len(result.workflows)}")
         print(f"Fragments discovered: {len(result.fragments)}")
         print(f"Total files: {len(result.workflows) + len(result.fragments)}")
@@ -220,11 +220,11 @@ steps:
         )
 
         # Report performance metrics
-        print(f"\n=== Discovery Performance Metrics (Nested) ===")
+        print("\n=== Discovery Performance Metrics (Nested) ===")
         print(f"Workflows discovered: {len(result.workflows)}")
         print(f"Discovery time: {result.discovery_time_ms:.2f}ms")
         print(f"Average per workflow: {result.discovery_time_ms / 100:.2f}ms")
-        print(f"Directory depth: 2 levels")
+        print("Directory depth: 2 levels")
 
     @pytest.mark.benchmark
     def test_discovery_performance_benchmark_200_workflows(
@@ -274,7 +274,7 @@ steps:
         )
 
         # Report performance metrics (no strict requirement for benchmark)
-        print(f"\n=== Discovery Performance Benchmark (200 workflows) ===")
+        print("\n=== Discovery Performance Benchmark (200 workflows) ===")
         print(f"Workflows discovered: {len(result.workflows)}")
         print(f"Discovery time: {result.discovery_time_ms:.2f}ms")
         print(f"Average per workflow: {result.discovery_time_ms / 200:.2f}ms")
@@ -282,7 +282,7 @@ steps:
         # Check if scaling is roughly linear
         # If time per workflow is similar to 100-workflow test, scaling is good
         avg_time_per_workflow = result.discovery_time_ms / 200
-        print(f"\nScaling analysis:")
+        print("\nScaling analysis:")
         print(f"  Average time per workflow: {avg_time_per_workflow:.3f}ms")
         if avg_time_per_workflow > 5.0:
             print("  WARNING: Performance may degrade with large numbers of workflows")

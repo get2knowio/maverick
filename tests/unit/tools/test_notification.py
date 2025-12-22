@@ -72,13 +72,13 @@ class MockClientSession:
         self.response = response
         self.post_calls: list[tuple[Any, ...]] = []
 
-    async def __aenter__(self) -> "MockClientSession":
+    async def __aenter__(self) -> MockClientSession:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         pass
 
-    def post(self, *args: Any, **kwargs: Any) -> "MockResponse":
+    def post(self, *args: Any, **kwargs: Any) -> MockResponse:
         self.post_calls.append((args, kwargs))
         return MockResponse(self.response)
 
@@ -253,7 +253,7 @@ class TestSendNtfyRequest:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 pass
 
-            async def __aenter__(self) -> "RetryMockClientSession":
+            async def __aenter__(self) -> RetryMockClientSession:
                 return self
 
             async def __aexit__(self, *args: Any) -> None:
@@ -267,30 +267,33 @@ class TestSendNtfyRequest:
                 return MockResponse(success_response)
 
         # Mock asyncio.sleep to avoid delays in tests
-        with patch(
-            "maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession
-        ):
-            with patch(
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                RetryMockClientSession,
+            ),
+            patch(
                 "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
-            ) as mock_sleep:
-                success, message, notification_id = await _send_ntfy_request(
-                    config=mock_config,
-                    message="Test retry",
-                    max_retries=2,
-                )
+            ) as mock_sleep,
+        ):
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test retry",
+                max_retries=2,
+            )
 
-                # Verify result
-                assert success is True
-                assert message == "Notification sent"
-                assert notification_id == "retry-success-id"
+            # Verify result
+            assert success is True
+            assert message == "Notification sent"
+            assert notification_id == "retry-success-id"
 
-                # Verify retries happened (3 total attempts)
-                assert call_count == 3
+            # Verify retries happened (3 total attempts)
+            assert call_count == 3
 
-                # Verify exponential backoff sleep calls
-                assert mock_sleep.call_count == 2  # Sleep between attempts
-                mock_sleep.assert_any_call(0.5)  # First retry delay
-                mock_sleep.assert_any_call(1.0)  # Second retry delay
+            # Verify exponential backoff sleep calls
+            assert mock_sleep.call_count == 2  # Sleep between attempts
+            mock_sleep.assert_any_call(0.5)  # First retry delay
+            mock_sleep.assert_any_call(1.0)  # Second retry delay
 
     @pytest.mark.asyncio
     async def test_send_request_graceful_degradation(
@@ -306,7 +309,7 @@ class TestSendNtfyRequest:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 pass
 
-            async def __aenter__(self) -> "FailingMockClientSession":
+            async def __aenter__(self) -> FailingMockClientSession:
                 return self
 
             async def __aexit__(self, *args: Any) -> None:
@@ -318,26 +321,26 @@ class TestSendNtfyRequest:
                 raise aiohttp.ClientError("Server unreachable")
 
         # Mock asyncio.sleep
-        with patch(
-            "maverick.tools.notification.aiohttp.ClientSession",
-            FailingMockClientSession,
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                FailingMockClientSession,
+            ),
+            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
         ):
-            with patch(
-                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
-            ):
-                success, message, notification_id = await _send_ntfy_request(
-                    config=mock_config,
-                    message="Test degradation",
-                    max_retries=2,
-                )
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test degradation",
+                max_retries=2,
+            )
 
-                # Verify graceful degradation
-                assert success is True  # Still returns success
-                assert message == "Notification not delivered"
-                assert notification_id is None
+            # Verify graceful degradation
+            assert success is True  # Still returns success
+            assert message == "Notification not delivered"
+            assert notification_id is None
 
-                # Verify all retries were attempted (3 total: initial + 2 retries)
-                assert call_count == 3
+            # Verify all retries were attempted (3 total: initial + 2 retries)
+            assert call_count == 3
 
     @pytest.mark.asyncio
     async def test_send_request_http_error(
@@ -353,26 +356,26 @@ class TestSendNtfyRequest:
         mock_session = MockClientSession(error_response)
 
         # Mock asyncio.sleep
-        with patch(
-            "maverick.tools.notification.aiohttp.ClientSession",
-            return_value=mock_session,
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                return_value=mock_session,
+            ),
+            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
         ):
-            with patch(
-                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
-            ):
-                success, message, notification_id = await _send_ntfy_request(
-                    config=mock_config,
-                    message="Test HTTP error",
-                    max_retries=2,
-                )
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test HTTP error",
+                max_retries=2,
+            )
 
-                # Verify graceful degradation on HTTP errors
-                assert success is True
-                assert message == "Notification not delivered"
-                assert notification_id is None
+            # Verify graceful degradation on HTTP errors
+            assert success is True
+            assert message == "Notification not delivered"
+            assert notification_id is None
 
-                # Verify all retries were attempted
-                assert len(mock_session.post_calls) == 3
+            # Verify all retries were attempted
+            assert len(mock_session.post_calls) == 3
 
 
 # =============================================================================
@@ -397,7 +400,7 @@ class TestSendWorkflowUpdate:
             return_value=mock_aiohttp_session,
         ):
             # Test each stage mapping
-            for stage, expected_config in STAGE_MAPPING.items():
+            for stage, _expected_config in STAGE_MAPPING.items():
                 result = await send_workflow_update.handler(
                     {
                         "stage": stage,
@@ -547,7 +550,7 @@ class TestSendWorkflowUpdate:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 pass
 
-            async def __aenter__(self) -> "RetryMockClientSession":
+            async def __aenter__(self) -> RetryMockClientSession:
                 return self
 
             async def __aexit__(self, *args: Any) -> None:
@@ -560,24 +563,25 @@ class TestSendWorkflowUpdate:
                     raise aiohttp.ClientError("Temporary error")
                 return MockResponse(success_response)
 
-        with patch(
-            "maverick.tools.notification.aiohttp.ClientSession", RetryMockClientSession
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                RetryMockClientSession,
+            ),
+            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
         ):
-            with patch(
-                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
-            ):
-                result = await send_workflow_update.handler(
-                    {
-                        "stage": "start",
-                        "message": "Test retry",
-                        "workflow_name": "TestWorkflow",
-                    }
-                )
+            result = await send_workflow_update.handler(
+                {
+                    "stage": "start",
+                    "message": "Test retry",
+                    "workflow_name": "TestWorkflow",
+                }
+            )
 
-                # Verify successful after retry
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True
-                assert response_data["notification_id"] == "retry-id"
+            # Verify successful after retry
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
+            assert response_data["notification_id"] == "retry-id"
 
     @pytest.mark.asyncio
     async def test_send_workflow_update_default_workflow_name(
@@ -963,7 +967,7 @@ class TestConstants:
         assert set(STAGE_MAPPING.keys()) == expected_stages
 
         # Verify each stage has required fields
-        for stage, config in STAGE_MAPPING.items():
+        for _stage, config in STAGE_MAPPING.items():
             assert "priority" in config
             assert "tags" in config
             assert config["priority"] in NTFY_PRIORITIES

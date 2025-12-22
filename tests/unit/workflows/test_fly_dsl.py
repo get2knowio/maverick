@@ -9,20 +9,25 @@ Tests the FlyWorkflow class with DSL execution enabled:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from maverick.dsl.events import (
     StepCompleted as DslStepCompleted,
+)
+from maverick.dsl.events import (
     StepStarted as DslStepStarted,
+)
+from maverick.dsl.events import (
     WorkflowCompleted as DslWorkflowCompleted,
+)
+from maverick.dsl.events import (
     WorkflowStarted as DslWorkflowStarted,
 )
 from maverick.dsl.results import StepResult, WorkflowResult
 from maverick.dsl.types import StepType
 from maverick.workflows.fly import (
-    FlyConfig,
     FlyInputs,
     FlyResult,
     FlyStageCompleted,

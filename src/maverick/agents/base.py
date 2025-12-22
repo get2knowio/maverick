@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 if TYPE_CHECKING:
     from claude_agent_sdk import Message
 
-    from maverick.agents.context import AgentContext
-    from maverick.agents.result import AgentResult, AgentUsage
+    from maverick.agents.result import AgentUsage
 
 # =============================================================================
 # Type Variables for Generic MaverickAgent

@@ -785,7 +785,9 @@ class TestIterationContextEvaluation:
             step_outputs={},
             iteration_context={"item": "apple", "index": 1},
         )
-        result = evaluator.evaluate_string("Processing item ${{ item }} at index ${{ index }}")
+        result = evaluator.evaluate_string(
+            "Processing item ${{ item }} at index ${{ index }}"
+        )
         assert result == "Processing item apple at index 1"
 
     def test_item_with_inputs_and_steps(self) -> None:
@@ -795,6 +797,7 @@ class TestIterationContextEvaluation:
             step_outputs={"prev": {"output": "processed"}},
             iteration_context={"item": "apple"},
         )
-        result = evaluator.evaluate_string("${{ inputs.prefix }} ${{ item }} (${{ steps.prev.output }})")
+        result = evaluator.evaluate_string(
+            "${{ inputs.prefix }} ${{ item }} (${{ steps.prev.output }})"
+        )
         assert result == "Item: apple (processed)"
-

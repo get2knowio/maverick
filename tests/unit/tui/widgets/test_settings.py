@@ -77,7 +77,7 @@ class TestSettingField:
                 yield SettingField(value=value)
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             field = app.query_one(SettingField)
 
             # Verify field properties
@@ -106,7 +106,7 @@ class TestSettingField:
                 yield SettingField(value=value)
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify Switch is used for boolean
             switch = app.query_one(Switch)
             assert switch.value is True
@@ -222,7 +222,7 @@ class TestSettingField:
 
         app = TestApp()
         async with app.run_test() as pilot:
-            field = app.query_one(SettingField)
+            app.query_one(SettingField)
             input_widget = app.query_one(Input)
 
             # Change value
@@ -251,7 +251,7 @@ class TestSettingsSection:
                 yield SettingsSection(name="GitHub")
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             section = app.query_one(SettingsSection)
 
             # Verify section properties
@@ -302,7 +302,7 @@ class TestSettingsSection:
 
         app = TestApp()
         async with app.run_test() as pilot:
-            section = app.query_one(SettingsSection)
+            app.query_one(SettingsSection)
             content = app.query_one("#section-content")
 
             # Initially empty
@@ -338,7 +338,7 @@ class TestSettingsSection:
         app = TestApp()
         async with app.run_test() as pilot:
             section = app.query_one(SettingsSection)
-            header = app.query_one(".section-header", Static)
+            app.query_one(".section-header", Static)
 
             # Expanded shows down arrow
             assert section.expanded is True
@@ -370,7 +370,7 @@ class TestSettingsWidgetsIntegration:
 
         app = TestApp()
         async with app.run_test() as pilot:
-            section = app.query_one(SettingsSection)
+            app.query_one(SettingsSection)
             content = app.query_one("#section-content")
 
             # Add multiple fields
@@ -451,7 +451,7 @@ class TestSettingsWidgetsIntegration:
                 )
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify string field has Input
             fields = app.query(SettingField)
             assert len(fields) == 3

@@ -367,7 +367,7 @@ class TestConfigScreenSaveOption:
             }
         ]
 
-        with patch.object(screen, "_render_options") as mock_render:
+        with patch.object(screen, "_render_options"):
             screen.save_option("nonexistent_key", "value")
 
         # Should exit edit mode

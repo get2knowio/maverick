@@ -1,8 +1,9 @@
 """Unit tests for connectivity monitoring utilities."""
+
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -104,7 +105,8 @@ class TestConnectivityMonitor:
         monitor = ConnectivityMonitor()
 
         with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("gh not found")
+            "asyncio.create_subprocess_exec",
+            side_effect=FileNotFoundError("gh not found"),
         ):
             result = await monitor.check_connectivity()
 

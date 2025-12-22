@@ -89,7 +89,7 @@ class TestCodeRabbitRunner:
             runner._command_runner.run = AsyncMock(return_value=mock_result)
 
             files = [Path("src/file1.py"), Path("src/file2.py")]
-            result = await runner.run_review(files=files)
+            await runner.run_review(files=files)
 
             # Verify files were passed to command
             call_args = runner._command_runner.run.call_args[0][0]

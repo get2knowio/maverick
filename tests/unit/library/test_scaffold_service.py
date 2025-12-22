@@ -21,7 +21,6 @@ from maverick.library import (
     create_scaffold_service,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -430,7 +429,6 @@ def test_scaffold_full_template_has_all_expected_steps(
     step_names = {step["name"] for step in steps}
 
     # Expected steps from TemplateInfo
-    expected = {"setup", "implement", "validate", "review", "create_pr"}
     # review might be in a branch step, so let's just check for main steps
     main_steps = {"setup", "implement", "validate", "create_pr"}
     assert main_steps.issubset(step_names)

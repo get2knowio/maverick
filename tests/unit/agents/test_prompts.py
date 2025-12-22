@@ -9,8 +9,6 @@ See specs/021-agent-tool-permissions/research.md for prompt patterns.
 
 from __future__ import annotations
 
-import pytest
-
 from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.generators.base import GeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
@@ -221,12 +219,8 @@ class TestPromptsDoNotMentionBashExecution:
         prompt = agent.system_prompt.lower()
 
         # Should NOT instruct to run validation commands
-        assert (
-            "run validation" not in prompt or "orchestration" in prompt
-        )
-        assert (
-            "execute tests" not in prompt or "orchestration" in prompt
-        )
+        assert "run validation" not in prompt or "orchestration" in prompt
+        assert "execute tests" not in prompt or "orchestration" in prompt
 
 
 class TestPromptsExplainConstrainedRole:

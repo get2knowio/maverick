@@ -16,7 +16,6 @@ from maverick.dsl.visualization import (
 )
 from maverick.dsl.visualization.mermaid import MermaidGenerator
 
-
 # =============================================================================
 # Test MermaidGenerator
 # =============================================================================

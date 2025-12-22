@@ -8,13 +8,12 @@ Tests the generator agent base class functionality including:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from maverick.agents.generators.base import GeneratorAgent
 from maverick.exceptions import GeneratorError
-
 
 # =============================================================================
 # Test Implementation of GeneratorAgent

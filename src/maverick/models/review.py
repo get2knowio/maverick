@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # =============================================================================
 # Enums
@@ -207,7 +207,7 @@ class ReviewResult(BaseModel):
         default=False, description="True if diff exceeded size limits and was truncated"
     )
     output: str = Field(default="", description="Raw agent output for debugging")
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional context (branch, timestamp, etc.)"
     )
     errors: list[str] = Field(

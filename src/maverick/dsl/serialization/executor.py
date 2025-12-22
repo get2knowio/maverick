@@ -143,7 +143,6 @@ class WorkflowFileExecutor:
             ```python
             async for event in executor.execute(workflow, {"dry_run": False}):
                 print(f"Event: {event}")
-            
             # Resume from checkpoint
             async for event in executor.execute(
                 workflow, {"dry_run": False}, resume_from_checkpoint=True
@@ -159,23 +158,26 @@ class WorkflowFileExecutor:
 
         if resume_from_checkpoint:
             checkpoint_data = await self._checkpoint_store.load_latest(workflow.name)
-            
+
             if checkpoint_data is not None:
                 # Validate inputs match checkpoint (FR-025b)
                 current_inputs_hash = compute_inputs_hash(inputs)
                 if current_inputs_hash != checkpoint_data.inputs_hash:
                     raise ValueError(
                         f"Cannot resume workflow '{workflow.name}' from checkpoint "
-                        f"'{checkpoint_data.checkpoint_id}': Current workflow inputs differ "
-                        f"from checkpoint inputs. To resume, use the same inputs as the "
-                        f"original run. Checkpoint was saved at {checkpoint_data.saved_at}. "
-                        f"Use `maverick workflow run {workflow.name} --help` to see required inputs."
+                        f"'{checkpoint_data.checkpoint_id}': Current workflow "
+                        f"inputs differ from checkpoint inputs. To resume, use "
+                        f"the same inputs as the original run. Checkpoint was "
+                        f"saved at {checkpoint_data.saved_at}. "
+                        f"Use `maverick workflow run {workflow.name} --help` "
+                        f"to see required inputs."
                     )
-                
+
                 resume_after_step = checkpoint_data.checkpoint_id
                 logger.info(
                     f"Resuming workflow '{workflow.name}' from checkpoint "
-                    f"'{checkpoint_data.checkpoint_id}' (saved at {checkpoint_data.saved_at})"
+                    f"'{checkpoint_data.checkpoint_id}' "
+                    f"(saved at {checkpoint_data.saved_at})"
                 )
             else:
                 logger.info(
@@ -190,7 +192,7 @@ class WorkflowFileExecutor:
         #   "steps": {"step_name": {"output": ...}},
         #   "iteration": {"item": ..., "index": ...}  # Only in for_each loops
         # }
-        context = {
+        context: dict[str, Any] = {
             "workflow_name": workflow.name,
             "inputs": inputs,
             "steps": {},  # Will hold step outputs: steps.<name>.output
@@ -226,14 +228,15 @@ class WorkflowFileExecutor:
                 if isinstance(step_record, CheckpointStepRecord):
                     checkpoint_id = step_record.checkpoint_id or step_record.name
                     if checkpoint_id == resume_after_step:
-                        # We've reached the resume checkpoint, start executing after this
+                        # We've reached the resume checkpoint,
+                        # start executing after this
                         past_resume_point = True
                         logger.info(
                             f"Reached resume checkpoint '{checkpoint_id}', "
                             f"continuing execution from next step"
                         )
                         continue  # Skip the checkpoint step itself
-                
+
                 # Skip all steps before resume point
                 logger.debug(
                     f"Skipping step '{step_record.name}' (before resume checkpoint)"
@@ -877,6 +880,8 @@ class WorkflowFileExecutor:
         )
 
         # Parse and evaluate the for_each expression
+        if step.for_each is None:
+            raise ValueError(f"Step {step.name} has no for_each expression")
         expr = parse_expression(step.for_each)
         items = evaluator.evaluate(expr)
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from maverick.runners.parsers.eslint import ESLintJSONParser
 
 

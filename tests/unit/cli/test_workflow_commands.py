@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from maverick.main import cli
-
 
 # =============================================================================
 # Test Fixtures
@@ -664,10 +662,7 @@ class TestWorkflowRun:
         # Should show workflow name
         assert "test-workflow" in result.output
         # Should show it attempted execution
-        assert (
-            "Executing workflow" in result.output
-            or "process" in result.output
-        )
+        assert "Executing workflow" in result.output or "process" in result.output
 
     def test_run_workflow_from_file(
         self,

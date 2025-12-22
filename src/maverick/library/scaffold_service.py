@@ -12,7 +12,6 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, TemplateError, TemplateNotFound
 
 from maverick.library.scaffold import (
-    InvalidNameError,
     OutputExistsError,
     ScaffoldRequest,
     ScaffoldResult,

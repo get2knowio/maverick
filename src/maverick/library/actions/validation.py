@@ -225,10 +225,13 @@ async def generate_validation_report(
     elif isinstance(initial_result, dict) and initial_result.get("stages"):
         # Extract stage names from initial_result
         raw_stages = initial_result.get("stages", [])
-        stages = [
-            s.get("stage", s.get("name", "")) for s in raw_stages if isinstance(s, dict)
-        ]
-        stages = [s for s in stages if s]  # Filter empty names
+        extracted_stages: list[str] = []
+        for s in raw_stages:
+            if isinstance(s, dict):
+                stage_name = s.get("stage") or s.get("name") or ""
+                if isinstance(stage_name, str):
+                    extracted_stages.append(stage_name)
+        stages = [s for s in extracted_stages if s]  # Filter empty names
 
     # Fall back to default stages if still empty
     if not stages:

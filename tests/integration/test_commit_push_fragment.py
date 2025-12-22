@@ -451,7 +451,7 @@ class TestCommitAndPushFragment:
             events.append(event)
 
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
-        step_names = [e.step_name for e in step_started_events]
+        [e.step_name for e in step_started_events]
 
         # With empty message, the condition "not inputs.message" should be true
         # So generate_message should run

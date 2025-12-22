@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-import stat
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 

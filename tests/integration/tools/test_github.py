@@ -9,6 +9,7 @@ NOTE: These tests require:
 - Authentication via `gh auth login`
 - Being inside a git repository with GitHub remote
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,13 +25,23 @@ from maverick.tools.github import create_github_tools_server
 
 # Performance thresholds (configurable via environment variables)
 # More generous defaults to account for CI/CD environments with variable performance
-PERF_THRESHOLD_BASIC = float(os.getenv("MAVERICK_PERF_THRESHOLD_BASIC", "15.0"))  # Basic tool ops
-PERF_THRESHOLD_SERVER_CREATION = float(os.getenv("MAVERICK_PERF_THRESHOLD_SERVER_CREATION", "10.0"))  # Server setup
-PERF_THRESHOLD_SEQUENTIAL = float(os.getenv("MAVERICK_PERF_THRESHOLD_SEQUENTIAL", "25.0"))  # 3 sequential calls
-PERF_THRESHOLD_PARALLEL = float(os.getenv("MAVERICK_PERF_THRESHOLD_PARALLEL", "15.0"))  # 3 parallel calls
+PERF_THRESHOLD_BASIC = float(
+    os.getenv("MAVERICK_PERF_THRESHOLD_BASIC", "15.0")
+)  # Basic tool ops
+PERF_THRESHOLD_SERVER_CREATION = float(
+    os.getenv("MAVERICK_PERF_THRESHOLD_SERVER_CREATION", "10.0")
+)  # Server setup
+PERF_THRESHOLD_SEQUENTIAL = float(
+    os.getenv("MAVERICK_PERF_THRESHOLD_SEQUENTIAL", "25.0")
+)  # 3 sequential calls
+PERF_THRESHOLD_PARALLEL = float(
+    os.getenv("MAVERICK_PERF_THRESHOLD_PARALLEL", "15.0")
+)  # 3 parallel calls
 
 # Skip performance tests in CI if desired
-SKIP_PERF_TESTS_IN_CI = os.getenv("MAVERICK_SKIP_PERF_TESTS_IN_CI", "false").lower() == "true"
+SKIP_PERF_TESTS_IN_CI = (
+    os.getenv("MAVERICK_SKIP_PERF_TESTS_IN_CI", "false").lower() == "true"
+)
 
 
 def is_gh_authenticated() -> bool:
@@ -71,14 +82,14 @@ class TestGitHubToolsServerCreation:
         # Verify server config was created
         assert server_config is not None
         assert isinstance(server_config, dict)
-        
+
         # Verify config structure (McpSdkServerConfig)
         assert "type" in server_config
         assert server_config["type"] == "sdk"
         assert "name" in server_config
         assert server_config["name"] == "github-tools"
         assert "instance" in server_config
-        
+
         # The server instance is the actual MCP server
         # We can't easily test its internal tools list without running it
         # But we know it was created with 7 tools based on the implementation
@@ -107,20 +118,20 @@ class TestGitHubToolsServerCreation:
         - Each tool has expected parameters
         - Parameters have correct types
         - Required vs optional parameters are correctly marked
-        
+
         Note: This test directly imports and checks the tool functions
         rather than trying to extract them from the server instance.
         """
         from maverick.tools.github import (
-            github_create_pr,
-            github_list_issues,
-            github_get_issue,
-            github_get_pr_diff,
-            github_pr_status,
             github_add_labels,
             github_close_issue,
+            github_create_pr,
+            github_get_issue,
+            github_get_pr_diff,
+            github_list_issues,
+            github_pr_status,
         )
-        
+
         # Verify github_create_pr parameters
         assert github_create_pr.name == "github_create_pr"
         assert "title" in github_create_pr.input_schema
@@ -181,15 +192,19 @@ class TestGitHubToolsPerformance:
         start = time.perf_counter()
 
         # Call the tool with minimal parameters
-        result = await github_list_issues.handler({
-            "state": "open",
-            "limit": 10,  # Small limit for faster response
-        })
+        result = await github_list_issues.handler(
+            {
+                "state": "open",
+                "limit": 10,  # Small limit for faster response
+            }
+        )
 
         elapsed = time.perf_counter() - start
 
         # Verify performance requirement (SC-002: configurable threshold for CI/CD)
-        assert elapsed < PERF_THRESHOLD_BASIC, f"Tool execution took {elapsed:.2f}s, expected < {PERF_THRESHOLD_BASIC}s"
+        assert elapsed < PERF_THRESHOLD_BASIC, (
+            f"Tool execution took {elapsed:.2f}s, expected < {PERF_THRESHOLD_BASIC}s"
+        )
 
         # Verify response is valid
         assert result is not None
@@ -229,7 +244,9 @@ class TestGitHubToolsPerformance:
         elapsed = time.perf_counter() - start
 
         # Verify performance requirement (SC-002: configurable threshold for CI/CD)
-        assert elapsed < PERF_THRESHOLD_BASIC, f"Tool execution took {elapsed:.2f}s, expected < {PERF_THRESHOLD_BASIC}s"
+        assert elapsed < PERF_THRESHOLD_BASIC, (
+            f"Tool execution took {elapsed:.2f}s, expected < {PERF_THRESHOLD_BASIC}s"
+        )
 
         # Verify response is valid
         assert result is not None
@@ -251,7 +268,9 @@ class TestGitHubToolsPerformance:
 
         # Server creation should be fast (configurable threshold for CI/CD)
         # Note: Verification involves subprocess calls so 10s is reasonable
-        assert elapsed < PERF_THRESHOLD_SERVER_CREATION, f"Server creation took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SERVER_CREATION}s"
+        assert elapsed < PERF_THRESHOLD_SERVER_CREATION, (
+            f"Server creation took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SERVER_CREATION}s"
+        )
 
         # Verify server config is valid
         assert server_config is not None
@@ -271,16 +290,20 @@ class TestGitHubToolsPerformance:
         start = time.perf_counter()
 
         for _ in range(3):
-            result = await github_list_issues.handler({
-                "state": "open",
-                "limit": 5,
-            })
+            result = await github_list_issues.handler(
+                {
+                    "state": "open",
+                    "limit": 5,
+                }
+            )
             assert result is not None
 
         elapsed = time.perf_counter() - start
 
         # 3 calls should complete in reasonable time (configurable threshold for CI/CD)
-        assert elapsed < PERF_THRESHOLD_SEQUENTIAL, f"3 tool calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SEQUENTIAL}s"
+        assert elapsed < PERF_THRESHOLD_SEQUENTIAL, (
+            f"3 tool calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SEQUENTIAL}s"
+        )
 
     @pytest.mark.asyncio
     async def test_parallel_tool_calls_performance(self) -> None:
@@ -307,7 +330,9 @@ class TestGitHubToolsPerformance:
 
         # Parallel calls should be faster than sequential (configurable threshold for CI/CD)
         # Should complete in reasonable time (allowing for some overhead)
-        assert elapsed < PERF_THRESHOLD_PARALLEL, f"3 parallel calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_PARALLEL}s"
+        assert elapsed < PERF_THRESHOLD_PARALLEL, (
+            f"3 parallel calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_PARALLEL}s"
+        )
 
         # Verify all results are valid
         for result in results:
@@ -392,10 +417,12 @@ class TestGitHubToolsErrorHandling:
         from maverick.tools.github import github_list_issues
 
         # Call with invalid state
-        result = await github_list_issues.handler({
-            "state": "invalid_state",
-            "limit": 10,
-        })
+        result = await github_list_issues.handler(
+            {
+                "state": "invalid_state",
+                "limit": 10,
+            }
+        )
 
         # Verify error response
         assert result is not None
@@ -421,10 +448,12 @@ class TestGitHubToolsResponseFormats:
         """
         from maverick.tools.github import github_list_issues
 
-        result = await github_list_issues.handler({
-            "state": "open",
-            "limit": 5,
-        })
+        result = await github_list_issues.handler(
+            {
+                "state": "open",
+                "limit": 5,
+            }
+        )
 
         # Verify MCP response structure
         assert "content" in result

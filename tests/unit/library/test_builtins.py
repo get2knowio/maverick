@@ -29,7 +29,6 @@ from maverick.library.builtins import (
     create_builtin_library,
 )
 
-
 # =============================================================================
 # BuiltinWorkflowInfo Tests
 # =============================================================================
@@ -167,7 +166,7 @@ class TestBuiltinConstants:
             "quick-fix",
             "process-single-issue",
         }
-        assert BUILTIN_WORKFLOWS == expected
+        assert expected == BUILTIN_WORKFLOWS
 
     def test_builtin_workflows_is_immutable(self) -> None:
         """Test that BUILTIN_WORKFLOWS cannot be modified."""
@@ -181,7 +180,7 @@ class TestBuiltinConstants:
     def test_builtin_fragments_contains_expected_fragments(self) -> None:
         """Test that BUILTIN_FRAGMENTS contains all expected fragment names."""
         expected = {"validate-and-fix", "commit-and-push", "create-pr-with-summary"}
-        assert BUILTIN_FRAGMENTS == expected
+        assert expected == BUILTIN_FRAGMENTS
 
     def test_builtin_fragments_is_immutable(self) -> None:
         """Test that BUILTIN_FRAGMENTS cannot be modified."""

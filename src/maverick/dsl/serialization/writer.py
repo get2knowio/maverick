@@ -44,7 +44,6 @@ from maverick.dsl.serialization.schema import (
     ValidateStepRecord,
     WorkflowFile,
 )
-from maverick.dsl.types import StepType
 
 __all__ = ["WorkflowWriter"]
 
@@ -127,12 +126,13 @@ class WorkflowWriter:
         """
         data = self.to_dict(workflow)
         # Use safe_dump for security and default_flow_style=False for readability
-        return yaml.safe_dump(
+        result: str = yaml.safe_dump(
             data,
             default_flow_style=False,
             sort_keys=False,  # Preserve our field ordering
             allow_unicode=True,
         )
+        return result
 
     def to_json(self, workflow: WorkflowFile, indent: int | None = 2) -> str:
         """Convert WorkflowFile to JSON string.

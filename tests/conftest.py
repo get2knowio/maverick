@@ -74,7 +74,7 @@ verbosity: "info"
 
 
 @pytest.fixture
-def cli_runner() -> "CliRunner":
+def cli_runner() -> CliRunner:
     """Provide a Click CLI test runner.
 
     Returns:

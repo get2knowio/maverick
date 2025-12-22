@@ -1037,4 +1037,3 @@ class TestParseExpressionIterationVariables:
         assert result.kind == ExpressionKind.INDEX_REF
         assert result.path == ("index",)
         assert result.negated is False
-

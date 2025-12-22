@@ -61,7 +61,7 @@ class MockBranchInputField:
 
         if not re.match(r"^[a-zA-Z0-9._/-]+$", self.value):
             invalid_chars = "".join(
-                set(c for c in self.value if not re.match(r"[a-zA-Z0-9._/-]", c))
+                {c for c in self.value if not re.match(r"[a-zA-Z0-9._/-]", c)}
             )
             self.error_message = f"Invalid characters: {invalid_chars}"
             self.is_valid = False

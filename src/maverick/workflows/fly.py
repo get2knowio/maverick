@@ -334,9 +334,14 @@ class FlyWorkflow(WorkflowDSLMixin):
         # Map DSL WorkflowStarted to FlyWorkflowStarted
         if isinstance(event, DslWorkflowStarted):
             # Extract inputs from DSL event
+            task_file = (
+                Path(event.inputs["task_file"])
+                if "task_file" in event.inputs
+                else None
+            )
             fly_inputs = FlyInputs(
                 branch_name=event.inputs.get("branch_name", "unknown"),
-                task_file=Path(event.inputs["task_file"]) if "task_file" in event.inputs else None,
+                task_file=task_file,
                 skip_review=event.inputs.get("skip_review", False),
                 skip_pr=event.inputs.get("skip_pr", False),
                 draft_pr=event.inputs.get("draft_pr", False),
@@ -358,8 +363,13 @@ class FlyWorkflow(WorkflowDSLMixin):
             stage = DSL_STEP_TO_STAGE.get(event.step_name)
             if stage:
                 # Result depends on the step
-                result: Any = {"success": event.success, "duration_ms": event.duration_ms}
-                return FlyStageCompleted(stage=stage, result=result, timestamp=event.timestamp)
+                result: Any = {
+                    "success": event.success,
+                    "duration_ms": event.duration_ms,
+                }
+                return FlyStageCompleted(
+                    stage=stage, result=result, timestamp=event.timestamp
+                )
 
         # WorkflowCompleted is handled separately in execute()
         return None
@@ -377,7 +387,11 @@ class FlyWorkflow(WorkflowDSLMixin):
             FlyResult instance with workflow outcome.
         """
         # Determine final stage based on workflow success
-        final_stage = WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
+        final_stage = (
+            WorkflowStage.COMPLETE
+            if workflow_result.success
+            else WorkflowStage.FAILED
+        )
 
         # Build state from workflow result
         state = WorkflowState(
@@ -408,7 +422,12 @@ class FlyWorkflow(WorkflowDSLMixin):
             if state.pr_url:
                 summary += f". PR: {state.pr_url}"
         else:
-            summary = f"Fly workflow failed at step: {workflow_result.failed_step.name if workflow_result.failed_step else 'unknown'}"
+            failed_step_name = (
+                workflow_result.failed_step.name
+                if workflow_result.failed_step
+                else "unknown"
+            )
+            summary = f"Fly workflow failed at step: {failed_step_name}"
 
         # Create result
         return FlyResult(
@@ -453,7 +472,9 @@ class FlyWorkflow(WorkflowDSLMixin):
                     workflow_inputs["task_file"] = str(workflow_inputs["task_file"])
 
                 # Execute workflow and translate events
-                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
+                async for event in self._executor.execute(
+                    workflow, inputs=workflow_inputs
+                ):
                     # Translate DSL events to FlyProgressEvent
                     fly_event = self._translate_event(event)
                     if fly_event:

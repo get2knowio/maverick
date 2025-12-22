@@ -11,8 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from maverick.models.implementation import FileChange, ValidationResult
-
+from maverick.models.implementation import FileChange
 
 # =============================================================================
 # Result Objects (T045)
@@ -113,7 +112,7 @@ class IssueFixerContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
-    def validate_issue_source(self) -> "IssueFixerContext":
+    def validate_issue_source(self) -> IssueFixerContext:
         """Ensure exactly one issue source is provided."""
         if self.issue_number and self.issue_data:
             raise ValueError("Provide issue_number OR issue_data, not both")
@@ -131,4 +130,5 @@ class IssueFixerContext(BaseModel):
         """Get issue number from either source."""
         if self.issue_number:
             return self.issue_number
-        return self.issue_data["number"]  # type: ignore[index]
+        num = self.issue_data["number"]  # type: ignore[index]
+        return int(num)

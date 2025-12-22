@@ -420,7 +420,7 @@ class ReviewScreen(MaverickScreen):
         if comment:
             self._submit_request_changes(comment)
 
-    def action_dismiss(self) -> None:
+    async def action_dismiss(self, result: None = None) -> None:
         """Dismiss the currently selected finding.
 
         Removes the selected issue from the view. If this is the last
@@ -665,10 +665,13 @@ class ReviewScreen(MaverickScreen):
 
         # Create a stable representation of findings for hashing
         # Sort by file_path and line_number for consistent ordering
-        sorted_issues = sorted(
-            self._issues,
-            key=lambda x: (str(x.get("file_path", "")), int(x.get("line_number", 0))),
-        )
+        def _sort_key(x: dict[str, object]) -> tuple[str, int]:
+            file_path = str(x.get("file_path", ""))
+            line_num_val = x.get("line_number", 0)
+            line_num = int(line_num_val) if isinstance(line_num_val, (int, str)) else 0
+            return (file_path, line_num)
+
+        sorted_issues = sorted(self._issues, key=_sort_key)
 
         # Create a JSON representation of key fields
         findings_data = [

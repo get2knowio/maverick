@@ -11,7 +11,6 @@ import logging
 import time
 from pathlib import Path
 
-from maverick.exceptions import MaverickValidationError
 from maverick.models.implementation import ValidationResult, ValidationStep
 
 logger = logging.getLogger(__name__)

@@ -6,8 +6,9 @@ async generators used in workflows and agent interactions.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Generic, Iterator, TypeVar
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 

@@ -205,13 +205,13 @@ class TestProgressEventsForTUI:
                     workflow_started = True
                     assert name == "event-test"
 
-                case StepStarted(step_name=name, step_type=stype):
+                case StepStarted(step_name=name, step_type=_):
                     steps_started.append(name)
 
-                case StepCompleted(step_name=name, success=ok, duration_ms=ms):
+                case StepCompleted(step_name=name, success=ok, duration_ms=_):
                     steps_completed.append((name, ok))
 
-                case WorkflowCompleted(success=ok, total_duration_ms=ms):
+                case WorkflowCompleted(success=ok, total_duration_ms=_):
                     workflow_completed = True
                     assert ok is True
 

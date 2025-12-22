@@ -82,7 +82,7 @@ class TestPythonStepCreation:
         def dummy_action() -> str:
             return "result"
 
-        step = PythonStep(name="test-step", action=dummy_action)
+        PythonStep(name="test-step", action=dummy_action)
 
         # Dataclass with slots=True declares __slots__
         # Note: May still have __dict__ if parent class doesn't use slots

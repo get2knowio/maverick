@@ -8,10 +8,11 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from maverick.tui.widgets.sidebar import StageDict
 from maverick.tui.widgets.stage_indicator import StageIndicator
 
 
-class WorkflowScreen(Screen):
+class WorkflowScreen(Screen[None]):
     """Workflow progress screen.
 
     Displays active workflow stages with status indicators, elapsed time,
@@ -124,7 +125,7 @@ class WorkflowScreen(Screen):
 
         # Configure sidebar to display workflow stages
         sidebar = app.get_sidebar()
-        stages_data = [
+        stages_data: list[StageDict] = [
             {
                 "name": stage_name,
                 "display_name": stage_name.replace("_", " ").title(),

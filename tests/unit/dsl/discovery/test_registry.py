@@ -12,7 +12,6 @@ This module tests the workflow discovery registry implementation, including:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -23,7 +22,6 @@ from maverick.dsl.discovery import (
     WorkflowSource,
     create_discovery,
 )
-
 
 # =============================================================================
 # Test Fixtures

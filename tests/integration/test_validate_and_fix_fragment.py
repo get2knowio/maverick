@@ -185,7 +185,7 @@ class TestValidateAndFixFragment:
         # Override validate step to use mock action
         # Since we can't easily modify the fragment's steps, we'll register
         # the validation action with a different approach
-        executor = WorkflowFileExecutor(registry=registry)
+        WorkflowFileExecutor(registry=registry)
 
         # For this test, we need to inject our mock validation behavior
         # We'll do this by registering a mock validate step handler

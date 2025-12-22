@@ -3,11 +3,17 @@
 This module tests the register_all_agents function to ensure all agents
 referenced in workflow YAML files are properly registered.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from maverick.agents import CodeReviewerAgent, FixerAgent, ImplementerAgent, IssueFixerAgent
+from maverick.agents import (
+    CodeReviewerAgent,
+    FixerAgent,
+    ImplementerAgent,
+    IssueFixerAgent,
+)
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.agents import register_all_agents
 
@@ -44,7 +50,9 @@ class TestRegisterAllAgents:
         agent_class = registry.agents.get("issue_fixer")
         assert agent_class is IssueFixerAgent
 
-    def test_registers_validation_fixer_agent(self, registry: ComponentRegistry) -> None:
+    def test_registers_validation_fixer_agent(
+        self, registry: ComponentRegistry
+    ) -> None:
         """Test that validation_fixer agent is registered."""
         register_all_agents(registry)
 
@@ -101,7 +109,9 @@ class TestRegisterAllAgents:
         validation_fixer = validation_fixer_class()
         assert validation_fixer is not None
 
-    def test_does_not_register_issue_analyzer(self, registry: ComponentRegistry) -> None:
+    def test_does_not_register_issue_analyzer(
+        self, registry: ComponentRegistry
+    ) -> None:
         """Test that issue_analyzer is not registered (not yet implemented)."""
         register_all_agents(registry)
 

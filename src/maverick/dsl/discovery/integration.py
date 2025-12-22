@@ -70,7 +70,7 @@ def load_workflows_into_registry(registry: ComponentRegistry) -> None:
         # discovered_workflow.source indicates origin (builtin/user/project)
         registry.workflows.register(
             discovered_workflow.workflow.name,
-            discovered_workflow.workflow,
+            discovered_workflow.workflow,  # type: ignore[arg-type]
         )
 
     # Register fragments
@@ -80,5 +80,5 @@ def load_workflows_into_registry(registry: ComponentRegistry) -> None:
     for discovered_fragment in result.fragments:
         registry.workflows.register(
             discovered_fragment.workflow.name,
-            discovered_fragment.workflow,
+            discovered_fragment.workflow,  # type: ignore[arg-type]
         )

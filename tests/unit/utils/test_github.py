@@ -22,14 +22,6 @@ class TestFetchIssue:
     @pytest.mark.asyncio
     async def test_fetch_issue_success(self) -> None:
         """Test successful issue fetch."""
-        issue_data = {
-            "number": 42,
-            "title": "Bug: Login fails on Safari",
-            "body": "Description here",
-            "labels": ["bug"],
-            "state": "open",
-            "url": "https://github.com/owner/repo/issues/42",
-        }
 
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(
@@ -74,7 +66,6 @@ class TestFetchIssue:
         mock_fail_process.returncode = 1
 
         # Second attempt: success
-        issue_data = {"number": 42, "title": "Issue"}
         mock_success_process = AsyncMock()
         mock_success_process.communicate = AsyncMock(
             return_value=(b'{"number": 42, "title": "Issue"}', b"")
@@ -130,16 +121,18 @@ class TestFetchIssue:
     async def test_fetch_issue_timeout_retries(self) -> None:
         """Test fetch_issue retries on timeout."""
         # First attempt: timeout
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=asyncio.TimeoutError,
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=asyncio.TimeoutError,
+            ),
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                # Should exhaust retries and raise GitHubError
-                with pytest.raises(GitHubError) as exc_info:
-                    await fetch_issue(42, Path("/repo"), max_retries=2)
+            # Should exhaust retries and raise GitHubError
+            with pytest.raises(GitHubError) as exc_info:
+                await fetch_issue(42, Path("/repo"), max_retries=2)
 
-                assert "timed out" in exc_info.value.message.lower()
+            assert "timed out" in exc_info.value.message.lower()
 
     @pytest.mark.asyncio
     async def test_fetch_issue_invalid_json_raises_error(self) -> None:
@@ -295,7 +288,7 @@ class TestCheckGhAuth:
         mock_process.communicate = AsyncMock(return_value=(b"OK", b""))
         mock_process.returncode = 0
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             await check_gh_auth(Path("/repo"))
 
             # Verify the timeout parameter is used

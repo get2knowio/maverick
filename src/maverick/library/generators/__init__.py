@@ -57,10 +57,10 @@ def register_all_generators(registry: ComponentRegistry) -> None:
         ```
     """
     # Register commit message generator (used in commit-and-push fragment)
-    registry.generators.register("commit_message_generator", CommitMessageGenerator)
+    registry.generators.register("commit_message_generator", CommitMessageGenerator)  # type: ignore[arg-type]
 
     # Register PR body generator (used in create-pr-with-summary fragment)
-    registry.generators.register("pr_body_generator", PRDescriptionGenerator)
+    registry.generators.register("pr_body_generator", PRDescriptionGenerator)  # type: ignore[arg-type]
 
     # Register PR title generator (used in create-pr-with-summary fragment)
-    registry.generators.register("pr_title_generator", PRTitleGenerator)
+    registry.generators.register("pr_title_generator", PRTitleGenerator)  # type: ignore[arg-type]

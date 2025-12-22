@@ -150,7 +150,7 @@ async def fetch_issue(
             )
 
             if return_code == 0:
-                data = json.loads(stdout)
+                data: dict[str, Any] = json.loads(stdout)
                 title = data.get("title", "")
                 logger.debug("Fetched issue #%d: %s", issue_number, title)
                 return data
@@ -207,7 +207,7 @@ async def fetch_issue(
                 issue_number=issue_number,
             )
 
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as err:
             if attempt < max_retries - 1:
                 wait_time = BACKOFF_BASE ** (attempt + 1)
                 logger.warning(
@@ -221,12 +221,12 @@ async def fetch_issue(
             raise GitHubError(
                 "GitHub request timed out after retries",
                 issue_number=issue_number,
-            )
+            ) from err
         except json.JSONDecodeError as e:
             raise GitHubError(
                 f"Failed to parse GitHub response: {e}",
                 issue_number=issue_number,
-            )
+            ) from e
 
     raise GitHubError(
         "GitHub fetch failed after all retries",
@@ -269,7 +269,7 @@ async def list_issues(
     try:
         return json.loads(stdout) if stdout else []
     except json.JSONDecodeError as e:
-        raise GitHubError(f"Failed to parse issue list: {e}")
+        raise GitHubError(f"Failed to parse issue list: {e}") from e
 
 
 async def add_issue_comment(

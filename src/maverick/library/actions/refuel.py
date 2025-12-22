@@ -57,14 +57,14 @@ async def process_selected_issues(
         raw_results = await asyncio.gather(*coroutines, return_exceptions=True)
 
         # Convert results and exceptions to ProcessedIssueEntry format
-        for issue, raw_result in zip(issues, raw_results):
+        for issue, raw_result in zip(issues, raw_results, strict=True):
             if isinstance(raw_result, Exception):
                 # Issue processing raised an exception - record as failed
                 # Satisfies FR-021: graceful handling without crashing workflow
                 logger.error(
                     f"Issue {issue.get('number')} failed with exception: {raw_result}"
                 )
-                result = {
+                result: dict[str, Any] = {
                     "issue_number": issue.get("number"),
                     "issue_title": issue.get("title", ""),
                     "status": "failed",
@@ -72,9 +72,11 @@ async def process_selected_issues(
                     "pr_url": None,
                     "error": str(raw_result),
                 }
+                results.append(result)
             else:
-                result = raw_result
-            results.append(result)
+                # Type checker knows raw_result is not Exception here
+                assert isinstance(raw_result, dict)
+                results.append(raw_result)
     else:
         # Process issues sequentially per FR-020
         # One failure doesn't stop the rest per FR-021

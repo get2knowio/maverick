@@ -176,13 +176,15 @@ class TestReviewWorkflowIntegration:
                 # gh pr view
                 MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "number": 456,
-                        "title": "Test PR",
-                        "body": "Test PR description",
-                        "author": {"login": "testuser"},
-                        "labels": [],
-                    }),
+                    stdout=json.dumps(
+                        {
+                            "number": 456,
+                            "title": "Test PR",
+                            "body": "Test PR description",
+                            "author": {"login": "testuser"},
+                            "labels": [],
+                        }
+                    ),
                 ),
                 # git diff
                 MagicMock(returncode=0, stdout="diff content\n"),

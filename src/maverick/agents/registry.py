@@ -148,7 +148,7 @@ class AgentRegistry:
         """
         return sorted(self._agents.keys())
 
-    def create(self, name: str, **kwargs: Any) -> "MaverickAgent[Any, Any]":
+    def create(self, name: str, **kwargs: Any) -> MaverickAgent[Any, Any]:
         """Instantiate an agent by name.
 
         Args:

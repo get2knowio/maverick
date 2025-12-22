@@ -300,7 +300,11 @@ class TestActionMethods:
         # Mock screen_stack with multiple screens
         mock_screens = [Mock(), Mock()]
 
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
+        with patch.object(
+            type(app),
+            "screen_stack",
+            new_callable=lambda: property(lambda self: mock_screens),
+        ):
             with patch.object(app, "pop_screen") as mock_pop:
                 app.action_pop_screen()
 
@@ -312,7 +316,11 @@ class TestActionMethods:
         # Mock screen_stack with single screen
         mock_screens = [Mock()]
 
-        with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: mock_screens)):
+        with patch.object(
+            type(app),
+            "screen_stack",
+            new_callable=lambda: property(lambda self: mock_screens),
+        ):
             with patch.object(app, "pop_screen") as mock_pop:
                 app.action_pop_screen()
 
@@ -358,16 +366,21 @@ class TestActionMethods:
     def test_action_go_home_pops_all_screens(self) -> None:
         """Test that action_go_home pops all screens except base."""
         app = MaverickApp()
-        
+
         # Track pop_screen calls
-        pop_count = 0
-        original_len = Mock(side_effect=[3, 2, 1])  # Simulate screen_stack length decreasing
-        
+        original_len = Mock(
+            side_effect=[3, 2, 1]
+        )  # Simulate screen_stack length decreasing
+
         with patch.object(app, "pop_screen") as mock_pop:
             # Mock screen_stack to return decreasing length
-            with patch.object(type(app), "screen_stack", new_callable=lambda: property(lambda self: Mock(__len__=original_len))):
+            with patch.object(
+                type(app),
+                "screen_stack",
+                new_callable=lambda: property(lambda self: Mock(__len__=original_len)),
+            ):
                 app.action_go_home()
-                
+
                 # Should pop twice (3 screens -> 2 -> 1)
                 assert mock_pop.call_count == 2
 
@@ -429,23 +442,27 @@ class TestActionMethods:
         app = MaverickApp()
         mock_screen = Mock()
         mock_screen.refresh = Mock()
-        
+
         # Mock the screen property to return our mock screen
-        with patch.object(type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)):
+        with patch.object(
+            type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)
+        ):
             app.action_refresh()
-            
+
             mock_screen.refresh.assert_called_once()
 
     def test_action_refresh_adds_log_if_no_refresh_method(self) -> None:
         """Test that action_refresh logs if screen has no refresh method."""
         app = MaverickApp()
         mock_screen = Mock(spec=[])  # No refresh method
-        
+
         # Mock the screen property to return our mock screen
-        with patch.object(type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)):
+        with patch.object(
+            type(app), "screen", new_callable=lambda: property(lambda self: mock_screen)
+        ):
             with patch.object(app, "add_log") as mock_add_log:
                 app.action_refresh()
-            
+
             mock_add_log.assert_called_once()
             args = mock_add_log.call_args[0]
             assert "refresh" in args[0].lower()
@@ -636,7 +653,8 @@ class TestMaverickCommands:
             # Check that at least one hit has the expected callback
             callbacks = [hit.command for hit in hits]
             callback_names = [
-                callback.__name__ for callback in callbacks
+                callback.__name__
+                for callback in callbacks
                 if hasattr(callback, "__name__")
             ]
             assert expected_method in callback_names, (

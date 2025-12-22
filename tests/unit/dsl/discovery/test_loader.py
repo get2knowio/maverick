@@ -17,7 +17,6 @@ from maverick.dsl.discovery.models import WorkflowMetadata, WorkflowSource
 from maverick.dsl.discovery.registry import WorkflowLoader
 from maverick.dsl.serialization.schema import WorkflowFile
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================

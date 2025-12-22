@@ -54,7 +54,7 @@ class TestReviewScreenLoadIssues:
         """Test loading an empty list of issues."""
         screen = ReviewScreen()
         mock_issue_list = MagicMock()
-        mock_detail = MagicMock()
+        MagicMock()
 
         with patch.object(screen, "query_one") as mock_query:
             mock_query.return_value = mock_issue_list
@@ -658,7 +658,6 @@ class TestReviewScreenExecuteFixAll:
             {"id": "1", "severity": "error", "message": "Error 1"},
             {"id": "2", "severity": "warning", "message": "Warning 1"},
         ]
-        initial_state = screen.action_state
 
         await screen._execute_fix_all()
 
@@ -709,6 +708,7 @@ class TestReviewScreenExecuteFixAll:
 
         # Mock IssueFixerAgent
         from unittest.mock import AsyncMock, patch
+
         from maverick.models.issue_fix import FixResult as AgentFixResult
 
         mock_agent = AsyncMock()
@@ -719,12 +719,14 @@ class TestReviewScreenExecuteFixAll:
         )
         mock_agent.execute.return_value = mock_result
 
-        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+        with patch(
+            "maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent
+        ):
             await screen._execute_fix_all()
 
         # Verify agent was called
         mock_agent.execute.assert_called_once()
-        
+
         # Verify results
         assert screen.action_state.fix_results is not None
         assert len(screen.action_state.fix_results) == 1
@@ -748,6 +750,7 @@ class TestReviewScreenExecuteFixAll:
 
         # Mock IssueFixerAgent to return failure
         from unittest.mock import AsyncMock, patch
+
         from maverick.models.issue_fix import FixResult as AgentFixResult
 
         mock_agent = AsyncMock()
@@ -759,7 +762,9 @@ class TestReviewScreenExecuteFixAll:
         )
         mock_agent.execute.return_value = mock_result
 
-        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+        with patch(
+            "maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent
+        ):
             await screen._execute_fix_all()
 
         # Verify results show failure
@@ -790,7 +795,9 @@ class TestReviewScreenExecuteFixAll:
         mock_agent = AsyncMock()
         mock_agent.execute.side_effect = RuntimeError("Agent crashed")
 
-        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+        with patch(
+            "maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent
+        ):
             await screen._execute_fix_all()
 
         # Verify error is captured

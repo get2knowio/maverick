@@ -209,7 +209,7 @@ class TestQuickFixWorkflowIntegration:
             # Workflow should handle error gracefully
             # The fetch_issue step should return an error result
             step_completed_events = [e for e in events if isinstance(e, StepCompleted)]
-            fetch_issue_event = next(
+            next(
                 (e for e in step_completed_events if e.step_name == "fetch_issue"),
                 None,
             )
@@ -327,8 +327,8 @@ class TestQuickFixWorkflowIntegration:
 
                 # Verify order: each step completes before next starts
                 # (except for parallel steps, which quick_fix doesn't have)
-                step_names_started = [e.step_name for e in step_started]
-                step_names_completed = [e.step_name for e in step_completed]
+                [e.step_name for e in step_started]
+                [e.step_name for e in step_completed]
 
                 # All started steps should eventually complete
                 # (in a successful run)

@@ -400,7 +400,7 @@ class TestDiff:
             duration_ms=50,
         )
 
-        result = await git_runner.diff(staged=False)
+        await git_runner.diff(staged=False)
 
         mock_command_runner.run.assert_called_once_with(["git", "diff", "HEAD"])
 
@@ -416,7 +416,7 @@ class TestDiff:
             duration_ms=50,
         )
 
-        result = await git_runner.diff(base="main", staged=False)
+        await git_runner.diff(base="main", staged=False)
 
         mock_command_runner.run.assert_called_once_with(["git", "diff", "main"])
 

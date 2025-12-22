@@ -66,7 +66,7 @@ class SettingsScreen(MaverickScreen):
     github_status: reactive[str] = reactive("")
     notification_status: reactive[str] = reactive("")
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize settings screen.
 
         Args:

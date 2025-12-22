@@ -9,7 +9,7 @@ from textual.screen import Screen
 from textual.widgets import Input, Static
 
 
-class ConfigScreen(Screen):
+class ConfigScreen(Screen[None]):
     """Configuration screen.
 
     Displays application settings organized by category with inline

@@ -108,10 +108,7 @@ class TestTaskStatus:
         """Test TaskStatus can be used in conditionals."""
         status = TaskStatus.PENDING
 
-        if status == TaskStatus.PENDING:
-            is_pending = True
-        else:
-            is_pending = False
+        is_pending = status == TaskStatus.PENDING
 
         assert is_pending is True
 

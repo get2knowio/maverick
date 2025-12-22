@@ -113,7 +113,7 @@ class TestSubWorkflowStepCreation:
 
     def test_subworkflow_step_has_slots(self) -> None:
         """Test that SubWorkflowStep declares __slots__ for memory efficiency."""
-        step_instance = SubWorkflowStep(
+        SubWorkflowStep(
             name="test-step",
             workflow=simple_workflow,
             inputs={},

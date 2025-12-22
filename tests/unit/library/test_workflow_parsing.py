@@ -13,7 +13,6 @@ import pytest
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.schema import WorkflowFile
 
-
 # Path to built-in workflows directory relative to this test file
 # Use importlib.resources for more robust path resolution
 try:

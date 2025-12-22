@@ -1254,7 +1254,6 @@ class TestProgressEventEmission:
         from maverick.models.validation import (
             StageResult,
             StageStatus,
-            ValidationWorkflowResult,
         )
         from maverick.runners.git import GitResult
 

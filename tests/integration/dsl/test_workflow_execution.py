@@ -9,17 +9,17 @@ from __future__ import annotations
 import pytest
 
 from maverick.dsl import (
-    workflow,
-    step,
+    StepCompleted,
+    StepStarted,
+    StepType,
+    WorkflowCompleted,
     WorkflowEngine,
     WorkflowStarted,
-    StepStarted,
-    StepCompleted,
-    WorkflowCompleted,
-    StepType,
+    step,
+    workflow,
 )
-from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.results import StepResult
+from maverick.dsl.steps.base import StepDefinition
 
 
 class TestUserStory1TwoStepWorkflow:
@@ -284,7 +284,7 @@ class TestUserStory2AgentWorkflow:
         @workflow(name="context-builder-workflow")
         def context_builder_workflow(input_text: str) -> str:
             # First step produces data
-            parsed = yield step("parse").python(
+            yield step("parse").python(
                 action=str.upper,
                 args=(input_text,),
             )
@@ -435,7 +435,7 @@ class TestUserStory3ValidateWorkflow:
                 self.call_count += 1
                 return type("Result", (), {"success": True, "stages": stages})()
 
-        config = MockConfig()
+        MockConfig()
 
         @workflow(name="validate-workflow")
         def validate_workflow() -> dict:
@@ -449,8 +449,6 @@ class TestUserStory3ValidateWorkflow:
             )
 
             return {"data": data, "validated": result.success}
-
-        from maverick.dsl import WorkflowContext
 
         engine = WorkflowEngine()
 
@@ -639,10 +637,10 @@ class TestEdgeCases:
         @workflow(name="context-builder-failure-workflow")
         def context_builder_failure_workflow() -> str:
             # First step succeeds
-            step1 = yield step("first").python(action=lambda: "ok")
+            yield step("first").python(action=lambda: "ok")
 
             # Second step has a failing context builder
-            step2 = yield step("agent-with-failing-context").agent(
+            yield step("agent-with-failing-context").agent(
                 agent=MockAgent(),
                 context=failing_context_builder,
             )
@@ -687,7 +685,7 @@ class TestEdgeCases:
         @workflow(name="validate-stages-not-found-workflow")
         def validate_workflow() -> str:
             # Try to validate with a non-existent config key
-            result = yield step("validate").validate(
+            yield step("validate").validate(
                 stages="nonexistent_key",  # This key doesn't exist in config
                 retry=1,
             )
@@ -789,7 +787,6 @@ class TestEdgeCases:
 
         Verifies workflow stops execution after cancellation is requested.
         """
-        import asyncio
 
         call_count = 0
 
@@ -800,10 +797,10 @@ class TestEdgeCases:
 
         @workflow(name="cancellable-workflow")
         def cancellable_workflow() -> str:
-            step1 = yield step("step1").python(action=track_calls)
-            step2 = yield step("step2").python(action=track_calls)
-            step3 = yield step("step3").python(action=track_calls)
-            step4 = yield step("step4").python(action=track_calls)
+            yield step("step1").python(action=track_calls)
+            yield step("step2").python(action=track_calls)
+            yield step("step3").python(action=track_calls)
+            yield step("step4").python(action=track_calls)
             return "all done"
 
         engine = WorkflowEngine()

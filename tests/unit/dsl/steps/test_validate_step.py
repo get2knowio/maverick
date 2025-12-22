@@ -111,7 +111,7 @@ class TestValidateStepCreation:
 
     def test_validate_step_has_slots(self) -> None:
         """Test that ValidateStep declares __slots__ for memory efficiency."""
-        step = ValidateStep(name="validate")
+        ValidateStep(name="validate")
 
         assert hasattr(ValidateStep, "__slots__")
 

@@ -482,9 +482,9 @@ def format_review_markdown(result: ReviewResult, pr_number: int) -> str:
         )
 
         # Group findings by severity
-        from maverick.models.review import ReviewSeverity
+        from maverick.models.review import ReviewFinding, ReviewSeverity
 
-        severity_groups = {
+        severity_groups: dict[ReviewSeverity, list[ReviewFinding]] = {
             ReviewSeverity.CRITICAL: [],
             ReviewSeverity.MAJOR: [],
             ReviewSeverity.MINOR: [],

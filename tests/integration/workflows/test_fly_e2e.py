@@ -6,7 +6,6 @@ the complete workflow orchestration without external dependencies.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +15,6 @@ from maverick.exceptions import AgentError
 from maverick.models.validation import (
     StageResult,
     StageStatus,
-    ValidationWorkflowResult,
 )
 from maverick.runners.git import GitResult
 from maverick.workflows.fly import (
@@ -30,7 +28,6 @@ from maverick.workflows.fly import (
     FlyWorkflowStarted,
     WorkflowStage,
 )
-
 
 # =============================================================================
 # Helper Functions
@@ -228,8 +225,7 @@ def create_mock_commit_generator() -> MagicMock:
     mock_gen = MagicMock()
     mock_gen.generate = AsyncMock(
         return_value=(
-            "feat: implement user authentication\n\n"
-            "Added login and signup endpoints."
+            "feat: implement user authentication\n\nAdded login and signup endpoints."
         )
     )
     return mock_gen

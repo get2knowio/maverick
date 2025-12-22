@@ -13,14 +13,12 @@ from __future__ import annotations
 import pytest
 
 from maverick.workflows.fly import (
-    FlyConfig,
     FlyInputs,
     FlyStageCompleted,
     FlyStageStarted,
     FlyWorkflow,
     FlyWorkflowCompleted,
     FlyWorkflowStarted,
-    WorkflowStage,
 )
 
 

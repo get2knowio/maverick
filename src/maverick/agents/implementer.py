@@ -10,12 +10,11 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import IMPLEMENTER_TOOLS
-from maverick.agents.utils import extract_all_text
-from maverick.exceptions import AgentError, TaskParseError
+from maverick.exceptions import TaskParseError
 from maverick.models.implementation import (
     ChangeType,
     FileChange,
@@ -300,8 +299,6 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             async for msg in self.query(prompt, cwd=context.cwd):
                 messages.append(msg)
 
-            output = extract_all_text(messages)
-
             # Parse result from output (simplified - full parsing in enhancement phase)
             files_changed = await self._detect_file_changes(context.cwd)
 
@@ -454,7 +451,7 @@ After completion, provide a summary of changes made.
 
         # Convert any exceptions to failed TaskResults
         task_results: list[TaskResult] = []
-        for task, result in zip(tasks, results):
+        for task, result in zip(tasks, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(
                     "Parallel task %s failed with exception: %s", task.id, result

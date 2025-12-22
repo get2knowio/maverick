@@ -19,7 +19,6 @@ from maverick.dsl.serialization import (
     WorkflowFile,
     WorkflowFileExecutor,
 )
-from maverick.dsl.serialization.errors import ReferenceResolutionError
 from maverick.dsl.types import StepType
 
 

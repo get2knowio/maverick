@@ -3,6 +3,7 @@
 This module tests the register_all_generators function to ensure all generators
 referenced in workflow YAML files are properly registered.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -112,8 +113,7 @@ class TestRegisterAllGenerators:
             == "PRDescriptionGenerator"
         )
         assert (
-            registry.generators.get("pr_title_generator").__name__
-            == "PRTitleGenerator"
+            registry.generators.get("pr_title_generator").__name__ == "PRTitleGenerator"
         )
 
     def test_generators_have_correct_instance_attributes(

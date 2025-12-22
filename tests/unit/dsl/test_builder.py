@@ -151,7 +151,9 @@ class TestStepBuilderPythonMethod:
 
     def test_python_accepts_lambda(self) -> None:
         """Test that python() accepts lambda functions."""
-        lambda_action = lambda x: x * 2
+
+        def lambda_action(x):
+            return x * 2
 
         python_step = step("my-step").python(action=lambda_action, args=(5,))
 

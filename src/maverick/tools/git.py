@@ -17,12 +17,10 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
-
-if TYPE_CHECKING:
-    from mcp import FastMCP
+from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.exceptions import GitToolsError
 
@@ -228,7 +226,7 @@ def _format_commit_message(
 def create_git_tools_server(
     cwd: Path | None = None,
     skip_verification: bool = True,
-) -> FastMCP:
+) -> McpSdkServerConfig:
     """Create MCP server with all git tools registered (T048).
 
     This factory function creates an MCP server instance with all 5 git
@@ -824,6 +822,7 @@ def create_git_tools_server(
     )
 
     # Add tools to the server dict for test access
-    server["tools"] = tools
+    # Type ignore because we're adding to the dict for test purposes
+    server["tools"] = tools  # type: ignore[typeddict-unknown-key]
 
     return server

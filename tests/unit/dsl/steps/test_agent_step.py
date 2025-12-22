@@ -138,7 +138,7 @@ class TestAgentStepCreation:
         """Test that AgentStep declares __slots__ for memory efficiency."""
         agent = MockAgent()
 
-        step = AgentStep(
+        AgentStep(
             name="test-step",
             agent=agent,
             context={},

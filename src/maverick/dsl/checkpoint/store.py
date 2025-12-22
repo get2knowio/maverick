@@ -6,6 +6,7 @@ for persisting and loading workflow checkpoints.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -84,10 +85,8 @@ class FileCheckpointStore:
         """Remove any leftover .json.tmp files from interrupted saves."""
         if self._base_path.exists():
             for tmp_file in self._base_path.rglob("*.json.tmp"):
-                try:
+                with contextlib.suppress(OSError):
                     tmp_file.unlink()
-                except OSError:
-                    pass
 
     async def save(
         self,
@@ -115,7 +114,7 @@ class FileCheckpointStore:
             with os.fdopen(fd, "w") as f:
                 f.write(content)
             os.rename(tmp_path, str(file_path))
-        except (OSError, IOError) as e:
+        except OSError:
             try:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
@@ -170,10 +169,8 @@ class FileCheckpointStore:
         if dir_path.exists():
             for file_path in dir_path.glob("*.json"):
                 file_path.unlink()
-            try:
+            with contextlib.suppress(OSError):
                 dir_path.rmdir()
-            except OSError:
-                pass
 
     async def list_checkpoints(
         self,

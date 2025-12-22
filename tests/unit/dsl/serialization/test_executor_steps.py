@@ -1212,7 +1212,7 @@ class TestParallelStepExecution:
 
         @registry.actions.register("square")
         async def square(value):
-            return value ** 2
+            return value**2
 
         workflow = WorkflowFile(
             version="1.0",
@@ -1356,7 +1356,9 @@ class TestParallelStepExecution:
         )
 
         executor = WorkflowFileExecutor(registry=registry)
-        async for _ in executor.execute(workflow, inputs={"items": ["good", "bad", "also_good"]}):
+        async for _ in executor.execute(
+            workflow, inputs={"items": ["good", "bad", "also_good"]}
+        ):
             pass
 
         result = executor.get_result()

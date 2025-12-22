@@ -64,14 +64,14 @@ async def _run_git_command(
             process.communicate(),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as err:
         process.kill()
         await process.wait()
         raise GitError(
             f"Git command timed out after {timeout}s: git {' '.join(args)}",
             operation=args[0] if args else "unknown",
             recoverable=True,
-        )
+        ) from err
 
     stdout = stdout_bytes.decode().strip()
     stderr = stderr_bytes.decode().strip()

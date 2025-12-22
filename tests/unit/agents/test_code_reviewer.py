@@ -7,6 +7,7 @@ Tests the code review agent's functionality including:
 - Truncation and chunking behavior
 - Error handling for git operations
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,9 +23,9 @@ from maverick.agents.code_reviewer import (
     SYSTEM_PROMPT,
     CodeReviewerAgent,
 )
-from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.agents.context import AgentContext
 from maverick.agents.result import AgentUsage
+from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.exceptions import AgentError
 from maverick.models.review import (
     ReviewContext,
@@ -277,9 +278,7 @@ class TestShouldTruncate:
         }
         assert agent._should_truncate(diff_stats) is False
 
-    def test_should_truncate_exceeds_line_limit(
-        self, agent: CodeReviewerAgent
-    ) -> None:
+    def test_should_truncate_exceeds_line_limit(self, agent: CodeReviewerAgent) -> None:
         """Test returns True when exceeding line limit."""
         diff_stats = {
             "files": ["a.py"],
@@ -287,9 +286,7 @@ class TestShouldTruncate:
         }
         assert agent._should_truncate(diff_stats) is True
 
-    def test_should_truncate_exceeds_file_limit(
-        self, agent: CodeReviewerAgent
-    ) -> None:
+    def test_should_truncate_exceeds_file_limit(self, agent: CodeReviewerAgent) -> None:
         """Test returns True when exceeding file limit."""
         diff_stats = {
             "files": [f"file_{i}.py" for i in range(MAX_DIFF_FILES + 1)],

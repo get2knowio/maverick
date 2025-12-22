@@ -7,13 +7,15 @@ support.
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.binding import Binding
 from textual.screen import Screen
 
 from maverick.tui.utils.connectivity import ConnectivityMonitor
 
 
-class MaverickScreen(Screen):
+class MaverickScreen(Screen[None]):
     """Base class for all Maverick screens.
 
     Provides common functionality for navigation and modal dialogs.
@@ -45,7 +47,7 @@ class MaverickScreen(Screen):
         Binding("enter", "select", "Select", show=False),
     ]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the screen with connectivity monitoring."""
         super().__init__(*args, **kwargs)
         self._connectivity_monitor = ConnectivityMonitor()
@@ -178,7 +180,7 @@ class MaverickScreen(Screen):
         """
         self.go_back()
 
-    def navigate_to(self, screen_name: str, **params) -> None:
+    def navigate_to(self, screen_name: str, **params: Any) -> None:
         """Navigate to a named screen.
 
         This method provides a centralized way to navigate between screens
@@ -225,7 +227,7 @@ class MaverickScreen(Screen):
         screen_class = getattr(module, class_name)
         self.app.push_screen(screen_class(**params))
 
-    async def prompt_input(self, title: str, prompt: str, **kwargs) -> str | None:
+    async def prompt_input(self, title: str, prompt: str, **kwargs: Any) -> str | None:
         """Show input dialog and return entered text.
 
         Displays a modal input dialog and waits for the user to submit or
@@ -303,7 +305,7 @@ class MaverickScreen(Screen):
         """
         shortcuts = []
         for binding in self.BINDINGS:
-            if binding.show:
+            if isinstance(binding, Binding) and binding.show:
                 # Format as [key] description
                 shortcuts.append(f"[{binding.key}] {binding.description}")
         return "  ".join(shortcuts)

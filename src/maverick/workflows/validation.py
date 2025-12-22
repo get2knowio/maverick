@@ -65,7 +65,7 @@ class ValidationWorkflow:
     def __init__(
         self,
         stages: list[ValidationStage],
-        fix_agent: "MaverickAgent[Any, Any]" | None = None,
+        fix_agent: MaverickAgent[Any, Any] | None = None,
         config: ValidationWorkflowConfig | None = None,
     ) -> None:
         """Initialize the validation workflow.
@@ -465,7 +465,7 @@ class ValidationWorkflow:
 
 
 def create_python_workflow(
-    fix_agent: "MaverickAgent[Any, Any]" | None = None,
+    fix_agent: MaverickAgent[Any, Any] | None = None,
     config: ValidationWorkflowConfig | None = None,
 ) -> ValidationWorkflow:
     """Create a ValidationWorkflow with default Python stages.

@@ -1,4 +1,5 @@
 """Unit tests for FlyScreen and RefuelScreen connectivity handling."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -97,7 +98,9 @@ class TestFlyScreenConnectivity:
         ):
             # Mock the connectivity monitor
             screen._connectivity_monitor.is_connected = MagicMock(return_value=True)
-            screen._connectivity_monitor.check_connectivity = AsyncMock(return_value=False)
+            screen._connectivity_monitor.check_connectivity = AsyncMock(
+                return_value=False
+            )
 
             # Perform connectivity check
             await screen._check_connectivity()
@@ -195,7 +198,9 @@ class TestRefuelScreenConnectivity:
         ):
             # Mock the connectivity monitor
             screen._connectivity_monitor.is_connected = MagicMock(return_value=True)
-            screen._connectivity_monitor.check_connectivity = AsyncMock(return_value=False)
+            screen._connectivity_monitor.check_connectivity = AsyncMock(
+                return_value=False
+            )
 
             # Perform connectivity check
             await screen._check_connectivity()

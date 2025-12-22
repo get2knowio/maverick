@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -282,15 +282,17 @@ class TestQuery:
         async def mock_query_iter(*args: Any, **kwargs: Any) -> Any:
             yield mock_message
 
-        with patch(
-            "maverick.agents.generators.base.query",
-            return_value=mock_query_iter(),
+        with (
+            patch(
+                "maverick.agents.generators.base.query",
+                return_value=mock_query_iter(),
+            ),
+            patch("maverick.agents.generators.base.logger") as mock_logger,
         ):
-            with patch("maverick.agents.generators.base.logger") as mock_logger:
-                await generator._query("Test prompt")
+            await generator._query("Test prompt")
 
-                # Should log prompt and output at DEBUG level
-                assert mock_logger.debug.call_count >= 1
+            # Should log prompt and output at DEBUG level
+            assert mock_logger.debug.call_count >= 1
 
 
 class TestConstants:

@@ -6,6 +6,8 @@ Users can review past workflow details including status, stages, findings, and P
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -46,7 +48,7 @@ class HistoricalReviewScreen(MaverickScreen):
         Binding("escape", "go_back", "Back", show=True),
     ]
 
-    def __init__(self, entry: WorkflowHistoryEntry, **kwargs) -> None:
+    def __init__(self, entry: WorkflowHistoryEntry, **kwargs: Any) -> None:
         """Initialize the historical review screen.
 
         Args:

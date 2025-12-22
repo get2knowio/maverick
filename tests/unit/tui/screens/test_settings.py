@@ -55,7 +55,7 @@ class TestSettingsScreenInitialization:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             screen = app.query_one(SettingsScreen)
 
             # Verify screen exists
@@ -76,7 +76,7 @@ class TestSettingsScreenInitialization:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify sections exist
             sections = app.query(SettingsSection)
             assert len(sections) >= 3  # GitHub, Notifications, Agents
@@ -96,7 +96,7 @@ class TestSettingsScreenInitialization:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify buttons exist
             save_btn = app.query_one("#save-btn", Button)
             cancel_btn = app.query_one("#cancel-btn", Button)
@@ -113,7 +113,7 @@ class TestSettingsScreenInitialization:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify test buttons exist
             test_github = app.query_one("#test-github-btn", Button)
             test_notification = app.query_one("#test-notification-btn", Button)
@@ -171,7 +171,7 @@ class TestSettingsScreenState:
             await pilot.pause()
 
             # Click save
-            save_btn = app.query_one("#save-btn", Button)
+            app.query_one("#save-btn", Button)
             await pilot.click("#save-btn")
             await pilot.pause()
 
@@ -188,7 +188,7 @@ class TestSettingsScreenState:
 
         app = TestApp()
         async with app.run_test() as pilot:
-            screen = app.query_one(SettingsScreen)
+            app.query_one(SettingsScreen)
 
             # Modify a field
             fields = app.query(SettingField)
@@ -387,7 +387,7 @@ class TestSettingsScreenConnectionTests:
             screen = app.query_one(SettingsScreen)
 
             # Mock successful notification
-            with patch.object(screen, "test_notification") as mock_test:
+            with patch.object(screen, "test_notification"):
                 # Click test button
                 await pilot.click("#test-notification-btn")
                 await pilot.pause()
@@ -412,7 +412,7 @@ class TestSettingsScreenConnectionTests:
             enabled_field.value.current_value = True
             topic_field = MagicMock()
             topic_field.value.current_value = "test-topic"
-            
+
             screen._settings_fields = {
                 "notifications.enabled": enabled_field,
                 "notifications.topic": topic_field,
@@ -445,7 +445,7 @@ class TestSettingsScreenKeyboardNavigation:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             screen = app.query_one(SettingsScreen)
 
             # Verify binding exists
@@ -462,7 +462,7 @@ class TestSettingsScreenKeyboardNavigation:
                 yield SettingsScreen()
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             screen = app.query_one(SettingsScreen)
 
             # Verify binding exists
@@ -495,8 +495,6 @@ class TestSettingsScreenIntegration:
                     break
 
             if string_field:
-                original = string_field.value.current_value
-
                 # Edit the field (implementation-specific)
                 # This validates the flow exists
 
@@ -517,7 +515,7 @@ class TestSettingsScreenIntegration:
 
         app = TestApp()
         async with app.run_test() as pilot:
-            screen = app.query_one(SettingsScreen)
+            app.query_one(SettingsScreen)
 
             # Find an int field with validation
             fields = app.query(SettingField)

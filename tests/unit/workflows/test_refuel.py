@@ -757,7 +757,6 @@ class TestRefuelWorkflowExecution:
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.agents.issue_fixer import IssueFixerAgent
         from maverick.runners.git import GitResult, GitRunner
         from maverick.runners.github import GitHubCLIRunner
         from maverick.runners.models import GitHubIssue as RunnerGitHubIssue

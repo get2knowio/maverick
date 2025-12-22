@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.runners.command import CommandRunner
-from maverick.runners.models import CommandResult, StreamLine
 from maverick.exceptions import WorkingDirectoryError
+from maverick.runners.command import CommandRunner
+from maverick.runners.models import CommandResult
 
 
 @pytest.fixture
