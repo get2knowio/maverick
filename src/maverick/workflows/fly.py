@@ -34,8 +34,8 @@ from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.exceptions import (
     AgentError,  # noqa: F401 - required for Pydantic type resolution
 )
-from maverick.library.builtins import create_builtin_library
 from maverick.models.validation import ValidationWorkflowResult
+from maverick.workflows.base import WorkflowDSLMixin
 
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
@@ -223,7 +223,7 @@ FlyProgressEvent = (
 )
 
 
-class FlyWorkflow:
+class FlyWorkflow(WorkflowDSLMixin):
     """Fly workflow orchestrator.
 
     Orchestrates the complete spec-based development workflow across 8 stages:
@@ -272,6 +272,9 @@ class FlyWorkflow:
             commit_generator: CommitMessageGenerator for commit messages.
             pr_generator: PRDescriptionGenerator for PR descriptions.
         """
+        # Initialize the mixin first
+        super().__init__()
+        
         self._config = config or FlyConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
@@ -291,15 +294,6 @@ class FlyWorkflow:
 
         # DSL executor
         self._executor: WorkflowFileExecutor | None = None
-        self._use_dsl = False  # Flag to enable DSL execution
-
-    def enable_dsl_execution(self) -> None:
-        """Enable DSL-based workflow execution.
-
-        When enabled, the workflow will use the WorkflowFileExecutor to execute
-        the fly.yaml workflow definition instead of the legacy Python implementation.
-        """
-        self._use_dsl = True
 
     def _aggregate_tokens(self) -> AgentUsage:
         """Aggregate token usage from all agent calls."""
@@ -318,34 +312,8 @@ class FlyWorkflow:
             duration_ms=sum(u.duration_ms for u in self._usage_records),
         )
 
-    def _load_workflow(self, workflow_name: str) -> Any:
-        """Load workflow file from built-in library.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._load_workflow.
-        Consider extracting to a shared helper in maverick.dsl.serialization or
-        maverick.workflows.base when refactoring refuel.py.
-
-        Args:
-            workflow_name: Name of the workflow to load (e.g., "fly").
-
-        Returns:
-            Parsed WorkflowFile instance.
-
-        Raises:
-            FileNotFoundError: If workflow file doesn't exist.
-            WorkflowParseError: If workflow file is invalid.
-            KeyError: If workflow name is not a built-in.
-        """
-        # Use builtin library registry instead of hard-coded path
-        builtin_library = create_builtin_library()
-        return builtin_library.get_workflow(workflow_name)
-
     def _translate_event(self, event: ProgressEvent) -> FlyProgressEvent | None:
         """Translate DSL progress events to FlyProgressEvent types.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._translate_event.
-        Consider extracting to a shared base class or helper when refactoring refuel.py.
-        The common pattern is: DSL event type checking + input extraction + event mapping.
 
         Maps DSL events to corresponding Fly workflow events based on step metadata
         and event types. Returns None for events that don't map to Fly events.
@@ -391,10 +359,6 @@ class FlyWorkflow:
 
     def _build_fly_result(self, workflow_result: WorkflowResult) -> FlyResult:
         """Build FlyResult from DSL WorkflowResult.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._build_*_result.
-        Consider extracting to a shared helper or base class when refactoring refuel.py.
-        The common pattern is: state creation + error extraction + summary building.
 
         Extracts relevant information from the DSL workflow result and constructs
         a FlyResult with appropriate state, summary, and metadata.

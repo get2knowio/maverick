@@ -128,7 +128,7 @@ class TestRefuelWorkflowDSLExecution:
         mock_workflow_file = MagicMock(name="refuel")
         mock_library.get_workflow.return_value = mock_workflow_file
 
-        with patch("maverick.workflows.refuel.create_builtin_library", return_value=mock_library):
+        with patch("maverick.workflows.base.create_builtin_library", return_value=mock_library):
             result = workflow._load_workflow("refuel")
 
             # Verify builtin library was called
