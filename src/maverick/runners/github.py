@@ -56,9 +56,9 @@ class GitHubPRResponse(BaseModel):
     body: str
     state: str
     url: str
-    headRefName: str
-    baseRefName: str
-    isDraft: bool
+    head_ref_name: str = Field(alias="headRefName")
+    base_ref_name: str = Field(alias="baseRefName")
+    is_draft: bool = Field(alias="isDraft")
     mergeable: bool | None = None
 
 
@@ -71,7 +71,7 @@ class GitHubCheckResponse(BaseModel):
     name: str
     state: str
     conclusion: str | None = None
-    detailsUrl: str | None = None
+    details_url: str | None = Field(default=None, alias="detailsUrl")
 
 
 class GitHubCLIRunner:
@@ -257,10 +257,10 @@ class GitHubCLIRunner:
             body=response.body,
             state=response.state.lower(),
             url=response.url,
-            head_branch=response.headRefName,
-            base_branch=response.baseRefName,
+            head_branch=response.head_ref_name,
+            base_branch=response.base_ref_name,
             mergeable=response.mergeable,
-            draft=response.isDraft,
+            draft=response.is_draft,
         )
 
     async def get_pr_checks(self, pr_number: int) -> list[CheckStatus]:
@@ -290,10 +290,12 @@ class GitHubCLIRunner:
                 status=(
                     "completed"
                     if response.conclusion
-                    else response.state.lower() if response.state else "queued"
+                    else response.state.lower()
+                    if response.state
+                    else "queued"
                 ),
                 conclusion=response.conclusion.lower() if response.conclusion else None,
-                url=response.detailsUrl if response.detailsUrl else None,
+                url=response.details_url if response.details_url else None,
             )
             for response in responses
         ]
