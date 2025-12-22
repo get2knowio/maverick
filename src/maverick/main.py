@@ -5,8 +5,10 @@ This module defines the Click-based command-line interface for Maverick.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -14,16 +16,110 @@ from maverick import __version__
 from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.context import AgentContext
 from maverick.cli.context import CLIContext, ExitCode, async_command
+from maverick.cli.helpers import (
+    count_tasks,
+    detect_task_file,
+    format_review_markdown,
+    format_review_text,
+    format_status_json,
+    format_status_text,
+    get_git_branch,
+    get_workflow_history,
+    validate_branch,
+    validate_pr,
+)
 from maverick.cli.output import OutputFormat, format_error, format_json, format_table
 from maverick.cli.validators import check_dependencies, check_git_auth
 from maverick.config import load_config
+from maverick.dsl.context_builders import register_all_context_builders
 from maverick.dsl.discovery import DiscoveryResult, create_discovery
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.visualization import to_ascii, to_mermaid
 from maverick.exceptions import AgentError, ConfigError, GitError, MaverickError
-from maverick.models.review import ReviewResult
+from maverick.library.actions import register_all_actions
+from maverick.library.agents import register_all_agents
+from maverick.library.generators import register_all_generators
 from maverick.workflows.fly import FlyInputs, FlyWorkflow
 from maverick.workflows.refuel import RefuelInputs, RefuelWorkflow
+
+if TYPE_CHECKING:
+    from maverick.dsl.serialization.registry import ComponentRegistry
+
+
+@contextlib.contextmanager
+def cli_error_handler():
+    """Context manager for common CLI error handling.
+
+    Handles common error patterns across CLI commands:
+    - KeyboardInterrupt: Exit with code 130
+    - GitError: Format error with operation details
+    - AgentError: Format error with agent context
+    - MaverickError: Format error with message
+    - Generic exceptions: Log and format error
+
+    Example:
+        >>> with cli_error_handler():
+        >>>     # Command logic here
+        >>>     workflow.execute()
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        yield
+    except KeyboardInterrupt:
+        click.echo("\n\nInterrupted by user.", err=True)
+        raise SystemExit(ExitCode.INTERRUPTED) from None
+    except GitError as e:
+        error_msg = format_error(
+            e.message,
+            details=[f"Operation: {e.operation}"] if e.operation else None,
+        )
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except AgentError as e:
+        error_msg = format_error(e.message)
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except MaverickError as e:
+        error_msg = format_error(e.message)
+        click.echo(error_msg, err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+    except Exception as e:
+        logger.exception("Unexpected error in command")
+        click.echo(f"Error: {e!s}", err=True)
+        raise SystemExit(ExitCode.FAILURE) from e
+
+
+def create_registered_registry(strict: bool = False) -> ComponentRegistry:
+    """Create a ComponentRegistry with all built-in components registered.
+
+    This function creates a new ComponentRegistry and registers all built-in
+    actions, agents, generators, context builders, and discovered workflows
+    so they can be resolved by workflows.
+
+    Args:
+        strict: If True, create registry in strict mode (reference resolution
+            errors will be raised immediately).
+
+    Returns:
+        ComponentRegistry with all built-in components and discovered
+        workflows registered.
+    """
+    from maverick.dsl.discovery import load_workflows_into_registry
+    from maverick.dsl.serialization.registry import ComponentRegistry
+
+    registry = ComponentRegistry(strict=strict)
+
+    # Register all built-in components
+    register_all_actions(registry)
+    register_all_agents(registry)
+    register_all_generators(registry)
+    register_all_context_builders(registry)
+
+    # Register all discovered workflows and fragments
+    load_workflows_into_registry(registry)
+
+    return registry
 
 
 @click.group(invoke_without_command=True)
@@ -204,83 +300,19 @@ async def fly(
     """
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T039: Validate branch exists
         logger.info(f"Validating branch '{branch_name}'...")
-        try:
-            import subprocess
-
-            # Check if branch exists using git show-ref
-            # This works for branches that have commits
-            result = subprocess.run(
-                ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                # Branch doesn't exist as a ref (no commits yet or doesn't exist at all)
-                # Check if we're currently on this branch using symbolic-ref
-                current_branch_result = subprocess.run(
-                    ["git", "symbolic-ref", "HEAD"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-
-                if current_branch_result.returncode == 0:
-                    # Extract branch name from refs/heads/branch-name
-                    current_ref = current_branch_result.stdout.strip()
-                    current_branch = current_ref.replace("refs/heads/", "")
-
-                    if current_branch != branch_name:
-                        # Branch doesn't exist and we're not on it
-                        suggestion = (
-                            f"Create branch with 'git checkout -b {branch_name}'"
-                        )
-                        error_msg = format_error(
-                            f"Branch '{branch_name}' does not exist",
-                            suggestion=suggestion,
-                        )
-                        click.echo(error_msg, err=True)
-                        raise SystemExit(ExitCode.FAILURE)
-                else:
-                    # Can't determine current branch
-                    suggestion = f"Create branch with 'git checkout -b {branch_name}'"
-                    error_msg = format_error(
-                        f"Branch '{branch_name}' does not exist",
-                        suggestion=suggestion,
-                    )
-                    click.echo(error_msg, err=True)
-                    raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("Git command timed out")
+        is_valid, error_msg = validate_branch(branch_name)
+        if not is_valid:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "git is not installed",
-                suggestion="Install from https://git-scm.com/downloads",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
         # T040: Detect/validate task file
         if task_file is None:
-            # Auto-detect task file
-            # Look for tasks.md in spec directories
-            potential_paths = [
-                Path(f".specify/{branch_name}/tasks.md"),
-                Path("tasks.md"),
-            ]
-
-            for path in potential_paths:
-                if path.exists():
-                    task_file = path
-                    logger.info(f"Auto-detected task file: {task_file}")
-                    break
+            task_file = detect_task_file(branch_name)
+            if task_file:
+                logger.info(f"Auto-detected task file: {task_file}")
 
         # T042: If dry_run, just show planned actions
         if dry_run:
@@ -317,32 +349,6 @@ async def fly(
             raise SystemExit(ExitCode.SUCCESS)
         else:
             raise SystemExit(ExitCode.FAILURE)
-
-    except KeyboardInterrupt:
-        # T043: Handle KeyboardInterrupt with exit code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
-
-    except GitError as e:
-        # T044: Handle GitError
-        error_msg = format_error(
-            e.message,
-            details=[f"Operation: {e.operation}"] if e.operation else None,
-        )
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except MaverickError as e:
-        # T044: Handle MaverickError hierarchy
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in fly command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
 
 
 @cli.command()
@@ -391,7 +397,7 @@ async def refuel(
     """
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T053: Check GitHub CLI authentication
         logger.info("Checking GitHub CLI authentication...")
         auth_status = check_git_auth()
@@ -476,25 +482,6 @@ async def refuel(
                 else:
                     raise SystemExit(ExitCode.FAILURE)
 
-    except KeyboardInterrupt:
-        # T056: Handle KeyboardInterrupt and exit with code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
-
-    except MaverickError as e:
-        # T056: Handle MaverickError and show formatted error message
-        error_msg = f"Error: {e.message}"
-        if hasattr(e, "details") and e.details:
-            error_msg += f"\n  {e.details}"
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in refuel command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
 
 @cli.command()
 @click.argument("pr_number", type=int)
@@ -533,77 +520,17 @@ async def review(
     cli_ctx: CLIContext = ctx.obj["cli_ctx"]
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # T064: Validate PR exists using gh pr view
         logger.info(f"Validating PR #{pr_number}...")
-        try:
-            import subprocess
-
-            result = subprocess.run(
-                ["gh", "pr", "view", str(pr_number)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode != 0:
-                suggestion = (
-                    "Check the PR number and ensure you have access to the repository"
-                )
-                error_msg = format_error(
-                    f"Pull request #{pr_number} not found",
-                    suggestion=suggestion,
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("GitHub CLI command timed out")
+        is_valid, error_msg, pr_data = validate_pr(pr_number)
+        if not is_valid:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "GitHub CLI (gh) is not installed",
-                suggestion="Install from https://cli.github.com/",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
-        # T064a: Get PR information (branch name for review)
-        logger.info(f"Fetching PR #{pr_number} details...")
-        try:
-            # Get PR branch name
-            pr_info_result = subprocess.run(
-                [
-                    "gh",
-                    "pr",
-                    "view",
-                    str(pr_number),
-                    "--json",
-                    "headRefName,baseRefName",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if pr_info_result.returncode != 0:
-                error_msg = format_error(
-                    f"Failed to fetch PR #{pr_number} details",
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-            import json
-
-            pr_data = json.loads(pr_info_result.stdout)
-            branch = pr_data.get("headRefName", "HEAD")
-            base_branch = pr_data.get("baseRefName", "main")
-
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Could not parse PR details: {e}, using defaults")
-            branch = "HEAD"
-            base_branch = "main"
+        # Extract branch info from pr_data
+        branch = pr_data.get("headRefName", "HEAD") if pr_data else "HEAD"
+        base_branch = pr_data.get("baseRefName", "main") if pr_data else "main"
 
         # T065: Create and execute CodeReviewerAgent
         logger.info(f"Starting code review for PR #{pr_number}...")
@@ -629,156 +556,18 @@ async def review(
         output_format = OutputFormat(output)
 
         if output_format == OutputFormat.JSON:
-            # T066: Format as JSON
-            json_output = format_json(result.model_dump())
-            click.echo(json_output)
+            click.echo(format_json(result.model_dump()))
         elif output_format == OutputFormat.MARKDOWN:
-            # T067: Format as markdown
-            markdown_output = _format_review_as_markdown(result, pr_number)
-            click.echo(markdown_output)
+            click.echo(format_review_markdown(result, pr_number))
         else:
-            # TUI/text output
-            click.echo(f"\n{result.summary}")
-
-            if result.findings:
-                click.echo(f"\nFound {len(result.findings)} issue(s):\n")
-                for i, finding in enumerate(result.findings, 1):
-                    severity_label = finding.severity.value.upper()
-                    click.echo(f"{i}. [{severity_label}] {finding.file}")
-                    if finding.line:
-                        click.echo(f"   Line {finding.line}")
-                    click.echo(f"   {finding.message}")
-                    if finding.suggestion:
-                        click.echo(f"   Suggestion: {finding.suggestion}")
-                    click.echo()
+            click.echo(format_review_text(result))
 
         if result.success:
             raise SystemExit(ExitCode.SUCCESS)
         else:
             raise SystemExit(ExitCode.FAILURE)
 
-    except KeyboardInterrupt:
-        # Handle KeyboardInterrupt with exit code 130
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
 
-    except AgentError as e:
-        # T068: Handle agent errors
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except MaverickError as e:
-        # Handle MaverickError hierarchy
-        error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-    except Exception as e:
-        # Unexpected error
-        logger.exception("Unexpected error in review command")
-        click.echo(f"Error: {e!s}", err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
-
-
-def _format_review_as_markdown(result: ReviewResult, pr_number: int) -> str:
-    """Format review result as markdown.
-
-    Args:
-        result: ReviewResult from CodeReviewerAgent.
-        pr_number: Pull request number.
-
-    Returns:
-        Formatted markdown string.
-    """
-    lines = [
-        f"# Code Review: PR #{pr_number}",
-        "",
-        "## Summary",
-        "",
-        result.summary,
-        "",
-    ]
-
-    if result.findings:
-        lines.extend(
-            [
-                f"## Findings ({len(result.findings)})",
-                "",
-            ]
-        )
-
-        # Group findings by severity
-        from maverick.models.review import ReviewSeverity
-
-        severity_groups = {
-            ReviewSeverity.CRITICAL: [],
-            ReviewSeverity.MAJOR: [],
-            ReviewSeverity.MINOR: [],
-            ReviewSeverity.SUGGESTION: [],
-        }
-
-        for finding in result.findings:
-            severity_groups[finding.severity].append(finding)
-
-        # Output findings by severity
-        for severity in [
-            ReviewSeverity.CRITICAL,
-            ReviewSeverity.MAJOR,
-            ReviewSeverity.MINOR,
-            ReviewSeverity.SUGGESTION,
-        ]:
-            findings = severity_groups[severity]
-            if findings:
-                lines.extend(
-                    [
-                        f"### {severity.value.capitalize()} ({len(findings)})",
-                        "",
-                    ]
-                )
-
-                for finding in findings:
-                    location = f"{finding.file}"
-                    if finding.line:
-                        location += f":{finding.line}"
-
-                    lines.extend(
-                        [
-                            f"**{location}**",
-                            "",
-                            finding.message,
-                            "",
-                        ]
-                    )
-
-                    if finding.suggestion:
-                        lines.extend(
-                            [
-                                "*Suggestion:*",
-                                "",
-                                finding.suggestion,
-                                "",
-                            ]
-                        )
-
-    lines.extend(
-        [
-            "## Metadata",
-            "",
-            f"- Files reviewed: {result.files_reviewed}",
-        ]
-    )
-
-    if result.metadata:
-        if "branch" in result.metadata:
-            lines.append(f"- Branch: {result.metadata['branch']}")
-        if "base_branch" in result.metadata:
-            lines.append(f"- Base branch: {result.metadata['base_branch']}")
-        if "duration_ms" in result.metadata:
-            duration_sec = result.metadata["duration_ms"] / 1000
-            lines.append(f"- Duration: {duration_sec:.2f}s")
-
-    return "\n".join(lines)
 
 
 @cli.group()
@@ -847,8 +636,10 @@ def config_init(ctx: click.Context, force: bool) -> None:
 
     try:
         # Write config file
-        with open(config_file, "w") as f:
-            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+        yaml_content = yaml.dump(
+            default_config, default_flow_style=False, sort_keys=False
+        )
+        config_file.write_text(yaml_content, encoding="utf-8")
 
         logger.info(f"Config file created: {config_file}")
         click.echo(f"Configuration file created: {config_file}")
@@ -933,7 +724,7 @@ def config_edit(ctx: click.Context, user: bool, project: bool) -> None:
         config_file = Path.cwd() / "maverick.yaml"
 
     # Read existing content if file exists
-    content = config_file.read_text() if config_file.exists() else ""
+    content = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
 
     try:
         # Open editor
@@ -947,7 +738,7 @@ def config_edit(ctx: click.Context, user: bool, project: bool) -> None:
 
         # Write back if changed
         if result != content:
-            config_file.write_text(result)
+            config_file.write_text(result, encoding="utf-8")
             logger.info(f"Config file updated: {config_file}")
             click.echo(f"Configuration file updated: {config_file}")
         else:
@@ -1174,7 +965,7 @@ def workflow_show(ctx: click.Context, name: str) -> None:
         if name_path.exists():
             # It's a file path - parse directly
             file_path = name_path
-            content = file_path.read_text()
+            content = file_path.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
             source_info = "file"
         else:
@@ -1294,18 +1085,16 @@ def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
             UnsupportedVersionError,
             WorkflowParseError,
         )
-        from maverick.dsl.serialization.registry import ComponentRegistry
 
         # Read workflow file
-        content = file.read_text()
+        content = file.read_text(encoding="utf-8")
 
         # Parse workflow
         registry = None
         if strict:
-            # Create a registry for reference resolution
+            # Create a registry with all built-in components registered
             # In strict mode, we want to catch reference errors
-            registry = ComponentRegistry(strict=True)
-            # TODO: Load actual components from registry file if provided
+            registry = create_registered_registry(strict=True)
 
         workflow_obj = parse_workflow(
             content, registry=registry, validate_only=not strict
@@ -1413,7 +1202,7 @@ def workflow_viz(
 
         if name_path.exists():
             # It's a file path - parse directly
-            content = name_path.read_text()
+            content = name_path.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
         else:
             # Look up in discovery (FR-014: use DiscoveryResult for workflow viz)
@@ -1451,7 +1240,7 @@ def workflow_viz(
 
         # Output diagram
         if output:
-            output.write_text(diagram)
+            output.write_text(diagram, encoding="utf-8")
             click.echo(f"Diagram written to {output}")
         else:
             click.echo(diagram)
@@ -1654,6 +1443,12 @@ def workflow_new(
     default=False,
     help="Show execution plan without running.",
 )
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help="Resume workflow from latest checkpoint.",
+)
 @click.pass_context
 @async_command
 async def workflow_run(
@@ -1662,6 +1457,7 @@ async def workflow_run(
     inputs: tuple[str, ...],
     input_file: Path | None,
     dry_run: bool,
+    resume: bool,
 ) -> None:
     """Execute workflow from file or discovered workflow.
 
@@ -1670,11 +1466,16 @@ async def workflow_run(
 
     Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
 
+    The --resume flag attempts to resume from the latest checkpoint, validating
+    that inputs match the saved checkpoint state. If no checkpoint exists,
+    the workflow executes normally from the start.
+
     Examples:
         maverick workflow run fly
         maverick workflow run my-workflow -i branch=main -i dry_run=true
         maverick workflow run my-workflow.yaml --input-file inputs.json
         maverick workflow run my-workflow --dry-run
+        maverick workflow run fly --resume  # Resume from checkpoint
     """
     import json
 
@@ -1682,7 +1483,7 @@ async def workflow_run(
 
     logger = logging.getLogger(__name__)
 
-    try:
+    with cli_error_handler():
         # Determine if name_or_file is a file path or workflow name
         name_path = Path(name_or_file)
         workflow_file = None
@@ -1691,7 +1492,7 @@ async def workflow_run(
         if name_path.exists():
             # It's a file path - parse directly
             workflow_file = name_path
-            content = workflow_file.read_text()
+            content = workflow_file.read_text(encoding="utf-8")
             workflow_obj = parse_workflow(content, validate_only=True)
         else:
             # Look up in discovery (FR-014: use DiscoveryResult for workflow run)
@@ -1726,7 +1527,7 @@ async def workflow_run(
 
         # Load from file first
         if input_file:
-            input_content = input_file.read_text()
+            input_content = input_file.read_text(encoding="utf-8")
             if input_file.suffix == ".json":
                 input_dict = json.loads(input_content)
             else:
@@ -1778,7 +1579,7 @@ async def workflow_run(
             WorkflowCompleted,
             WorkflowStarted,
         )
-        from maverick.dsl.serialization import ComponentRegistry, WorkflowFileExecutor
+        from maverick.dsl.serialization import WorkflowFileExecutor
 
         # Display workflow header
         wf_name = workflow_obj.name
@@ -1795,8 +1596,8 @@ async def workflow_run(
             click.echo("Inputs: (none)")
         click.echo()
 
-        # Create registry and executor
-        registry = ComponentRegistry()
+        # Create registry with all built-in components registered and executor
+        registry = create_registered_registry()
         executor = WorkflowFileExecutor(registry=registry)
 
         # Track step progress
@@ -1804,112 +1605,95 @@ async def workflow_run(
         total_steps = len(workflow_obj.steps)
 
         # Execute workflow and display progress
-        try:
-            async for event in executor.execute(workflow_obj, inputs=input_dict):
-                if isinstance(event, WorkflowStarted):
-                    # Already displayed header above
-                    pass
+        async for event in executor.execute(
+            workflow_obj,
+            inputs=input_dict,
+            resume_from_checkpoint=resume,
+        ):
+            if isinstance(event, WorkflowStarted):
+                # Already displayed header above
+                pass
 
-                elif isinstance(event, StepStarted):
-                    step_index += 1
+            elif isinstance(event, StepStarted):
+                step_index += 1
 
-                    # Step type icon mapping
-                    type_icons = {
-                        "python": "⚙",
-                        "agent": "🤖",
-                        "generate": "✍",
-                        "validate": "✓",
-                    }
-                    icon = type_icons.get(event.step_type.value, "●")
+                # Step type icon mapping
+                type_icons = {
+                    "python": "⚙",
+                    "agent": "🤖",
+                    "generate": "✍",
+                    "validate": "✓",
+                    "checkpoint": "💾",
+                }
+                icon = type_icons.get(event.step_type.value, "●")
 
-                    # Display step start with progress counter
-                    step_name = event.step_name
-                    step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
-                    styled = click.style(step_header, fg="blue")
-                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+                # Display step start with progress counter
+                step_name = event.step_name
+                step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
+                styled = click.style(step_header, fg="blue")
+                click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
 
-                elif isinstance(event, StepCompleted):
-                    # Calculate duration
-                    duration_sec = event.duration_ms / 1000
+            elif isinstance(event, StepCompleted):
+                # Calculate duration
+                duration_sec = event.duration_ms / 1000
 
-                    if event.success:
-                        # Success indicator
-                        status_msg = click.style("✓", fg="green", bold=True)
-                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                        click.echo(f"{status_msg} {duration_msg}")
-                    else:
-                        # Failure indicator
-                        status_msg = click.style("✗", fg="red", bold=True)
-                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                        click.echo(f"{status_msg} {duration_msg}")
+                if event.success:
+                    # Success indicator
+                    status_msg = click.style("✓", fg="green", bold=True)
+                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                    click.echo(f"{status_msg} {duration_msg}")
+                else:
+                    # Failure indicator
+                    status_msg = click.style("✗", fg="red", bold=True)
+                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                    click.echo(f"{status_msg} {duration_msg}")
 
-                elif isinstance(event, WorkflowCompleted):
-                    # Workflow summary
-                    click.echo()
-                    total_sec = event.total_duration_ms / 1000
+            elif isinstance(event, WorkflowCompleted):
+                # Workflow summary
+                click.echo()
+                total_sec = event.total_duration_ms / 1000
 
-                    if event.success:
-                        summary_header = click.style(
-                            "Workflow completed successfully", fg="green", bold=True
-                        )
-                        click.echo(f"{summary_header} in {total_sec:.2f}s")
-                    else:
-                        summary_header = click.style(
-                            "Workflow failed", fg="red", bold=True
-                        )
-                        click.echo(f"{summary_header} after {total_sec:.2f}s")
-
-            # Get final result
-            result = executor.get_result()
-
-            # Display summary
-            click.echo()
-            completed_steps = sum(1 for step in result.step_results if step.success)
-
-            styled_completed = click.style(str(completed_steps), fg="green")
-            click.echo(f"Steps: {styled_completed}/{total_steps} completed")
-
-            if result.success:
-                # Display final output (truncated if too long)
-                if result.final_output is not None:
-                    output_str = str(result.final_output)
-                    if len(output_str) > 200:
-                        output_str = output_str[:197] + "..."
-                    click.echo(f"Final output: {click.style(output_str, fg='white')}")
-                raise SystemExit(ExitCode.SUCCESS)
-            else:
-                # Find and display the failed step
-                failed_step = result.failed_step
-                if failed_step:
-                    click.echo()
-                    error_msg = format_error(
-                        f"Step '{failed_step.name}' failed",
-                        details=[failed_step.error] if failed_step.error else None,
-                        suggestion="Check the step configuration and try again.",
+                if event.success:
+                    summary_header = click.style(
+                        "Workflow completed successfully", fg="green", bold=True
                     )
-                    click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
+                    click.echo(f"{summary_header} in {total_sec:.2f}s")
+                else:
+                    summary_header = click.style(
+                        "Workflow failed", fg="red", bold=True
+                    )
+                    click.echo(f"{summary_header} after {total_sec:.2f}s")
 
-        except Exception as exec_error:
-            logger.exception("Error during workflow execution")
-            error_msg = format_error(
-                f"Workflow execution failed: {exec_error}",
-                suggestion="Check logs for details.",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from exec_error
+        # Get final result
+        result = executor.get_result()
 
-    except KeyboardInterrupt:
-        click.echo("\n\nInterrupted by user.", err=True)
-        raise SystemExit(ExitCode.INTERRUPTED) from None
+        # Display summary
+        click.echo()
+        completed_steps = sum(1 for step in result.step_results if step.success)
 
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error in workflow run command")
-        error_msg = format_error(f"Failed to run workflow: {e}")
-        click.echo(error_msg, err=True)
-        raise SystemExit(ExitCode.FAILURE) from e
+        styled_completed = click.style(str(completed_steps), fg="green")
+        click.echo(f"Steps: {styled_completed}/{total_steps} completed")
+
+        if result.success:
+            # Display final output (truncated if too long)
+            if result.final_output is not None:
+                output_str = str(result.final_output)
+                if len(output_str) > 200:
+                    output_str = output_str[:197] + "..."
+                click.echo(f"Final output: {click.style(output_str, fg='white')}")
+            raise SystemExit(ExitCode.SUCCESS)
+        else:
+            # Find and display the failed step
+            failed_step = result.failed_step
+            if failed_step:
+                click.echo()
+                error_msg = format_error(
+                    f"Step '{failed_step.name}' failed",
+                    details=[failed_step.error] if failed_step.error else None,
+                    suggestion="Check the step configuration and try again.",
+                )
+                click.echo(error_msg, err=True)
+            raise SystemExit(ExitCode.FAILURE)
 
 
 @cli.command()
@@ -1932,181 +1716,52 @@ def status(ctx: click.Context, fmt: str) -> None:
         maverick status
         maverick status --format json
     """
-    import re
-    import subprocess
-    from datetime import datetime
-
     logger = logging.getLogger(__name__)
 
     try:
-        # T088: Detect git branch using subprocess
-        # First, check if we're in a git repository
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--git-dir"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                # Not a git repository
-                suggestion = (
-                    "Initialize with 'git init' or navigate to a git repository"
-                )
-                error_msg = format_error(
-                    "Not a git repository",
-                    suggestion=suggestion,
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-        except subprocess.TimeoutExpired:
-            error_msg = format_error("Git command timed out")
+        # Get git branch
+        branch, error_msg = get_git_branch()
+        if error_msg:
             click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
-        except FileNotFoundError:
-            error_msg = format_error(
-                "git is not installed",
-                suggestion="Install from https://git-scm.com/downloads",
-            )
-            click.echo(error_msg, err=True)
-            raise SystemExit(ExitCode.FAILURE) from None
+            raise SystemExit(ExitCode.FAILURE)
 
-        # Get current branch
-        try:
-            result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode == 0:
-                branch = result.stdout.strip()
-                if not branch:
-                    # In detached HEAD state
-                    branch = "(detached HEAD)"
-            else:
-                branch = "(unknown)"
-
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            branch = "(unknown)"
-
-        # T089: Detect pending tasks from tasks.md
+        # Detect pending tasks from tasks.md
+        task_file_found = False
         pending_tasks = 0
         completed_tasks = 0
-        task_file_found = False
 
-        # Look for tasks.md in current directory or .specify/
-        spec_task_file = (
-            Path.cwd() / ".specify" / branch / "tasks.md"
-            if branch not in ("(unknown)", "(detached HEAD)")
+        task_file_path = detect_task_file(
+            branch
+            if branch and branch not in ("(unknown)", "(detached HEAD)")
             else None
         )
-        potential_task_files = [
-            Path.cwd() / "tasks.md",
-            spec_task_file,
-        ]
 
-        for task_file_path in potential_task_files:
-            if task_file_path and task_file_path.exists():
-                task_file_found = True
-                try:
-                    content = task_file_path.read_text()
-                    # Count pending tasks: lines with - [ ]
-                    pending_tasks = len(
-                        re.findall(r"^-\s*\[\s*\]", content, re.MULTILINE)
-                    )
-                    # Count completed tasks: lines with - [x] or - [X]
-                    completed_tasks = len(
-                        re.findall(r"^-\s*\[[xX]\]", content, re.MULTILINE)
-                    )
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to read task file: {e}")
+        if task_file_path:
+            task_file_found = True
+            pending_tasks, completed_tasks = count_tasks(task_file_path)
 
-        # T090: Get recent workflow history from WorkflowHistory
-        recent_workflows = []
-        try:
-            from maverick.tui.history import WorkflowHistoryStore
+        # Get recent workflow history
+        recent_workflows = get_workflow_history(count=5)
 
-            history_store = WorkflowHistoryStore()
-            recent_entries = history_store.get_recent(count=5)
-
-            for entry in recent_entries:
-                # Calculate time ago
-                dt = datetime.fromisoformat(entry.timestamp)
-                now = datetime.now()
-                delta = now - dt
-
-                if delta.days > 0:
-                    time_ago = f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
-                elif delta.seconds >= 3600:
-                    hours = delta.seconds // 3600
-                    time_ago = f"{hours} hour{'s' if hours > 1 else ''} ago"
-                elif delta.seconds >= 60:
-                    minutes = delta.seconds // 60
-                    time_ago = f"{minutes} minute{'s' if minutes > 1 else ''} ago"
-                else:
-                    time_ago = "just now"
-
-                recent_workflows.append(
-                    {
-                        "workflow_type": entry.workflow_type,
-                        "branch": entry.branch_name,
-                        "status": entry.final_status,
-                        "time_ago": time_ago,
-                        "timestamp": entry.timestamp,
-                    }
-                )
-
-        except Exception as e:
-            logger.debug(f"Failed to load workflow history: {e}")
-
-        # T091: Format output as text or JSON
+        # Format output
         if fmt == "json":
-            # JSON format
-            output_data = {
-                "branch": branch,
-                "tasks": {
-                    "pending": pending_tasks,
-                    "completed": completed_tasks,
-                }
-                if task_file_found
-                else None,
-                "workflows": recent_workflows if recent_workflows else [],
-            }
-            click.echo(format_json(output_data))
+            output = format_status_json(
+                branch,
+                task_file_found,
+                pending_tasks,
+                completed_tasks,
+                recent_workflows,
+            )
         else:
-            # Text format
-            lines = [
-                "Project Status",
-                "==============",
-                f"Branch: {branch}",
-            ]
+            output = format_status_text(
+                branch,
+                task_file_found,
+                pending_tasks,
+                completed_tasks,
+                recent_workflows,
+            )
 
-            if task_file_found:
-                task_summary = (
-                    f"Tasks: {pending_tasks} pending, {completed_tasks} completed"
-                )
-                lines.append(task_summary)
-            else:
-                lines.append("Tasks: No task file found")
-
-            if recent_workflows:
-                lines.append("Recent Workflows:")
-                for wf in recent_workflows[:3]:  # Show top 3 in text mode
-                    status_icon = "✓" if wf["status"] == "completed" else "✗"
-                    workflow_line = (
-                        f"  {status_icon} {wf['workflow_type']} "
-                        f"({wf['time_ago']}): {wf['status']}"
-                    )
-                    lines.append(workflow_line)
-            else:
-                lines.append("Recent Workflows: None")
-
-            click.echo("\n".join(lines))
+        click.echo(output)
 
     except SystemExit:
         raise

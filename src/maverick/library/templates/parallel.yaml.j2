@@ -44,11 +44,6 @@ inputs:
   items:
     type: array
     description: Items to process in parallel
-  run_validation:
-    type: boolean
-    description: Whether to run validation on items
-    required: false
-    default: true
 
 steps:
   # ==========================================================================
@@ -68,11 +63,11 @@ steps:
         action: process_item
         kwargs:
           item: ${{ '{{ item }}' }}  # Current iteration's item
-      - name: log_item
+      - name: validate_result
         type: python
-        action: log_progress
+        action: validate_result
         kwargs:
-          item: ${{ '{{ item }}' }}  # Log the processed item
+          item: ${{ '{{ item }}' }}
 
   # ==========================================================================
   # Example 2: Combining Parallel Results
@@ -96,13 +91,12 @@ steps:
   # Example 3: Conditional Parallel Execution
   # ==========================================================================
   # Use the `when` clause to conditionally execute parallel steps based on
-  # runtime conditions. In this example, we use an input flag to control
-  # whether validation runs.
+  # runtime conditions. Note: For checking if a list has items, you would
+  # typically check the list input in a separate step first.
   # ==========================================================================
   - name: conditional_parallel
     type: parallel
     for_each: ${{ '{{ inputs.items }}' }}
-    when: ${{ '{{ inputs.run_validation }}' }}
     steps:
       - name: validate_item
         type: python

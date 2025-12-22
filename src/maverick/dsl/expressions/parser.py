@@ -6,6 +6,8 @@ in the format ${{ ... }} used throughout workflow definitions.
 Expression syntax:
 - ${{ inputs.name }} - Reference to workflow input
 - ${{ steps.step_id.output }} - Reference to step output
+- ${{ item }} - Reference to current iteration item (for_each loops)
+- ${{ index }} - Reference to current iteration index (for_each loops)
 - ${{ not inputs.condition }} - Negated expression
 - ${{ steps.x.output.field }} - Nested field access
 - ${{ items[0] }} - Array index access (bracket notation)
@@ -33,7 +35,8 @@ class ExpressionKind(str, Enum):
 
     INPUT_REF = "input_ref"  # ${{ inputs.name }}
     STEP_REF = "step_ref"  # ${{ steps.x.output }}
-    LOOP_VAR = "loop_var"  # ${{ item }} or ${{ item_index }}
+    ITEM_REF = "item_ref"  # ${{ item }} - current iteration item
+    INDEX_REF = "index_ref"  # ${{ index }} - current iteration index
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,9 +359,6 @@ def parse_expression(expression: str) -> Expression:
     # Determine expression kind based on first path element
     first_element = path[0]
 
-    # Loop variables used in parallel for_each steps
-    loop_variables = {"item", "item_index"}
-
     if first_element == "inputs":
         if len(path) < 2:
             raise ExpressionSyntaxError(
@@ -382,13 +382,22 @@ def parse_expression(expression: str) -> Expression:
                 position=0,
             )
         kind = ExpressionKind.STEP_REF
-    elif first_element in loop_variables:
-        # Loop variable reference (used in parallel for_each steps)
-        kind = ExpressionKind.LOOP_VAR
+    elif first_element == "item":
+        # ${{ item }} or ${{ item.field }} for for_each iteration
+        kind = ExpressionKind.ITEM_REF
+    elif first_element == "index":
+        # ${{ index }} for for_each iteration index (must be single element)
+        if len(path) > 1:
+            raise ExpressionSyntaxError(
+                "Index reference must be a single element (e.g., ${{ index }})",
+                expression=original,
+                position=0,
+            )
+        kind = ExpressionKind.INDEX_REF
     else:
         raise ExpressionSyntaxError(
-            f"Expression must start with 'inputs', 'steps', or a loop variable "
-            f"('item', 'item_index'), got '{first_element}'",
+            f"Expression must start with 'inputs', 'steps', 'item', "
+            f"or 'index', got '{first_element}'",
             expression=original,
             position=0,
         )

@@ -17,9 +17,10 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
+import re
 import subprocess
 import threading
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -674,10 +675,219 @@ class GitOperations:
 
 
 # =============================================================================
+# Async Wrapper
+# =============================================================================
+
+
+class AsyncGitOperations:
+    """Async wrapper for GitOperations to prevent blocking the event loop.
+
+    This wrapper delegates all git operations to a synchronous GitOperations
+    instance running in a thread pool, ensuring TUI responsiveness during
+    long-running git commands.
+
+    Example:
+        ```python
+        from maverick.utils.git_operations import AsyncGitOperations
+
+        ops = AsyncGitOperations()
+        branch = await ops.current_branch()  # "main"
+        status = await ops.status()
+        print(status.staged)  # ("file.py",)
+        ```
+    """
+
+    def __init__(self, cwd: Path | str | None = None) -> None:
+        """Initialize AsyncGitOperations.
+
+        Args:
+            cwd: Working directory for git commands. Defaults to cwd.
+        """
+        self._sync = GitOperations(cwd)
+
+    async def current_branch(self) -> str:
+        """Get current branch name.
+
+        Returns:
+            Branch name, or commit SHA if in detached HEAD state.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.current_branch)
+
+    async def status(self) -> GitStatus:
+        """Get repository status.
+
+        Returns:
+            GitStatus with staged, unstaged, untracked files and branch info.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.status)
+
+    async def log(self, n: int = 10) -> list[CommitInfo]:
+        """Get recent commit history.
+
+        Args:
+            n: Number of commits to return (default 10).
+
+        Returns:
+            List of CommitInfo for the n most recent commits.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.log, n)
+
+    async def create_branch(self, name: str, checkout: bool = True) -> None:
+        """Create a new branch.
+
+        Args:
+            name: Branch name to create.
+            checkout: If True, switch to the new branch.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            BranchExistsError: If branch already exists.
+            ValueError: If branch name is invalid.
+        """
+        return await asyncio.to_thread(self._sync.create_branch, name, checkout)
+
+    async def checkout(self, branch: str) -> None:
+        """Switch to an existing branch.
+
+        Args:
+            branch: Branch name to checkout.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            CheckoutConflictError: If uncommitted changes would be overwritten.
+            GitError: If branch doesn't exist or checkout fails.
+            ValueError: If branch name is invalid.
+        """
+        return await asyncio.to_thread(self._sync.checkout, branch)
+
+    async def commit(self, message: str, add_all: bool = False) -> str:
+        """Create a commit.
+
+        Args:
+            message: Commit message.
+            add_all: If True, stage all changes before committing.
+
+        Returns:
+            The commit hash.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            NothingToCommitError: If nothing to commit.
+        """
+        return await asyncio.to_thread(self._sync.commit, message, add_all)
+
+    async def push(
+        self,
+        remote: str = "origin",
+        set_upstream: bool = False,
+    ) -> None:
+        """Push current branch to remote.
+
+        Args:
+            remote: Remote name (default "origin").
+            set_upstream: If True, set upstream tracking branch.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            PushRejectedError: If remote rejects the push.
+        """
+        return await asyncio.to_thread(self._sync.push, remote, set_upstream)
+
+    async def pull(
+        self,
+        remote: str = "origin",
+        branch: str | None = None,
+    ) -> None:
+        """Pull changes from remote.
+
+        Args:
+            remote: Remote name (default "origin").
+            branch: Branch to pull (default: current branch).
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            MergeConflictError: If pull results in conflicts.
+            GitError: If remote/branch doesn't exist.
+        """
+        return await asyncio.to_thread(self._sync.pull, remote, branch)
+
+    async def diff(self, base: str = "HEAD", head: str | None = None) -> str:
+        """Get full diff between refs.
+
+        Args:
+            base: Base ref to diff from (default HEAD).
+            head: Head ref to diff to (default: working tree).
+
+        Returns:
+            Full diff output as string.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.diff, base, head)
+
+    async def diff_stats(self, base: str = "HEAD") -> DiffStats:
+        """Get diff statistics.
+
+        Args:
+            base: Base ref to diff from (default HEAD).
+
+        Returns:
+            DiffStats with files changed, insertions, deletions.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.diff_stats, base)
+
+    async def stash(self, message: str | None = None) -> None:
+        """Stash uncommitted changes.
+
+        Args:
+            message: Optional stash message.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+        """
+        return await asyncio.to_thread(self._sync.stash, message)
+
+    async def stash_pop(self) -> None:
+        """Restore most recent stash.
+
+        Raises:
+            GitNotFoundError: If git is not installed.
+            NotARepositoryError: If not in a git repository.
+            NoStashError: If no stash exists.
+        """
+        return await asyncio.to_thread(self._sync.stash_pop)
+
+
+# =============================================================================
 # Module Exports
 # =============================================================================
 
 __all__ = [
+    "AsyncGitOperations",
     "CommitInfo",
     "DiffStats",
     "GitOperations",

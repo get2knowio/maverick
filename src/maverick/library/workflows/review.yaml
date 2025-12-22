@@ -179,6 +179,20 @@ steps:
         weight: 40
 
   # ============================================================================
+  # Checkpoint: After Review
+  # ============================================================================
+  # Save workflow state after successful review to enable resumption from this
+  # point if the workflow is interrupted during result combination.
+  # ============================================================================
+  - name: checkpoint_after_review
+    type: checkpoint
+    checkpoint_id: review_complete
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
+
+  # ============================================================================
   # Stage 4: Combine Results
   # ============================================================================
   # Merge review findings from CodeRabbit and agent review into a unified

@@ -12,8 +12,11 @@ import inspect
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
+from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
+from maverick.dsl.checkpoint.store import CheckpointStore, FileCheckpointStore
 from maverick.dsl.events import (
     ProgressEvent,
     StepCompleted,
@@ -28,6 +31,7 @@ from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
     BranchStepRecord,
+    CheckpointStepRecord,
     GenerateStepRecord,
     ParallelStepRecord,
     PythonStepRecord,
@@ -47,6 +51,7 @@ StepRecordType = (
     | SubWorkflowStepRecord
     | BranchStepRecord
     | ParallelStepRecord
+    | CheckpointStepRecord
 )
 
 
@@ -93,6 +98,7 @@ class WorkflowFileExecutor:
         self,
         registry: ComponentRegistry | None = None,
         config: Any = None,
+        checkpoint_store: CheckpointStore | None = None,
     ) -> None:
         """Initialize executor.
 
@@ -100,9 +106,12 @@ class WorkflowFileExecutor:
             registry: Component registry for resolving actions/agents/generators.
                 If None, creates a new empty registry.
             config: Optional configuration for validation stages.
+            checkpoint_store: Optional checkpoint store for workflow resumability.
+                If None, creates a FileCheckpointStore with default path.
         """
         self._registry = registry or ComponentRegistry()
         self._config = config
+        self._checkpoint_store = checkpoint_store or FileCheckpointStore()
         self._result: WorkflowResult | None = None
         self._cancelled = False
 
@@ -110,6 +119,7 @@ class WorkflowFileExecutor:
         self,
         workflow: WorkflowFile,
         inputs: dict[str, Any] | None = None,
+        resume_from_checkpoint: bool = False,
     ) -> AsyncIterator[ProgressEvent]:
         """Execute a workflow file and yield progress events.
 
@@ -120,28 +130,88 @@ class WorkflowFileExecutor:
         Args:
             workflow: WorkflowFile to execute.
             inputs: Input values for the workflow (merged with defaults).
+            resume_from_checkpoint: If True, attempts to resume from the latest
+                checkpoint. Validates that inputs match the checkpoint.
 
         Yields:
             ProgressEvent objects for TUI/CLI consumption.
+
+        Raises:
+            ValueError: If resuming from checkpoint but inputs don't match.
 
         Example:
             ```python
             async for event in executor.execute(workflow, {"dry_run": False}):
                 print(f"Event: {event}")
+            
+            # Resume from checkpoint
+            async for event in executor.execute(
+                workflow, {"dry_run": False}, resume_from_checkpoint=True
+            ):
+                print(f"Event: {event}")
             ```
         """
         inputs = inputs or {}
 
+        # Handle checkpoint resume
+        checkpoint_data: CheckpointData | None = None
+        resume_after_step: str | None = None
+
+        if resume_from_checkpoint:
+            checkpoint_data = await self._checkpoint_store.load_latest(workflow.name)
+            
+            if checkpoint_data is not None:
+                # Validate inputs match checkpoint (FR-025b)
+                current_inputs_hash = compute_inputs_hash(inputs)
+                if current_inputs_hash != checkpoint_data.inputs_hash:
+                    raise ValueError(
+                        f"Cannot resume workflow '{workflow.name}' from checkpoint "
+                        f"'{checkpoint_data.checkpoint_id}': Current workflow inputs differ "
+                        f"from checkpoint inputs. To resume, use the same inputs as the "
+                        f"original run. Checkpoint was saved at {checkpoint_data.saved_at}. "
+                        f"Use `maverick workflow run {workflow.name} --help` to see required inputs."
+                    )
+                
+                resume_after_step = checkpoint_data.checkpoint_id
+                logger.info(
+                    f"Resuming workflow '{workflow.name}' from checkpoint "
+                    f"'{checkpoint_data.checkpoint_id}' (saved at {checkpoint_data.saved_at})"
+                )
+            else:
+                logger.info(
+                    f"No checkpoint found for workflow '{workflow.name}', "
+                    f"executing from start"
+                )
+
         # Build execution context
-        # Context structure: {"inputs": {...}, "steps": {"step_name": {"output": ...}}}
+        # Context structure: {
+        #   "workflow_name": str,  # Added for checkpoint support
+        #   "inputs": {...},
+        #   "steps": {"step_name": {"output": ...}},
+        #   "iteration": {"item": ..., "index": ...}  # Only in for_each loops
+        # }
         context = {
+            "workflow_name": workflow.name,
             "inputs": inputs,
             "steps": {},  # Will hold step outputs: steps.<name>.output
         }
 
+        # Restore step results from checkpoint if resuming
+        if checkpoint_data is not None:
+            for step_result_dict in checkpoint_data.step_results:
+                step_name = step_result_dict["name"]
+                step_output = step_result_dict["output"]
+                context["steps"][step_name] = {"output": step_output}
+                logger.debug(
+                    f"Restored step output for '{step_name}' from checkpoint"
+                )
+
         start_time = time.perf_counter()
         step_results: list[StepResult] = []
         success = True
+
+        # Track whether we've passed the resume checkpoint
+        past_resume_point = not resume_from_checkpoint
 
         yield WorkflowStarted(workflow_name=workflow.name, inputs=inputs)
 
@@ -149,6 +219,26 @@ class WorkflowFileExecutor:
             if self._cancelled:
                 success = False
                 break
+
+            # Skip steps before resume checkpoint
+            if not past_resume_point:
+                # Check if this is a checkpoint step that matches our resume point
+                if isinstance(step_record, CheckpointStepRecord):
+                    checkpoint_id = step_record.checkpoint_id or step_record.name
+                    if checkpoint_id == resume_after_step:
+                        # We've reached the resume checkpoint, start executing after this
+                        past_resume_point = True
+                        logger.info(
+                            f"Reached resume checkpoint '{checkpoint_id}', "
+                            f"continuing execution from next step"
+                        )
+                        continue  # Skip the checkpoint step itself
+                
+                # Skip all steps before resume point
+                logger.debug(
+                    f"Skipping step '{step_record.name}' (before resume checkpoint)"
+                )
+                continue
 
             # Check conditional execution
             if step_record.when:
@@ -253,6 +343,7 @@ class WorkflowFileExecutor:
         evaluator = ExpressionEvaluator(
             inputs=context.get("inputs", {}),
             step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
         )
 
         # Parse and evaluate the expression
@@ -298,6 +389,8 @@ class WorkflowFileExecutor:
             return await self._execute_branch_step(step, resolved_inputs, context)
         elif isinstance(step, ParallelStepRecord):
             return await self._execute_parallel_step(step, resolved_inputs, context)
+        elif isinstance(step, CheckpointStepRecord):
+            return await self._execute_checkpoint_step(step, resolved_inputs, context)
         else:
             raise NotImplementedError(
                 f"Step type {step.type} not yet implemented in executor"
@@ -320,6 +413,7 @@ class WorkflowFileExecutor:
         evaluator = ExpressionEvaluator(
             inputs=context.get("inputs", {}),
             step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
         )
 
         resolved = {}
@@ -736,6 +830,7 @@ class WorkflowFileExecutor:
         """Execute a parallel step.
 
         Executes multiple steps concurrently using asyncio.gather.
+        If for_each is specified, executes steps once per item in the iteration list.
 
         Args:
             step: ParallelStepRecord containing steps to execute in parallel.
@@ -743,15 +838,151 @@ class WorkflowFileExecutor:
             context: Execution context.
 
         Returns:
-            Dictionary containing results from all parallel steps.
+            Dictionary containing results from all parallel steps or iterations.
         """
-        # Create tasks for all steps
-        tasks = [self._execute_step(s, context) for s in step.steps]
+        if step.for_each:
+            # Execute steps for each item in the iteration list
+            return await self._execute_parallel_for_each(step, context)
+        else:
+            # Execute steps in parallel once
+            tasks = [self._execute_step(s, context) for s in step.steps]
 
-        # Execute in parallel with exception handling
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Execute in parallel with exception handling
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return {"results": results}
+            return {"results": results}
+
+    async def _execute_parallel_for_each(
+        self,
+        step: ParallelStepRecord,
+        context: dict[str, Any],
+    ) -> Any:
+        """Execute parallel steps for each item in a list.
+
+        Args:
+            step: ParallelStepRecord with for_each expression.
+            context: Execution context.
+
+        Returns:
+            Dictionary with results from all iterations.
+
+        Raises:
+            TypeError: If for_each expression doesn't evaluate to a list.
+        """
+        # Evaluate the for_each expression to get the list of items
+        evaluator = ExpressionEvaluator(
+            inputs=context.get("inputs", {}),
+            step_outputs=context.get("steps", {}),
+            iteration_context=context.get("iteration", {}),
+        )
+
+        # Parse and evaluate the for_each expression
+        expr = parse_expression(step.for_each)
+        items = evaluator.evaluate(expr)
+
+        # Validate that items is a list or tuple
+        if not isinstance(items, (list, tuple)):
+            raise TypeError(
+                f"for_each expression must evaluate to a list or tuple, "
+                f"got {type(items).__name__} (step: {step.name})"
+            )
+
+        # Create tasks for each item
+        tasks = []
+        for index, item in enumerate(items):
+            # Create a copy of the context with the current item
+            # Add 'item' and 'index' to iteration context for expression evaluation
+            item_context = context.copy()
+            item_context["iteration"] = {
+                "item": item,
+                "index": index,
+            }
+
+            # Create tasks for all steps in this iteration
+            iteration_tasks = [
+                self._execute_step(s, item_context) for s in step.steps
+            ]
+
+            # Each iteration's task is itself a gather of all steps in parallel
+            tasks.append(asyncio.gather(*iteration_tasks, return_exceptions=True))
+
+        # Execute all iterations in parallel
+        iteration_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        return {"results": iteration_results}
+
+    async def _execute_checkpoint_step(
+        self,
+        step: CheckpointStepRecord,
+        resolved_inputs: dict[str, Any],
+        context: dict[str, Any],
+    ) -> Any:
+        """Execute a checkpoint step.
+
+        A checkpoint step marks a workflow state boundary for resumability.
+        When executed, it saves the current workflow state (inputs, completed
+        steps, outputs) to the checkpoint store. Returns success indicator.
+
+        Args:
+            step: CheckpointStepRecord containing checkpoint configuration.
+            resolved_inputs: Resolved values (unused for checkpoint).
+            context: Execution context with inputs and step outputs.
+
+        Returns:
+            Dictionary with checkpoint status:
+                - saved: Boolean indicating checkpoint was saved
+                - checkpoint_id: The checkpoint identifier used
+                - timestamp: ISO 8601 timestamp of save
+        """
+        # Determine checkpoint ID (use explicit ID or step name)
+        checkpoint_id = step.checkpoint_id or step.name
+
+        # Get workflow name and inputs from context
+        workflow_name = context.get("workflow_name", "unknown")
+        workflow_inputs = context.get("inputs", {})
+
+        # Compute input hash for validation on resume
+        inputs_hash = compute_inputs_hash(workflow_inputs)
+
+        # Serialize step results for persistence
+        # Convert StepResult objects to dicts
+        step_results_dicts = []
+        for step_name, step_data in context.get("steps", {}).items():
+            output = step_data.get("output")
+            # Store minimal data needed for resume
+            step_results_dicts.append({
+                "name": step_name,
+                "output": output,
+            })
+
+        # Create checkpoint data
+        timestamp = datetime.now(timezone.utc).isoformat()
+        checkpoint_data = CheckpointData(
+            checkpoint_id=checkpoint_id,
+            workflow_name=workflow_name,
+            inputs_hash=inputs_hash,
+            step_results=tuple(step_results_dicts),
+            saved_at=timestamp,
+        )
+
+        # Save checkpoint to store
+        try:
+            await self._checkpoint_store.save(workflow_name, checkpoint_data)
+            logger.info(
+                f"Checkpoint '{checkpoint_id}' saved for workflow '{workflow_name}'"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to save checkpoint '{checkpoint_id}' for workflow "
+                f"'{workflow_name}': {e}"
+            )
+            # Don't fail workflow on checkpoint save error (best effort)
+
+        return {
+            "saved": True,
+            "checkpoint_id": checkpoint_id,
+            "timestamp": timestamp,
+        }
 
     def get_result(self) -> WorkflowResult:
         """Get the final workflow result.

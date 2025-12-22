@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
@@ -8,11 +10,15 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Static
 
+from maverick.agents.issue_fixer import IssueFixerAgent
+from maverick.models.issue_fix import IssueFixerContext
 from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.base import MaverickScreen
 
 if TYPE_CHECKING:
     from textual.timer import Timer
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["ReviewScreen"]
 
@@ -510,13 +516,89 @@ class ReviewScreen(MaverickScreen):
         # Update action state to show fixing in progress
         self.action_state = ReviewScreenActionState(is_fixing=True)
 
-        # TODO: Call IssueFixerAgent for each finding
-        # For now, simulate results
+        # Execute IssueFixerAgent for each finding sequentially to avoid git conflicts
         results: list[FixResult] = []
-        for issue in self._issues:
-            issue_id = str(issue.get("id", "unknown"))
-            # Placeholder: simulate success for demonstration
-            results.append(FixResult(finding_id=issue_id, success=True))
+
+        for idx, finding in enumerate(self._issues, start=1):
+            finding_id = str(finding.get("id", f"finding-{idx}"))
+
+            try:
+                # Log progress
+                logger.info(
+                    "Fixing finding %d/%d: %s",
+                    idx,
+                    len(self._issues),
+                    finding.get("message", "Unknown issue"),
+                )
+
+                # Create IssueFixerAgent
+                agent = IssueFixerAgent()
+
+                # Construct synthetic IssueFixerContext for this finding
+                # Use a synthetic issue number (1000000 + idx) to satisfy validation
+                synthetic_number = 1000000 + idx
+
+                # Build issue data from finding
+                file_path = finding.get("file_path", "unknown")
+                line_number = finding.get("line_number", 0)
+                message = finding.get("message", "")
+                source = finding.get("source", "")
+                severity = finding.get("severity", "")
+
+                issue_data = {
+                    "number": synthetic_number,
+                    "title": f"Fix {severity} finding in {file_path}",
+                    "body": (
+                        f"**Message:** {message}\n\n"
+                        f"**Location:** {file_path}:{line_number}\n\n"
+                        f"**Source:** {source}\n\n"
+                        f"**Code:**\n```\n{source}\n```"
+                    ),
+                    "labels": [],
+                }
+
+                context = IssueFixerContext(
+                    issue_data=issue_data,
+                    cwd=Path.cwd(),
+                    skip_validation=True,  # Skip validation for review findings
+                    dry_run=False,
+                )
+
+                # Execute the agent
+                agent_result = await agent.execute(context)
+
+                # Convert agent FixResult to TUI FixResult
+                if agent_result.success:
+                    results.append(FixResult(finding_id=finding_id, success=True))
+                    logger.info("Successfully fixed finding %s", finding_id)
+                else:
+                    error_msg = (
+                        "; ".join(agent_result.errors)
+                        if agent_result.errors
+                        else "Unknown error"
+                    )
+                    results.append(
+                        FixResult(
+                            finding_id=finding_id,
+                            success=False,
+                            error_message=error_msg,
+                        )
+                    )
+                    logger.warning(
+                        "Failed to fix finding %s: %s", finding_id, error_msg
+                    )
+
+            except Exception as e:
+                # Handle any errors during fixing
+                error_msg = f"Error fixing finding: {e}"
+                logger.exception("Error executing fix for finding %s", finding_id)
+                results.append(
+                    FixResult(
+                        finding_id=finding_id,
+                        success=False,
+                        error_message=error_msg,
+                    )
+                )
 
         # Update state with results
         self.action_state = ReviewScreenActionState(

@@ -19,6 +19,7 @@ Test coverage includes:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -100,8 +101,8 @@ class TestSettingsScreenInitialization:
             save_btn = app.query_one("#save-btn", Button)
             cancel_btn = app.query_one("#cancel-btn", Button)
 
-            assert save_btn.label.plain == "Save"
-            assert cancel_btn.label.plain == "Cancel"
+            assert str(save_btn.label) == "Save"
+            assert str(cancel_btn.label) == "Cancel"
 
     @pytest.mark.asyncio
     async def test_screen_has_test_buttons(self) -> None:
@@ -117,8 +118,8 @@ class TestSettingsScreenInitialization:
             test_github = app.query_one("#test-github-btn", Button)
             test_notification = app.query_one("#test-notification-btn", Button)
 
-            assert test_github.label.plain == "Test Connection"
-            assert test_notification.label.plain == "Test Notification"
+            assert str(test_github.label) == "Test Connection"
+            assert str(test_notification.label) == "Test Notification"
 
 
 class TestSettingsScreenState:
@@ -348,6 +349,32 @@ class TestSettingsScreenConnectionTests:
                 assert "✗" in screen.github_status
 
     @pytest.mark.asyncio
+    async def test_github_connection_test_timeout(self) -> None:
+        """Test GitHub connection test timeout."""
+
+        class TestApp(App):
+            def compose(self):
+                yield SettingsScreen()
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            screen = app.query_one(SettingsScreen)
+
+            # Mock timeout during process creation
+            with patch(
+                "asyncio.wait_for",
+                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+            ):
+                # Trigger test (returns Worker, don't await)
+                screen.test_github_connection()
+                await pilot.pause()
+                await pilot.pause()  # Give worker time to complete
+
+                # Should show timeout status
+                assert "timed out" in screen.github_status.lower()
+                assert "✗" in screen.github_status
+
+    @pytest.mark.asyncio
     async def test_notification_test(self) -> None:
         """Test notification test feature."""
 
@@ -367,6 +394,43 @@ class TestSettingsScreenConnectionTests:
 
                 # Should trigger test
                 # Note: Implementation details depend on final design
+
+    @pytest.mark.asyncio
+    async def test_notification_test_timeout(self) -> None:
+        """Test notification test timeout."""
+
+        class TestApp(App):
+            def compose(self):
+                yield SettingsScreen()
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            screen = app.query_one(SettingsScreen)
+
+            # Mock settings fields to enable notifications
+            enabled_field = MagicMock()
+            enabled_field.value.current_value = True
+            topic_field = MagicMock()
+            topic_field.value.current_value = "test-topic"
+            
+            screen._settings_fields = {
+                "notifications.enabled": enabled_field,
+                "notifications.topic": topic_field,
+            }
+
+            # Mock timeout during notification send
+            with patch(
+                "asyncio.wait_for",
+                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+            ):
+                # Trigger test (returns Worker, don't await)
+                screen.test_notification()
+                await pilot.pause()
+                await pilot.pause()  # Give worker time to complete
+
+                # Should show timeout status
+                assert "timed out" in screen.notification_status.lower()
+                assert "✗" in screen.notification_status
 
 
 class TestSettingsScreenKeyboardNavigation:

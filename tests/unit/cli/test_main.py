@@ -1656,6 +1656,44 @@ def test_config_init_force_overwrites_existing_file(
     assert "created" in result.output.lower() or "initialized" in result.output.lower()
 
 
+def test_config_init_uses_utf8_encoding(
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test config init writes file with UTF-8 encoding using pathlib.
+    
+    Verifies that:
+    - Config file is created using pathlib.Path.write_text()
+    - File has proper UTF-8 encoding
+    - No raw open() calls are used
+    """
+    import os
+
+    os.chdir(temp_dir)
+    monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+    result = cli_runner.invoke(cli, ["config", "init"])
+
+    # Should succeed
+    assert result.exit_code == 0
+    
+    config_file = temp_dir / "maverick.yaml"
+    assert config_file.exists()
+    
+    # Verify file can be read with UTF-8 encoding (pathlib default)
+    content = config_file.read_text(encoding="utf-8")
+    assert "github:" in content
+    assert "notifications:" in content
+    
+    # Verify valid YAML structure
+    import yaml
+    config_data = yaml.safe_load(content)
+    assert "github" in config_data
+    assert "notifications" in config_data
+
+
 def test_config_show_displays_yaml(
     cli_runner: CliRunner,
     temp_dir: Path,

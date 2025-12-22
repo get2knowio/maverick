@@ -262,3 +262,81 @@ class TestGitHubCLIRunner:
         assert checks[0].name == "test"
         assert checks[0].passed is True
         assert checks[1].pending is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_issue_response_validation_error(self, mock_gh_available):
+        """Test that Pydantic provides clear error messages for malformed JSON."""
+        auth_result = CommandResult(
+            returncode=0, stdout="Logged in", stderr="", duration_ms=50, timed_out=False
+        )
+        # Malformed response: missing required 'number' field
+        malformed_result = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "title": "Test Issue",
+                    "body": "Description",
+                    "labels": [],
+                    "state": "OPEN",
+                    "assignees": [],
+                    "url": "https://github.com/repo/issues/42",
+                    # missing 'number' field
+                }
+            ),
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(side_effect=[auth_result, malformed_result])
+        runner._command_runner = mock_runner
+
+        # Should raise ValidationError with clear error message
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            await runner.get_issue(42)
+
+        # Verify error message mentions the missing field
+        error_msg = str(exc_info.value)
+        assert "number" in error_msg.lower()
+        assert "field required" in error_msg.lower() or "missing" in error_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_type_coercion_in_issue_response(self, mock_gh_available):
+        """Test that Pydantic handles type coercion automatically."""
+        auth_result = CommandResult(
+            returncode=0, stdout="Logged in", stderr="", duration_ms=50, timed_out=False
+        )
+        # Response with number as string (Pydantic should coerce to int)
+        coerced_result = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "number": "42",  # String instead of int
+                    "title": "Test Issue",
+                    "body": "Description",
+                    "labels": [{"name": "bug"}],
+                    "state": "OPEN",
+                    "assignees": [],
+                    "url": "https://github.com/repo/issues/42",
+                }
+            ),
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(side_effect=[auth_result, coerced_result])
+        runner._command_runner = mock_runner
+
+        # Should successfully parse and coerce the number field
+        issue = await runner.get_issue(42)
+
+        assert isinstance(issue.number, int)
+        assert issue.number == 42
+        assert issue.title == "Test Issue"

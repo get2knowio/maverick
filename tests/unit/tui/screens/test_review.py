@@ -692,6 +692,113 @@ class TestReviewScreenExecuteFixAll:
         # Should complete with empty results
         assert screen.action_state.fix_results == ()
 
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_with_agent_integration(self) -> None:
+        """Test execute fix all with IssueFixerAgent integration."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {
+                "id": "test-1",
+                "file_path": "test.py",
+                "line_number": 10,
+                "severity": "error",
+                "message": "Test error",
+                "source": "pylint",
+            }
+        ]
+
+        # Mock IssueFixerAgent
+        from unittest.mock import AsyncMock, patch
+        from maverick.models.issue_fix import FixResult as AgentFixResult
+
+        mock_agent = AsyncMock()
+        mock_result = AgentFixResult(
+            success=True,
+            issue_number=1000001,
+            issue_title="Fix error finding in test.py",
+        )
+        mock_agent.execute.return_value = mock_result
+
+        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+            await screen._execute_fix_all()
+
+        # Verify agent was called
+        mock_agent.execute.assert_called_once()
+        
+        # Verify results
+        assert screen.action_state.fix_results is not None
+        assert len(screen.action_state.fix_results) == 1
+        assert screen.action_state.fix_results[0].success is True
+        assert screen.action_state.fix_results[0].finding_id == "test-1"
+
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_handles_agent_failure(self) -> None:
+        """Test execute fix all handles agent failures gracefully."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {
+                "id": "test-1",
+                "file_path": "test.py",
+                "line_number": 10,
+                "severity": "error",
+                "message": "Test error",
+                "source": "pylint",
+            }
+        ]
+
+        # Mock IssueFixerAgent to return failure
+        from unittest.mock import AsyncMock, patch
+        from maverick.models.issue_fix import FixResult as AgentFixResult
+
+        mock_agent = AsyncMock()
+        mock_result = AgentFixResult(
+            success=False,
+            issue_number=1000001,
+            issue_title="Fix error finding in test.py",
+            errors=["Failed to apply fix", "Syntax error"],
+        )
+        mock_agent.execute.return_value = mock_result
+
+        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+            await screen._execute_fix_all()
+
+        # Verify results show failure
+        assert screen.action_state.fix_results is not None
+        assert len(screen.action_state.fix_results) == 1
+        assert screen.action_state.fix_results[0].success is False
+        assert screen.action_state.fix_results[0].error_message is not None
+        assert "Failed to apply fix" in screen.action_state.fix_results[0].error_message
+
+    @pytest.mark.asyncio
+    async def test_execute_fix_all_handles_exception(self) -> None:
+        """Test execute fix all handles exceptions during agent execution."""
+        screen = ReviewScreen()
+        screen._issues = [
+            {
+                "id": "test-1",
+                "file_path": "test.py",
+                "line_number": 10,
+                "severity": "error",
+                "message": "Test error",
+                "source": "pylint",
+            }
+        ]
+
+        # Mock IssueFixerAgent to raise exception
+        from unittest.mock import AsyncMock, patch
+
+        mock_agent = AsyncMock()
+        mock_agent.execute.side_effect = RuntimeError("Agent crashed")
+
+        with patch("maverick.tui.screens.review.IssueFixerAgent", return_value=mock_agent):
+            await screen._execute_fix_all()
+
+        # Verify error is captured
+        assert screen.action_state.fix_results is not None
+        assert len(screen.action_state.fix_results) == 1
+        assert screen.action_state.fix_results[0].success is False
+        assert "Agent crashed" in screen.action_state.fix_results[0].error_message
+
 
 class TestReviewScreenLogAction:
     """Tests for _log_action helper method (T040)."""

@@ -7,10 +7,13 @@ Submodules:
 - workflows: Built-in workflow YAML definitions
 - fragments: Reusable workflow fragments
 - templates: Jinja2 scaffolding templates
+- agents: Agent registration functions
+- generators: Generator registration functions
 """
 
 from __future__ import annotations
 
+from maverick.library.agents import register_all_agents
 from maverick.library.builtins import (
     BUILTIN_FRAGMENTS,
     BUILTIN_WORKFLOWS,
@@ -25,6 +28,7 @@ from maverick.library.builtins import (
     BuiltinFragmentInfo,
     BuiltinWorkflowInfo,
 )
+from maverick.library.generators import register_all_generators
 from maverick.library.scaffold import (
     InvalidNameError,
     OutputExistsError,
@@ -76,4 +80,7 @@ __all__ = [
     "validate_workflow_name",
     "get_default_output_dir",
     "create_scaffold_service",
+    # Registration functions
+    "register_all_agents",
+    "register_all_generators",
 ]

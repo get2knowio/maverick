@@ -53,15 +53,19 @@ class ExpressionEvaluator:
         self,
         inputs: dict[str, Any],
         step_outputs: dict[str, Any],
+        iteration_context: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the ExpressionEvaluator.
 
         Args:
             inputs: Dictionary of workflow inputs.
             step_outputs: Dictionary of step outputs (keyed by step name).
+            iteration_context: Optional iteration context containing 'item' and 'index'
+                for for_each loops.
         """
         self._inputs = inputs
         self._step_outputs = step_outputs
+        self._iteration_context = iteration_context or {}
 
     def evaluate(self, expr: Expression) -> Any:
         """Evaluate a single expression against the context.
@@ -96,6 +100,36 @@ class ExpressionEvaluator:
         elif expr.kind == ExpressionKind.STEP_REF:
             root = self._step_outputs
             root_name = "steps"
+        elif expr.kind == ExpressionKind.ITEM_REF:
+            # For item references, start with the item value from iteration context
+            if "item" not in self._iteration_context:
+                raise ExpressionEvaluationError(
+                    "Item reference used outside of for_each loop",
+                    expression=expr.raw,
+                    context_vars=(),
+                )
+            # If path is just ("item",), return the item value directly
+            if len(expr.path) == 1 and expr.path[0] == "item":
+                value = self._iteration_context["item"]
+                if expr.negated:
+                    return not value
+                return value
+            # Otherwise, use item as root for nested access
+            root = self._iteration_context["item"]
+            root_name = "item"
+        elif expr.kind == ExpressionKind.INDEX_REF:
+            # For index references, return the index directly
+            if "index" not in self._iteration_context:
+                raise ExpressionEvaluationError(
+                    "Index reference used outside of for_each loop",
+                    expression=expr.raw,
+                    context_vars=(),
+                )
+            # Index is a simple value, return it directly after negation check
+            value = self._iteration_context["index"]
+            if expr.negated:
+                return not value
+            return value
         else:
             raise ExpressionEvaluationError(
                 f"Unknown expression kind: {expr.kind}",
@@ -105,8 +139,8 @@ class ExpressionEvaluator:
         # Navigate through the path
         current = root
         for i, key in enumerate(expr.path):
-            # Skip the root identifier (inputs/steps) - it's just metadata
-            if i == 0 and key in ("inputs", "steps"):
+            # Skip the root identifier (inputs/steps/item) - it's just metadata
+            if i == 0 and key in ("inputs", "steps", "item", "index"):
                 continue
 
             try:

@@ -22,20 +22,27 @@ from pydantic import BaseModel, ConfigDict, Field
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.dsl.events import (
     ProgressEvent,
+)
+from maverick.dsl.events import (
     StepCompleted as DslStepCompleted,
+)
+from maverick.dsl.events import (
     StepStarted as DslStepStarted,
+)
+from maverick.dsl.events import (
     WorkflowCompleted as DslWorkflowCompleted,
+)
+from maverick.dsl.events import (
     WorkflowStarted as DslWorkflowStarted,
 )
 from maverick.dsl.results import WorkflowResult
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
-from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.exceptions import (
     AgentError,  # noqa: F401 - required for Pydantic type resolution
 )
-from maverick.library.builtins import create_builtin_library
 from maverick.models.validation import ValidationWorkflowResult
+from maverick.workflows.base import WorkflowDSLMixin
 
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
@@ -223,7 +230,7 @@ FlyProgressEvent = (
 )
 
 
-class FlyWorkflow:
+class FlyWorkflow(WorkflowDSLMixin):
     """Fly workflow orchestrator.
 
     Orchestrates the complete spec-based development workflow across 8 stages:
@@ -253,8 +260,8 @@ class FlyWorkflow:
         validation_runner: ValidationRunner | None = None,
         github_runner: GitHubCLIRunner | None = None,
         coderabbit_runner: CodeRabbitRunner | None = None,
-        implementer_agent: "MaverickAgent[Any, Any]" | None = None,
-        code_reviewer_agent: "MaverickAgent[Any, Any]" | None = None,
+        implementer_agent: MaverickAgent[Any, Any] | None = None,
+        code_reviewer_agent: MaverickAgent[Any, Any] | None = None,
         commit_generator: CommitMessageGenerator | None = None,
         pr_generator: PRDescriptionGenerator | None = None,
     ) -> None:
@@ -272,6 +279,9 @@ class FlyWorkflow:
             commit_generator: CommitMessageGenerator for commit messages.
             pr_generator: PRDescriptionGenerator for PR descriptions.
         """
+        # Initialize the mixin first
+        super().__init__()
+
         self._config = config or FlyConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
@@ -291,15 +301,6 @@ class FlyWorkflow:
 
         # DSL executor
         self._executor: WorkflowFileExecutor | None = None
-        self._use_dsl = False  # Flag to enable DSL execution
-
-    def enable_dsl_execution(self) -> None:
-        """Enable DSL-based workflow execution.
-
-        When enabled, the workflow will use the WorkflowFileExecutor to execute
-        the fly.yaml workflow definition instead of the legacy Python implementation.
-        """
-        self._use_dsl = True
 
     def _aggregate_tokens(self) -> AgentUsage:
         """Aggregate token usage from all agent calls."""
@@ -318,34 +319,8 @@ class FlyWorkflow:
             duration_ms=sum(u.duration_ms for u in self._usage_records),
         )
 
-    def _load_workflow(self, workflow_name: str) -> Any:
-        """Load workflow file from built-in library.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._load_workflow.
-        Consider extracting to a shared helper in maverick.dsl.serialization or
-        maverick.workflows.base when refactoring refuel.py.
-
-        Args:
-            workflow_name: Name of the workflow to load (e.g., "fly").
-
-        Returns:
-            Parsed WorkflowFile instance.
-
-        Raises:
-            FileNotFoundError: If workflow file doesn't exist.
-            WorkflowParseError: If workflow file is invalid.
-            KeyError: If workflow name is not a built-in.
-        """
-        # Use builtin library registry instead of hard-coded path
-        builtin_library = create_builtin_library()
-        return builtin_library.get_workflow(workflow_name)
-
     def _translate_event(self, event: ProgressEvent) -> FlyProgressEvent | None:
         """Translate DSL progress events to FlyProgressEvent types.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._translate_event.
-        Consider extracting to a shared base class or helper when refactoring.
-        The common pattern is: DSL event type check + input extraction + event map.
 
         Maps DSL events to corresponding Fly workflow events based on step metadata
         and event types. Returns None for events that don't map to Fly events.
@@ -361,11 +336,7 @@ class FlyWorkflow:
             # Extract inputs from DSL event
             fly_inputs = FlyInputs(
                 branch_name=event.inputs.get("branch_name", "unknown"),
-                task_file=(
-                    Path(event.inputs["task_file"])
-                    if "task_file" in event.inputs
-                    else None
-                ),
+                task_file=Path(event.inputs["task_file"]) if "task_file" in event.inputs else None,
                 skip_review=event.inputs.get("skip_review", False),
                 skip_pr=event.inputs.get("skip_pr", False),
                 draft_pr=event.inputs.get("draft_pr", False),
@@ -387,23 +358,14 @@ class FlyWorkflow:
             stage = DSL_STEP_TO_STAGE.get(event.step_name)
             if stage:
                 # Result depends on the step
-                result: Any = {
-                    "success": event.success,
-                    "duration_ms": event.duration_ms,
-                }
-                return FlyStageCompleted(
-                    stage=stage, result=result, timestamp=event.timestamp
-                )
+                result: Any = {"success": event.success, "duration_ms": event.duration_ms}
+                return FlyStageCompleted(stage=stage, result=result, timestamp=event.timestamp)
 
         # WorkflowCompleted is handled separately in execute()
         return None
 
     def _build_fly_result(self, workflow_result: WorkflowResult) -> FlyResult:
         """Build FlyResult from DSL WorkflowResult.
-
-        NOTE: This method has a duplicated pattern with RefuelWorkflow._build_*_result.
-        Consider extracting to a shared helper or base class when refactoring refuel.py.
-        The common pattern is: state creation + error extraction + summary building.
 
         Extracts relevant information from the DSL workflow result and constructs
         a FlyResult with appropriate state, summary, and metadata.
@@ -415,9 +377,7 @@ class FlyWorkflow:
             FlyResult instance with workflow outcome.
         """
         # Determine final stage based on workflow success
-        final_stage = (
-            WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
-        )
+        final_stage = WorkflowStage.COMPLETE if workflow_result.success else WorkflowStage.FAILED
 
         # Build state from workflow result
         state = WorkflowState(
@@ -448,12 +408,7 @@ class FlyWorkflow:
             if state.pr_url:
                 summary += f". PR: {state.pr_url}"
         else:
-            failed_name = (
-                workflow_result.failed_step.name
-                if workflow_result.failed_step
-                else "unknown"
-            )
-            summary = f"Fly workflow failed at step: {failed_name}"
+            summary = f"Fly workflow failed at step: {workflow_result.failed_step.name if workflow_result.failed_step else 'unknown'}"
 
         # Create result
         return FlyResult(
@@ -498,8 +453,7 @@ class FlyWorkflow:
                     workflow_inputs["task_file"] = str(workflow_inputs["task_file"])
 
                 # Execute workflow and translate events
-                execution = self._executor.execute(workflow, inputs=workflow_inputs)
-                async for event in execution:
+                async for event in self._executor.execute(workflow, inputs=workflow_inputs):
                     # Translate DSL events to FlyProgressEvent
                     fly_event = self._translate_event(event)
                     if fly_event:
@@ -546,7 +500,6 @@ class FlyWorkflow:
                 if self._git_runner is None:
                     try:
                         from maverick.runners.git import GitRunner
-
                         self._git_runner = GitRunner()
                     except Exception as e:
                         error_msg = f"Failed to initialize GitRunner: {e}"
@@ -599,7 +552,7 @@ class FlyWorkflow:
 
             yield FlyStageCompleted(
                 stage=WorkflowStage.INIT,
-                result={"branch": actual_branch, "tasks": tasks},
+                result={"branch": actual_branch, "tasks": tasks}
             )
 
             # IMPLEMENTATION Stage
@@ -617,7 +570,7 @@ class FlyWorkflow:
                     try:
                         # Agent may be mock or real - handle both cases
                         impl_result = await self._implementer_agent.execute()  # type: ignore[call-arg]
-                        if hasattr(impl_result, "usage") and impl_result.usage:
+                        if hasattr(impl_result, 'usage') and impl_result.usage:
                             self._usage_records.append(impl_result.usage)
                         self._state.implementation_result = impl_result
                     except Exception as e:
@@ -627,7 +580,7 @@ class FlyWorkflow:
 
             yield FlyStageCompleted(
                 stage=WorkflowStage.IMPLEMENTATION,
-                result=self._state.implementation_result,
+                result=self._state.implementation_result
             )
 
             # VALIDATION Stage (FR-007, FR-008, FR-009)
@@ -700,7 +653,8 @@ class FlyWorkflow:
                         )
 
             yield FlyStageCompleted(
-                stage=WorkflowStage.VALIDATION, result=self._state.validation_result
+                stage=WorkflowStage.VALIDATION,
+                result=self._state.validation_result
             )
 
             # CODE_REVIEW Stage
@@ -728,14 +682,15 @@ class FlyWorkflow:
                         try:
                             # Agent may be mock or real - handle both cases
                             review_result = await self._code_reviewer_agent.execute()  # type: ignore[call-arg]
-                            if hasattr(review_result, "usage") and review_result.usage:
+                            if hasattr(review_result, 'usage') and review_result.usage:
                                 self._usage_records.append(review_result.usage)
                             self._state.review_results.append(review_result)
                         except Exception as e:
                             logger.warning(f"Code review failed: {e}")
 
                 yield FlyStageCompleted(
-                    stage=WorkflowStage.CODE_REVIEW, result=self._state.review_results
+                    stage=WorkflowStage.CODE_REVIEW,
+                    result=self._state.review_results
                 )
 
             # Commit Stage - create commit with all changes
@@ -762,12 +717,10 @@ class FlyWorkflow:
                 # Generate commit message
                 if self._commit_generator is not None and diff_output:
                     try:
-                        commit_message = await self._commit_generator.generate(
-                            {
-                                "diff": diff_output,
-                                "file_stats": {},
-                            }
-                        )
+                        commit_message = await self._commit_generator.generate({
+                            "diff": diff_output,
+                            "file_stats": {},
+                        })
                     except Exception as e:
                         logger.warning(f"Commit message generation failed: {e}")
 
@@ -815,16 +768,14 @@ class FlyWorkflow:
             else:
                 if self._pr_generator is not None:
                     try:
-                        pr_body = await self._pr_generator.generate(
-                            {
-                                "commits": [commit_message] if commit_message else [],
-                                "task_summary": f"Feature branch: {actual_branch}",
-                                "validation_results": {
-                                    "passed": validation_passed,
-                                    "failures": self._state.errors,
-                                },
-                            }
-                        )
+                        pr_body = await self._pr_generator.generate({
+                            "commits": [commit_message] if commit_message else [],
+                            "task_summary": f"Feature branch: {actual_branch}",
+                            "validation_results": {
+                                "passed": validation_passed,
+                                "failures": self._state.errors,
+                            },
+                        })
                     except Exception as e:
                         logger.warning(f"PR description generation failed: {e}")
 
@@ -850,7 +801,8 @@ class FlyWorkflow:
                         logger.error(error_msg)
 
             yield FlyStageCompleted(
-                stage=WorkflowStage.PR_CREATION, result={"pr_url": pr_url}
+                stage=WorkflowStage.PR_CREATION,
+                result={"pr_url": pr_url}
             )
 
             # COMPLETE Stage
@@ -858,7 +810,8 @@ class FlyWorkflow:
             self._state.completed_at = datetime.now()
 
             summary = (
-                f"Workflow completed. PR: {pr_url}" if pr_url else "Workflow completed"
+                f"Workflow completed. PR: {pr_url}" if pr_url
+                else "Workflow completed"
             )
             self._result = FlyResult(
                 success=validation_passed and len(self._state.errors) == 0,

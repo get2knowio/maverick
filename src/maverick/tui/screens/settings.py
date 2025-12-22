@@ -308,14 +308,26 @@ class SettingsScreen(MaverickScreen):
         Updates github_status reactive with result.
         """
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "gh",
-                "auth",
-                "status",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
+            try:
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "gh",
+                        "auth",
+                        "status",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
+                    timeout=30.0,  # 30 second timeout for process creation
+                )
+
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=60.0,  # 60 seconds for communication
+                )
+            except asyncio.TimeoutError:
+                self.github_status = "✗ Connection timed out"
+                self._update_status_display("github-status", self.github_status)
+                return
 
             if proc.returncode == 0:
                 self.github_status = "✓ Connected"
@@ -360,15 +372,29 @@ class SettingsScreen(MaverickScreen):
             topic = topic_field.value.current_value
 
             # Send test notification
-            proc = await asyncio.create_subprocess_exec(
-                "curl",
-                "-d",
-                "Test notification from Maverick",
-                f"https://ntfy.sh/{topic}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
+            try:
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "curl",
+                        "-d",
+                        "Test notification from Maverick",
+                        f"https://ntfy.sh/{topic}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
+                    timeout=30.0,  # 30 second timeout for process creation
+                )
+
+                await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=60.0,  # 60 seconds for communication
+                )
+            except asyncio.TimeoutError:
+                self.notification_status = "✗ Notification timed out"
+                self._update_status_display(
+                    "notification-status", self.notification_status
+                )
+                return
 
             if proc.returncode == 0:
                 self.notification_status = "✓ Test notification sent"

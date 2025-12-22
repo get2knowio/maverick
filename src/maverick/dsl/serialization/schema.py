@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -35,6 +35,7 @@ __all__ = [
     "BranchStepRecord",
     "BranchOptionRecord",
     "ParallelStepRecord",
+    "CheckpointStepRecord",
     # Discriminated union
     "StepRecordUnion",
     # Top-level workflow
@@ -173,7 +174,7 @@ class ValidateStepRecord(StepRecord):
     type: Literal[StepType.VALIDATE] = StepType.VALIDATE
     stages: list[str] | str
     retry: int = Field(default=3, ge=0)
-    on_failure: "StepRecordUnion | None" = None
+    on_failure: StepRecordUnion | None = None
 
 
 class SubWorkflowStepRecord(StepRecord):
@@ -203,7 +204,7 @@ class BranchOptionRecord(BaseModel):
 
     when: str = Field(..., min_length=1)
     # Forward reference - resolved via model_rebuild after StepRecordUnion is defined
-    step: "StepRecordUnion"
+    step: StepRecordUnion
 
 
 class BranchStepRecord(StepRecord):
@@ -226,22 +227,59 @@ class ParallelStepRecord(StepRecord):
 
     Fields:
         steps: Steps to execute in parallel (names must be unique)
+        for_each: Optional expression evaluating to a list for iteration.
+            When provided, steps are executed once per item in the list,
+            with the current item available as 'item' in expressions.
     """
 
     type: Literal[StepType.PARALLEL] = StepType.PARALLEL
-    steps: list["StepRecordUnion"] = Field(..., min_length=1)
+    steps: list[StepRecordUnion] = Field(..., min_length=1)
+    for_each: str | None = Field(
+        None, description="Optional expression evaluating to a list for iteration"
+    )
 
     @field_validator("steps")
     @classmethod
     def validate_unique_step_names(
-        cls, v: list["StepRecordUnion"]
-    ) -> list["StepRecordUnion"]:
+        cls, v: list[StepRecordUnion]
+    ) -> list[StepRecordUnion]:
         """Ensure all parallel step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
             raise ValueError(f"Duplicate step names in parallel block: {duplicates}")
         return v
+
+
+class CheckpointStepRecord(StepRecord):
+    """Checkpoint marker step (FR-022).
+
+    Marks a workflow state boundary for resumability. When a checkpoint
+    step succeeds, workflow state (inputs, completed steps, outputs) is
+    persisted to the checkpoint store. The workflow can later resume from
+    this checkpoint, skipping already-completed steps.
+
+    Fields:
+        checkpoint_id: Optional unique identifier for this checkpoint.
+            If omitted, defaults to the step name. Used as the key in
+            the checkpoint store for saving/loading state.
+
+    Usage:
+        # Basic checkpoint (uses step name as ID)
+        - name: after_implementation
+          type: checkpoint
+
+        # Explicit checkpoint ID (for multiple checkpoints with same name pattern)
+        - name: checkpoint_stage_1
+          type: checkpoint
+          checkpoint_id: implementation_complete
+    """
+
+    type: Literal[StepType.CHECKPOINT] = StepType.CHECKPOINT
+    checkpoint_id: str | None = Field(
+        None,
+        description="Unique checkpoint identifier (defaults to step name)",
+    )
 
 
 # =============================================================================
@@ -252,15 +290,14 @@ class ParallelStepRecord(StepRecord):
 # This allows BranchOptionRecord.step and ParallelStepRecord.steps to reference
 # the full union type including themselves
 StepRecordUnion = Annotated[
-    Union[
-        PythonStepRecord,
-        AgentStepRecord,
-        GenerateStepRecord,
-        ValidateStepRecord,
-        SubWorkflowStepRecord,
-        BranchStepRecord,
-        ParallelStepRecord,
-    ],
+    PythonStepRecord
+    | AgentStepRecord
+    | GenerateStepRecord
+    | ValidateStepRecord
+    | SubWorkflowStepRecord
+    | BranchStepRecord
+    | ParallelStepRecord
+    | CheckpointStepRecord,
     Field(discriminator="type"),
 ]
 
