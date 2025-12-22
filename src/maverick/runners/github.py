@@ -2,14 +2,76 @@
 
 from __future__ import annotations
 
-import json
 import shutil
+
+from pydantic import BaseModel, Field, TypeAdapter
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import CheckStatus, GitHubIssue, PullRequest
 
 __all__ = ["GitHubCLIRunner"]
+
+
+# =============================================================================
+# Response Models (Internal - for parsing GitHub CLI JSON output)
+# =============================================================================
+
+
+class GitHubLabelResponse(BaseModel):
+    """GitHub API label response."""
+
+    name: str
+
+
+class GitHubUserResponse(BaseModel):
+    """GitHub API user response."""
+
+    login: str
+
+
+class GitHubIssueResponse(BaseModel):
+    """GitHub API issue response.
+
+    Parses JSON output from 'gh issue view/list --json ...' commands.
+    """
+
+    number: int
+    title: str
+    body: str
+    state: str
+    url: str
+    labels: list[GitHubLabelResponse] = Field(default_factory=list)
+    assignees: list[GitHubUserResponse] = Field(default_factory=list)
+
+
+class GitHubPRResponse(BaseModel):
+    """GitHub API pull request response.
+
+    Parses JSON output from 'gh pr view --json ...' commands.
+    """
+
+    number: int
+    title: str
+    body: str
+    state: str
+    url: str
+    headRefName: str
+    baseRefName: str
+    isDraft: bool
+    mergeable: bool | None = None
+
+
+class GitHubCheckResponse(BaseModel):
+    """GitHub API check response.
+
+    Parses JSON output from 'gh pr checks --json ...' commands.
+    """
+
+    name: str
+    state: str
+    conclusion: str | None = None
+    detailsUrl: str | None = None
 
 
 class GitHubCLIRunner:
@@ -47,51 +109,52 @@ class GitHubCLIRunner:
             await self._check_gh_auth()
             self._auth_checked = True
 
-    async def _run_gh_command(
-        self, *args: str
-    ) -> dict[str, object] | list[dict[str, object]]:
-        """Run gh command and parse JSON output."""
+    async def _run_gh_command(self, *args: str) -> str:
+        """Run gh command and return raw JSON output.
+
+        Returns:
+            Raw JSON string from gh CLI stdout.
+
+        Raises:
+            RuntimeError: If gh command fails.
+        """
         result = await self._command_runner.run(["gh", *args])
         if not result.success:
             raise RuntimeError(f"gh command failed: {result.stderr}")
-        parsed: dict[str, object] | list[dict[str, object]] = (
-            json.loads(result.stdout) if result.stdout.strip() else {}
-        )
-        return parsed
+        return result.stdout.strip() if result.stdout.strip() else "{}"
 
     async def get_issue(self, number: int) -> GitHubIssue:
-        """Get a single issue by number."""
+        """Get a single issue by number.
+
+        Args:
+            number: GitHub issue number to fetch.
+
+        Returns:
+            GitHubIssue instance with parsed issue data.
+
+        Raises:
+            RuntimeError: If gh command fails.
+            pydantic.ValidationError: If response JSON doesn't match expected schema.
+        """
         await self._ensure_authenticated()
-        result = await self._run_gh_command(
+        json_output = await self._run_gh_command(
             "issue",
             "view",
             str(number),
             "--json",
             "number,title,body,labels,state,assignees,url",
         )
-        # Result is a dict for single issue view
-        data = result if isinstance(result, dict) else {}
-        labels_raw = data.get("labels", [])
-        labels_list = labels_raw if isinstance(labels_raw, list) else []
-        assignees_raw = data.get("assignees", [])
-        assignees_list = assignees_raw if isinstance(assignees_raw, list) else []
-        state_raw = data.get("state", "open")
-        state_str = str(state_raw).lower() if state_raw else "open"
-        number_val = data.get("number", 0)
+        # Parse response using Pydantic
+        response = GitHubIssueResponse.model_validate_json(json_output)
+
         return GitHubIssue(
-            number=int(str(number_val)) if number_val else 0,
-            title=str(data.get("title", "")),
-            body=str(data.get("body", "")),
-            labels=tuple(
-                str(label.get("name", "")) if isinstance(label, dict) else str(label)
-                for label in labels_list
-            ),
-            state=state_str,
-            assignees=tuple(
-                str(a.get("login", "")) if isinstance(a, dict) else str(a)
-                for a in assignees_list
-            ),
-            url=str(data.get("url", "")),
+            number=response.number,
+            title=response.title,
+            body=response.body,
+            labels=tuple(label.name for label in response.labels),
+            state=response.state.lower(),
+            assignees=tuple(user.login for user in response.assignees),
+            url=response.url,
         )
 
     async def list_issues(
@@ -100,7 +163,20 @@ class GitHubCLIRunner:
         state: str = "open",
         limit: int = 30,
     ) -> list[GitHubIssue]:
-        """List issues with optional filters."""
+        """List issues with optional filters.
+
+        Args:
+            label: Filter by label name (optional).
+            state: Filter by state ("open", "closed", or "all").
+            limit: Maximum number of issues to return.
+
+        Returns:
+            List of GitHubIssue instances.
+
+        Raises:
+            RuntimeError: If gh command fails.
+            pydantic.ValidationError: If response JSON doesn't match expected schema.
+        """
         await self._ensure_authenticated()
         fields = "number,title,body,labels,state,assignees,url"
         args = ["issue", "list", "--json", fields]
@@ -108,40 +184,23 @@ class GitHubCLIRunner:
         if label:
             args.extend(["--label", label])
 
-        result = await self._run_gh_command(*args)
-        # Result is a list for issue list
-        data = result if isinstance(result, list) else []
-        issues: list[GitHubIssue] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            labels_raw = item.get("labels", [])
-            labels_list = labels_raw if isinstance(labels_raw, list) else []
-            assignees_raw = item.get("assignees", [])
-            assignees_list = assignees_raw if isinstance(assignees_raw, list) else []
-            state_raw = item.get("state", "open")
-            state_str = str(state_raw).lower() if state_raw else "open"
-            number_val = item.get("number", 0)
-            issues.append(
-                GitHubIssue(
-                    number=int(str(number_val)) if number_val else 0,
-                    title=str(item.get("title", "")),
-                    body=str(item.get("body", "")),
-                    labels=tuple(
-                        str(label.get("name", ""))
-                        if isinstance(label, dict)
-                        else str(label)
-                        for label in labels_list
-                    ),
-                    state=state_str,
-                    assignees=tuple(
-                        str(a.get("login", "")) if isinstance(a, dict) else str(a)
-                        for a in assignees_list
-                    ),
-                    url=str(item.get("url", "")),
-                )
+        json_output = await self._run_gh_command(*args)
+        # Parse response list using Pydantic TypeAdapter
+        adapter = TypeAdapter(list[GitHubIssueResponse])
+        responses = adapter.validate_json(json_output)
+
+        return [
+            GitHubIssue(
+                number=response.number,
+                title=response.title,
+                body=response.body,
+                labels=tuple(label.name for label in response.labels),
+                state=response.state.lower(),
+                assignees=tuple(user.login for user in response.assignees),
+                url=response.url,
             )
-        return issues
+            for response in responses
+        ]
 
     async def create_pr(
         self,
@@ -172,61 +231,69 @@ class GitHubCLIRunner:
         return await self.get_pr(pr_number)
 
     async def get_pr(self, number: int) -> PullRequest:
-        """Get a pull request by number."""
+        """Get a pull request by number.
+
+        Args:
+            number: Pull request number to fetch.
+
+        Returns:
+            PullRequest instance with parsed PR data.
+
+        Raises:
+            RuntimeError: If gh command fails.
+            pydantic.ValidationError: If response JSON doesn't match expected schema.
+        """
         await self._ensure_authenticated()
         fields = "number,title,body,state,url,headRefName,baseRefName,mergeable,isDraft"
-        result = await self._run_gh_command("pr", "view", str(number), "--json", fields)
-        # Result is a dict for single PR view
-        data = result if isinstance(result, dict) else {}
-        state_raw = data.get("state", "open")
-        state_str = str(state_raw).lower() if state_raw else "open"
-        mergeable_raw = data.get("mergeable")
-        mergeable_val = bool(mergeable_raw) if mergeable_raw is not None else None
-        number_val = data.get("number", 0)
+        json_output = await self._run_gh_command(
+            "pr", "view", str(number), "--json", fields
+        )
+        # Parse response using Pydantic
+        response = GitHubPRResponse.model_validate_json(json_output)
+
         return PullRequest(
-            number=int(str(number_val)) if number_val else 0,
-            title=str(data.get("title", "")),
-            body=str(data.get("body", "")),
-            state=state_str,
-            url=str(data.get("url", "")),
-            head_branch=str(data.get("headRefName", "")),
-            base_branch=str(data.get("baseRefName", "")),
-            mergeable=mergeable_val,
-            draft=bool(data.get("isDraft", False)),
+            number=response.number,
+            title=response.title,
+            body=response.body,
+            state=response.state.lower(),
+            url=response.url,
+            head_branch=response.headRefName,
+            base_branch=response.baseRefName,
+            mergeable=response.mergeable,
+            draft=response.isDraft,
         )
 
     async def get_pr_checks(self, pr_number: int) -> list[CheckStatus]:
-        """Get CI check statuses for a PR."""
+        """Get CI check statuses for a PR.
+
+        Args:
+            pr_number: Pull request number to get checks for.
+
+        Returns:
+            List of CheckStatus instances.
+
+        Raises:
+            RuntimeError: If gh command fails.
+            pydantic.ValidationError: If response JSON doesn't match expected schema.
+        """
         await self._ensure_authenticated()
-        result = await self._run_gh_command(
+        json_output = await self._run_gh_command(
             "pr", "checks", str(pr_number), "--json", "name,state,conclusion,detailsUrl"
         )
-        # Result is a list for checks
-        data = result if isinstance(result, list) else []
-        checks: list[CheckStatus] = []
-        for check in data:
-            if not isinstance(check, dict):
-                continue
-            conclusion_raw = check.get("conclusion")
-            state_raw = check.get("state", "queued")
-            checks.append(
-                CheckStatus(
-                    name=str(check.get("name", "")),
-                    status=(
-                        "completed"
-                        if conclusion_raw
-                        else str(state_raw).lower()
-                        if state_raw
-                        else "queued"
-                    ),
-                    conclusion=(
-                        str(conclusion_raw).lower() if conclusion_raw else None
-                    ),
-                    url=(
-                        str(check.get("detailsUrl", ""))
-                        if check.get("detailsUrl")
-                        else None
-                    ),
-                )
+        # Parse response list using Pydantic TypeAdapter
+        adapter = TypeAdapter(list[GitHubCheckResponse])
+        responses = adapter.validate_json(json_output)
+
+        return [
+            CheckStatus(
+                name=response.name,
+                status=(
+                    "completed"
+                    if response.conclusion
+                    else response.state.lower() if response.state else "queued"
+                ),
+                conclusion=response.conclusion.lower() if response.conclusion else None,
+                url=response.detailsUrl if response.detailsUrl else None,
             )
-        return checks
+            for response in responses
+        ]
