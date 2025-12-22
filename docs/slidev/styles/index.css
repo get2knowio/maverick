@@ -1,0 +1,144 @@
+/* Maverick Slidev Custom Styles */
+
+:root {
+  --maverick-primary: #6366f1;
+  --maverick-secondary: #8b5cf6;
+  --maverick-accent: #22d3ee;
+  --maverick-success: #22c55e;
+  --maverick-warning: #eab308;
+  --maverick-error: #ef4444;
+  --maverick-bg-dark: #0f172a;
+  --maverick-bg-light: #1e293b;
+}
+
+/* Custom heading styles */
+.slidev-layout h1 {
+  @apply bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 bg-clip-text text-transparent;
+}
+
+/* Architecture diagram boxes */
+.arch-box {
+  @apply p-4 rounded-lg border-2 text-center font-semibold;
+}
+
+.arch-box.cli {
+  @apply bg-indigo-500/20 border-indigo-500 text-indigo-300;
+}
+
+.arch-box.workflow {
+  @apply bg-purple-500/20 border-purple-500 text-purple-300;
+}
+
+.arch-box.agent {
+  @apply bg-cyan-500/20 border-cyan-500 text-cyan-300;
+}
+
+.arch-box.tool {
+  @apply bg-emerald-500/20 border-emerald-500 text-emerald-300;
+}
+
+/* Status indicators */
+.status-success {
+  @apply text-green-400;
+}
+
+.status-warning {
+  @apply text-yellow-400;
+}
+
+.status-error {
+  @apply text-red-400;
+}
+
+.status-info {
+  @apply text-blue-400;
+}
+
+/* Code block enhancements */
+.slidev-code-wrapper {
+  @apply rounded-xl overflow-hidden;
+}
+
+/* Feature cards */
+.feature-card {
+  @apply p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-indigo-500 transition-all;
+}
+
+/* Agent type badges */
+.agent-badge {
+  @apply px-3 py-1 rounded-full text-sm font-medium;
+}
+
+.agent-badge.implementer {
+  @apply bg-cyan-500/20 text-cyan-300;
+}
+
+.agent-badge.reviewer {
+  @apply bg-purple-500/20 text-purple-300;
+}
+
+.agent-badge.fixer {
+  @apply bg-amber-500/20 text-amber-300;
+}
+
+.agent-badge.generator {
+  @apply bg-emerald-500/20 text-emerald-300;
+}
+
+/* Workflow stage indicators */
+.stage {
+  @apply flex items-center gap-2 px-3 py-2 rounded-lg;
+}
+
+.stage.pending {
+  @apply bg-slate-700/50 text-slate-400;
+}
+
+.stage.active {
+  @apply bg-indigo-500/20 text-indigo-300 border border-indigo-500;
+}
+
+.stage.complete {
+  @apply bg-green-500/20 text-green-300;
+}
+
+.stage.failed {
+  @apply bg-red-500/20 text-red-300;
+}
+
+/* Principle cards */
+.principle-card {
+  @apply p-3 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border-l-4;
+}
+
+/* Animate entrance */
+.slide-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* Custom bullet points */
+ul.custom-bullets li::marker {
+  @apply text-indigo-400;
+}
+
+/* Terminal-style output */
+.terminal {
+  @apply font-mono text-sm bg-slate-900 p-4 rounded-lg border border-slate-700;
+}
+
+.terminal .prompt {
+  @apply text-green-400;
+}
+
+.terminal .command {
+  @apply text-white;
+}
+
+.terminal .output {
+  @apply text-slate-400;
+}

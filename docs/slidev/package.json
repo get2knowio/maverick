@@ -1,0 +1,21 @@
+{
+  "name": "maverick-slides",
+  "version": "1.0.0",
+  "description": "Maverick: AI-Powered Development Workflow Orchestration - Training Slides",
+  "type": "module",
+  "scripts": {
+    "dev": "slidev --open",
+    "build": "slidev build",
+    "export": "slidev export",
+    "export-pdf": "slidev export --format pdf",
+    "format": "slidev format"
+  },
+  "dependencies": {
+    "@slidev/cli": "^51.0.0",
+    "@slidev/theme-default": "latest",
+    "@slidev/theme-seriph": "latest"
+  },
+  "devDependencies": {
+    "playwright-chromium": "^1.40.0"
+  }
+}
