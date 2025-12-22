@@ -1691,6 +1691,12 @@ def workflow_new(
     default=False,
     help="Show execution plan without running.",
 )
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help="Resume workflow from latest checkpoint.",
+)
 @click.pass_context
 @async_command
 async def workflow_run(
@@ -1699,6 +1705,7 @@ async def workflow_run(
     inputs: tuple[str, ...],
     input_file: Path | None,
     dry_run: bool,
+    resume: bool,
 ) -> None:
     """Execute workflow from file or discovered workflow.
 
@@ -1707,11 +1714,16 @@ async def workflow_run(
 
     Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
 
+    The --resume flag attempts to resume from the latest checkpoint, validating
+    that inputs match the saved checkpoint state. If no checkpoint exists,
+    the workflow executes normally from the start.
+
     Examples:
         maverick workflow run fly
         maverick workflow run my-workflow -i branch=main -i dry_run=true
         maverick workflow run my-workflow.yaml --input-file inputs.json
         maverick workflow run my-workflow --dry-run
+        maverick workflow run fly --resume  # Resume from checkpoint
     """
     import json
 
@@ -1843,7 +1855,11 @@ async def workflow_run(
 
         # Execute workflow and display progress
         try:
-            async for event in executor.execute(workflow_obj, inputs=input_dict):
+            async for event in executor.execute(
+                workflow_obj,
+                inputs=input_dict,
+                resume_from_checkpoint=resume,
+            ):
                 if isinstance(event, WorkflowStarted):
                     # Already displayed header above
                     pass
@@ -1857,6 +1873,7 @@ async def workflow_run(
                         "agent": "🤖",
                         "generate": "✍",
                         "validate": "✓",
+                        "checkpoint": "💾",
                     }
                     icon = type_icons.get(event.step_type.value, "●")
 

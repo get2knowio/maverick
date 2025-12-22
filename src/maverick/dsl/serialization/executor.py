@@ -119,6 +119,7 @@ class WorkflowFileExecutor:
         self,
         workflow: WorkflowFile,
         inputs: dict[str, Any] | None = None,
+        resume_from_checkpoint: bool = False,
     ) -> AsyncIterator[ProgressEvent]:
         """Execute a workflow file and yield progress events.
 
@@ -129,17 +130,58 @@ class WorkflowFileExecutor:
         Args:
             workflow: WorkflowFile to execute.
             inputs: Input values for the workflow (merged with defaults).
+            resume_from_checkpoint: If True, attempts to resume from the latest
+                checkpoint. Validates that inputs match the checkpoint.
 
         Yields:
             ProgressEvent objects for TUI/CLI consumption.
+
+        Raises:
+            ValueError: If resuming from checkpoint but inputs don't match.
 
         Example:
             ```python
             async for event in executor.execute(workflow, {"dry_run": False}):
                 print(f"Event: {event}")
+            
+            # Resume from checkpoint
+            async for event in executor.execute(
+                workflow, {"dry_run": False}, resume_from_checkpoint=True
+            ):
+                print(f"Event: {event}")
             ```
         """
         inputs = inputs or {}
+
+        # Handle checkpoint resume
+        checkpoint_data: CheckpointData | None = None
+        resume_after_step: str | None = None
+
+        if resume_from_checkpoint:
+            checkpoint_data = await self._checkpoint_store.load_latest(workflow.name)
+            
+            if checkpoint_data is not None:
+                # Validate inputs match checkpoint (FR-025b)
+                current_inputs_hash = compute_inputs_hash(inputs)
+                if current_inputs_hash != checkpoint_data.inputs_hash:
+                    raise ValueError(
+                        f"Cannot resume workflow '{workflow.name}': "
+                        f"Current inputs differ from checkpoint inputs. "
+                        f"Expected hash {checkpoint_data.inputs_hash}, "
+                        f"got {current_inputs_hash}. "
+                        f"Checkpoint was saved at {checkpoint_data.saved_at}."
+                    )
+                
+                resume_after_step = checkpoint_data.checkpoint_id
+                logger.info(
+                    f"Resuming workflow '{workflow.name}' from checkpoint "
+                    f"'{checkpoint_data.checkpoint_id}' (saved at {checkpoint_data.saved_at})"
+                )
+            else:
+                logger.info(
+                    f"No checkpoint found for workflow '{workflow.name}', "
+                    f"executing from start"
+                )
 
         # Build execution context
         # Context structure: {
@@ -154,9 +196,22 @@ class WorkflowFileExecutor:
             "steps": {},  # Will hold step outputs: steps.<name>.output
         }
 
+        # Restore step results from checkpoint if resuming
+        if checkpoint_data is not None:
+            for step_result_dict in checkpoint_data.step_results:
+                step_name = step_result_dict["name"]
+                step_output = step_result_dict["output"]
+                context["steps"][step_name] = {"output": step_output}
+                logger.debug(
+                    f"Restored step output for '{step_name}' from checkpoint"
+                )
+
         start_time = time.perf_counter()
         step_results: list[StepResult] = []
         success = True
+
+        # Track whether we've passed the resume checkpoint
+        past_resume_point = not resume_from_checkpoint
 
         yield WorkflowStarted(workflow_name=workflow.name, inputs=inputs)
 
@@ -164,6 +219,26 @@ class WorkflowFileExecutor:
             if self._cancelled:
                 success = False
                 break
+
+            # Skip steps before resume checkpoint
+            if not past_resume_point:
+                # Check if this is a checkpoint step that matches our resume point
+                if isinstance(step_record, CheckpointStepRecord):
+                    checkpoint_id = step_record.checkpoint_id or step_record.name
+                    if checkpoint_id == resume_after_step:
+                        # We've reached the resume checkpoint, start executing after this
+                        past_resume_point = True
+                        logger.info(
+                            f"Reached resume checkpoint '{checkpoint_id}', "
+                            f"continuing execution from next step"
+                        )
+                        continue  # Skip the checkpoint step itself
+                
+                # Skip all steps before resume point
+                logger.debug(
+                    f"Skipping step '{step_record.name}' (before resume checkpoint)"
+                )
+                continue
 
             # Check conditional execution
             if step_record.when:
