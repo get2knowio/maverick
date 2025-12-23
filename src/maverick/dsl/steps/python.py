@@ -6,6 +6,7 @@ This module defines PythonStep, which executes arbitrary Python callables
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from collections.abc import Callable
@@ -24,8 +25,8 @@ class PythonStep(StepDefinition):
 
     PythonStep allows workflows to execute arbitrary Python code by wrapping
     a callable (function, lambda, method, etc.). Both sync and async callables
-    are supported. The step handles execution, timing, and error handling
-    automatically.
+    are supported. Sync callables are automatically offloaded to a thread via
+    asyncio.to_thread to avoid blocking the event loop.
 
     Attributes:
         name: Step name.
@@ -57,8 +58,9 @@ class PythonStep(StepDefinition):
     async def execute(self, context: WorkflowContext) -> StepResult:
         """Execute callable and return result.
 
-        Handles both sync and async callables. Catches exceptions and
-        returns failed StepResult with error message.
+        Handles both sync and async callables. Sync callables are offloaded
+        to a thread via asyncio.to_thread to avoid blocking the event loop.
+        Catches exceptions and returns failed StepResult with error message.
 
         Args:
             context: Workflow execution context (passed but not used directly
@@ -71,12 +73,15 @@ class PythonStep(StepDefinition):
         start_time = time.perf_counter()
 
         try:
-            # Call the action
-            result = self.action(*self.args, **self.kwargs)
-
-            # If async, await it
-            if inspect.iscoroutine(result):
-                result = await result
+            # Check if the callable is async
+            if inspect.iscoroutinefunction(self.action):
+                # Direct await for async callables
+                result = await self.action(*self.args, **self.kwargs)
+            else:
+                # Offload sync callables to thread to avoid blocking event loop
+                result = await asyncio.to_thread(
+                    self.action, *self.args, **self.kwargs
+                )
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
 

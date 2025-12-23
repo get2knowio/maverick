@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from typing import Any
 
+from maverick.runners.command import CommandRunner
+
 logger = logging.getLogger(__name__)
+
+# Shared runner instance for GitHub actions
+_runner = CommandRunner(timeout=60.0)
 
 
 async def create_github_pr(
@@ -48,12 +52,19 @@ async def create_github_pr(
         if draft:
             cmd.append("--draft")
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        result = await _runner.run(cmd)
+
+        if not result.success:
+            logger.error(f"PR creation failed: {result.stderr}")
+            return {
+                "success": False,
+                "pr_number": None,
+                "pr_url": None,
+                "title": pr_title,
+                "draft": draft,
+                "base_branch": base_branch,
+                "error": result.stderr or f"Command failed with code {result.returncode}",
+            }
 
         # Parse PR URL from output
         pr_url = result.stdout.strip()
@@ -75,8 +86,8 @@ async def create_github_pr(
             "error": None,
         }
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"PR creation failed: {e.stderr}")
+    except Exception as e:
+        logger.error(f"PR creation failed: {e}")
         return {
             "success": False,
             "pr_number": None,
@@ -84,7 +95,7 @@ async def create_github_pr(
             "title": pr_title,
             "draft": draft,
             "base_branch": base_branch,
-            "error": e.stderr or str(e),
+            "error": str(e),
         }
 
 
@@ -118,7 +129,17 @@ async def fetch_github_issues(
             "number,title,body,labels,assignees,url,state",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = await _runner.run(cmd)
+        
+        if not result.success:
+            logger.error(f"Failed to fetch GitHub issues: {result.stderr}")
+            return {
+                "success": False,
+                "issues": (),
+                "total_count": 0,
+                "error": result.stderr or f"Command failed with code {result.returncode}",
+            }
+
         issues_data = json.loads(result.stdout)
 
         issues = []
@@ -146,13 +167,13 @@ async def fetch_github_issues(
             "error": None,
         }
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to fetch GitHub issues: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Failed to fetch GitHub issues: {e}")
         return {
             "success": False,
             "issues": (),
             "total_count": 0,
-            "error": e.stderr or str(e),
+            "error": str(e),
         }
 
 
@@ -175,7 +196,16 @@ async def fetch_github_issue(issue_number: int) -> dict[str, Any]:
             "number,title,body,labels,assignees,url,state",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = await _runner.run(cmd)
+        
+        if not result.success:
+            logger.error(f"Failed to fetch GitHub issue #{issue_number}: {result.stderr}")
+            return {
+                "success": False,
+                "issue": None,
+                "error": result.stderr or f"Command failed with code {result.returncode}",
+            }
+
         issue = json.loads(result.stdout)
 
         return {
@@ -196,10 +226,10 @@ async def fetch_github_issue(issue_number: int) -> dict[str, Any]:
             "error": None,
         }
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to fetch GitHub issue #{issue_number}: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Failed to fetch GitHub issue #{issue_number}: {e}")
         return {
             "success": False,
             "issue": None,
-            "error": e.stderr or str(e),
+            "error": str(e),
         }

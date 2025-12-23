@@ -5,10 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import subprocess
 from typing import Any
 
+from maverick.runners.command import CommandRunner
+
 logger = logging.getLogger(__name__)
+
+# Shared runner instance for review actions
+_runner = CommandRunner(timeout=60.0)
+_coderabbit_runner = CommandRunner(timeout=300.0)  # 5 minute timeout for CodeRabbit
 
 
 async def gather_pr_context(
@@ -27,16 +32,17 @@ async def gather_pr_context(
     try:
         # Auto-detect PR number if not provided
         if pr_number is None:
-            current_branch_result = subprocess.run(
+            current_branch_result = await _runner.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=True,
             )
+            if not current_branch_result.success:
+                raise RuntimeError(
+                    f"Failed to get current branch: {current_branch_result.stderr}"
+                )
             current_branch = current_branch_result.stdout.strip()
 
             # Try to find PR for current branch
-            pr_list_result = subprocess.run(
+            pr_list_result = await _runner.run(
                 [
                     "gh",
                     "pr",
@@ -48,16 +54,19 @@ async def gather_pr_context(
                     "--limit",
                     "1",
                 ],
-                capture_output=True,
-                text=True,
-                check=True,
             )
-            pr_list = json.loads(pr_list_result.stdout)
-            if pr_list:
-                pr_number = pr_list[0]["number"]
+            if pr_list_result.success:
+                pr_list = json.loads(pr_list_result.stdout)
+                if pr_list:
+                    pr_number = pr_list[0]["number"]
+                else:
+                    logger.warning(
+                        f"No PR found for current branch '{current_branch}', "
+                        "proceeding with local diff"
+                    )
             else:
                 logger.warning(
-                    f"No PR found for current branch '{current_branch}', "
+                    f"Failed to list PRs: {pr_list_result.stderr}, "
                     "proceeding with local diff"
                 )
 
@@ -72,7 +81,7 @@ async def gather_pr_context(
         }
 
         if pr_number is not None:
-            pr_view_result = subprocess.run(
+            pr_view_result = await _runner.run(
                 [
                     "gh",
                     "pr",
@@ -81,52 +90,49 @@ async def gather_pr_context(
                     "--json",
                     "number,title,body,author,labels",
                 ],
-                capture_output=True,
-                text=True,
-                check=True,
             )
-            pr_data = json.loads(pr_view_result.stdout)
-            pr_metadata = {
-                "number": pr_data["number"],
-                "title": pr_data.get("title"),
-                "description": pr_data.get("body"),
-                "author": pr_data.get("author", {}).get("login"),
-                "labels": tuple(label["name"] for label in pr_data.get("labels", [])),
-                "base_branch": base_branch,
-            }
+            if pr_view_result.success:
+                pr_data = json.loads(pr_view_result.stdout)
+                pr_metadata = {
+                    "number": pr_data["number"],
+                    "title": pr_data.get("title"),
+                    "description": pr_data.get("body"),
+                    "author": pr_data.get("author", {}).get("login"),
+                    "labels": tuple(
+                        label["name"] for label in pr_data.get("labels", [])
+                    ),
+                    "base_branch": base_branch,
+                }
 
         # Get diff against base branch
-        diff_result = subprocess.run(
+        diff_result = await _runner.run(
             ["git", "diff", f"{base_branch}...HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
         )
+        if not diff_result.success:
+            raise RuntimeError(f"Failed to get diff: {diff_result.stderr}")
         diff = diff_result.stdout
 
         # Get changed files
-        files_result = subprocess.run(
+        files_result = await _runner.run(
             ["git", "diff", "--name-only", f"{base_branch}...HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
         )
+        if not files_result.success:
+            raise RuntimeError(f"Failed to get changed files: {files_result.stderr}")
         changed_files = tuple(
             f.strip() for f in files_result.stdout.strip().split("\n") if f.strip()
         )
 
         # Get commit messages
-        log_result = subprocess.run(
+        log_result = await _runner.run(
             [
                 "git",
                 "log",
                 "--oneline",
                 f"{base_branch}..HEAD",
             ],
-            capture_output=True,
-            text=True,
-            check=True,
         )
+        if not log_result.success:
+            raise RuntimeError(f"Failed to get commit log: {log_result.stderr}")
         commits = tuple(
             c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
         )
@@ -142,8 +148,8 @@ async def gather_pr_context(
             "coderabbit_available": coderabbit_available,
         }
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to gather PR context: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Failed to gather PR context: {e}")
         return {
             "pr_metadata": {
                 "number": pr_number,
@@ -157,7 +163,7 @@ async def gather_pr_context(
             "diff": "",
             "commits": (),
             "coderabbit_available": False,
-            "error": e.stderr or str(e),
+            "error": str(e),
         }
 
 
@@ -193,7 +199,7 @@ async def run_coderabbit_review(
 
     try:
         # Run CodeRabbit review
-        result = subprocess.run(
+        result = await _coderabbit_runner.run(
             [
                 "coderabbit",
                 "review",
@@ -201,11 +207,23 @@ async def run_coderabbit_review(
                 str(pr_number),
                 "--json",
             ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=300,  # 5 minute timeout
         )
+
+        if result.timed_out:
+            logger.error("CodeRabbit review timed out after 5 minutes")
+            return {
+                "available": True,
+                "findings": (),
+                "error": "CodeRabbit review timed out",
+            }
+
+        if not result.success:
+            logger.error(f"CodeRabbit review failed: {result.stderr}")
+            return {
+                "available": True,
+                "findings": (),
+                "error": result.stderr or f"Command failed with code {result.returncode}",
+            }
 
         # Parse CodeRabbit output
         findings = []
@@ -234,19 +252,12 @@ async def run_coderabbit_review(
             "error": None,
         }
 
-    except subprocess.TimeoutExpired:
-        logger.error("CodeRabbit review timed out after 5 minutes")
+    except Exception as e:
+        logger.error(f"CodeRabbit review failed: {e}")
         return {
             "available": True,
             "findings": (),
-            "error": "CodeRabbit review timed out",
-        }
-    except subprocess.CalledProcessError as e:
-        logger.error(f"CodeRabbit review failed: {e.stderr}")
-        return {
-            "available": True,
-            "findings": (),
-            "error": e.stderr or str(e),
+            "error": str(e),
         }
 
 

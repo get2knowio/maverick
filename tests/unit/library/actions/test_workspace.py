@@ -9,12 +9,29 @@ Tests the workspace.py action module including:
 from __future__ import annotations
 
 from pathlib import Path
-from subprocess import CalledProcessError
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from maverick.library.actions.workspace import init_workspace
+from maverick.runners.models import CommandResult
+
+
+def make_result(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    duration_ms: float = 10.0,
+    timed_out: bool = False,
+) -> CommandResult:
+    """Create a CommandResult for test mocking."""
+    return CommandResult(
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration_ms=duration_ms,
+        timed_out=timed_out,
+    )
 
 
 class TestInitWorkspace:
@@ -25,15 +42,16 @@ class TestInitWorkspace:
         """Test creates new branch when it doesn't exist."""
         branch_name = "feature/new-feature"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            # First call: git rev-parse (branch doesn't exist)
-            # Second call: git checkout -b
-            # Third call: git status --porcelain
-            mock_run.side_effect = [
-                MagicMock(returncode=1),  # Branch doesn't exist
-                MagicMock(returncode=0),  # Checkout -b success
-                MagicMock(returncode=0, stdout=""),  # Status clean
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=1),  # Branch doesn't exist
+                    make_result(returncode=0),  # Checkout -b success
+                    make_result(returncode=0, stdout=""),  # Status clean
+                ]
+            )
 
             result = await init_workspace(branch_name)
 
@@ -43,7 +61,7 @@ class TestInitWorkspace:
             assert result["synced_with_base"] is True
 
             # Verify git checkout -b was called
-            checkout_call = mock_run.call_args_list[1]
+            checkout_call = mock_runner.run.call_args_list[1]
             assert checkout_call[0][0] == ["git", "checkout", "-b", branch_name]
 
     @pytest.mark.asyncio
@@ -51,22 +69,23 @@ class TestInitWorkspace:
         """Test checks out existing branch instead of creating new one."""
         branch_name = "feature/existing"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            # First call: git rev-parse (branch exists)
-            # Second call: git checkout
-            # Third call: git status --porcelain
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(returncode=0, stdout=""),  # Status clean
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
+                ]
+            )
 
             result = await init_workspace(branch_name)
 
             assert result["branch_name"] == branch_name
 
             # Verify git checkout was called (not checkout -b)
-            checkout_call = mock_run.call_args_list[1]
+            checkout_call = mock_runner.run.call_args_list[1]
             assert checkout_call[0][0] == ["git", "checkout", branch_name]
 
     @pytest.mark.asyncio
@@ -74,12 +93,16 @@ class TestInitWorkspace:
         """Test detects when workspace is clean."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(returncode=0, stdout=""),  # Status clean (empty output)
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean (empty output)
+                ]
+            )
 
             result = await init_workspace(branch_name)
 
@@ -90,14 +113,18 @@ class TestInitWorkspace:
         """Test detects when workspace has uncommitted changes."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(
-                    returncode=0, stdout=" M src/file.py\n ?? new_file.py\n"
-                ),  # Dirty
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(
+                        returncode=0, stdout=" M src/file.py\n ?? new_file.py\n"
+                    ),  # Dirty
+                ]
+            )
 
             result = await init_workspace(branch_name)
 
@@ -123,12 +150,16 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-                mock_run.side_effect = [
-                    MagicMock(returncode=0),  # Branch exists
-                    MagicMock(returncode=0),  # Checkout success
-                    MagicMock(returncode=0, stdout=""),  # Status clean
-                ]
+            with patch(
+                "maverick.library.actions.workspace._runner"
+            ) as mock_runner:
+                mock_runner.run = AsyncMock(
+                    side_effect=[
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
+                    ]
+                )
 
                 result = await init_workspace(branch_name)
 
@@ -156,12 +187,16 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-                mock_run.side_effect = [
-                    MagicMock(returncode=0),  # Branch exists
-                    MagicMock(returncode=0),  # Checkout success
-                    MagicMock(returncode=0, stdout=""),  # Status clean
-                ]
+            with patch(
+                "maverick.library.actions.workspace._runner"
+            ) as mock_runner:
+                mock_runner.run = AsyncMock(
+                    side_effect=[
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
+                    ]
+                )
 
                 result = await init_workspace(branch_name)
 
@@ -185,12 +220,16 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-                mock_run.side_effect = [
-                    MagicMock(returncode=0),  # Branch exists
-                    MagicMock(returncode=0),  # Checkout success
-                    MagicMock(returncode=0, stdout=""),  # Status clean
-                ]
+            with patch(
+                "maverick.library.actions.workspace._runner"
+            ) as mock_runner:
+                mock_runner.run = AsyncMock(
+                    side_effect=[
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
+                    ]
+                )
 
                 result = await init_workspace(branch_name)
 
@@ -210,12 +249,16 @@ class TestInitWorkspace:
             # Use tmp_path which has no task files
             os.chdir(tmp_path)
 
-            with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-                mock_run.side_effect = [
-                    MagicMock(returncode=0),  # Branch exists
-                    MagicMock(returncode=0),  # Checkout success
-                    MagicMock(returncode=0, stdout=""),  # Status clean
-                ]
+            with patch(
+                "maverick.library.actions.workspace._runner"
+            ) as mock_runner:
+                mock_runner.run = AsyncMock(
+                    side_effect=[
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
+                    ]
+                )
 
                 result = await init_workspace(branch_name)
 
@@ -229,11 +272,15 @@ class TestInitWorkspace:
         """Test handles git command errors gracefully."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["git", "checkout", "-b", branch_name],
-                stderr="fatal: not a git repository",
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            # Simulate a failure result from git
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    returncode=1,
+                    stderr="fatal: not a git repository",
+                )
             )
 
             result = await init_workspace(branch_name)
@@ -248,12 +295,16 @@ class TestInitWorkspace:
         """Test always returns 'main' as base_branch."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(returncode=0, stdout=""),  # Status clean
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
+                ]
+            )
 
             result = await init_workspace(branch_name)
 
@@ -264,12 +315,16 @@ class TestInitWorkspace:
         """Test returns synced_with_base as True (simplified implementation)."""
         branch_name = "feature/test"
 
-        with patch("maverick.library.actions.workspace.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0),  # Branch exists
-                MagicMock(returncode=0),  # Checkout success
-                MagicMock(returncode=0, stdout=""),  # Status clean
-            ]
+        with patch(
+            "maverick.library.actions.workspace._runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
+                ]
+            )
 
             result = await init_workspace(branch_name)
 

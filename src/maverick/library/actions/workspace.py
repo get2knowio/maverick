@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from maverick.library.actions.types import WorkspaceState
+from maverick.runners.command import CommandRunner
 
 logger = logging.getLogger(__name__)
+
+# Shared runner instance for workspace actions
+_runner = CommandRunner(timeout=30.0)
 
 
 async def init_workspace(branch_name: str) -> dict[str, Any]:
@@ -25,25 +28,31 @@ async def init_workspace(branch_name: str) -> dict[str, Any]:
 
     try:
         # Check if branch exists
-        result = subprocess.run(
+        result = await _runner.run(
             ["git", "rev-parse", "--verify", branch_name],
-            capture_output=True,
-            text=True,
         )
         branch_exists = result.returncode == 0
 
         if branch_exists:
             # Checkout existing branch
-            subprocess.run(["git", "checkout", branch_name], check=True)
+            checkout_result = await _runner.run(["git", "checkout", branch_name])
+            if not checkout_result.success:
+                raise RuntimeError(
+                    f"Failed to checkout branch: {checkout_result.stderr}"
+                )
         else:
             # Create new branch from base
-            subprocess.run(["git", "checkout", "-b", branch_name], check=True)
+            checkout_result = await _runner.run(
+                ["git", "checkout", "-b", branch_name]
+            )
+            if not checkout_result.success:
+                raise RuntimeError(
+                    f"Failed to create branch: {checkout_result.stderr}"
+                )
 
         # Check if workspace is clean
-        status_result = subprocess.run(
+        status_result = await _runner.run(
             ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
         )
         is_clean = len(status_result.stdout.strip()) == 0
 
@@ -76,7 +85,7 @@ async def init_workspace(branch_name: str) -> dict[str, Any]:
             ),
         }
 
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logger.error(f"Git command failed: {e}")
         return {
             "branch_name": branch_name,

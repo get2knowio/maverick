@@ -9,8 +9,7 @@ Tests the github.py action module including:
 from __future__ import annotations
 
 import json
-from subprocess import CalledProcessError
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -19,6 +18,23 @@ from maverick.library.actions.github import (
     fetch_github_issue,
     fetch_github_issues,
 )
+from maverick.runners.models import CommandResult
+
+
+def make_result(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    timed_out: bool = False,
+) -> CommandResult:
+    """Create a CommandResult for testing."""
+    return CommandResult(
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration_ms=100,
+        timed_out=timed_out,
+    )
 
 
 class TestFetchGitHubIssues:
@@ -48,10 +64,9 @@ class TestFetchGitHubIssues:
             },
         ]
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issues_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issues_data))
             )
 
             result = await fetch_github_issues(label="tech-debt")
@@ -80,18 +95,15 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_respects_limit_parameter(self) -> None:
         """Test respects limit parameter for number of issues."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             result = await fetch_github_issues(label="bug", limit=10)
 
             assert result["success"] is True
 
             # Verify limit was passed to gh command
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--limit" in call_args
             limit_index = call_args.index("--limit")
             assert call_args[limit_index + 1] == "10"
@@ -99,18 +111,15 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_uses_default_limit(self) -> None:
         """Test uses default limit of 5 when not specified."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             result = await fetch_github_issues(label="enhancement")
 
             assert result["success"] is True
 
             # Verify default limit was used
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--limit" in call_args
             limit_index = call_args.index("--limit")
             assert call_args[limit_index + 1] == "5"
@@ -118,18 +127,15 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_filters_by_state(self) -> None:
         """Test filters issues by state parameter."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             result = await fetch_github_issues(label="bug", state="closed")
 
             assert result["success"] is True
 
             # Verify state filter was passed
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--state" in call_args
             state_index = call_args.index("--state")
             assert call_args[state_index + 1] == "closed"
@@ -137,18 +143,15 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_uses_default_state_open(self) -> None:
         """Test uses default state of 'open' when not specified."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             result = await fetch_github_issues(label="tech-debt")
 
             assert result["success"] is True
 
             # Verify default state was used
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--state" in call_args
             state_index = call_args.index("--state")
             assert call_args[state_index + 1] == "open"
@@ -156,11 +159,8 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_handles_empty_result(self) -> None:
         """Test handles empty issue list gracefully."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             result = await fetch_github_issues(label="nonexistent")
 
@@ -183,10 +183,9 @@ class TestFetchGitHubIssues:
             },
         ]
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issues_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issues_data))
             )
 
             result = await fetch_github_issues(label="bug")
@@ -208,10 +207,9 @@ class TestFetchGitHubIssues:
             },
         ]
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issues_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issues_data))
             )
 
             result = await fetch_github_issues(label="tech-debt")
@@ -222,11 +220,11 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_handles_gh_cli_failure(self) -> None:
         """Test handles GitHub CLI command failure gracefully."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["gh", "issue", "list"],
-                stderr="fatal: not a GitHub repository",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    returncode=1, stderr="fatal: not a GitHub repository"
+                )
             )
 
             result = await fetch_github_issues(label="bug")
@@ -240,16 +238,13 @@ class TestFetchGitHubIssues:
     @pytest.mark.asyncio
     async def test_requests_correct_fields(self) -> None:
         """Test requests all necessary fields from GitHub CLI."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="[]",
-            )
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="[]"))
 
             await fetch_github_issues(label="tech-debt")
 
             # Verify --json includes all required fields
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--json" in call_args
             json_index = call_args.index("--json")
             fields = call_args[json_index + 1]
@@ -278,10 +273,9 @@ class TestFetchGitHubIssue:
             "state": "open",
         }
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issue_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issue_data))
             )
 
             result = await fetch_github_issue(issue_number=42)
@@ -310,10 +304,9 @@ class TestFetchGitHubIssue:
             "state": "closed",
         }
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issue_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issue_data))
             )
 
             result = await fetch_github_issue(issue_number=50)
@@ -335,10 +328,9 @@ class TestFetchGitHubIssue:
             "state": "open",
         }
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issue_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issue_data))
             )
 
             result = await fetch_github_issue(issue_number=60)
@@ -349,11 +341,9 @@ class TestFetchGitHubIssue:
     @pytest.mark.asyncio
     async def test_handles_nonexistent_issue(self) -> None:
         """Test handles request for nonexistent issue number."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["gh", "issue", "view", "9999"],
-                stderr="issue not found",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(returncode=1, stderr="issue not found")
             )
 
             result = await fetch_github_issue(issue_number=9999)
@@ -375,16 +365,15 @@ class TestFetchGitHubIssue:
             "state": "open",
         }
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(issue_data),
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(issue_data))
             )
 
             await fetch_github_issue(issue_number=123)
 
             # Verify issue number was passed
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "123" in call_args
 
 
@@ -394,10 +383,11 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_creates_pr_with_user_title(self) -> None:
         """Test creates PR with user-provided title."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/123\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/123\n"
+                )
             )
 
             result = await create_github_pr(
@@ -417,7 +407,7 @@ class TestCreateGitHubPR:
             assert result["error"] is None
 
             # Verify title was used in command
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--title" in call_args
             title_index = call_args.index("--title")
             assert call_args[title_index + 1] == "feat: add new feature"
@@ -425,10 +415,11 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_uses_generated_title_when_no_user_title(self) -> None:
         """Test uses generated title when user title not provided."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/456\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/456\n"
+                )
             )
 
             result = await create_github_pr(
@@ -444,17 +435,18 @@ class TestCreateGitHubPR:
             assert result["draft"] is True
 
             # Verify generated title was used
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             title_index = call_args.index("--title")
             assert call_args[title_index + 1] == "fix: resolve parser issue"
 
     @pytest.mark.asyncio
     async def test_uses_default_title_when_none_provided(self) -> None:
         """Test uses default title when neither user nor generated title provided."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/789\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/789\n"
+                )
             )
 
             result = await create_github_pr(
@@ -471,10 +463,11 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_creates_draft_pr(self) -> None:
         """Test creates PR as draft when draft=True."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/100\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/100\n"
+                )
             )
 
             result = await create_github_pr(
@@ -489,16 +482,17 @@ class TestCreateGitHubPR:
             assert result["draft"] is True
 
             # Verify --draft flag was passed
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--draft" in call_args
 
     @pytest.mark.asyncio
     async def test_creates_non_draft_pr(self) -> None:
         """Test creates non-draft PR when draft=False."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/200\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/200\n"
+                )
             )
 
             result = await create_github_pr(
@@ -513,16 +507,17 @@ class TestCreateGitHubPR:
             assert result["draft"] is False
 
             # Verify --draft flag was NOT passed
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--draft" not in call_args
 
     @pytest.mark.asyncio
     async def test_sets_base_branch(self) -> None:
         """Test sets correct base branch for PR."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/300\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/300\n"
+                )
             )
 
             result = await create_github_pr(
@@ -537,7 +532,7 @@ class TestCreateGitHubPR:
             assert result["base_branch"] == "develop"
 
             # Verify --base flag was passed correctly
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--base" in call_args
             base_index = call_args.index("--base")
             assert call_args[base_index + 1] == "develop"
@@ -550,10 +545,11 @@ class TestCreateGitHubPR:
             "## Changes\n- Added file A\n- Updated file B"
         )
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/400\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/400\n"
+                )
             )
 
             result = await create_github_pr(
@@ -567,7 +563,7 @@ class TestCreateGitHubPR:
             assert result["success"] is True
 
             # Verify body was passed correctly
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             assert "--body" in call_args
             body_index = call_args.index("--body")
             assert call_args[body_index + 1] == pr_body
@@ -582,10 +578,9 @@ class TestCreateGitHubPR:
         ]
 
         for pr_url, expected_number in test_cases:
-            with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0,
-                    stdout=f"{pr_url}\n",
+            with patch("maverick.library.actions.github._runner") as mock_runner:
+                mock_runner.run = AsyncMock(
+                    return_value=make_result(stdout=f"{pr_url}\n")
                 )
 
                 result = await create_github_pr(
@@ -601,11 +596,12 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_handles_pr_creation_failure(self) -> None:
         """Test handles PR creation failure gracefully."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["gh", "pr", "create"],
-                stderr="GraphQL: Pull request already exists",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    returncode=1,
+                    stderr="GraphQL: Pull request already exists",
+                )
             )
 
             result = await create_github_pr(
@@ -625,10 +621,9 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_handles_invalid_pr_url(self) -> None:
         """Test handles invalid PR URL format gracefully."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="invalid-url-format\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout="invalid-url-format\n")
             )
 
             result = await create_github_pr(
@@ -646,10 +641,11 @@ class TestCreateGitHubPR:
     @pytest.mark.asyncio
     async def test_user_title_takes_precedence_over_generated(self) -> None:
         """Test user-provided title takes precedence over generated title."""
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="https://github.com/org/repo/pull/999\n",
+        with patch("maverick.library.actions.github._runner") as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    stdout="https://github.com/org/repo/pull/999\n"
+                )
             )
 
             result = await create_github_pr(
@@ -663,6 +659,6 @@ class TestCreateGitHubPR:
             assert result["title"] == "User Title"
 
             # Verify user title was used in command
-            call_args = mock_run.call_args[0][0]
+            call_args = mock_runner.run.call_args[0][0]
             title_index = call_args.index("--title")
             assert call_args[title_index + 1] == "User Title"

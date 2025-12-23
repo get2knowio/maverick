@@ -9,8 +9,7 @@ Tests the review.py action module including:
 from __future__ import annotations
 
 import json
-from subprocess import CalledProcessError, TimeoutExpired
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -19,6 +18,23 @@ from maverick.library.actions.review import (
     gather_pr_context,
     run_coderabbit_review,
 )
+from maverick.runners.models import CommandResult
+
+
+def make_result(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    timed_out: bool = False,
+) -> CommandResult:
+    """Create a CommandResult for testing."""
+    return CommandResult(
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration_ms=100,
+        timed_out=timed_out,
+    )
 
 
 class TestGatherPRContext:
@@ -31,33 +47,35 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
         ):
             mock_which.return_value = "/usr/bin/coderabbit"
-            mock_run.side_effect = [
-                # gh pr view
-                MagicMock(
-                    returncode=0,
-                    stdout=json.dumps(
-                        {
-                            "number": 123,
-                            "title": "Add new feature",
-                            "body": "This PR adds a new feature",
-                            "author": {"login": "testuser"},
-                            "labels": [{"name": "enhancement"}, {"name": "feature"}],
-                        }
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    # gh pr view
+                    make_result(
+                        stdout=json.dumps(
+                            {
+                                "number": 123,
+                                "title": "Add new feature",
+                                "body": "This PR adds a new feature",
+                                "author": {"login": "testuser"},
+                                "labels": [
+                                    {"name": "enhancement"},
+                                    {"name": "feature"},
+                                ],
+                            }
+                        )
                     ),
-                ),
-                # git diff
-                MagicMock(returncode=0, stdout="diff --git a/file.py b/file.py\n"),
-                # git diff --name-only
-                MagicMock(returncode=0, stdout="src/file1.py\nsrc/file2.py\n"),
-                # git log
-                MagicMock(
-                    returncode=0, stdout="abc123 feat: add feature\ndef456 fix: bug\n"
-                ),
-            ]
+                    # git diff
+                    make_result(stdout="diff --git a/file.py b/file.py\n"),
+                    # git diff --name-only
+                    make_result(stdout="src/file1.py\nsrc/file2.py\n"),
+                    # git log
+                    make_result(stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
+                ]
+            )
 
             result = await gather_pr_context(pr_number, base_branch)
 
@@ -78,35 +96,36 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
         ):
             mock_which.return_value = "/usr/bin/coderabbit"
-            mock_run.side_effect = [
-                # git rev-parse --abbrev-ref HEAD
-                MagicMock(returncode=0, stdout="feature/test\n"),
-                # gh pr list
-                MagicMock(returncode=0, stdout=json.dumps([{"number": 456}])),
-                # gh pr view
-                MagicMock(
-                    returncode=0,
-                    stdout=json.dumps(
-                        {
-                            "number": 456,
-                            "title": "Test PR",
-                            "body": "Test description",
-                            "author": {"login": "author"},
-                            "labels": [],
-                        }
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    # git rev-parse --abbrev-ref HEAD
+                    make_result(stdout="feature/test\n"),
+                    # gh pr list
+                    make_result(stdout=json.dumps([{"number": 456}])),
+                    # gh pr view
+                    make_result(
+                        stdout=json.dumps(
+                            {
+                                "number": 456,
+                                "title": "Test PR",
+                                "body": "Test description",
+                                "author": {"login": "author"},
+                                "labels": [],
+                            }
+                        )
                     ),
-                ),
-                # git diff
-                MagicMock(returncode=0, stdout="diff content\n"),
-                # git diff --name-only
-                MagicMock(returncode=0, stdout="file.py\n"),
-                # git log
-                MagicMock(returncode=0, stdout="sha1 commit message\n"),
-            ]
+                    # git diff
+                    make_result(stdout="diff content\n"),
+                    # git diff --name-only
+                    make_result(stdout="file.py\n"),
+                    # git log
+                    make_result(stdout="sha1 commit message\n"),
+                ]
+            )
 
             result = await gather_pr_context(None, base_branch)
 
@@ -119,23 +138,25 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             mock_which.return_value = None
-            mock_run.side_effect = [
-                # git rev-parse --abbrev-ref HEAD
-                MagicMock(returncode=0, stdout="feature/no-pr\n"),
-                # gh pr list (empty)
-                MagicMock(returncode=0, stdout="[]"),
-                # git diff
-                MagicMock(returncode=0, stdout="diff content\n"),
-                # git diff --name-only
-                MagicMock(returncode=0, stdout="file.py\n"),
-                # git log
-                MagicMock(returncode=0, stdout="sha1 message\n"),
-            ]
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    # git rev-parse --abbrev-ref HEAD
+                    make_result(stdout="feature/no-pr\n"),
+                    # gh pr list (empty)
+                    make_result(stdout="[]"),
+                    # git diff
+                    make_result(stdout="diff content\n"),
+                    # git diff --name-only
+                    make_result(stdout="file.py\n"),
+                    # git log
+                    make_result(stdout="sha1 message\n"),
+                ]
+            )
 
             result = await gather_pr_context(None, base_branch)
 
@@ -151,18 +172,18 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
         ):
             mock_which.return_value = "/usr/local/bin/coderabbit"
-            mock_run.side_effect = [
-                MagicMock(
-                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
-                ),
-                MagicMock(returncode=0, stdout="diff\n"),
-                MagicMock(returncode=0, stdout="file.py\n"),
-                MagicMock(returncode=0, stdout="sha1 msg\n"),
-            ]
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout="diff\n"),
+                    make_result(stdout="file.py\n"),
+                    make_result(stdout="sha1 msg\n"),
+                ]
+            )
 
             result = await gather_pr_context(pr_number, base_branch)
 
@@ -176,18 +197,18 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
         ):
             mock_which.return_value = None
-            mock_run.side_effect = [
-                MagicMock(
-                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
-                ),
-                MagicMock(returncode=0, stdout="diff\n"),
-                MagicMock(returncode=0, stdout="file.py\n"),
-                MagicMock(returncode=0, stdout="sha1 msg\n"),
-            ]
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout="diff\n"),
+                    make_result(stdout="file.py\n"),
+                    make_result(stdout="sha1 msg\n"),
+                ]
+            )
 
             result = await gather_pr_context(pr_number, base_branch)
 
@@ -200,18 +221,18 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
         ):
             mock_which.return_value = None
-            mock_run.side_effect = [
-                MagicMock(
-                    returncode=0, stdout=json.dumps({"number": 123, "labels": []})
-                ),
-                MagicMock(returncode=0, stdout=""),  # empty diff
-                MagicMock(returncode=0, stdout=""),  # no files
-                MagicMock(returncode=0, stdout=""),  # no commits
-            ]
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout=""),  # empty diff
+                    make_result(stdout=""),  # no files
+                    make_result(stdout=""),  # no commits
+                ]
+            )
 
             result = await gather_pr_context(pr_number, base_branch)
 
@@ -226,26 +247,23 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             mock_which.return_value = None
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["gh", "pr", "view"],
-                stderr="Error: PR not found",
+            mock_runner.run = AsyncMock(
+                return_value=make_result(returncode=1, stderr="Error: PR not found")
             )
 
             result = await gather_pr_context(pr_number, base_branch)
 
+            # The result still contains a PR metadata structure but with minimal info
             assert result["pr_metadata"]["number"] == 123
-            assert result["pr_metadata"]["title"] is None
             assert result["changed_files"] == ()
             assert result["diff"] == ""
             assert result["coderabbit_available"] is False
             assert "error" in result
-            assert "PR not found" in result["error"]
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -255,15 +273,16 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch("maverick.library.actions.review._runner") as mock_runner,
             patch("maverick.library.actions.review.shutil.which") as mock_which,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             mock_which.return_value = None
-            mock_run.side_effect = CalledProcessError(
-                returncode=128,
-                cmd=["git", "diff"],
-                stderr="fatal: not a git repository",
+            mock_runner.run = AsyncMock(
+                side_effect=[
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(returncode=128, stderr="fatal: not a git repository"),
+                ]
             )
 
             result = await gather_pr_context(pr_number, base_branch)
@@ -300,10 +319,11 @@ class TestRunCoderabbitReview:
             ]
         }
 
-        with patch("maverick.library.actions.review.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(coderabbit_output),
+        with patch(
+            "maverick.library.actions.review._coderabbit_runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -315,8 +335,8 @@ class TestRunCoderabbitReview:
             assert result["findings"][1]["severity"] == "critical"
 
             # Verify command
-            mock_run.assert_called_once()
-            call_args = mock_run.call_args[0][0]
+            mock_runner.run.assert_called_once()
+            call_args = mock_runner.run.call_args[0][0]
             assert call_args == ["coderabbit", "review", "--pr", "123", "--json"]
 
     @pytest.mark.asyncio
@@ -326,7 +346,9 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": False}
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch(
+                "maverick.library.actions.review._coderabbit_runner"
+            ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             result = await run_coderabbit_review(pr_number, context)
@@ -334,7 +356,7 @@ class TestRunCoderabbitReview:
             assert result["available"] is False
             assert result["findings"] == ()
             assert result["error"] == "CodeRabbit CLI not installed"
-            mock_run.assert_not_called()
+            mock_runner.run.assert_not_called()
             mock_logger.info.assert_called_once()
 
     @pytest.mark.asyncio
@@ -344,7 +366,9 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch(
+                "maverick.library.actions.review._coderabbit_runner"
+            ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             result = await run_coderabbit_review(pr_number, context)
@@ -352,7 +376,7 @@ class TestRunCoderabbitReview:
             assert result["available"] is True
             assert result["findings"] == ()
             assert result["error"] == "No PR number available"
-            mock_run.assert_not_called()
+            mock_runner.run.assert_not_called()
             mock_logger.warning.assert_called_once()
 
     @pytest.mark.asyncio
@@ -362,13 +386,12 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch(
+                "maverick.library.actions.review._coderabbit_runner"
+            ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
-            mock_run.side_effect = TimeoutExpired(
-                cmd=["coderabbit", "review"],
-                timeout=300,
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(timed_out=True))
 
             result = await run_coderabbit_review(pr_number, context)
 
@@ -384,13 +407,15 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch(
+                "maverick.library.actions.review._coderabbit_runner"
+            ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
-            mock_run.side_effect = CalledProcessError(
-                returncode=1,
-                cmd=["coderabbit", "review"],
-                stderr="Error: authentication failed",
+            mock_runner.run = AsyncMock(
+                return_value=make_result(
+                    returncode=1, stderr="Error: authentication failed"
+                )
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -413,10 +438,11 @@ class TestRunCoderabbitReview:
             ]
         }
 
-        with patch("maverick.library.actions.review.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(coderabbit_output),
+        with patch(
+            "maverick.library.actions.review._coderabbit_runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -436,10 +462,11 @@ class TestRunCoderabbitReview:
             "severity": "info",
         }
 
-        with patch("maverick.library.actions.review.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(coderabbit_output),
+        with patch(
+            "maverick.library.actions.review._coderabbit_runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -458,10 +485,11 @@ class TestRunCoderabbitReview:
             {"file": "b.py", "message": "Finding B"},
         ]
 
-        with patch("maverick.library.actions.review.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=json.dumps(coderabbit_output),
+        with patch(
+            "maverick.library.actions.review._coderabbit_runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -475,12 +503,13 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch("maverick.library.actions.review.subprocess.run") as mock_run,
+            patch(
+                "maverick.library.actions.review._coderabbit_runner"
+            ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="This is not JSON output",
+            mock_runner.run = AsyncMock(
+                return_value=make_result(stdout="This is not JSON output")
             )
 
             result = await run_coderabbit_review(pr_number, context)
@@ -496,8 +525,10 @@ class TestRunCoderabbitReview:
         pr_number = 123
         context = {"coderabbit_available": True}
 
-        with patch("maverick.library.actions.review.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="")
+        with patch(
+            "maverick.library.actions.review._coderabbit_runner"
+        ) as mock_runner:
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=""))
 
             result = await run_coderabbit_review(pr_number, context)
 

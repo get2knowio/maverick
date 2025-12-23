@@ -424,3 +424,72 @@ class TestPythonStepExecuteDuration:
 
         assert result.success is False
         assert result.duration_ms >= 5  # At least some time recorded
+
+
+class TestPythonStepNonBlocking:
+    """Test that PythonStep doesn't block the event loop with sync callables."""
+
+    @pytest.mark.asyncio
+    async def test_sync_callable_runs_in_thread_pool(self) -> None:
+        """Test that sync callables are offloaded via asyncio.to_thread.
+        
+        This ensures blocking operations don't freeze the event loop/TUI.
+        """
+        import threading
+        
+        main_thread_id = threading.current_thread().ident
+        callable_thread_id = None
+        
+        def sync_action() -> str:
+            nonlocal callable_thread_id
+            callable_thread_id = threading.current_thread().ident
+            return "done"
+        
+        step = PythonStep(name="test-step", action=sync_action)
+        context = WorkflowContext(inputs={}, results={})
+        
+        result = await step.execute(context)
+        
+        assert result.success is True
+        assert callable_thread_id is not None
+        # Sync callable should run in a different thread
+        assert callable_thread_id != main_thread_id
+
+    @pytest.mark.asyncio
+    async def test_async_callable_runs_in_main_thread(self) -> None:
+        """Test that async callables run directly on the event loop thread."""
+        import threading
+        
+        main_thread_id = threading.current_thread().ident
+        callable_thread_id = None
+        
+        async def async_action() -> str:
+            nonlocal callable_thread_id
+            callable_thread_id = threading.current_thread().ident
+            return "done"
+        
+        step = PythonStep(name="test-step", action=async_action)
+        context = WorkflowContext(inputs={}, results={})
+        
+        result = await step.execute(context)
+        
+        assert result.success is True
+        assert callable_thread_id is not None
+        # Async callable should run in the same (event loop) thread
+        assert callable_thread_id == main_thread_id
+
+    @pytest.mark.asyncio
+    async def test_sync_callable_exception_preserves_traceback(self) -> None:
+        """Test that exceptions from sync callables in thread pool are handled."""
+        
+        def failing_sync_action() -> None:
+            raise RuntimeError("Error from thread pool")
+        
+        step = PythonStep(name="test-step", action=failing_sync_action)
+        context = WorkflowContext(inputs={}, results={})
+        
+        result = await step.execute(context)
+        
+        assert result.success is False
+        assert "RuntimeError" in result.error
+        assert "Error from thread pool" in result.error
