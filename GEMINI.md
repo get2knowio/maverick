@@ -118,3 +118,22 @@ Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict ad
 ### 5. Documentation Integrity
 *   **Root Cause:** Code evolving faster than docs.
 *   **Rule:** Treat documentation examples as code. Where possible, add tests that validate the code snippets in `README.md` or `quickstart.md` to ensure they remain executable.
+
+### 6. Modularize Early (Keep Files Small)
+*   **Root Cause:** “God modules” that accumulate multiple responsibilities, slow navigation, and increase merge conflicts.
+*   **Rules:**
+    *   **Soft limit:** keep modules < ~500 LOC and test modules < ~400–600 LOC.
+    *   **Refactor trigger:** if a module exceeds ~800 LOC or becomes multi-domain, split it as part of the change (or open a `tech debt` issue scoped to the split).
+    *   **Hard stop:** avoid adding new features to modules > ~1000 LOC without carving out a focused submodule/package first.
+    *   **Single responsibility:** each module/package should have one clear reason to change.
+
+### 7. Preferred Split Patterns (Repo Conventions)
+*   **CLI:** `src/maverick/main.py` stays thin; put commands under `src/maverick/cli/commands/`; shared Click glue in `src/maverick/cli/common.py`.
+*   **Workflows:** package-per-workflow under `src/maverick/workflows/<name>/` with `models.py`, `events.py`, `dsl.py`/`constants.py`, `workflow.py`.
+*   **TUI models:** split into `src/maverick/tui/models/` grouped by domain (enums, dialogs, state models, theme).
+*   **Tools (MCP servers):** split into `runner.py`, `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules.
+*   **DSL execution:** step-type handlers in separate modules; keep the executor/coordinator small and readable.
+*   **Tests:** split by unit-under-test and scenario; use local `conftest.py` for shared fixtures/factories.
+
+### 8. Backwards-Compatible Refactors
+*   Preserve import stability by re-exporting from package `__init__.py` and/or keeping a small shim module that imports/re-exports from the new location during migration.

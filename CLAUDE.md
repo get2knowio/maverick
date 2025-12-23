@@ -153,6 +153,53 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 
 Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict adherence to these rules prevents debt accumulation.
 
+### 1. Testing is Not Optional (Anti-Deferral)
+- No PR shall be merged without passing **new** tests covering added functionality
+- Do not comment out or skip failing tests; fix them immediately
+- For async components (Agents/Workflows), test concurrency and error states, not just happy paths
+
+### 2. Modularize Early (Keep Files Small)
+Long, multi-responsibility modules are a primary driver of slow iteration and merge conflicts. Treat file growth as a design smell.
+
+- **Soft limit**: aim for modules < ~500 LOC and test modules < ~400–600 LOC.
+- **Refactor trigger**: if a module exceeds ~800 LOC or has many unrelated top-level definitions, split it as part of the change (or create a `tech debt` issue scoped to the split).
+- **Hard stop**: avoid adding new features to modules > ~1000 LOC without first carving out a focused submodule/package.
+- **Single responsibility**: each module/package should have one “reason to change” (one domain, one layer, one cohesive feature area).
+
+### 3. Preferred Split Patterns (Repository-Specific)
+Use these patterns to prevent the common “god file” failures seen in this repo:
+
+- **CLI**: keep `src/maverick/main.py` as a thin entrypoint; put each Click command in `src/maverick/cli/commands/<command>.py`; keep shared Click options/error handling in `src/maverick/cli/common.py`.
+- **Workflows**: use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `dsl.py`/`constants.py`, and `workflow.py`.
+- **TUI models**: split `src/maverick/tui/models.py` into a `src/maverick/tui/models/` package grouped by domain (enums, dialogs, widget state, screen state, theme).
+- **Tools (MCP servers)**: split into a package with `runner.py` (subprocess), `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules.
+- **DSL execution**: isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small.
+- **Tests**: split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste.
+
+### 4. Backwards-Compatible Refactors
+When splitting a public module, preserve import stability:
+
+- Prefer creating a package and re-exporting the current public surface from `__init__.py`.
+- If external consumers import from the old module path, keep a small shim module that imports/re-exports from the new package for a migration period.
+- Maintain `__all__` (or equivalent explicit exports) so the public API stays intentional and discoverable.
+
+### 5. Zero-Tolerance for Duplication (DRY)
+- If logic (Git operations, Validation, GitHub API calls) is needed in a second location, **refactor to a shared utility immediately**—do not wait for "cleanup"
+- Use Mixins or Composition over inheritance for shared agent capabilities
+
+### 6. Hardening by Default (Anti-Assumption)
+- All external calls (GitHub API, Git subprocesses) **MUST** have:
+  - Explicit timeouts
+  - Retry logic with exponential backoff for network operations
+  - Specific exception handling (no bare `except Exception`)
+
+### 7. Type Safety & Constants
+- No magic numbers or string literals in logic code; extract to named constants or configuration
+- Use `Protocol` (structural typing) to define interfaces between components to avoid circular dependencies
+
+### 8. Documentation Integrity
+- Treat documentation examples as code—where possible, add tests that validate code snippets in `README.md` or `docs/quickstart.md`
+
 ## Architectural Guardrails (Non-Negotiables)
 
 These “truisms” are required to preserve the clarity and layer boundaries described in `.specify/memory/constitution.md` and the Slidev training. If a change would violate any item below, stop and refactor the design before proceeding.
@@ -192,28 +239,6 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 - Factory functions MUST NOT call `asyncio.run()` internally.
 - Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
 - Return concrete, correct types (avoid `Any` on public APIs).
-
-### 1. Testing is Not Optional (Anti-Deferral)
-- No PR shall be merged without passing **new** tests covering added functionality
-- Do not comment out or skip failing tests; fix them immediately
-- For async components (Agents/Workflows), test concurrency and error states, not just happy paths
-
-### 2. Zero-Tolerance for Duplication (DRY)
-- If logic (Git operations, Validation, GitHub API calls) is needed in a second location, **refactor to a shared utility immediately**—do not wait for "cleanup"
-- Use Mixins or Composition over inheritance for shared agent capabilities
-
-### 3. Hardening by Default (Anti-Assumption)
-- All external calls (GitHub API, Git subprocesses) **MUST** have:
-  - Explicit timeouts
-  - Retry logic with exponential backoff for network operations
-  - Specific exception handling (no bare `except Exception`)
-
-### 4. Type Safety & Constants
-- No magic numbers or string literals in logic code; extract to named constants or configuration
-- Use `Protocol` (structural typing) to define interfaces between components to avoid circular dependencies
-
-### 5. Documentation Integrity
-- Treat documentation examples as code—where possible, add tests that validate code snippets in `README.md` or `docs/quickstart.md`
 
 ## Workflows
 
