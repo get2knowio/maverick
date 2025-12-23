@@ -680,7 +680,7 @@ def test_fly_command_with_valid_branch(
     async def mock_execute(inputs):
         yield FlyWorkflowCompleted(result=mock_result)
 
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = MagicMock()
         mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
@@ -750,7 +750,7 @@ def test_fly_with_task_file_option(
         )
         yield FlyWorkflowCompleted(result=mock_result)
 
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = MagicMock()
         mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
@@ -817,7 +817,7 @@ def test_fly_skip_review_option(
         )
         yield FlyWorkflowCompleted(result=mock_result)
 
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = MagicMock()
         mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
@@ -882,7 +882,7 @@ def test_fly_skip_pr_option(
         )
         yield FlyWorkflowCompleted(result=mock_result)
 
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = MagicMock()
         mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
@@ -918,7 +918,7 @@ def test_fly_dry_run_option(
     os.system("git checkout -b feature-branch > /dev/null 2>&1")
 
     # Mock FlyWorkflow - should NOT be called in dry-run
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = AsyncMock()
         mock_workflow_class.return_value = mock_workflow
 
@@ -981,7 +981,7 @@ def test_fly_keyboard_interrupt_handling(
         raise KeyboardInterrupt()
         yield  # pragma: no cover
 
-    with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+    with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
         mock_workflow = MagicMock()
         mock_workflow.execute = mock_execute
         mock_workflow_class.return_value = mock_workflow
@@ -1022,11 +1022,11 @@ def test_refuel_command_default_behavior(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1080,11 +1080,11 @@ def test_refuel_label_option(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1138,11 +1138,11 @@ def test_refuel_limit_option(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1196,11 +1196,11 @@ def test_refuel_sequential_flag(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1255,11 +1255,11 @@ def test_refuel_dry_run_option(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1342,11 +1342,11 @@ def test_refuel_keyboard_interrupt_handling(
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     # Mock GitHub auth check to succeed
-    with patch("maverick.main.check_git_auth") as mock_auth:
+    with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
         mock_auth.return_value = MagicMock(available=True)
 
         # Mock workflow execution to raise KeyboardInterrupt
-        with patch("maverick.main.RefuelWorkflow") as mock_workflow_cls:
+        with patch("maverick.cli.commands.refuel.RefuelWorkflow") as mock_workflow_cls:
             mock_workflow = MagicMock()
             mock_workflow_cls.return_value = mock_workflow
 
@@ -1414,7 +1414,9 @@ def test_review_command_with_valid_pr_number(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_cls:
                 mock_agent = MagicMock()
                 mock_agent_cls.return_value = mock_agent
 
@@ -1479,7 +1481,9 @@ def test_review_with_fix_option(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_cls:
                 mock_agent = MagicMock()
                 mock_agent_cls.return_value = mock_agent
 
@@ -1543,7 +1547,9 @@ def test_review_output_json_option(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_cls:
                 mock_agent = MagicMock()
                 mock_agent_cls.return_value = mock_agent
 
@@ -1615,7 +1621,9 @@ def test_review_output_markdown_option(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_cls:
                 mock_agent = MagicMock()
                 mock_agent_cls.return_value = mock_agent
 
@@ -1687,7 +1695,9 @@ def test_review_output_text_option(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_cls:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_cls:
                 mock_agent = MagicMock()
                 mock_agent_cls.return_value = mock_agent
 

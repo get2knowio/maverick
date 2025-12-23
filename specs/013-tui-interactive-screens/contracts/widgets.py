@@ -29,7 +29,7 @@ class ConfirmDialogWidgetProtocol(Protocol):
     confirm_label: str
     cancel_label: str
 
-    def compose(self) -> "ComposeResult":
+    def compose(self) -> ComposeResult:
         """Create dialog layout with title, message, and buttons."""
         ...
 
@@ -58,7 +58,7 @@ class ErrorDialogWidgetProtocol(Protocol):
     details: str | None
     retry_action: str | None
 
-    def compose(self) -> "ComposeResult":
+    def compose(self) -> ComposeResult:
         """Create dialog layout with error message and buttons."""
         ...
 
@@ -87,7 +87,7 @@ class InputDialogWidgetProtocol(Protocol):
     placeholder: str
     initial_value: str
 
-    def compose(self) -> "ComposeResult":
+    def compose(self) -> ComposeResult:
         """Create dialog layout with prompt, input, and buttons."""
         ...
 
@@ -321,7 +321,7 @@ class SettingsSectionWidgetProtocol(Protocol):
     section_name: str
     expanded: bool
 
-    def compose(self) -> "ComposeResult":
+    def compose(self) -> ComposeResult:
         """Create section layout with header and settings."""
         ...
 
@@ -329,7 +329,7 @@ class SettingsSectionWidgetProtocol(Protocol):
         """Toggle section expansion."""
         ...
 
-    def add_setting(self, setting: "SettingFieldProtocol") -> None:
+    def add_setting(self, setting: SettingFieldProtocol) -> None:
         """Add a setting to the section.
 
         Args:

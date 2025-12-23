@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from maverick.cli.common import cli_error_handler
 from maverick.cli.context import ExitCode
 from maverick.exceptions import AgentError, GitError, MaverickError
-from maverick.main import cli_error_handler
 
 
 def test_cli_error_handler_keyboard_interrupt(capfd):

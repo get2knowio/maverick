@@ -13,10 +13,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from maverick.tools.github import (
-    _classify_error,
-    _error_response,
-    _parse_rate_limit_wait,
-    _success_response,
     github_add_labels,
     github_close_issue,
     github_create_pr,
@@ -25,6 +21,10 @@ from maverick.tools.github import (
     github_list_issues,
     github_pr_status,
 )
+from maverick.tools.github.errors import classify_error as _classify_error
+from maverick.tools.github.errors import parse_rate_limit_wait as _parse_rate_limit_wait
+from maverick.tools.github.responses import error_response as _error_response
+from maverick.tools.github.responses import success_response as _success_response
 
 
 class TestGitHubPrStatus:
@@ -76,7 +76,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -171,7 +171,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -246,7 +246,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -281,7 +281,7 @@ class TestGitHubPrStatus:
         pr_number = 999
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = ("", "pull request not found", 1)
 
@@ -326,7 +326,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -358,7 +358,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -390,7 +390,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -422,7 +422,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -453,7 +453,7 @@ class TestGitHubPrStatus:
         }
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.prs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (json.dumps(mock_pr_data), "", 0)
 
@@ -480,7 +480,7 @@ class TestGitHubCreatePR:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -532,7 +532,7 @@ class TestGitHubCreatePR:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -575,7 +575,7 @@ class TestGitHubCreatePR:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -605,7 +605,7 @@ class TestGitHubCreatePR:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -733,7 +733,7 @@ class TestGithubListIssues:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -800,7 +800,7 @@ class TestGithubListIssues:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -833,7 +833,7 @@ class TestGithubListIssues:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -875,7 +875,7 @@ class TestGithubListIssues:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -904,7 +904,7 @@ class TestGitHubAddLabels:
         labels = ["bug", "priority-high"]
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # gh issue edit 123 --add-label bug --add-label priority-high
@@ -951,7 +951,7 @@ class TestGitHubAddLabels:
         labels = ["new-label", "another-new-label"]
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # gh CLI creates new labels automatically
@@ -980,7 +980,7 @@ class TestGitHubAddLabels:
         labels = ["bug", "urgent", "needs-triage", "backend"]
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "", 0)
@@ -1053,7 +1053,7 @@ class TestGitHubAddLabels:
         issue_number = 999
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "could not find issue 999", 1)
@@ -1077,7 +1077,7 @@ class TestGitHubAddLabels:
         issue_number = 888
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "issue not found", 1)
@@ -1102,7 +1102,7 @@ class TestGitHubAddLabels:
         labels = ["documentation"]
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "", 0)
@@ -1166,7 +1166,7 @@ class TestGithubGetIssue:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1216,7 +1216,7 @@ class TestGithubGetIssue:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1240,7 +1240,7 @@ class TestGithubGetIssue:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1268,7 +1268,7 @@ class TestGithubGetIssue:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1302,7 +1302,7 @@ class TestGithubGetIssue:
         return_code = 1
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1322,7 +1322,7 @@ class TestGithubGetIssue:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -1342,7 +1342,7 @@ class TestGithubGetIssue:
         return_code = 0
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = (stdout, stderr, return_code)
@@ -1369,7 +1369,7 @@ class TestRateLimitErrorHandling:
         """Test rate limit error handling for github_create_pr."""
         # Mock rate limit error response
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "API rate limit exceeded. Retry after 120 seconds", 1),
         ):
@@ -1401,7 +1401,7 @@ class TestRateLimitErrorHandling:
         """Test rate limit error handling for github_list_issues."""
         # Mock rate limit error with different pattern
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=(
                 "",
@@ -1427,7 +1427,7 @@ class TestRateLimitErrorHandling:
     async def test_github_pr_status_rate_limit(self) -> None:
         """Test rate limit error handling for github_pr_status."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "rate limit exceeded, retry after 90 seconds", 1),
         ):
@@ -1442,7 +1442,7 @@ class TestRateLimitErrorHandling:
     async def test_github_get_pr_diff_rate_limit(self) -> None:
         """Test rate limit error handling for github_get_pr_diff."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Rate limit exceeded. Try again in 45 seconds", 1),
         ):
@@ -1457,7 +1457,7 @@ class TestRateLimitErrorHandling:
     async def test_github_add_labels_rate_limit(self) -> None:
         """Test rate limit error handling for github_add_labels."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "GitHub API rate limit. Retry after 30 seconds.", 1),
         ):
@@ -1477,7 +1477,7 @@ class TestRateLimitErrorHandling:
     async def test_github_close_issue_rate_limit(self) -> None:
         """Test rate limit error handling for github_close_issue."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Rate limit hit, wait 75 seconds", 1),
         ):
@@ -1497,7 +1497,7 @@ class TestRateLimitErrorHandling:
     async def test_rate_limit_error_with_numeric_pattern(self) -> None:
         """Test rate limit parsing with 'retry after N' pattern."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Rate limit exceeded, retry after 150", 1),
         ):
@@ -1528,7 +1528,7 @@ class TestNetworkErrorHandling:
         """Test network error handling for github_create_pr."""
         # Mock network connection error
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "network error: connection refused", 1),
         ):
@@ -1552,7 +1552,7 @@ class TestNetworkErrorHandling:
     async def test_github_list_issues_network_error(self) -> None:
         """Test network error handling for github_list_issues."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Connection timeout - network unreachable", 1),
         ):
@@ -1567,7 +1567,7 @@ class TestNetworkErrorHandling:
     async def test_github_get_issue_network_error(self) -> None:
         """Test network error handling for github_get_issue."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Network error: unable to connect to GitHub API", 1),
         ):
@@ -1581,7 +1581,7 @@ class TestNetworkErrorHandling:
     async def test_github_pr_status_network_error(self) -> None:
         """Test network error handling for github_pr_status."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "connection failed - network down", 1),
         ):
@@ -1595,7 +1595,7 @@ class TestNetworkErrorHandling:
     async def test_github_get_pr_diff_network_error(self) -> None:
         """Test network error handling for github_get_pr_diff."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Network unreachable: cannot connect", 1),
         ):
@@ -1609,7 +1609,7 @@ class TestNetworkErrorHandling:
     async def test_github_add_labels_network_error(self) -> None:
         """Test network error handling for github_add_labels."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "connection error - network issue", 1),
         ):
@@ -1628,7 +1628,7 @@ class TestNetworkErrorHandling:
     async def test_github_close_issue_network_error(self) -> None:
         """Test network error handling for github_close_issue."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Network error occurred", 1),
         ):
@@ -1643,7 +1643,7 @@ class TestNetworkErrorHandling:
         """Test network error includes stderr context."""
         error_message = "connection timeout connecting to api.github.com:443"
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", error_message, 1),
         ):
@@ -1668,7 +1668,7 @@ class TestAuthErrorHandling:
         """Test authentication error handling for github_create_pr."""
         # Mock authentication failure
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "authentication required - please login", 1),
         ):
@@ -1692,7 +1692,7 @@ class TestAuthErrorHandling:
     async def test_github_list_issues_auth_error(self) -> None:
         """Test authentication error handling for github_list_issues."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Unauthorized - authentication failed", 1),
         ):
@@ -1707,7 +1707,7 @@ class TestAuthErrorHandling:
     async def test_github_get_issue_auth_error(self) -> None:
         """Test authentication error handling for github_get_issue."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Authentication token is invalid", 1),
         ):
@@ -1722,7 +1722,7 @@ class TestAuthErrorHandling:
     async def test_github_pr_status_auth_error(self) -> None:
         """Test authentication error handling for github_pr_status."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "unauthorized access - authentication required", 1),
         ):
@@ -1736,7 +1736,7 @@ class TestAuthErrorHandling:
     async def test_github_get_pr_diff_auth_error(self) -> None:
         """Test authentication error handling for github_get_pr_diff."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "GitHub API: unauthorized", 1),
         ):
@@ -1750,7 +1750,7 @@ class TestAuthErrorHandling:
     async def test_github_add_labels_auth_error(self) -> None:
         """Test authentication error handling for github_add_labels."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Authentication credentials are missing or invalid", 1),
         ):
@@ -1769,7 +1769,7 @@ class TestAuthErrorHandling:
     async def test_github_close_issue_auth_error(self) -> None:
         """Test authentication error handling for github_close_issue."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "unauthorized - please authenticate with GitHub", 1),
         ):
@@ -1789,7 +1789,7 @@ class TestAuthErrorHandling:
     async def test_auth_error_actionable_message(self) -> None:
         """Test auth error returns actionable message."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "unauthorized: invalid credentials", 1),
         ):
@@ -1832,7 +1832,7 @@ index 1234567..abcdefg 100644
 """
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.diffs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (mock_diff, "", 0)
 
@@ -1878,7 +1878,7 @@ index 1234567..abcdefg 100644
         max_size = 50000  # 50KB limit
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.diffs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (large_diff, "", 0)
 
@@ -1917,7 +1917,7 @@ index 1234567..abcdefg 100644
         pr_number = 999
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.diffs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = ("", "pull request not found", 1)
 
@@ -1954,7 +1954,7 @@ index 1234567..abcdefg 100644
         max_size = 5100
 
         with patch(
-            "maverick.tools.github._run_gh_command", new_callable=AsyncMock
+            "maverick.tools.github.tools.diffs.run_gh_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = (unicode_diff, "", 0)
 
@@ -2016,7 +2016,7 @@ class TestErrorHandlingConsistency:
         """Test that tools always return MCP dicts, never raise exceptions."""
         # Mock error for all tools
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.runner.run_gh_command",
             new_callable=AsyncMock,
             return_value=("", "Some error", 1),
         ):
@@ -2054,14 +2054,13 @@ class TestTimeoutAndExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_run_gh_command_timeout(self) -> None:
-        """Test _run_gh_command handles timeout correctly.
+        """Test run_gh_command handles timeout correctly.
 
-        Now that _run_gh_command delegates to CommandRunner, timeout handling
-        is done by CommandRunner. This test verifies the timeout behavior
-        still surfaces correctly through the wrapper.
+        run_gh_command delegates to CommandRunner, so we mock CommandRunner.run
+        to return a timed-out result.
         """
         from maverick.runners.models import CommandResult
-        from maverick.tools.github import _run_gh_command
+        from maverick.tools.github.runner import run_gh_command
 
         # Mock CommandRunner.run to return a timed-out result
         async def mock_run(cmd, **kwargs):
@@ -2070,10 +2069,10 @@ class TestTimeoutAndExceptionHandling:
             )
 
         with patch(
-            "maverick.tools.github.CommandRunner.run",
+            "maverick.tools.github.runner.CommandRunner.run",
             side_effect=mock_run,
         ):
-            stdout, stderr, returncode = await _run_gh_command(
+            stdout, stderr, returncode = await run_gh_command(
                 "pr", "list", timeout=0.1
             )
 
@@ -2084,16 +2083,21 @@ class TestTimeoutAndExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_run_gh_command_success(self) -> None:
-        """Test _run_gh_command successful execution (lines 83-87)."""
-        from maverick.tools.github import _run_gh_command
+        """Test run_gh_command successful execution."""
+        from maverick.runners.models import CommandResult
+        from maverick.tools.github.runner import run_gh_command
 
-        # Mock successful process
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"output data", b""))
-        mock_process.returncode = 0
+        # Mock CommandRunner.run to return success
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0, stdout="output data", stderr="", duration_ms=100
+            )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+        with patch(
+            "maverick.tools.github.runner.CommandRunner.run",
+            side_effect=mock_run,
+        ):
+            stdout, stderr, return_code = await run_gh_command("pr", "list")
 
             # Verify return values
             assert stdout == "output data"
@@ -2102,16 +2106,21 @@ class TestTimeoutAndExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_run_gh_command_error_with_stderr(self) -> None:
-        """Test _run_gh_command with non-zero return code (lines 83-87)."""
-        from maverick.tools.github import _run_gh_command
+        """Test run_gh_command with non-zero return code."""
+        from maverick.runners.models import CommandResult
+        from maverick.tools.github.runner import run_gh_command
 
-        # Mock process with error
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
-        mock_process.returncode = 1
+        # Mock CommandRunner.run to return error
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=1, stdout="", stderr="error message", duration_ms=100
+            )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+        with patch(
+            "maverick.tools.github.runner.CommandRunner.run",
+            side_effect=mock_run,
+        ):
+            stdout, stderr, return_code = await run_gh_command("pr", "list")
 
             # Verify return values
             assert stdout == ""
@@ -2120,18 +2129,27 @@ class TestTimeoutAndExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_run_gh_command_none_returncode(self) -> None:
-        """Test _run_gh_command handles None returncode (lines 85)."""
-        from maverick.tools.github import _run_gh_command
+        """Test run_gh_command handles returncode from CommandResult.
 
-        # Mock process with None returncode
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
-        mock_process.returncode = None
+        Note: CommandResult always has an int returncode, so this tests
+        normal behavior rather than None handling.
+        """
+        from maverick.runners.models import CommandResult
+        from maverick.tools.github.runner import run_gh_command
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            stdout, stderr, return_code = await _run_gh_command("pr", "list")
+        # Mock CommandRunner.run to return success with output
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0, stdout="output", stderr="", duration_ms=100
+            )
 
-            # Verify return_code defaults to 0 when None
+        with patch(
+            "maverick.tools.github.runner.CommandRunner.run",
+            side_effect=mock_run,
+        ):
+            stdout, stderr, return_code = await run_gh_command("pr", "list")
+
+            # Verify return_code is 0
             assert return_code == 0
 
     @pytest.mark.asyncio
@@ -2140,7 +2158,7 @@ class TestTimeoutAndExceptionHandling:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -2163,7 +2181,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_create_pr_unexpected_exception(self) -> None:
         """Test github_create_pr handles unexpected exceptions (lines 355-357)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = RuntimeError("Unexpected error")
@@ -2187,7 +2205,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_list_issues_json_decode_error(self) -> None:
         """Test github_list_issues handles JSON parse errors (lines 420-422)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # Return invalid JSON
@@ -2207,7 +2225,7 @@ class TestTimeoutAndExceptionHandling:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -2223,7 +2241,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_list_issues_unexpected_exception(self) -> None:
         """Test github_list_issues handles unexpected exceptions (lines 426-428)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = ValueError("Unexpected error")
@@ -2239,7 +2257,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_get_issue_unexpected_exception(self) -> None:
         """Test github_get_issue handles unexpected exceptions (lines 484-486)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = KeyError("Unexpected error")
@@ -2268,7 +2286,7 @@ class TestTimeoutAndExceptionHandling:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -2284,7 +2302,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_get_pr_diff_unexpected_exception(self) -> None:
         """Test github_get_pr_diff handles unexpected exceptions (lines 542-544)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = OSError("Unexpected error")
@@ -2300,7 +2318,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_pr_status_json_decode_error(self) -> None:
         """Test github_pr_status handles JSON parse errors (lines 635-637)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # Return invalid JSON
@@ -2320,7 +2338,7 @@ class TestTimeoutAndExceptionHandling:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -2336,7 +2354,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_pr_status_unexpected_exception(self) -> None:
         """Test github_pr_status handles unexpected exceptions (lines 641-643)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.prs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = TypeError("Unexpected error")
@@ -2354,7 +2372,7 @@ class TestTimeoutAndExceptionHandling:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -2375,7 +2393,7 @@ class TestTimeoutAndExceptionHandling:
     async def test_github_add_labels_unexpected_exception(self) -> None:
         """Test github_add_labels handles unexpected exceptions (lines 689-691)."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = OSError("Unexpected error")
@@ -2619,12 +2637,12 @@ class TestHelperFunctions:
 
 
 class TestVerifyPrerequisites:
-    """Tests for _verify_prerequisites function (T009)."""
+    """Tests for verify_github_prerequisites function (T009)."""
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_success(self) -> None:
+    async def testverify_github_prerequisites_success(self) -> None:
         """Test all prerequisites checks pass successfully."""
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         # Mock successful subprocess calls
         async def mock_subprocess_exec(*args, **kwargs):
@@ -2640,36 +2658,36 @@ class TestVerifyPrerequisites:
                 side_effect=mock_subprocess_exec,
             ),
             patch(
-                "maverick.tools.github._run_gh_command",
+                "maverick.tools.github.prereqs.run_gh_command",
                 new_callable=AsyncMock,
                 return_value=("Logged in as user", "", 0),
             ),
         ):
             # Should not raise any exception
-            await _verify_prerequisites()
+            await verify_github_prerequisites()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_gh_not_installed(self) -> None:
+    async def testverify_github_prerequisites_gh_not_installed(self) -> None:
         """Test gh CLI not found (FileNotFoundError)."""
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         with patch(
             "asyncio.create_subprocess_exec",
             side_effect=FileNotFoundError("gh command not found"),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "gh_installed"
             assert "gh" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_gh_not_authenticated(self) -> None:
+    async def testverify_github_prerequisites_gh_not_authenticated(self) -> None:
         """Test gh auth status fails."""
         from maverick.exceptions import GitHubToolsError
         from maverick.runners.models import CommandResult
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2703,16 +2721,16 @@ class TestVerifyPrerequisites:
             side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "gh_authenticated"
             assert "authenticated" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_not_git_repo(self) -> None:
+    async def testverify_github_prerequisites_not_git_repo(self) -> None:
         """Test git rev-parse fails (not in git repo)."""
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2749,22 +2767,22 @@ class TestVerifyPrerequisites:
                 side_effect=mock_subprocess_exec,
             ),
             patch(
-                "maverick.tools.github._run_gh_command",
+                "maverick.tools.github.prereqs.run_gh_command",
                 new_callable=AsyncMock,
                 return_value=("Logged in as user", "", 0),
             ),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "git_repo"
             assert "git repository" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_no_remote(self) -> None:
+    async def testverify_github_prerequisites_no_remote(self) -> None:
         """Test git remote get-url fails (no origin)."""
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2801,24 +2819,24 @@ class TestVerifyPrerequisites:
                 side_effect=mock_subprocess_exec,
             ),
             patch(
-                "maverick.tools.github._run_gh_command",
+                "maverick.tools.github.prereqs.run_gh_command",
                 new_callable=AsyncMock,
                 return_value=("Logged in as user", "", 0),
             ),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "git_remote"
             assert "remote" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_gh_timeout(self) -> None:
+    async def testverify_github_prerequisites_gh_timeout(self) -> None:
         """Test gh --version times out."""
         import asyncio
 
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         async def mock_subprocess_exec(*args, **kwargs):
             """Mock subprocess that times out for gh --version."""
@@ -2831,16 +2849,16 @@ class TestVerifyPrerequisites:
             side_effect=mock_subprocess_exec,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "gh_installed"
             assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_git_not_installed(self) -> None:
+    async def testverify_github_prerequisites_git_not_installed(self) -> None:
         """Test git not found (FileNotFoundError)."""
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2871,23 +2889,23 @@ class TestVerifyPrerequisites:
                 side_effect=mock_subprocess_exec,
             ),
             patch(
-                "maverick.tools.github._run_gh_command",
+                "maverick.tools.github.prereqs.run_gh_command",
                 new_callable=AsyncMock,
                 return_value=("Logged in as user", "", 0),
             ),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "git_installed"
             assert "git" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_git_timeout(self) -> None:
+    async def testverify_github_prerequisites_git_timeout(self) -> None:
         """Test git rev-parse times out."""
         from maverick.exceptions import GitHubToolsError
         from maverick.runners.models import CommandResult
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2929,18 +2947,18 @@ class TestVerifyPrerequisites:
             side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "git_repo"
             assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_git_remote_timeout(self) -> None:
+    async def testverify_github_prerequisites_git_remote_timeout(self) -> None:
         """Test git remote get-url times out."""
 
         from maverick.exceptions import GitHubToolsError
         from maverick.runners.models import CommandResult
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         call_count = 0
 
@@ -2990,17 +3008,17 @@ class TestVerifyPrerequisites:
             side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "git_remote"
             assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_gh_returncode_nonzero(self) -> None:
+    async def testverify_github_prerequisites_gh_returncode_nonzero(self) -> None:
         """Test gh --version returns non-zero exit code."""
         from maverick.exceptions import GitHubToolsError
         from maverick.runners.models import CommandResult
-        from maverick.tools.github import _verify_prerequisites
+        from maverick.tools.github import verify_github_prerequisites
 
         # Mock CommandRunner.run to return non-zero for gh --version
         async def mock_run(cmd, **kwargs):
@@ -3022,7 +3040,7 @@ class TestVerifyPrerequisites:
             side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                await _verify_prerequisites()
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "gh_installed"
             assert "gh" in str(exc_info.value).lower()
@@ -3129,25 +3147,20 @@ class TestVerifyGitHubPrerequisites:
     @pytest.mark.asyncio
     async def test_verify_github_prerequisites_success(self) -> None:
         """Test verify_github_prerequisites succeeds when prerequisites are met."""
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import verify_github_prerequisites
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock successful subprocess execution."""
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(return_value=(b"", b""))
-            mock_process.returncode = 0
-            return mock_process
+        # Mock get_runner to return a mock runner
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(
+            return_value=CommandResult(
+                returncode=0, stdout="success", stderr="", duration_ms=100
+            )
+        )
 
-        with (
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=mock_subprocess_exec,
-            ),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=("Logged in as user", "", 0),
-            ),
+        with patch(
+            "maverick.tools.github.prereqs.get_runner",
+            return_value=mock_runner,
         ):
             # Should complete without raising
             await verify_github_prerequisites()
@@ -3156,11 +3169,20 @@ class TestVerifyGitHubPrerequisites:
     async def test_verify_github_prerequisites_failure(self) -> None:
         """Test verify_github_prerequisites raises when gh CLI is not found."""
         from maverick.exceptions import GitHubToolsError
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import verify_github_prerequisites
 
+        # Mock get_runner to return a mock runner that returns command not found
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(
+            return_value=CommandResult(
+                returncode=127, stdout="", stderr="command not found", duration_ms=100
+            )
+        )
+
         with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError("gh command not found"),
+            "maverick.tools.github.prereqs.get_runner",
+            return_value=mock_runner,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
                 await verify_github_prerequisites()
@@ -3184,24 +3206,23 @@ class TestVerifyGitHubPrerequisites:
             await verify_github_prerequisites()  # fail-fast check
             server = create_github_tools_server()  # create server
         """
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import (
             create_github_tools_server,
             verify_github_prerequisites,
         )
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(return_value=(b"gh version 2.40", b""))
-            mock_process.returncode = 0
-            return mock_process
+        # Mock get_runner to return a mock runner
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(
+            return_value=CommandResult(
+                returncode=0, stdout="gh version 2.40", stderr="", duration_ms=100
+            )
+        )
 
-        with (
-            patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=("Logged in as user", "", 0),
-            ),
+        with patch(
+            "maverick.tools.github.prereqs.get_runner",
+            return_value=mock_runner,
         ):
             # Fail-fast verification
             await verify_github_prerequisites()
@@ -3216,25 +3237,24 @@ class TestVerifyGitHubPrerequisites:
     @pytest.mark.asyncio
     async def test_verify_github_prerequisites_in_nested_async(self) -> None:
         """Test verify_github_prerequisites works in nested async operations."""
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import verify_github_prerequisites
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(return_value=(b"", b""))
-            mock_process.returncode = 0
-            return mock_process
+        # Mock get_runner to return a mock runner
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(
+            return_value=CommandResult(
+                returncode=0, stdout="Logged in", stderr="", duration_ms=100
+            )
+        )
 
         async def nested_verify():
             await verify_github_prerequisites()
             return True
 
-        with (
-            patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=("Logged in", "", 0),
-            ),
+        with patch(
+            "maverick.tools.github.prereqs.get_runner",
+            return_value=mock_runner,
         ):
             result = await nested_verify()
             assert result is True
@@ -3261,7 +3281,7 @@ class TestGitHubCloseIssue:
         comment = "Fixed in PR #456"
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "", 0)
@@ -3307,7 +3327,7 @@ class TestGitHubCloseIssue:
         issue_number = 789
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.return_value = ("", "", 0)
@@ -3346,7 +3366,7 @@ class TestGitHubCloseIssue:
         issue_number = 456
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # Mock gh CLI response when issue is already closed
@@ -3398,7 +3418,7 @@ class TestGitHubCloseIssue:
         issue_number = 999
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             # Mock gh CLI response for non-existent issue
@@ -3424,7 +3444,7 @@ class TestGitHubCloseIssue:
         import asyncio
 
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
@@ -3440,7 +3460,7 @@ class TestGitHubCloseIssue:
     async def test_github_close_issue_unexpected_exception(self) -> None:
         """Test github_close_issue handles unexpected exceptions."""
         with patch(
-            "maverick.tools.github._run_gh_command",
+            "maverick.tools.github.tools.issues.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
             mock_run.side_effect = Exception("Unexpected error")

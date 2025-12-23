@@ -104,7 +104,7 @@ class BuiltinLibrary(ABC):
         ...
 
     @abstractmethod
-    def get_workflow(self, name: str) -> "WorkflowFile":
+    def get_workflow(self, name: str) -> WorkflowFile:
         """Load a built-in workflow by name.
 
         Args:
@@ -119,7 +119,7 @@ class BuiltinLibrary(ABC):
         ...
 
     @abstractmethod
-    def get_fragment(self, name: str) -> "WorkflowFile":
+    def get_fragment(self, name: str) -> WorkflowFile:
         """Load a built-in fragment by name.
 
         Args:

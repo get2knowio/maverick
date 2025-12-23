@@ -114,7 +114,7 @@ class TestFlyWorkflowIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock the workflow execution
-            with patch("maverick.main.FlyWorkflow") as mock_workflow_class:
+            with patch("maverick.cli.commands.fly.FlyWorkflow") as mock_workflow_class:
                 from maverick.agents.result import AgentUsage
                 from maverick.workflows.fly import (
                     FlyResult,
@@ -306,13 +306,15 @@ class TestRefuelWorkflowIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock check_git_auth to return success
-            with patch("maverick.main.check_git_auth") as mock_auth:
+            with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
                 mock_auth_status = MagicMock()
                 mock_auth_status.available = True
                 mock_auth.return_value = mock_auth_status
 
                 # Mock the workflow execution
-                with patch("maverick.main.RefuelWorkflow") as mock_workflow_class:
+                with patch(
+                    "maverick.cli.commands.refuel.RefuelWorkflow"
+                ) as mock_workflow_class:
                     mock_workflow = MagicMock()
                     mock_workflow_class.return_value = mock_workflow
 
@@ -369,13 +371,15 @@ class TestRefuelWorkflowIntegration:
                 yaml.dump(mock_config, f)
 
             # Mock check_git_auth
-            with patch("maverick.main.check_git_auth") as mock_auth:
+            with patch("maverick.cli.commands.refuel.check_git_auth") as mock_auth:
                 mock_auth_status = MagicMock()
                 mock_auth_status.available = True
                 mock_auth.return_value = mock_auth_status
 
                 # Mock workflow
-                with patch("maverick.main.RefuelWorkflow") as mock_workflow_class:
+                with patch(
+                    "maverick.cli.commands.refuel.RefuelWorkflow"
+                ) as mock_workflow_class:
                     mock_workflow = MagicMock()
                     mock_workflow_class.return_value = mock_workflow
 
@@ -478,7 +482,9 @@ class TestReviewCommandIntegration:
                 ]
 
                 # Mock CodeReviewerAgent
-                with patch("maverick.main.CodeReviewerAgent") as mock_agent_class:
+                with patch(
+                    "maverick.cli.commands.review.CodeReviewerAgent"
+                ) as mock_agent_class:
                     mock_agent = AsyncMock()
                     mock_agent_class.return_value = mock_agent
 
@@ -540,7 +546,9 @@ class TestReviewCommandIntegration:
                 ]
 
                 # Mock CodeReviewerAgent
-                with patch("maverick.main.CodeReviewerAgent") as mock_agent_class:
+                with patch(
+                    "maverick.cli.commands.review.CodeReviewerAgent"
+                ) as mock_agent_class:
                     mock_agent = AsyncMock()
                     mock_agent_class.return_value = mock_agent
 
