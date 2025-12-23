@@ -139,9 +139,16 @@ class FlyInputs(BaseModel):
 
 
 class WorkflowState(BaseModel):
-    """Mutable state tracking workflow progress."""
+    """Mutable state tracking workflow progress.
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    Note on timestamps:
+        WorkflowState uses datetime objects for started_at/completed_at for
+        human-readable state inspection and serialization. Event dataclasses
+        use float (Unix timestamps) for performance in high-frequency emission.
+        Use datetime.fromtimestamp() to convert event timestamps if needed.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
 
     # Stage tracking
     stage: WorkflowStage = Field(default=WorkflowStage.INIT)
@@ -157,7 +164,7 @@ class WorkflowState(BaseModel):
     pr_url: str | None = Field(default=None)
     errors: list[str] = Field(default_factory=list)
 
-    # Timestamps
+    # Timestamps (datetime for human readability; events use float for performance)
     started_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = Field(default=None)
 
@@ -174,7 +181,9 @@ class FlyResult(BaseModel):
     success: bool = Field(description="Overall workflow success")
     state: WorkflowState = Field(description="Final workflow state")
     summary: str = Field(description="Human-readable outcome summary")
-    token_usage: AgentUsage = Field(description="Aggregated token usage")
+    token_usage: AgentUsage = Field(
+        description="Aggregated token usage from all agent interactions in the workflow"
+    )
     total_cost_usd: float = Field(ge=0.0, description="Total execution cost")
 
 
@@ -308,6 +317,20 @@ class FlyWorkflow(WorkflowDSLMixin):
 
     The workflow maintains immutable state transitions and supports
     graceful failure handling.
+
+    Examples:
+        Basic usage::
+
+            workflow = FlyWorkflow()
+            inputs = FlyInputs(branch_name="feature/my-feature")
+            result = await workflow.execute(inputs)
+
+        With custom configuration::
+
+            config = FlyConfig(max_validation_attempts=5, auto_merge=True)
+            workflow = FlyWorkflow(config=config)
+            async for event in workflow.execute_stream(inputs):
+                print(f"Event: {event}")
     """
 
     def __init__(
@@ -340,7 +363,7 @@ class FlyWorkflow(WorkflowDSLMixin):
         # Initialize the mixin first
         super().__init__()
 
-        self._config = config or FlyConfig()
+        self._config: FlyConfig = config or FlyConfig()
         self._registry = registry or ComponentRegistry()
         self._git_runner = git_runner
         self._validation_runner = validation_runner

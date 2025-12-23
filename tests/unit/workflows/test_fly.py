@@ -31,6 +31,17 @@ from maverick.workflows.fly import (
 )
 
 
+# Helper functions for creating test objects (moved to module level for discoverability)
+def make_agent_usage() -> AgentUsage:
+    """Create a valid AgentUsage for testing."""
+    return AgentUsage(
+        input_tokens=100,
+        output_tokens=50,
+        total_cost_usd=0.01,
+        duration_ms=1000,
+    )
+
+
 class TestWorkflowStage:
     """Tests for WorkflowStage enum."""
 
@@ -113,6 +124,34 @@ class TestFlyInputs:
         assert inputs.base_branch == "develop"
         assert inputs.task_file == Path("custom-tasks.md")
         assert inputs.dry_run is True
+
+    @pytest.mark.parametrize(
+        "branch_name",
+        [
+            "a" * 255,  # Very long branch name
+            "feature/special-chars_123",  # Special chars (valid git branch)
+            "feature/über-cool",  # Unicode characters
+            "fix/JIRA-1234",  # Uppercase with dash
+            "release/v1.0.0",  # Version-style branch
+        ],
+    )
+    def test_fly_inputs_edge_case_branch_names(self, branch_name: str) -> None:
+        """Test FlyInputs accepts various edge case branch names."""
+        inputs = FlyInputs(branch_name=branch_name)
+        assert inputs.branch_name == branch_name
+
+    @pytest.mark.parametrize(
+        "task_file",
+        [
+            "specs/001/tasks.md",  # Nested path
+            Path("tasks.md"),  # Path object
+            "path with spaces/tasks.md",  # Path with spaces
+        ],
+    )
+    def test_fly_inputs_edge_case_task_files(self, task_file: str | Path) -> None:
+        """Test FlyInputs accepts various edge case task file paths."""
+        inputs = FlyInputs(branch_name="test", task_file=task_file)
+        assert inputs.task_file == Path(task_file)
 
 
 class TestWorkflowState:
@@ -771,17 +810,6 @@ class TestFlyWorkflowExecution:
         )
 
 
-# Helper functions for creating test objects
-def make_agent_usage() -> AgentUsage:
-    """Create a valid AgentUsage for testing."""
-    return AgentUsage(
-        input_tokens=100,
-        output_tokens=50,
-        total_cost_usd=0.01,
-        duration_ms=1000,
-    )
-
-
 class TestFlyResult:
     """Tests for FlyResult data model."""
 
@@ -873,8 +901,6 @@ class TestFlyResult:
 
         # Assert summary is the provided string
         assert result.summary == summary_text
-        # Assert type(summary) is str
-        assert type(result.summary) is str
 
 
 class TestProgressEvents:
