@@ -71,26 +71,26 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="tech-debt")
 
-            assert result["success"] is True
-            assert result["total_count"] == 2
-            assert len(result["issues"]) == 2
-            assert result["error"] is None
+            assert result.success is True
+            assert result.total_count == 2
+            assert len(result.issues) == 2
+            assert result.error is None
 
             # Verify first issue
-            issue1 = result["issues"][0]
-            assert issue1["number"] == 123
-            assert issue1["title"] == "Fix bug in parser"
-            assert issue1["body"] == "The parser fails on edge cases"
-            assert issue1["labels"] == ("tech-debt", "bug")
-            assert issue1["assignee"] is None
-            assert issue1["url"] == "https://github.com/org/repo/issues/123"
-            assert issue1["state"] == "open"
+            issue1 = result.issues[0]
+            assert issue1.number == 123
+            assert issue1.title == "Fix bug in parser"
+            assert issue1.body == "The parser fails on edge cases"
+            assert issue1.labels == ("tech-debt", "bug")
+            assert issue1.assignee is None
+            assert issue1.url == "https://github.com/org/repo/issues/123"
+            assert issue1.state == "open"
 
             # Verify second issue
-            issue2 = result["issues"][1]
-            assert issue2["number"] == 456
-            assert issue2["assignee"] == "dev1"
-            assert issue2["labels"] == ("tech-debt",)
+            issue2 = result.issues[1]
+            assert issue2.number == 456
+            assert issue2.assignee == "dev1"
+            assert issue2.labels == ("tech-debt",)
 
     @pytest.mark.asyncio
     async def test_respects_limit_parameter(self) -> None:
@@ -100,7 +100,7 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="bug", limit=10)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify limit was passed to gh command
             call_args = mock_runner.run.call_args[0][0]
@@ -116,7 +116,7 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="enhancement")
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify default limit was used
             call_args = mock_runner.run.call_args[0][0]
@@ -132,7 +132,7 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="bug", state="closed")
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify state filter was passed
             call_args = mock_runner.run.call_args[0][0]
@@ -148,7 +148,7 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="tech-debt")
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify default state was used
             call_args = mock_runner.run.call_args[0][0]
@@ -164,10 +164,10 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="nonexistent")
 
-            assert result["success"] is True
-            assert result["total_count"] == 0
-            assert result["issues"] == ()
-            assert result["error"] is None
+            assert result.success is True
+            assert result.total_count == 0
+            assert result.issues == ()
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_handles_issues_without_body(self) -> None:
@@ -190,8 +190,8 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="bug")
 
-            assert result["success"] is True
-            assert result["issues"][0]["body"] is None
+            assert result.success is True
+            assert result.issues[0].body is None
 
     @pytest.mark.asyncio
     async def test_handles_issues_without_assignees(self) -> None:
@@ -214,8 +214,8 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="tech-debt")
 
-            assert result["success"] is True
-            assert result["issues"][0]["assignee"] is None
+            assert result.success is True
+            assert result.issues[0].assignee is None
 
     @pytest.mark.asyncio
     async def test_handles_gh_cli_failure(self) -> None:
@@ -229,11 +229,11 @@ class TestFetchGitHubIssues:
 
             result = await fetch_github_issues(label="bug")
 
-            assert result["success"] is False
-            assert result["total_count"] == 0
-            assert result["issues"] == ()
-            assert result["error"] is not None
-            assert "not a GitHub repository" in result["error"]
+            assert result.success is False
+            assert result.total_count == 0
+            assert result.issues == ()
+            assert result.error is not None
+            assert "not a GitHub repository" in result.error
 
     @pytest.mark.asyncio
     async def test_requests_correct_fields(self) -> None:
@@ -280,17 +280,17 @@ class TestFetchGitHubIssue:
 
             result = await fetch_github_issue(issue_number=42)
 
-            assert result["success"] is True
-            assert result["error"] is None
+            assert result.success is True
+            assert result.error is None
 
-            issue = result["issue"]
-            assert issue["number"] == 42
-            assert issue["title"] == "Critical bug"
-            assert issue["body"] == "This is a critical issue"
-            assert issue["labels"] == ("bug", "priority")
-            assert issue["assignee"] == "developer"
-            assert issue["url"] == "https://github.com/org/repo/issues/42"
-            assert issue["state"] == "open"
+            issue = result.issue
+            assert issue.number == 42
+            assert issue.title == "Critical bug"
+            assert issue.body == "This is a critical issue"
+            assert issue.labels == ("bug", "priority")
+            assert issue.assignee == "developer"
+            assert issue.url == "https://github.com/org/repo/issues/42"
+            assert issue.state == "open"
 
     @pytest.mark.asyncio
     async def test_handles_issue_without_body(self) -> None:
@@ -311,9 +311,9 @@ class TestFetchGitHubIssue:
 
             result = await fetch_github_issue(issue_number=50)
 
-            assert result["success"] is True
-            assert result["issue"]["body"] is None
-            assert result["issue"]["state"] == "closed"
+            assert result.success is True
+            assert result.issue.body is None
+            assert result.issue.state == "closed"
 
     @pytest.mark.asyncio
     async def test_handles_issue_without_assignees(self) -> None:
@@ -335,23 +335,24 @@ class TestFetchGitHubIssue:
 
             result = await fetch_github_issue(issue_number=60)
 
-            assert result["success"] is True
-            assert result["issue"]["assignee"] is None
+            assert result.success is True
+            assert result.issue.assignee is None
 
     @pytest.mark.asyncio
     async def test_handles_nonexistent_issue(self) -> None:
         """Test handles request for nonexistent issue number."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(returncode=1, stderr="issue not found")
+                return_value=make_result(
+                    returncode=1, stderr="issue not found")
             )
 
             result = await fetch_github_issue(issue_number=9999)
 
-            assert result["success"] is False
-            assert result["issue"] is None
-            assert result["error"] is not None
-            assert "issue not found" in result["error"]
+            assert result.success is False
+            assert result.issue is None
+            assert result.error is not None
+            assert "issue not found" in result.error
 
     @pytest.mark.asyncio
     async def test_passes_correct_issue_number(self) -> None:
@@ -398,13 +399,13 @@ class TestCreateGitHubPR:
                 generated_body="## Summary\n\nAdded feature X",
             )
 
-            assert result["success"] is True
-            assert result["pr_number"] == 123
-            assert result["pr_url"] == "https://github.com/org/repo/pull/123"
-            assert result["title"] == "feat: add new feature"
-            assert result["draft"] is False
-            assert result["base_branch"] == "main"
-            assert result["error"] is None
+            assert result.success is True
+            assert result.pr_number == 123
+            assert result.pr_url == "https://github.com/org/repo/pull/123"
+            assert result.title == "feat: add new feature"
+            assert result.draft is False
+            assert result.base_branch == "main"
+            assert result.error is None
 
             # Verify title was used in command
             call_args = mock_runner.run.call_args[0][0]
@@ -430,9 +431,9 @@ class TestCreateGitHubPR:
                 generated_body="## Summary\n\nFixed parser bug",
             )
 
-            assert result["success"] is True
-            assert result["title"] == "fix: resolve parser issue"
-            assert result["draft"] is True
+            assert result.success is True
+            assert result.title == "fix: resolve parser issue"
+            assert result.draft is True
 
             # Verify generated title was used
             call_args = mock_runner.run.call_args[0][0]
@@ -457,8 +458,8 @@ class TestCreateGitHubPR:
                 generated_body="## Summary\n\nChanges",
             )
 
-            assert result["success"] is True
-            assert result["title"] == "Update"
+            assert result.success is True
+            assert result.title == "Update"
 
     @pytest.mark.asyncio
     async def test_creates_draft_pr(self) -> None:
@@ -478,8 +479,8 @@ class TestCreateGitHubPR:
                 generated_body="Work in progress",
             )
 
-            assert result["success"] is True
-            assert result["draft"] is True
+            assert result.success is True
+            assert result.draft is True
 
             # Verify --draft flag was passed
             call_args = mock_runner.run.call_args[0][0]
@@ -503,8 +504,8 @@ class TestCreateGitHubPR:
                 generated_body="Feature is ready",
             )
 
-            assert result["success"] is True
-            assert result["draft"] is False
+            assert result.success is True
+            assert result.draft is False
 
             # Verify --draft flag was NOT passed
             call_args = mock_runner.run.call_args[0][0]
@@ -528,8 +529,8 @@ class TestCreateGitHubPR:
                 generated_body="Feature description",
             )
 
-            assert result["success"] is True
-            assert result["base_branch"] == "develop"
+            assert result.success is True
+            assert result.base_branch == "develop"
 
             # Verify --base flag was passed correctly
             call_args = mock_runner.run.call_args[0][0]
@@ -560,7 +561,7 @@ class TestCreateGitHubPR:
                 generated_body=pr_body,
             )
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify body was passed correctly
             call_args = mock_runner.run.call_args[0][0]
@@ -591,7 +592,7 @@ class TestCreateGitHubPR:
                     generated_body="test body",
                 )
 
-                assert result["pr_number"] == expected_number
+                assert result.pr_number == expected_number
 
     @pytest.mark.asyncio
     async def test_handles_pr_creation_failure(self) -> None:
@@ -612,11 +613,11 @@ class TestCreateGitHubPR:
                 generated_body="Test body",
             )
 
-            assert result["success"] is False
-            assert result["pr_number"] is None
-            assert result["pr_url"] is None
-            assert result["error"] is not None
-            assert "already exists" in result["error"]
+            assert result.success is False
+            assert result.pr_number is None
+            assert result.pr_url is None
+            assert result.error is not None
+            assert "already exists" in result.error
 
     @pytest.mark.asyncio
     async def test_handles_invalid_pr_url(self) -> None:
@@ -634,9 +635,9 @@ class TestCreateGitHubPR:
                 generated_body="test",
             )
 
-            assert result["success"] is True
-            assert result["pr_url"] == "invalid-url-format"
-            assert result["pr_number"] is None  # Cannot extract number from invalid URL
+            assert result.success is True
+            assert result.pr_url == "invalid-url-format"
+            assert result.pr_number is None  # Cannot extract number from invalid URL
 
     @pytest.mark.asyncio
     async def test_user_title_takes_precedence_over_generated(self) -> None:
@@ -656,7 +657,7 @@ class TestCreateGitHubPR:
                 generated_body="Body",
             )
 
-            assert result["title"] == "User Title"
+            assert result.title == "User Title"
 
             # Verify user title was used in command
             call_args = mock_runner.run.call_args[0][0]

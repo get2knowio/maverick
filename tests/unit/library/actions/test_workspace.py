@@ -55,14 +55,15 @@ class TestInitWorkspace:
 
             result = await init_workspace(branch_name)
 
-            assert result["branch_name"] == branch_name
-            assert result["base_branch"] == "main"
-            assert result["is_clean"] is True
-            assert result["synced_with_base"] is True
+            assert result.branch_name == branch_name
+            assert result.base_branch == "main"
+            assert result.is_clean is True
+            assert result.synced_with_base is True
 
             # Verify git checkout -b was called
             checkout_call = mock_runner.run.call_args_list[1]
-            assert checkout_call[0][0] == ["git", "checkout", "-b", branch_name]
+            assert checkout_call[0][0] == [
+                "git", "checkout", "-b", branch_name]
 
     @pytest.mark.asyncio
     async def test_checks_out_existing_branch(self, tmp_path: Path) -> None:
@@ -82,7 +83,7 @@ class TestInitWorkspace:
 
             result = await init_workspace(branch_name)
 
-            assert result["branch_name"] == branch_name
+            assert result.branch_name == branch_name
 
             # Verify git checkout was called (not checkout -b)
             checkout_call = mock_runner.run.call_args_list[1]
@@ -100,15 +101,15 @@ class TestInitWorkspace:
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
                     make_result(returncode=0),  # Checkout success
-                    make_result(returncode=0, stdout=""),  # Status clean (empty output)
+                    # Status clean (empty output)
+                    make_result(returncode=0, stdout=""),
                 ]
             )
 
             result = await init_workspace(branch_name)
 
-            assert result["is_clean"] is True
+            assert result.is_clean is True
 
-    @pytest.mark.asyncio
     async def test_detects_dirty_workspace(self, tmp_path: Path) -> None:
         """Test detects when workspace has uncommitted changes."""
         branch_name = "feature/test"
@@ -128,9 +129,8 @@ class TestInitWorkspace:
 
             result = await init_workspace(branch_name)
 
-            assert result["is_clean"] is False
+            assert result.is_clean is False
 
-    @pytest.mark.asyncio
     async def test_auto_detects_task_file_in_specs_directory(
         self, tmp_path: Path
     ) -> None:
@@ -163,7 +163,8 @@ class TestInitWorkspace:
 
                 result = await init_workspace(branch_name)
 
-                assert result["task_file_path"] == f"specs/{branch_name}/tasks.md"
+                assert result.task_file_path == Path(
+                    f"specs/{branch_name}/tasks.md")
         finally:
             os.chdir(original_cwd)
 
@@ -200,7 +201,8 @@ class TestInitWorkspace:
 
                 result = await init_workspace(branch_name)
 
-                assert result["task_file_path"] == f".specify/{branch_name}/tasks.md"
+                assert result.task_file_path == Path(
+                    f".specify/{branch_name}/tasks.md")
         finally:
             os.chdir(original_cwd)
 
@@ -233,7 +235,7 @@ class TestInitWorkspace:
 
                 result = await init_workspace(branch_name)
 
-                assert result["task_file_path"] == "tasks.md"
+                assert result.task_file_path == Path("tasks.md")
         finally:
             os.chdir(original_cwd)
 
@@ -263,7 +265,7 @@ class TestInitWorkspace:
                 result = await init_workspace(branch_name)
 
                 # No task file in tmp_path, so should be None
-                assert result["task_file_path"] is None
+                assert result.task_file_path is None
         finally:
             os.chdir(original_cwd)
 
@@ -285,10 +287,10 @@ class TestInitWorkspace:
 
             result = await init_workspace(branch_name)
 
-            assert result["branch_name"] == branch_name
-            assert result["is_clean"] is False
-            assert result["synced_with_base"] is False
-            assert "error" in result
+            assert result.branch_name == branch_name
+            assert result.is_clean is False
+            assert result.synced_with_base is False
+            assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_returns_correct_base_branch(self, tmp_path: Path) -> None:
@@ -308,7 +310,7 @@ class TestInitWorkspace:
 
             result = await init_workspace(branch_name)
 
-            assert result["base_branch"] == "main"
+            assert result.base_branch == "main"
 
     @pytest.mark.asyncio
     async def test_returns_synced_with_base_true(self, tmp_path: Path) -> None:
@@ -329,4 +331,4 @@ class TestInitWorkspace:
             result = await init_workspace(branch_name)
 
             # Current simplified implementation always returns True
-            assert result["synced_with_base"] is True
+            assert result.synced_with_base is True

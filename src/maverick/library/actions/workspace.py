@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from maverick.library.actions.types import WorkspaceState
 from maverick.runners.command import CommandRunner
@@ -15,14 +14,14 @@ logger = logging.getLogger(__name__)
 _runner = CommandRunner(timeout=30.0)
 
 
-async def init_workspace(branch_name: str) -> dict[str, Any]:
+async def init_workspace(branch_name: str) -> WorkspaceState:
     """Initialize workspace for workflow execution.
 
     Args:
         branch_name: Feature branch name to create/checkout
 
     Returns:
-        WorkspaceState as dict with branch info and task file detection
+        WorkspaceState with branch info and task file detection
     """
     base_branch = "main"
 
@@ -73,25 +72,18 @@ async def init_workspace(branch_name: str) -> dict[str, Any]:
             is_clean=is_clean,
             synced_with_base=True,  # Simplified for initial implementation
             task_file_path=task_file_path,
+            error=None,
         )
 
-        return {
-            "branch_name": state.branch_name,
-            "base_branch": state.base_branch,
-            "is_clean": state.is_clean,
-            "synced_with_base": state.synced_with_base,
-            "task_file_path": (
-                str(state.task_file_path) if state.task_file_path else None
-            ),
-        }
+        return state
 
     except Exception as e:
         logger.error(f"Git command failed: {e}")
-        return {
-            "branch_name": branch_name,
-            "base_branch": base_branch,
-            "is_clean": False,
-            "synced_with_base": False,
-            "task_file_path": None,
-            "error": str(e),
-        }
+        return WorkspaceState(
+            branch_name=branch_name,
+            base_branch=base_branch,
+            is_clean=False,
+            synced_with_base=False,
+            task_file_path=None,
+            error=str(e),
+        )
