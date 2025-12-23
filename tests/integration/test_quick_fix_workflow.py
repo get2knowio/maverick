@@ -55,7 +55,8 @@ class TestQuickFixWorkflowIntegration:
         # Import and register real GitHub actions
         from maverick.library.actions import github
 
-        registry.actions.register("fetch_github_issue", github.fetch_github_issue)
+        registry.actions.register(
+            "fetch_github_issue", github.fetch_github_issue)
 
         # Mock git actions
         async def mock_create_git_branch(branch_name: str, base: str) -> dict[str, Any]:
@@ -222,7 +223,8 @@ class TestQuickFixWorkflowIntegration:
 
             # Workflow should handle error gracefully
             # The fetch_issue step should return an error result
-            step_completed_events = [e for e in events if isinstance(e, StepCompleted)]
+            step_completed_events = [
+                e for e in events if isinstance(e, StepCompleted)]
             next(
                 (e for e in step_completed_events if e.step_name == "fetch_issue"),
                 None,
@@ -352,8 +354,10 @@ class TestQuickFixWorkflowIntegration:
                     events.append(event)
 
                 # Collect event types
-                step_started = [e for e in events if isinstance(e, StepStarted)]
-                step_completed = [e for e in events if isinstance(e, StepCompleted)]
+                step_started = [
+                    e for e in events if isinstance(e, StepStarted)]
+                step_completed = [
+                    e for e in events if isinstance(e, StepCompleted)]
 
                 # Should have started and completed events for each step
                 assert len(step_started) > 0

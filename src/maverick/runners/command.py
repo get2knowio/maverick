@@ -34,10 +34,20 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*",
      re.IGNORECASE), r"\1[BEARER_TOKEN]"),
     # API keys in common formats (key=value, key: value)
-    (re.compile(
-        r"(api[_-]?key\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?", re.IGNORECASE), r"\1[API_KEY]"),
-    (re.compile(
-        r"(apikey\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?", re.IGNORECASE), r"\1[API_KEY]"),
+    (
+        re.compile(
+            r"(api[_-]?key\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?",
+            re.IGNORECASE,
+        ),
+        r"\1[API_KEY]",
+    ),
+    (
+        re.compile(
+            r"(apikey\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?",
+            re.IGNORECASE,
+        ),
+        r"\1[API_KEY]",
+    ),
 ]
 
 
@@ -158,10 +168,7 @@ class CommandRunner:
             return True
 
         # Retry on rate limit errors
-        if "rate limit" in result.stderr.lower():
-            return True
-
-        return False
+        return "rate limit" in result.stderr.lower()
 
     async def run(
         self,
@@ -223,7 +230,9 @@ class CommandRunner:
                 )
 
             # Check if we should retry
-            if result.success or attempt >= max_retries or not self.is_retryable(result):
+            is_retryable = self.is_retryable(result)
+            should_stop = result.success or attempt >= max_retries or not is_retryable
+            if should_stop:
                 return result
 
             # Wait before retrying with exponential backoff

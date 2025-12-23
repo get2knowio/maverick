@@ -421,9 +421,12 @@ class TestGitPush:
     ) -> None:
         """Test git_push with set_upstream=True."""
         mock_git_runner.get_current_branch = AsyncMock(return_value="feature")
+        push_output = (
+            "Branch 'feature' set up to track remote branch 'feature' from 'origin'."
+        )
         mock_git_runner.push = AsyncMock(return_value=GitResult(
             success=True,
-            output="Branch 'feature' set up to track remote branch 'feature' from 'origin'.",
+            output=push_output,
             error=None,
             duration_ms=100,
         ))

@@ -2084,7 +2084,9 @@ class TestTimeoutAndExceptionHandling:
             "maverick.tools.github.CommandRunner.run",
             side_effect=mock_run,
         ):
-            stdout, stderr, returncode = await _run_gh_command("pr", "list", timeout=0.1)
+            stdout, stderr, returncode = await _run_gh_command(
+                "pr", "list", timeout=0.1
+            )
 
             # Verify timeout result is returned
             assert returncode == -1
@@ -2937,7 +2939,6 @@ class TestVerifyPrerequisites:
     @pytest.mark.asyncio
     async def test_verify_prerequisites_git_remote_timeout(self) -> None:
         """Test git remote get-url times out."""
-        import asyncio
 
         from maverick.exceptions import GitHubToolsError
         from maverick.runners.models import CommandResult
@@ -3068,7 +3069,6 @@ class TestCreateGitHubToolsServer:
 
     def test_create_github_tools_server_returns_mcp_server_config(self) -> None:
         """Test create_github_tools_server returns McpSdkServerConfig type."""
-        from claude_agent_sdk.types import McpSdkServerConfig
 
         from maverick.tools.github import create_github_tools_server
 

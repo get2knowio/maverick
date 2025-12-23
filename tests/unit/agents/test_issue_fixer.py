@@ -997,7 +997,7 @@ class TestErrorHandling:
         sample_issue_data: dict,
         sample_file_changes: list[FileChange],
     ) -> None:
-        """Test that verification_passed is True since agent defers verification to workflow."""
+        """Test verification_passed is True (agent defers to workflow)."""
         with (
             patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
@@ -1026,7 +1026,7 @@ class TestErrorHandling:
         issue_context: IssueFixerContext,
         sample_issue_data: dict,
     ) -> None:
-        """Test that validation_passed is True since agent defers validation to workflow."""
+        """Test validation_passed is True (agent defers to workflow)."""
         with (
             patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
@@ -1090,7 +1090,7 @@ class TestSideEffectFree:
                 "output", "root cause", "fix description")
             mock_detect.return_value = []
 
-            result = await agent.execute(issue_context)
+            await agent.execute(issue_context)
 
             # _run_validation should NOT be called
             mock_validate.assert_not_called()
@@ -1120,7 +1120,7 @@ class TestSideEffectFree:
                 "output", "root cause", "fix description")
             mock_detect.return_value = []
 
-            result = await agent.execute(issue_context)
+            await agent.execute(issue_context)
 
             # _create_commit should NOT be called
             mock_commit.assert_not_called()
@@ -1148,7 +1148,7 @@ class TestSideEffectFree:
                 "output", "root cause", "fix description")
             mock_detect.return_value = []
 
-            result = await agent.execute(issue_context)
+            await agent.execute(issue_context)
 
             # _verify_fix should NOT be called
             mock_verify.assert_not_called()
@@ -1204,7 +1204,7 @@ class TestSideEffectFree:
 
             result = await agent.execute(issue_context)
 
-            # Verify validation_passed is True (default, workflow handles actual validation)
+            # validation_passed=True by default (workflow handles actual validation)
             assert result.validation_passed is True
 
     @pytest.mark.asyncio
@@ -1231,5 +1231,5 @@ class TestSideEffectFree:
 
             result = await agent.execute(issue_context)
 
-            # Verify verification_passed is True (default, workflow handles actual verification)
+            # verification_passed=True (default, workflow handles verification)
             assert result.verification_passed is True

@@ -1383,7 +1383,7 @@ class TestSideEffectFree:
                 ) as mock_changes:
                     mock_changes.return_value = []
 
-                    result = await agent.execute(single_task_context)
+                    await agent.execute(single_task_context)
 
                     # _run_validation should NOT be called
                     mock_validation.assert_not_called()
@@ -1408,7 +1408,7 @@ class TestSideEffectFree:
                 ) as mock_changes:
                     mock_changes.return_value = []
 
-                    result = await agent.execute(single_task_context)
+                    await agent.execute(single_task_context)
 
                     # _create_commit should NOT be called
                     mock_commit.assert_not_called()

@@ -169,9 +169,9 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
             files_changed = await self._detect_file_changes(context.cwd)
 
             # Validation, verification, and commits are handled by the workflow layer
-            # Agent returns file changes and fix analysis; orchestration runs validation/commits
+            # Agent returns file changes and fix analysis; orchestration runs
+            # validation/commits
             verification_passed = True  # Workflow handles verification
-            validation_results: list[ValidationResult] = []
             validation_passed = True  # Workflow handles validation
             commit_sha = None  # Workflow handles commits
 

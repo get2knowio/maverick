@@ -18,7 +18,7 @@ from maverick.tui.services import (
 )
 
 if TYPE_CHECKING:
-    from maverick.runners.models import CommandResult
+    pass
 
 
 class TestGitHubConnectionResult:

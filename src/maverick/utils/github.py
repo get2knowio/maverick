@@ -195,8 +195,8 @@ async def list_issues(
                 raise GitHubError(f"Failed to parse issue list: {e}") from e
 
         # Use runner for single or no label filter
-        label = labels[0] if labels else None
-        issues = await runner.list_issues(label=label, state=state, limit=limit)
+        filter_label: str | None = labels[0] if labels else None
+        issues = await runner.list_issues(label=filter_label, state=state, limit=limit)
 
         # Convert to dicts for backward compatibility
         return [

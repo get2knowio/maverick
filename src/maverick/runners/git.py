@@ -483,7 +483,8 @@ class GitRunner:
         Example:
             ```python
             stats = await runner.get_diff_stats("main")
-            print(f"{stats.files_changed} files, +{stats.insertions}/-{stats.deletions}")
+            msg = f"{stats.files_changed} files, +{stats.insertions}/-{stats.deletions}"
+            print(msg)
             for file, (added, removed) in stats.per_file.items():
                 print(f"  {file}: +{added}/-{removed}")
             ```

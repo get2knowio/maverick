@@ -10,7 +10,6 @@ Tests the git tools edge cases and error handling including:
 These tests mock GitRunner to isolate the MCP tools layer.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -168,7 +167,6 @@ class TestGitToolsFactoryAsyncSafety:
 
     def test_create_git_tools_server_returns_correct_type(self) -> None:
         """Test create_git_tools_server returns McpSdkServerConfig type."""
-        from claude_agent_sdk.types import McpSdkServerConfig
 
         server = create_git_tools_server()
         assert isinstance(server, dict)

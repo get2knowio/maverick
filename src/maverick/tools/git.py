@@ -145,7 +145,7 @@ async def verify_git_prerequisites(cwd: Path | None = None) -> None:
         raise GitToolsError(
             "git is not installed or not available on PATH",
             check_failed="git_installed",
-        )
+        ) from None
 
     if not in_repo:
         raise GitToolsError(
@@ -399,7 +399,9 @@ def create_git_tools_server(
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_push: Not inside a git repository")
-                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+                return _error_response(
+                    "Not inside a git repository", "NOT_A_REPOSITORY"
+                )
 
             set_upstream = args.get("set_upstream", False)
 
@@ -522,7 +524,9 @@ def create_git_tools_server(
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_current_branch: Not inside a git repository")
-                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+                return _error_response(
+                    "Not inside a git repository", "NOT_A_REPOSITORY"
+                )
 
             # Get current branch using GitRunner
             branch_name = await runner.get_current_branch()
@@ -563,7 +567,9 @@ def create_git_tools_server(
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_diff_stats: Not inside a git repository")
-                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+                return _error_response(
+                    "Not inside a git repository", "NOT_A_REPOSITORY"
+                )
 
             # Get diff stats using GitRunner
             stats = await runner.get_diff_stats()
@@ -621,7 +627,9 @@ def create_git_tools_server(
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_create_branch: Not inside a git repository")
-                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+                return _error_response(
+                    "Not inside a git repository", "NOT_A_REPOSITORY"
+                )
 
             # Validate required arguments
             branch_name = args.get("name")

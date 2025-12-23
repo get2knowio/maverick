@@ -47,7 +47,8 @@ class TestReviewWorkflowIntegration:
         # Import and register real review actions (we'll mock subprocess calls)
         from maverick.library.actions import review
 
-        registry.actions.register("review.gather_pr_context", review.gather_pr_context)
+        registry.actions.register(
+            "review.gather_pr_context", review.gather_pr_context)
         registry.actions.register(
             "review.run_coderabbit_review", review.run_coderabbit_review
         )
@@ -535,7 +536,8 @@ class TestReviewWorkflowActions:
         assert len(result.issues) == 2
         assert "# Code Review Report" in result.review_report
         assert "**PR:** #123" in result.review_report
-        assert result.recommendation in ["approve", "comment", "request_changes"]
+        assert result.recommendation in [
+            "approve", "comment", "request_changes"]
 
 
 class TestReviewWorkflowEdgeCases:
