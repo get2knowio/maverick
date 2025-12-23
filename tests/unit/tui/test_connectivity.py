@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from maverick.tui.services import GitHubConnectionResult
 from maverick.tui.utils.connectivity import ConnectivityMonitor, ConnectivityStatus
 
 
@@ -52,20 +52,19 @@ class TestConnectivityMonitor:
 
     @pytest.mark.asyncio
     async def test_check_connectivity_sets_checking_status(self) -> None:
-        """Test check_connectivity sets status to CHECKING during check."""
+        """Test check_connectivity returns True when service returns connected."""
         monitor = ConnectivityMonitor()
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            return_value=AsyncMock(returncode=0, wait=AsyncMock()),
-        ):
-            # Status should be CHECKING during the check
-            task = monitor.check_connectivity()
-            # Give it a moment to start
-            await asyncio.sleep(0.01)
+        mock_result = GitHubConnectionResult(
+            connected=True, message="✓ Connected", status="success"
+        )
 
-            # Complete the check
-            result = await task
+        with patch(
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await monitor.check_connectivity()
             assert result is True
 
     @pytest.mark.asyncio
@@ -73,11 +72,15 @@ class TestConnectivityMonitor:
         """Test check_connectivity returns True when gh auth status succeeds."""
         monitor = ConnectivityMonitor()
 
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.wait = AsyncMock()
+        mock_result = GitHubConnectionResult(
+            connected=True, message="✓ Connected", status="success"
+        )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch(
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
             result = await monitor.check_connectivity()
 
         assert result is True
@@ -89,11 +92,15 @@ class TestConnectivityMonitor:
         """Test check_connectivity returns False when gh auth status fails."""
         monitor = ConnectivityMonitor()
 
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.wait = AsyncMock()
+        mock_result = GitHubConnectionResult(
+            connected=False, message="✗ Not connected", status="error"
+        )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch(
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
             result = await monitor.check_connectivity()
 
         assert result is False
@@ -104,9 +111,15 @@ class TestConnectivityMonitor:
         """Test check_connectivity handles gh CLI not being installed."""
         monitor = ConnectivityMonitor()
 
+        # When gh is not found, the service returns a result with connected=False
+        mock_result = GitHubConnectionResult(
+            connected=False, message="✗ GitHub CLI (gh) not found", status="error"
+        )
+
         with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError("gh not found"),
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             result = await monitor.check_connectivity()
 
@@ -119,7 +132,8 @@ class TestConnectivityMonitor:
         monitor = ConnectivityMonitor()
 
         with patch(
-            "asyncio.create_subprocess_exec",
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
             side_effect=RuntimeError("Unexpected error"),
         ):
             result = await monitor.check_connectivity()
@@ -134,19 +148,30 @@ class TestConnectivityMonitor:
         initial_last_check = monitor.last_check
 
         # First check fails
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.wait = AsyncMock()
+        mock_fail_result = GitHubConnectionResult(
+            connected=False, message="✗ Not connected", status="error"
+        )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch(
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_fail_result,
+        ):
             await monitor.check_connectivity()
 
         # last_check should not be updated on failure
         assert monitor.last_check == initial_last_check
 
         # Second check succeeds
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        mock_success_result = GitHubConnectionResult(
+            connected=True, message="✓ Connected", status="success"
+        )
+
+        with patch(
+            "maverick.tui.utils.connectivity.check_github_connection",
+            new_callable=AsyncMock,
+            return_value=mock_success_result,
+        ):
             await monitor.check_connectivity()
 
         # last_check should now be updated

@@ -26,10 +26,11 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+
+from maverick.tui.services import check_github_connection
 
 __all__ = ["ConnectivityStatus", "ConnectivityMonitor"]
 
@@ -119,18 +120,11 @@ class ConnectivityMonitor:
         self.status = ConnectivityStatus.CHECKING
 
         try:
-            # Run gh auth status command
-            proc = await asyncio.create_subprocess_exec(
-                "gh",
-                "auth",
-                "status",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
+            # Use the service function for connectivity checking
+            result = await check_github_connection()
 
-            # Update status based on return code
-            if proc.returncode == 0:
+            # Update status based on result
+            if result.connected:
                 self.status = ConnectivityStatus.CONNECTED
                 self.last_check = time.time()
                 return True
@@ -138,12 +132,8 @@ class ConnectivityMonitor:
                 self.status = ConnectivityStatus.DISCONNECTED
                 return False
 
-        except FileNotFoundError:
-            # gh CLI not installed
-            self.status = ConnectivityStatus.DISCONNECTED
-            return False
         except Exception:
-            # Any other error (permission denied, timeout, etc.)
+            # Any error (permission denied, timeout, etc.)
             self.status = ConnectivityStatus.DISCONNECTED
             return False
 

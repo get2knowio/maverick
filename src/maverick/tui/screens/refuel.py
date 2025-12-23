@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -14,6 +13,7 @@ from textual.widgets import Button, Input, Static
 from maverick.tui.history import WorkflowHistoryEntry, WorkflowHistoryStore
 from maverick.tui.models import GitHubIssue, RefuelResultItem
 from maverick.tui.screens.base import MaverickScreen
+from maverick.tui.services import list_github_issues
 from maverick.tui.widgets.form import NumericField, ToggleField
 from maverick.tui.widgets.issue_list import IssueList
 from maverick.tui.widgets.result_summary import ResultSummary
@@ -239,60 +239,17 @@ class RefuelScreen(MaverickScreen):
         self._update_start_button()
 
         try:
-            # Call gh CLI to fetch issues
-            try:
-                proc = await asyncio.wait_for(
-                    asyncio.create_subprocess_exec(
-                        "gh",
-                        "issue",
-                        "list",
-                        "-l",
-                        label,
-                        "--json",
-                        "number,title,labels,url,state",
-                        "--limit",
-                        "50",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    ),
-                    timeout=30.0,  # 30 second timeout for process creation
-                )
+            # Fetch issues using the service function
+            result = await list_github_issues(label=label, limit=50, timeout=60.0)
 
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=60.0,  # 60 seconds for data fetch
-                )
-            except asyncio.TimeoutError:
-                self.show_error("GitHub CLI timed out")
+            if not result.success:
+                self.show_error(result.error_message or "Failed to fetch issues")
                 return
-
-            if proc.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Failed to fetch issues"
-                self.show_error(f"GitHub CLI error: {error_msg}")
-                return
-
-            # Parse JSON response
-            issues_data = json.loads(stdout.decode())
-
-            # Convert to GitHubIssue objects
-            issues = []
-            for issue_data in issues_data:
-                labels = tuple(label["name"] for label in issue_data.get("labels", []))
-                issue = GitHubIssue(
-                    number=issue_data["number"],
-                    title=issue_data["title"],
-                    labels=labels,
-                    url=issue_data["url"],
-                    state=issue_data.get("state", "open"),
-                )
-                issues.append(issue)
 
             # Update issue list
             issue_list = self.query_one("#issue-list", IssueList)
-            issue_list.set_issues(issues)
+            issue_list.set_issues(list(result.issues))
 
-        except json.JSONDecodeError as e:
-            self.show_error(f"Failed to parse issue data: {e}")
         except Exception as e:
             self.show_error(f"Failed to fetch issues: {e}")
         finally:

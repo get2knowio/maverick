@@ -13,7 +13,6 @@ Settings are loaded from and saved to the Maverick configuration system.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from textual import work
@@ -29,6 +28,10 @@ from maverick.tui.models import (
     SettingValue,
 )
 from maverick.tui.screens.base import MaverickScreen
+from maverick.tui.services import (
+    check_github_connection,
+    send_test_notification,
+)
 from maverick.tui.widgets.settings import SettingField, SettingsSection
 
 __all__ = ["SettingsScreen"]
@@ -304,111 +307,48 @@ class SettingsScreen(MaverickScreen):
     async def test_github_connection(self) -> None:
         """Test GitHub CLI connection.
 
-        Runs `gh auth status` to verify authentication.
+        Calls the GitHub connection service to verify authentication.
         Updates github_status reactive with result.
         """
-        try:
-            try:
-                proc = await asyncio.wait_for(
-                    asyncio.create_subprocess_exec(
-                        "gh",
-                        "auth",
-                        "status",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    ),
-                    timeout=30.0,  # 30 second timeout for process creation
-                )
-
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=60.0,  # 60 seconds for communication
-                )
-            except asyncio.TimeoutError:
-                self.github_status = "✗ Connection timed out"
-                self._update_status_display("github-status", self.github_status)
-                return
-
-            if proc.returncode == 0:
-                self.github_status = "✓ Connected"
-                self._update_status_display("github-status", self.github_status)
-            else:
-                error_msg = stderr.decode().strip() or "Connection failed"
-                self.github_status = f"✗ {error_msg}"
-                self._update_status_display("github-status", self.github_status)
-        except FileNotFoundError:
-            self.github_status = "✗ GitHub CLI (gh) not found"
-            self._update_status_display("github-status", self.github_status)
-        except Exception as e:
-            self.github_status = f"✗ Error: {e}"
-            self._update_status_display("github-status", self.github_status)
+        result = await check_github_connection(timeout=60.0)
+        self.github_status = result.message
+        self._update_status_display("github-status", self.github_status)
 
     @work(exclusive=True)
     async def test_notification(self) -> None:
         """Test notification delivery.
 
-        Sends a test notification via ntfy using configured topic.
+        Calls the notification service to send a test notification.
         Updates notification_status reactive with result.
         """
-        try:
-            # Get notification topic from settings
-            topic_field = self._settings_fields.get("notifications.topic")
-            enabled_field = self._settings_fields.get("notifications.enabled")
+        # Get notification topic from settings
+        topic_field = self._settings_fields.get("notifications.topic")
+        enabled_field = self._settings_fields.get("notifications.enabled")
 
-            if not enabled_field or not enabled_field.value.current_value:
-                self.notification_status = "✗ Notifications are disabled"
-                self._update_status_display(
-                    "notification-status", self.notification_status
-                )
-                return
+        if not enabled_field or not enabled_field.value.current_value:
+            self.notification_status = "✗ Notifications are disabled"
+            self._update_status_display(
+                "notification-status", self.notification_status
+            )
+            return
 
-            if not topic_field or not topic_field.value.current_value:
-                self.notification_status = "✗ No topic configured"
-                self._update_status_display(
-                    "notification-status", self.notification_status
-                )
-                return
+        if not topic_field or not topic_field.value.current_value:
+            self.notification_status = "✗ No topic configured"
+            self._update_status_display(
+                "notification-status", self.notification_status
+            )
+            return
 
-            topic = topic_field.value.current_value
+        topic = topic_field.value.current_value
 
-            # Send test notification
-            try:
-                proc = await asyncio.wait_for(
-                    asyncio.create_subprocess_exec(
-                        "curl",
-                        "-d",
-                        "Test notification from Maverick",
-                        f"https://ntfy.sh/{topic}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    ),
-                    timeout=30.0,  # 30 second timeout for process creation
-                )
-
-                await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=60.0,  # 60 seconds for communication
-                )
-            except asyncio.TimeoutError:
-                self.notification_status = "✗ Notification timed out"
-                self._update_status_display(
-                    "notification-status", self.notification_status
-                )
-                return
-
-            if proc.returncode == 0:
-                self.notification_status = "✓ Test notification sent"
-                self._update_status_display(
-                    "notification-status", self.notification_status
-                )
-            else:
-                self.notification_status = "✗ Failed to send notification"
-                self._update_status_display(
-                    "notification-status", self.notification_status
-                )
-        except Exception as e:
-            self.notification_status = f"✗ Error: {e}"
-            self._update_status_display("notification-status", self.notification_status)
+        # Send test notification using service
+        result = await send_test_notification(
+            topic=topic,
+            message="Test notification from Maverick",
+            timeout=60.0,
+        )
+        self.notification_status = result.message
+        self._update_status_display("notification-status", self.notification_status)
 
     def _update_status_display(self, status_id: str, message: str) -> None:
         """Update a status display widget.
