@@ -7,19 +7,26 @@ import logging
 import shutil
 from typing import Any
 
+from maverick.library.actions.types import (
+    CodeRabbitResult,
+    CombinedReviewResult,
+    PRMetadata,
+    ReviewContextResult,
+)
 from maverick.runners.command import CommandRunner
 
 logger = logging.getLogger(__name__)
 
 # Shared runner instance for review actions
 _runner = CommandRunner(timeout=60.0)
-_coderabbit_runner = CommandRunner(timeout=300.0)  # 5 minute timeout for CodeRabbit
+# 5 minute timeout for CodeRabbit
+_coderabbit_runner = CommandRunner(timeout=300.0)
 
 
 async def gather_pr_context(
     pr_number: int | None,
     base_branch: str,
-) -> dict[str, Any]:
+) -> ReviewContextResult:
     """Gather PR context for code review.
 
     Args:
@@ -27,7 +34,7 @@ async def gather_pr_context(
         base_branch: Base branch for comparison
 
     Returns:
-        ReviewContextResult as dict with PR metadata and diff
+        ReviewContextResult with PR metadata and diff
     """
     try:
         # Auto-detect PR number if not provided
@@ -71,14 +78,14 @@ async def gather_pr_context(
                 )
 
         # Fetch PR metadata if we have a PR number
-        pr_metadata = {
-            "number": pr_number,
-            "title": None,
-            "description": None,
-            "author": None,
-            "labels": (),
-            "base_branch": base_branch,
-        }
+        pr_metadata = PRMetadata(
+            number=pr_number,
+            title=None,
+            description=None,
+            author=None,
+            labels=(),
+            base_branch=base_branch,
+        )
 
         if pr_number is not None:
             pr_view_result = await _runner.run(
@@ -93,16 +100,16 @@ async def gather_pr_context(
             )
             if pr_view_result.success:
                 pr_data = json.loads(pr_view_result.stdout)
-                pr_metadata = {
-                    "number": pr_data["number"],
-                    "title": pr_data.get("title"),
-                    "description": pr_data.get("body"),
-                    "author": pr_data.get("author", {}).get("login"),
-                    "labels": tuple(
+                pr_metadata = PRMetadata(
+                    number=pr_data["number"],
+                    title=pr_data.get("title"),
+                    description=pr_data.get("body"),
+                    author=pr_data.get("author", {}).get("login"),
+                    labels=tuple(
                         label["name"] for label in pr_data.get("labels", [])
                     ),
-                    "base_branch": base_branch,
-                }
+                    base_branch=base_branch,
+                )
 
         # Get diff against base branch
         diff_result = await _runner.run(
@@ -117,7 +124,8 @@ async def gather_pr_context(
             ["git", "diff", "--name-only", f"{base_branch}...HEAD"],
         )
         if not files_result.success:
-            raise RuntimeError(f"Failed to get changed files: {files_result.stderr}")
+            raise RuntimeError(
+                f"Failed to get changed files: {files_result.stderr}")
         changed_files = tuple(
             f.strip() for f in files_result.stdout.strip().split("\n") if f.strip()
         )
@@ -132,7 +140,8 @@ async def gather_pr_context(
             ],
         )
         if not log_result.success:
-            raise RuntimeError(f"Failed to get commit log: {log_result.stderr}")
+            raise RuntimeError(
+                f"Failed to get commit log: {log_result.stderr}")
         commits = tuple(
             c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
         )
@@ -140,37 +149,38 @@ async def gather_pr_context(
         # Check if CodeRabbit CLI is available
         coderabbit_available = shutil.which("coderabbit") is not None
 
-        return {
-            "pr_metadata": pr_metadata,
-            "changed_files": changed_files,
-            "diff": diff,
-            "commits": commits,
-            "coderabbit_available": coderabbit_available,
-        }
+        return ReviewContextResult(
+            pr_metadata=pr_metadata,
+            changed_files=changed_files,
+            diff=diff,
+            commits=commits,
+            coderabbit_available=coderabbit_available,
+            error=None,
+        )
 
     except Exception as e:
         logger.error(f"Failed to gather PR context: {e}")
-        return {
-            "pr_metadata": {
-                "number": pr_number,
-                "title": None,
-                "description": None,
-                "author": None,
-                "labels": (),
-                "base_branch": base_branch,
-            },
-            "changed_files": (),
-            "diff": "",
-            "commits": (),
-            "coderabbit_available": False,
-            "error": str(e),
-        }
+        return ReviewContextResult(
+            pr_metadata=PRMetadata(
+                number=pr_number,
+                title=None,
+                description=None,
+                author=None,
+                labels=(),
+                base_branch=base_branch,
+            ),
+            changed_files=(),
+            diff="",
+            commits=(),
+            coderabbit_available=False,
+            error=str(e),
+        )
 
 
 async def run_coderabbit_review(
     pr_number: int | None,
     context: dict[str, Any],
-) -> dict[str, Any]:
+) -> CodeRabbitResult:
     """Execute CodeRabbit review if available.
 
     Args:
@@ -178,24 +188,24 @@ async def run_coderabbit_review(
         context: Gathered PR context
 
     Returns:
-        CodeRabbitResult as dict with findings
+        CodeRabbitResult with findings
     """
     # Check if CodeRabbit is available
     if not context.get("coderabbit_available", False):
         logger.info("CodeRabbit CLI not available, skipping CodeRabbit review")
-        return {
-            "available": False,
-            "findings": (),
-            "error": "CodeRabbit CLI not installed",
-        }
+        return CodeRabbitResult(
+            available=False,
+            findings=(),
+            error="CodeRabbit CLI not installed",
+        )
 
     if pr_number is None:
         logger.warning("No PR number available, skipping CodeRabbit review")
-        return {
-            "available": True,
-            "findings": (),
-            "error": "No PR number available",
-        }
+        return CodeRabbitResult(
+            available=True,
+            findings=(),
+            error="No PR number available",
+        )
 
     try:
         # Run CodeRabbit review
@@ -211,19 +221,19 @@ async def run_coderabbit_review(
 
         if result.timed_out:
             logger.error("CodeRabbit review timed out after 5 minutes")
-            return {
-                "available": True,
-                "findings": (),
-                "error": "CodeRabbit review timed out",
-            }
+            return CodeRabbitResult(
+                available=True,
+                findings=(),
+                error="CodeRabbit review timed out",
+            )
 
         if not result.success:
             logger.error(f"CodeRabbit review failed: {result.stderr}")
-            return {
-                "available": True,
-                "findings": (),
-                "error": result.stderr or f"Command failed with code {result.returncode}",
-            }
+            return CodeRabbitResult(
+                available=True,
+                findings=(),
+                error=result.stderr or f"Command failed with code {result.returncode}",
+            )
 
         # Parse CodeRabbit output
         findings = []
@@ -243,29 +253,30 @@ async def run_coderabbit_review(
                 elif isinstance(coderabbit_data, list):
                     findings = coderabbit_data
             except json.JSONDecodeError:
-                logger.warning("CodeRabbit output is not valid JSON, treating as text")
+                logger.warning(
+                    "CodeRabbit output is not valid JSON, treating as text")
                 findings = [{"message": result.stdout, "severity": "info"}]
 
-        return {
-            "available": True,
-            "findings": tuple(findings),
-            "error": None,
-        }
+        return CodeRabbitResult(
+            available=True,
+            findings=tuple(findings),
+            error=None,
+        )
 
     except Exception as e:
         logger.error(f"CodeRabbit review failed: {e}")
-        return {
-            "available": True,
-            "findings": (),
-            "error": str(e),
-        }
+        return CodeRabbitResult(
+            available=True,
+            findings=(),
+            error=str(e),
+        )
 
 
 async def combine_review_results(
     agent_review: dict[str, Any],
     coderabbit_review: dict[str, Any],
     pr_metadata: dict[str, Any],
-) -> dict[str, Any]:
+) -> CombinedReviewResult:
     """Combine review results from multiple sources.
 
     Args:
@@ -274,7 +285,7 @@ async def combine_review_results(
         pr_metadata: PR metadata
 
     Returns:
-        CombinedReviewResult as dict with unified report
+        CombinedReviewResult with unified report
     """
     # Extract issues from both sources
     agent_issues = []
@@ -342,7 +353,8 @@ async def combine_review_results(
     report_lines.append(f"- Total issues found: {len(all_issues)}")
     agent_count = len([i for i in all_issues if i.get("source") == "agent"])
     report_lines.append(f"- Agent review issues: {agent_count}")
-    coderabbit_count = len([i for i in all_issues if i.get("source") == "coderabbit"])
+    coderabbit_count = len(
+        [i for i in all_issues if i.get("source") == "coderabbit"])
     report_lines.append(f"- CodeRabbit issues: {coderabbit_count}")
     report_lines.append("")
 
@@ -400,8 +412,8 @@ async def combine_review_results(
     report_lines.append("")
     report_lines.append(f"**{recommendation.replace('_', ' ').title()}**")
 
-    return {
-        "review_report": "\n".join(report_lines),
-        "issues": tuple(all_issues),
-        "recommendation": recommendation,
-    }
+    return CombinedReviewResult(
+        review_report="\n".join(report_lines),
+        issues=tuple(all_issues),
+        recommendation=recommendation,
+    )

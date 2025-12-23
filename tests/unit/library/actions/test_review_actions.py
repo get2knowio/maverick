@@ -73,22 +73,24 @@ class TestGatherPRContext:
                     # git diff --name-only
                     make_result(stdout="src/file1.py\nsrc/file2.py\n"),
                     # git log
-                    make_result(stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
+                    make_result(
+                        stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
                 ]
             )
 
             result = await gather_pr_context(pr_number, base_branch)
 
-            assert result["pr_metadata"]["number"] == 123
-            assert result["pr_metadata"]["title"] == "Add new feature"
-            assert result["pr_metadata"]["description"] == "This PR adds a new feature"
-            assert result["pr_metadata"]["author"] == "testuser"
-            assert result["pr_metadata"]["labels"] == ("enhancement", "feature")
-            assert result["pr_metadata"]["base_branch"] == "main"
-            assert result["changed_files"] == ("src/file1.py", "src/file2.py")
-            assert result["diff"] == "diff --git a/file.py b/file.py\n"
-            assert result["commits"] == ("abc123 feat: add feature", "def456 fix: bug")
-            assert result["coderabbit_available"] is True
+            assert result.pr_metadata.number == 123
+            assert result.pr_metadata.title == "Add new feature"
+            assert result.pr_metadata.description == "This PR adds a new feature"
+            assert result.pr_metadata.author == "testuser"
+            assert result.pr_metadata.labels == ("enhancement", "feature")
+            assert result.pr_metadata.base_branch == "main"
+            assert result.changed_files == ("src/file1.py", "src/file2.py")
+            assert result.diff == "diff --git a/file.py b/file.py\n"
+            assert result.commits == (
+                "abc123 feat: add feature", "def456 fix: bug")
+            assert result.coderabbit_available is True
 
     @pytest.mark.asyncio
     async def test_auto_detects_pr_number_from_current_branch(self) -> None:
@@ -129,8 +131,8 @@ class TestGatherPRContext:
 
             result = await gather_pr_context(None, base_branch)
 
-            assert result["pr_metadata"]["number"] == 456
-            assert result["pr_metadata"]["title"] == "Test PR"
+            assert result.pr_metadata.number == 456
+            assert result.pr_metadata.title == "Test PR"
 
     @pytest.mark.asyncio
     async def test_handles_no_pr_found_for_current_branch(self) -> None:
@@ -160,8 +162,8 @@ class TestGatherPRContext:
 
             result = await gather_pr_context(None, base_branch)
 
-            assert result["pr_metadata"]["number"] is None
-            assert result["pr_metadata"]["title"] is None
+            assert result.pr_metadata.number is None
+            assert result.pr_metadata.title is None
             mock_logger.warning.assert_called_once()
             assert "No PR found" in str(mock_logger.warning.call_args)
 
@@ -178,7 +180,8 @@ class TestGatherPRContext:
             mock_which.return_value = "/usr/local/bin/coderabbit"
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps(
+                        {"number": 123, "labels": []})),
                     make_result(stdout="diff\n"),
                     make_result(stdout="file.py\n"),
                     make_result(stdout="sha1 msg\n"),
@@ -187,7 +190,7 @@ class TestGatherPRContext:
 
             result = await gather_pr_context(pr_number, base_branch)
 
-            assert result["coderabbit_available"] is True
+            assert result.coderabbit_available is True
             mock_which.assert_called_once_with("coderabbit")
 
     @pytest.mark.asyncio
@@ -203,7 +206,8 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps(
+                        {"number": 123, "labels": []})),
                     make_result(stdout="diff\n"),
                     make_result(stdout="file.py\n"),
                     make_result(stdout="sha1 msg\n"),
@@ -212,7 +216,7 @@ class TestGatherPRContext:
 
             result = await gather_pr_context(pr_number, base_branch)
 
-            assert result["coderabbit_available"] is False
+            assert result.coderabbit_available is False
 
     @pytest.mark.asyncio
     async def test_handles_empty_changed_files(self) -> None:
@@ -227,7 +231,8 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps(
+                        {"number": 123, "labels": []})),
                     make_result(stdout=""),  # empty diff
                     make_result(stdout=""),  # no files
                     make_result(stdout=""),  # no commits
@@ -236,9 +241,9 @@ class TestGatherPRContext:
 
             result = await gather_pr_context(pr_number, base_branch)
 
-            assert result["changed_files"] == ()
-            assert result["diff"] == ""
-            assert result["commits"] == ()
+            assert result.changed_files == ()
+            assert result.diff == ""
+            assert result.commits == ()
 
     @pytest.mark.asyncio
     async def test_handles_pr_view_failure(self) -> None:
@@ -253,17 +258,18 @@ class TestGatherPRContext:
         ):
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
-                return_value=make_result(returncode=1, stderr="Error: PR not found")
+                return_value=make_result(
+                    returncode=1, stderr="Error: PR not found")
             )
 
             result = await gather_pr_context(pr_number, base_branch)
 
             # The result still contains a PR metadata structure but with minimal info
-            assert result["pr_metadata"]["number"] == 123
-            assert result["changed_files"] == ()
-            assert result["diff"] == ""
-            assert result["coderabbit_available"] is False
-            assert "error" in result
+            assert result.pr_metadata.number == 123
+            assert result.changed_files == ()
+            assert result.diff == ""
+            assert result.coderabbit_available is False
+            assert result.error is not None
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -280,16 +286,18 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
-                    make_result(returncode=128, stderr="fatal: not a git repository"),
+                    make_result(stdout=json.dumps(
+                        {"number": 123, "labels": []})),
+                    make_result(returncode=128,
+                                stderr="fatal: not a git repository"),
                 ]
             )
 
             result = await gather_pr_context(pr_number, base_branch)
 
-            assert result["diff"] == ""
-            assert result["changed_files"] == ()
-            assert "error" in result
+            assert result.diff == ""
+            assert result.changed_files == ()
+            assert result.error is not None
             mock_logger.error.assert_called_once()
 
 
@@ -328,16 +336,17 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is True
-            assert result["error"] is None
-            assert len(result["findings"]) == 2
-            assert result["findings"][0]["file"] == "src/test.py"
-            assert result["findings"][1]["severity"] == "critical"
+            assert result.available is True
+            assert result.error is None
+            assert len(result.findings) == 2
+            assert result.findings[0]["file"] == "src/test.py"
+            assert result.findings[1]["severity"] == "critical"
 
             # Verify command
             mock_runner.run.assert_called_once()
             call_args = mock_runner.run.call_args[0][0]
-            assert call_args == ["coderabbit", "review", "--pr", "123", "--json"]
+            assert call_args == ["coderabbit",
+                                 "review", "--pr", "123", "--json"]
 
     @pytest.mark.asyncio
     async def test_skips_review_when_coderabbit_unavailable(self) -> None:
@@ -353,9 +362,9 @@ class TestRunCoderabbitReview:
         ):
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is False
-            assert result["findings"] == ()
-            assert result["error"] == "CodeRabbit CLI not installed"
+            assert result.available is False
+            assert result.findings == ()
+            assert result.error == "CodeRabbit CLI not installed"
             mock_runner.run.assert_not_called()
             mock_logger.info.assert_called_once()
 
@@ -373,9 +382,9 @@ class TestRunCoderabbitReview:
         ):
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is True
-            assert result["findings"] == ()
-            assert result["error"] == "No PR number available"
+            assert result.available is True
+            assert result.findings == ()
+            assert result.error == "No PR number available"
             mock_runner.run.assert_not_called()
             mock_logger.warning.assert_called_once()
 
@@ -391,13 +400,14 @@ class TestRunCoderabbitReview:
             ) as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
-            mock_runner.run = AsyncMock(return_value=make_result(timed_out=True))
+            mock_runner.run = AsyncMock(
+                return_value=make_result(timed_out=True))
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is True
-            assert result["findings"] == ()
-            assert result["error"] == "CodeRabbit review timed out"
+            assert result.available is True
+            assert result.findings == ()
+            assert result.error == "CodeRabbit review timed out"
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -420,9 +430,9 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is True
-            assert result["findings"] == ()
-            assert result["error"] == "Error: authentication failed"
+            assert result.available is True
+            assert result.findings == ()
+            assert result.error == "Error: authentication failed"
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -447,8 +457,8 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert len(result["findings"]) == 2
-            assert result["findings"][0]["message"] == "Issue 1"
+            assert len(result.findings) == 2
+            assert result.findings[0]["message"] == "Issue 1"
 
     @pytest.mark.asyncio
     async def test_parses_single_object_as_finding(self) -> None:
@@ -471,8 +481,8 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert len(result["findings"]) == 1
-            assert result["findings"][0]["message"] == "Single finding"
+            assert len(result.findings) == 1
+            assert result.findings[0]["message"] == "Single finding"
 
     @pytest.mark.asyncio
     async def test_parses_list_format(self) -> None:
@@ -494,7 +504,7 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert len(result["findings"]) == 2
+            assert len(result.findings) == 2
 
     @pytest.mark.asyncio
     async def test_handles_invalid_json_output(self) -> None:
@@ -514,9 +524,9 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert len(result["findings"]) == 1
-            assert result["findings"][0]["message"] == "This is not JSON output"
-            assert result["findings"][0]["severity"] == "info"
+            assert len(result.findings) == 1
+            assert result.findings[0]["message"] == "This is not JSON output"
+            assert result.findings[0]["severity"] == "info"
             mock_logger.warning.assert_called_once()
 
     @pytest.mark.asyncio
@@ -532,9 +542,9 @@ class TestRunCoderabbitReview:
 
             result = await run_coderabbit_review(pr_number, context)
 
-            assert result["available"] is True
-            assert result["findings"] == ()
-            assert result["error"] is None
+            assert result.available is True
+            assert result.findings == ()
+            assert result.error is None
 
 
 class TestCombineReviewResults:
@@ -573,11 +583,11 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert len(result["issues"]) == 2
-        assert result["issues"][0]["source"] == "agent"
-        assert result["issues"][1]["source"] == "coderabbit"
-        assert "Agent finding" in result["review_report"]
-        assert "CodeRabbit finding" in result["review_report"]
+        assert len(result.issues) == 2
+        assert result.issues[0]["source"] == "agent"
+        assert result.issues[1]["source"] == "coderabbit"
+        assert "Agent finding" in result.review_report
+        assert "CodeRabbit finding" in result.review_report
 
     @pytest.mark.asyncio
     async def test_deduplicates_identical_issues(self) -> None:
@@ -609,8 +619,8 @@ class TestCombineReviewResults:
         )
 
         # Should only have one issue due to deduplication
-        assert len(result["issues"]) == 1
-        assert result["issues"][0]["source"] == "agent"
+        assert len(result.issues) == 1
+        assert result.issues[0]["source"] == "agent"
 
     @pytest.mark.asyncio
     async def test_handles_findings_key_in_agent_review(self) -> None:
@@ -625,8 +635,8 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert len(result["issues"]) == 1
-        assert result["issues"][0]["message"] == "Finding"
+        assert len(result.issues) == 1
+        assert result.issues[0]["message"] == "Finding"
 
     @pytest.mark.asyncio
     async def test_handles_comments_key_in_agent_review(self) -> None:
@@ -641,8 +651,8 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert len(result["issues"]) == 1
-        assert result["issues"][0]["message"] == "Comment"
+        assert len(result.issues) == 1
+        assert result.issues[0]["message"] == "Comment"
 
     @pytest.mark.asyncio
     async def test_generates_markdown_report(self) -> None:
@@ -659,7 +669,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "# Code Review Report" in report
         assert "**PR:** #456" in report
         assert "**Title:** Feature: New Feature" in report
@@ -685,7 +695,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "## Critical Issues (1)" in report
         assert "## Error Issues (1)" in report
         assert "## Warning Issues (1)" in report
@@ -702,8 +712,8 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert result["recommendation"] == "approve"
-        assert "Approve" in result["review_report"]
+        assert result.recommendation == "approve"
+        assert "Approve" in result.review_report
 
     @pytest.mark.asyncio
     async def test_recommends_request_changes_for_critical_issues(self) -> None:
@@ -720,8 +730,8 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert result["recommendation"] == "request_changes"
-        assert "Request Changes" in result["review_report"]
+        assert result.recommendation == "request_changes"
+        assert "Request Changes" in result.review_report
 
     @pytest.mark.asyncio
     async def test_recommends_request_changes_for_errors(self) -> None:
@@ -736,7 +746,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert result["recommendation"] == "request_changes"
+        assert result.recommendation == "request_changes"
 
     @pytest.mark.asyncio
     async def test_recommends_comment_for_many_warnings(self) -> None:
@@ -756,8 +766,8 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert result["recommendation"] == "comment"
-        assert "Comment" in result["review_report"]
+        assert result.recommendation == "comment"
+        assert "Comment" in result.review_report
 
     @pytest.mark.asyncio
     async def test_recommends_comment_for_few_warnings(self) -> None:
@@ -775,7 +785,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        assert result["recommendation"] == "comment"
+        assert result.recommendation == "comment"
 
     @pytest.mark.asyncio
     async def test_includes_file_and_line_info_in_report(self) -> None:
@@ -797,14 +807,15 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "src/main.py:42" in report
         assert "Issue here" in report
 
     @pytest.mark.asyncio
     async def test_handles_missing_file_line_info(self) -> None:
         """Test handles issues without file or line information."""
-        agent_review = {"issues": [{"message": "General issue", "severity": "info"}]}
+        agent_review = {"issues": [
+            {"message": "General issue", "severity": "info"}]}
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
 
@@ -812,7 +823,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "unknown" in report
         assert "General issue" in report
 
@@ -836,7 +847,7 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "Total issues found: 3" in report
         assert "Agent review issues: 2" in report
         assert "CodeRabbit issues: 1" in report
@@ -857,6 +868,6 @@ class TestCombineReviewResults:
             agent_review, coderabbit_review, pr_metadata
         )
 
-        report = result["review_report"]
+        report = result.review_report
         assert "## Other Issues (2)" in report
-        assert len(result["issues"]) == 2
+        assert len(result.issues) == 2
