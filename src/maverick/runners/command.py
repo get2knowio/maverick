@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -23,6 +24,21 @@ __all__ = ["CommandRunner"]
 
 # Timeout constants
 TERMINATION_GRACE_PERIOD: float = 2.0
+
+# Secret scrubbing patterns
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # GitHub tokens (gh_, gho_, ghp_, ghs_, ghu_)
+    (re.compile(r"\b(gh[opsu]_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
+    (re.compile(r"\b(gh_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
+    # Bearer tokens
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*",
+     re.IGNORECASE), r"\1[BEARER_TOKEN]"),
+    # API keys in common formats (key=value, key: value)
+    (re.compile(
+        r"(api[_-]?key\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?", re.IGNORECASE), r"\1[API_KEY]"),
+    (re.compile(
+        r"(apikey\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?", re.IGNORECASE), r"\1[API_KEY]"),
+]
 
 
 class CommandRunner:
@@ -110,6 +126,43 @@ class CommandRunner:
             env.update(extra_env)
         return env
 
+    def _scrub_secrets(self, text: str) -> str:
+        """Scrub sensitive patterns from text.
+
+        Args:
+            text: Text that may contain secrets.
+
+        Returns:
+            Text with secrets replaced by placeholders.
+        """
+        result = text
+        for pattern, replacement in _SECRET_PATTERNS:
+            result = pattern.sub(replacement, result)
+        return result
+
+    def is_retryable(self, result: CommandResult) -> bool:
+        """Determine if a command failure should be retried.
+
+        Args:
+            result: The result of a command execution.
+
+        Returns:
+            True if the command should be retried, False otherwise.
+        """
+        # Retry on timeout
+        if result.timed_out:
+            return True
+
+        # Retry on connection reset errors
+        if "connection reset" in result.stderr.lower():
+            return True
+
+        # Retry on rate limit errors
+        if "rate limit" in result.stderr.lower():
+            return True
+
+        return False
+
     async def run(
         self,
         command: Sequence[str],
@@ -117,6 +170,9 @@ class CommandRunner:
         cwd: Path | None = None,
         timeout: float | None = None,
         env: dict[str, str] | None = None,
+        max_retries: int = 0,
+        retry_delay: float = 1.0,
+        scrub_secrets: bool = False,
     ) -> CommandResult:
         """Execute a command and return the result.
 
@@ -125,6 +181,10 @@ class CommandRunner:
             cwd: Override working directory for this command.
             timeout: Override timeout. Use 0 or negative for no timeout.
             env: Additional environment variables for this command.
+            max_retries: Maximum number of retry attempts (default 0 = no retries).
+            retry_delay: Initial delay between retries in seconds (default 1.0).
+                Delay doubles on each retry (exponential backoff).
+            scrub_secrets: If True, scrub sensitive patterns from stderr.
 
         Returns:
             CommandResult with returncode, stdout, stderr, duration_ms, timed_out.
@@ -144,6 +204,51 @@ class CommandRunner:
         # Build environment
         effective_env = self._build_env(env)
 
+        attempt = 0
+        current_delay = retry_delay
+
+        while True:
+            result = await self._execute_once(
+                command, effective_cwd, effective_timeout, effective_env
+            )
+
+            # Apply secret scrubbing if enabled
+            if scrub_secrets:
+                result = CommandResult(
+                    returncode=result.returncode,
+                    stdout=result.stdout,
+                    stderr=self._scrub_secrets(result.stderr),
+                    duration_ms=result.duration_ms,
+                    timed_out=result.timed_out,
+                )
+
+            # Check if we should retry
+            if result.success or attempt >= max_retries or not self.is_retryable(result):
+                return result
+
+            # Wait before retrying with exponential backoff
+            await asyncio.sleep(current_delay)
+            attempt += 1
+            current_delay *= 2
+
+    async def _execute_once(
+        self,
+        command: Sequence[str],
+        cwd: Path | None,
+        timeout: float | None,
+        env: dict[str, str],
+    ) -> CommandResult:
+        """Execute a command once without retries.
+
+        Args:
+            command: Command and arguments as a sequence.
+            cwd: Working directory for the command.
+            timeout: Timeout in seconds or None for no timeout.
+            env: Environment variables for the command.
+
+        Returns:
+            CommandResult with returncode, stdout, stderr, duration_ms, timed_out.
+        """
         # Start timing
         start_time = time.monotonic()
         timed_out = False
@@ -157,15 +262,15 @@ class CommandRunner:
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=effective_cwd,
-                env=effective_env,
+                cwd=cwd,
+                env=env,
             )
 
             try:
                 # Wait for completion with timeout
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     process.communicate(),
-                    timeout=effective_timeout,
+                    timeout=timeout,
                 )
                 returncode = process.returncode or 0
                 stdout_str = stdout_bytes.decode("utf-8", errors="replace")
@@ -193,7 +298,8 @@ class CommandRunner:
                         partial_stdout = await asyncio.wait_for(
                             process.stdout.read(), timeout=0.1
                         )
-                        stdout_str = partial_stdout.decode("utf-8", errors="replace")
+                        stdout_str = partial_stdout.decode(
+                            "utf-8", errors="replace")
                     except (asyncio.TimeoutError, Exception):
                         pass
                 if process.stderr:
@@ -201,7 +307,8 @@ class CommandRunner:
                         partial_stderr = await asyncio.wait_for(
                             process.stderr.read(), timeout=0.1
                         )
-                        stderr_str = partial_stderr.decode("utf-8", errors="replace")
+                        stderr_str = partial_stderr.decode(
+                            "utf-8", errors="replace")
                     except (asyncio.TimeoutError, Exception):
                         pass
 
@@ -283,7 +390,8 @@ class CommandRunner:
                     line_bytes = await stream.readline()
                     if not line_bytes:
                         break
-                    content = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+                    content = line_bytes.decode(
+                        "utf-8", errors="replace").rstrip("\n")
 
                     # Store lines based on stream type
                     if stream_name == "stdout":
@@ -293,7 +401,8 @@ class CommandRunner:
 
                     # self._start_time is guaranteed to be set before this point
                     assert self._start_time is not None
-                    timestamp_ms = int((time.monotonic() - self._start_time) * 1000)
+                    timestamp_ms = int(
+                        (time.monotonic() - self._start_time) * 1000)
                     await queue.put(
                         StreamLine(
                             content=content,
@@ -328,8 +437,10 @@ class CommandRunner:
                 pass
 
         # Start concurrent tasks for reading both streams and monitoring timeout
-        stdout_task = asyncio.create_task(read_stream(self._process.stdout, "stdout"))
-        stderr_task = asyncio.create_task(read_stream(self._process.stderr, "stderr"))
+        stdout_task = asyncio.create_task(
+            read_stream(self._process.stdout, "stdout"))
+        stderr_task = asyncio.create_task(
+            read_stream(self._process.stderr, "stderr"))
         timeout_task = asyncio.create_task(monitor_timeout())
 
         try:
@@ -383,7 +494,8 @@ class CommandRunner:
             RuntimeError: If no streaming process is active.
         """
         if self._process is None or self._start_time is None:
-            raise RuntimeError("No streaming process active. Call stream() first.")
+            raise RuntimeError(
+                "No streaming process active. Call stream() first.")
 
         duration_ms = int((time.monotonic() - self._start_time) * 1000)
         returncode = self._process.returncode or 0

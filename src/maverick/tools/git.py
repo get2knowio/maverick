@@ -3,6 +3,12 @@
 This module provides MCP tools for git operations (branch, commit, push, diff).
 Tools are async functions decorated with @tool that return MCP-formatted responses.
 
+This is the MCP (Model Context Protocol) interface layer that:
+- Takes tool calls from agents
+- Validates inputs
+- Delegates to GitRunner for actual git operations
+- Returns MCP-formatted responses (dicts with "content" and "isError" keys)
+
 Usage:
     from maverick.tools.git import create_git_tools_server
 
@@ -16,10 +22,8 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +31,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.exceptions import GitToolsError
+from maverick.runners.git import GitRunner
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +59,7 @@ COMMIT_TYPES: set[str] = {
 
 
 # =============================================================================
-# Helper Functions
+# MCP Response Helper Functions
 # =============================================================================
 
 
@@ -95,12 +100,19 @@ def _error_response(
     return {"content": [{"type": "text", "text": json.dumps(error_data)}]}
 
 
+# =============================================================================
+# Pre-flight Check (uses GitRunner)
+# =============================================================================
+
+
 async def verify_git_prerequisites(cwd: Path | None = None) -> None:
     """Verify git is installed and we're in a repository.
 
     Public function for callers who want fail-fast verification before
     using git tools. This is optional - tools will verify prerequisites
     lazily on first use if not called explicitly.
+
+    Uses GitRunner internally for the actual git checks.
 
     Args:
         cwd: Working directory to check. Defaults to current directory.
@@ -124,87 +136,27 @@ async def verify_git_prerequisites(cwd: Path | None = None) -> None:
         server = create_git_tools_server()
         ```
     """
-    # Check git installed
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
-        if proc.returncode != 0:
-            raise GitToolsError(
-                "git is not installed or not in PATH",
-                check_failed="git_installed",
-            )
-    except FileNotFoundError as err:
-        raise GitToolsError(
-            "git is not installed or not in PATH",
-            check_failed="git_installed",
-        ) from err
+    runner = GitRunner(cwd=cwd, timeout=DEFAULT_TIMEOUT)
 
-    # Check inside git repo
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "rev-parse",
-        "--git-dir",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    if proc.returncode != 0:
+    try:
+        # Check if inside a git repo (this also validates git is installed)
+        in_repo = await runner.is_inside_repo()
+    except FileNotFoundError:
+        raise GitToolsError(
+            "git is not installed or not available on PATH",
+            check_failed="git_installed",
+        )
+
+    if not in_repo:
         raise GitToolsError(
             "not inside a git repository",
             check_failed="in_git_repo",
         )
 
 
-async def _run_git_command(
-    *args: str,
-    cwd: Path | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-) -> tuple[str, str, int]:
-    """Run a git command asynchronously.
-
-    Args:
-        *args: git command arguments (without 'git' prefix).
-        cwd: Working directory for the command.
-        timeout: Timeout in seconds.
-
-    Returns:
-        Tuple of (stdout, stderr, return_code).
-
-    Raises:
-        asyncio.TimeoutError: If command times out.
-    """
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=timeout,
-        )
-        return (
-            stdout_bytes.decode("utf-8", errors="replace").strip(),
-            stderr_bytes.decode("utf-8", errors="replace").strip(),
-            proc.returncode or 0,
-        )
-    except asyncio.TimeoutError:
-        # Kill the process on timeout
-        try:
-            proc.kill()
-            await proc.wait()
-        except ProcessLookupError:
-            pass
-        raise
+# =============================================================================
+# Commit Message Formatting Helper
+# =============================================================================
 
 
 def _format_commit_message(
@@ -214,6 +166,9 @@ def _format_commit_message(
     breaking: bool = False,
 ) -> str:
     """Format a commit message in conventional commit format.
+
+    This is MCP-specific formatting logic - GitRunner doesn't handle
+    conventional commit formatting.
 
     Args:
         message: Commit description.
@@ -291,6 +246,13 @@ def create_git_tools_server(
 
     logger.info("Creating git tools MCP server (version %s)", SERVER_VERSION)
 
+    # Create GitRunner instance for use by all tools
+    # This is created once and shared across all tool invocations
+    def _get_runner() -> GitRunner:
+        """Get GitRunner with current working directory."""
+        working_dir = _cwd or Path.cwd()
+        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+
     # Define all tool functions inside the factory to capture _cwd in closure
     @tool(
         "git_commit",
@@ -319,9 +281,6 @@ def create_git_tools_server(
         scope = args.get("scope")
         breaking = args.get("breaking", False)
 
-        # Get working directory from closure
-        working_dir = _cwd or Path.cwd()
-
         # T021: Input validation
         if not message:
             logger.warning("git_commit called with empty message")
@@ -337,7 +296,7 @@ def create_git_tools_server(
                 "INVALID_INPUT",
             )
 
-        # Format the commit message
+        # Format the commit message (MCP-specific formatting)
         formatted_message = _format_commit_message(
             message, commit_type, scope, breaking
         )
@@ -352,25 +311,31 @@ def create_git_tools_server(
         )
 
         try:
-            # Create the commit
-            stdout, stderr, return_code = await _run_git_command(
-                "commit",
-                "-m",
-                formatted_message,
-                cwd=working_dir,
-            )
+            runner = _get_runner()
 
-            # T022: Check for nothing to commit
-            if return_code != 0:
-                stderr_lower = stderr.lower()
-                stdout_lower = stdout.lower()
+            # Stage all changes first, then commit
+            add_result = await runner.add(add_all=True)
+            if not add_result.success:
+                logger.error(
+                    "git_commit: Failed to stage changes: %s", add_result.error)
+                return _error_response(
+                    f"Failed to stage changes: {add_result.error}",
+                    "GIT_ERROR",
+                )
 
-                # Check for "nothing to commit" in various forms
+            # Create the commit using GitRunner
+            result = await runner.commit(formatted_message)
+
+            if not result.success:
+                error_msg = (result.error or "").lower()
+                output_msg = result.output.lower()
+
+                # T022: Check for "nothing to commit" in various forms
                 if (
-                    "nothing to commit" in stderr_lower
-                    or "nothing to commit" in stdout_lower
-                    or "nothing added to commit" in stderr_lower
-                    or "nothing added to commit" in stdout_lower
+                    "nothing to commit" in error_msg
+                    or "nothing to commit" in output_msg
+                    or "nothing added to commit" in error_msg
+                    or "nothing added to commit" in output_msg
                 ):
                     logger.info("git_commit: nothing to commit")
                     return _error_response(
@@ -380,28 +345,14 @@ def create_git_tools_server(
                     )
 
                 # Other errors
-                error_message = stderr or stdout or "Unknown git error"
+                error_message = result.error or result.output or "Unknown git error"
                 logger.error("git_commit failed: %s", error_message)
                 return _error_response(
                     f"Git commit failed: {error_message}", "GIT_ERROR"
                 )
 
-            # Get the commit SHA
-            sha_stdout, sha_stderr, sha_return_code = await _run_git_command(
-                "rev-parse",
-                "HEAD",
-                cwd=working_dir,
-            )
-
-            if sha_return_code != 0:
-                # Commit succeeded but couldn't get SHA (unusual but handle it)
-                logger.warning(
-                    "Commit created but couldn't retrieve SHA: %s", sha_stderr
-                )
-                commit_sha = "unknown"
-            else:
-                commit_sha = sha_stdout.strip()
-
+            # Get the commit SHA using GitRunner
+            commit_sha = await runner.get_head_sha()
             logger.info("Commit created successfully: %s", commit_sha)
 
             return _success_response(
@@ -412,12 +363,6 @@ def create_git_tools_server(
                 }
             )
 
-        except asyncio.TimeoutError:
-            logger.error("git_commit timed out")
-            return _error_response(
-                f"Git commit operation timed out after {DEFAULT_TIMEOUT} seconds",
-                "TIMEOUT",
-            )
         except Exception as e:
             logger.exception("Unexpected error in git_commit")
             return _error_response(f"Unexpected error: {str(e)}", "INTERNAL_ERROR")
@@ -448,50 +393,39 @@ def create_git_tools_server(
         """
         logger.info("git_push: Starting push operation")
 
-        # Get working directory from closure
-        working_dir = _cwd or Path.cwd()
-
         try:
-            # Verify prerequisites
-            await verify_git_prerequisites(working_dir)
-        except GitToolsError as e:
-            logger.error("git_push: Prerequisites check failed: %s", e)
-            return _error_response(str(e), "NOT_A_REPOSITORY")
+            runner = _get_runner()
 
-        set_upstream = args.get("set_upstream", False)
+            # Verify prerequisites using GitRunner
+            if not await runner.is_inside_repo():
+                logger.error("git_push: Not inside a git repository")
+                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
-        # Check if we're in detached HEAD state
-        try:
-            stdout, stderr, returncode = await _run_git_command(
-                "rev-parse", "--abbrev-ref", "HEAD", cwd=working_dir
-            )
-            if returncode == 0 and stdout == "HEAD":
+            set_upstream = args.get("set_upstream", False)
+
+            # Check if we're in detached HEAD state using GitRunner
+            current_branch = await runner.get_current_branch()
+            if current_branch == "(detached)":
                 logger.error("git_push: Cannot push from detached HEAD state")
                 return _error_response(
                     "Cannot push from detached HEAD state. "
                     "Create a branch first with git_create_branch",
                     "DETACHED_HEAD",
                 )
-            current_branch = stdout
-        except Exception as e:
-            logger.error("git_push: Failed to get current branch: %s", e)
-            return _error_response(str(e), "GIT_ERROR")
 
-        # Build push command
-        push_args = ["push"]
-        if set_upstream:
-            push_args.extend(["-u", "origin", current_branch])
-
-        # Execute push
-        try:
-            stdout, stderr, returncode = await _run_git_command(
-                *push_args, cwd=working_dir
+            # Execute push using GitRunner
+            result = await runner.push(
+                remote="origin",
+                branch=current_branch if set_upstream else None,
+                set_upstream=set_upstream,
             )
 
-            if returncode != 0:
+            if not result.success:
+                error_msg = (result.error or "").lower()
+
                 # Check for authentication errors
                 if any(
-                    pattern in stderr.lower()
+                    pattern in error_msg
                     for pattern in [
                         "authentication failed",
                         "could not read",
@@ -499,16 +433,17 @@ def create_git_tools_server(
                         "credentials",
                     ]
                 ):
-                    logger.error("git_push: Authentication failed: %s", stderr)
+                    logger.error(
+                        "git_push: Authentication failed: %s", result.error)
                     return _error_response(
-                        f"Authentication required: {stderr}. "
+                        f"Authentication required: {result.error}. "
                         "Run 'gh auth login' or configure git credentials",
                         "AUTHENTICATION_REQUIRED",
                     )
 
                 # Check for network errors
                 if any(
-                    pattern in stderr.lower()
+                    pattern in error_msg
                     for pattern in [
                         "could not resolve host",
                         "connection refused",
@@ -516,29 +451,26 @@ def create_git_tools_server(
                         "timeout",
                     ]
                 ):
-                    logger.error("git_push: Network error: %s", stderr)
+                    logger.error("git_push: Network error: %s", result.error)
                     return _error_response(
-                        f"Network error: {stderr}",
+                        f"Network error: {result.error}",
                         "NETWORK_ERROR",
                     )
 
                 # Generic git error
-                logger.error("git_push: Git push failed: %s", stderr)
-                return _error_response(f"Git push failed: {stderr}", "GIT_ERROR")
+                logger.error("git_push: Git push failed: %s", result.error)
+                return _error_response(f"Git push failed: {result.error}", "GIT_ERROR")
 
             # Parse output to count commits pushed
             commits_pushed = 0
-            output_text = stdout + stderr
+            output_text = result.output
 
-            # Look for patterns like "main -> main" or "branch-name -> branch-name"
-            # or count commits in the output
+            # Look for patterns like "main -> main" or count commits
             for line in output_text.split("\n"):
                 if "->" in line and current_branch in line:
-                    # Successfully pushed
                     commits_pushed = 1  # At least one commit
                     break
 
-            # Get remote name (usually origin)
             remote = "origin"
 
             logger.info(
@@ -557,9 +489,6 @@ def create_git_tools_server(
                 }
             )
 
-        except asyncio.TimeoutError:
-            logger.error("git_push: Operation timed out")
-            return _error_response("Push operation timed out", "NETWORK_ERROR")
         except Exception as e:
             logger.error("git_push: Unexpected error: %s", e)
             return _error_response(str(e), "GIT_ERROR")
@@ -587,39 +516,21 @@ def create_git_tools_server(
         """
         logger.info("git_current_branch: Getting current branch")
 
-        # Get working directory from closure
-        working_dir = _cwd or Path.cwd()
-
         try:
-            # Verify prerequisites
-            await verify_git_prerequisites(working_dir)
-        except GitToolsError as e:
-            logger.error(
-                "git_current_branch: Prerequisites check failed: %s", e)
-            return _error_response(str(e), "NOT_A_REPOSITORY")
+            runner = _get_runner()
 
-        try:
-            stdout, stderr, returncode = await _run_git_command(
-                "rev-parse", "--abbrev-ref", "HEAD", cwd=working_dir
-            )
+            # Verify prerequisites using GitRunner
+            if not await runner.is_inside_repo():
+                logger.error("git_current_branch: Not inside a git repository")
+                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
-            if returncode != 0:
-                logger.error(
-                    "git_current_branch: Failed to get branch: %s", stderr)
-                return _error_response(
-                    f"Failed to get current branch: {stderr}",
-                    "GIT_ERROR",
-                )
-
-            branch_name = stdout if stdout != "HEAD" else "(detached)"
+            # Get current branch using GitRunner
+            branch_name = await runner.get_current_branch()
             logger.info(
                 "git_current_branch: Current branch is '%s'", branch_name)
 
             return _success_response({"branch": branch_name})
 
-        except asyncio.TimeoutError:
-            logger.error("git_current_branch: Operation timed out")
-            return _error_response("Operation timed out", "GIT_ERROR")
         except Exception as e:
             logger.error("git_current_branch: Unexpected error: %s", e)
             return _error_response(str(e), "GIT_ERROR")
@@ -637,7 +548,6 @@ def create_git_tools_server(
 
         Returns:
             MCP response with diff statistics or error.
-            Parses output like "3 files changed, 50 insertions(+), 20 deletions(-)"
 
         Raises:
             Never raises - always returns MCP response format with success or error.
@@ -647,66 +557,32 @@ def create_git_tools_server(
         """
         logger.info("git_diff_stats: Getting diff statistics")
 
-        # Get working directory from closure
-        working_dir = _cwd or Path.cwd()
-
         try:
-            # Verify prerequisites
-            await verify_git_prerequisites(working_dir)
-        except GitToolsError as e:
-            logger.error("git_diff_stats: Prerequisites check failed: %s", e)
-            return _error_response(str(e), "NOT_A_REPOSITORY")
+            runner = _get_runner()
 
-        try:
-            stdout, stderr, returncode = await _run_git_command(
-                "diff", "--shortstat", cwd=working_dir
-            )
+            # Verify prerequisites using GitRunner
+            if not await runner.is_inside_repo():
+                logger.error("git_diff_stats: Not inside a git repository")
+                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
-            if returncode != 0:
-                logger.error(
-                    "git_diff_stats: Failed to get diff stats: %s", stderr)
-                return _error_response(
-                    f"Failed to get diff statistics: {stderr}",
-                    "GIT_ERROR",
-                )
-
-            # Parse the output
-            files_changed = 0
-            insertions = 0
-            deletions = 0
-
-            if stdout:
-                # Example: " 3 files changed, 50 insertions(+), 20 deletions(-)"
-                # Extract numbers using regex
-                files_match = re.search(r"(\d+)\s+files?\s+changed", stdout)
-                insertions_match = re.search(r"(\d+)\s+insertions?", stdout)
-                deletions_match = re.search(r"(\d+)\s+deletions?", stdout)
-
-                if files_match:
-                    files_changed = int(files_match.group(1))
-                if insertions_match:
-                    insertions = int(insertions_match.group(1))
-                if deletions_match:
-                    deletions = int(deletions_match.group(1))
+            # Get diff stats using GitRunner
+            stats = await runner.get_diff_stats()
 
             logger.info(
                 "git_diff_stats: %d files, %d insertions, %d deletions",
-                files_changed,
-                insertions,
-                deletions,
+                stats.files_changed,
+                stats.insertions,
+                stats.deletions,
             )
 
             return _success_response(
                 {
-                    "files_changed": files_changed,
-                    "insertions": insertions,
-                    "deletions": deletions,
+                    "files_changed": stats.files_changed,
+                    "insertions": stats.insertions,
+                    "deletions": stats.deletions,
                 }
             )
 
-        except asyncio.TimeoutError:
-            logger.error("git_diff_stats: Operation timed out")
-            return _error_response("Operation timed out", "GIT_ERROR")
         except Exception as e:
             logger.error("git_diff_stats: Unexpected error: %s", e)
             return _error_response(str(e), "GIT_ERROR")
@@ -739,71 +615,66 @@ def create_git_tools_server(
         """
         logger.info("git_create_branch: Creating new branch")
 
-        # Get working directory from closure
-        working_dir = _cwd or Path.cwd()
-
         try:
-            # Verify prerequisites
-            await verify_git_prerequisites(working_dir)
-        except GitToolsError as e:
-            logger.error(
-                "git_create_branch: Prerequisites check failed: %s", e)
-            return _error_response(str(e), "NOT_A_REPOSITORY")
+            runner = _get_runner()
 
-        # Validate required arguments
-        branch_name = args.get("name")
-        if not branch_name:
-            logger.error("git_create_branch: Branch name is required")
-            return _error_response("Branch name is required", "INVALID_INPUT")
+            # Verify prerequisites using GitRunner
+            if not await runner.is_inside_repo():
+                logger.error("git_create_branch: Not inside a git repository")
+                return _error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
-        # Comprehensive branch name validation (git check-ref-format rules)
-        validation_errors = []
+            # Validate required arguments
+            branch_name = args.get("name")
+            if not branch_name:
+                logger.error("git_create_branch: Branch name is required")
+                return _error_response("Branch name is required", "INVALID_INPUT")
 
-        # Cannot start or end with dot
-        if branch_name.startswith(".") or branch_name.endswith("."):
-            validation_errors.append("cannot start or end with '.'")
+            # Comprehensive branch name validation (git check-ref-format rules)
+            validation_errors = []
 
-        # No consecutive dots (..)
-        if ".." in branch_name:
-            validation_errors.append("cannot contain consecutive dots '..'")
+            # Cannot start or end with dot
+            if branch_name.startswith(".") or branch_name.endswith("."):
+                validation_errors.append("cannot start or end with '.'")
 
-        # No @{ sequence
-        if "@{" in branch_name:
-            validation_errors.append("cannot contain '@{' sequence")
+            # No consecutive dots (..)
+            if ".." in branch_name:
+                validation_errors.append(
+                    "cannot contain consecutive dots '..'")
 
-        # Invalid characters: space, ~, ^, :, ?, *, [, \, control characters
-        invalid_chars = {" ", "~", "^", ":", "?", "*", "[", "\\"}
-        found_invalid = [char for char in invalid_chars if char in branch_name]
-        if found_invalid:
-            chars_str = ", ".join(repr(c) for c in found_invalid)
-            validation_errors.append(f"cannot contain characters: {chars_str}")
+            # No @{ sequence
+            if "@{" in branch_name:
+                validation_errors.append("cannot contain '@{' sequence")
 
-        # Check for control characters (ASCII 0-31, 127)
-        if any(ord(char) < 32 or ord(char) == 127 for char in branch_name):
-            validation_errors.append("cannot contain control characters")
+            # Invalid characters: space, ~, ^, :, ?, *, [, \, control characters
+            invalid_chars = {" ", "~", "^", ":", "?", "*", "[", "\\"}
+            found_invalid = [
+                char for char in invalid_chars if char in branch_name]
+            if found_invalid:
+                chars_str = ", ".join(repr(c) for c in found_invalid)
+                validation_errors.append(
+                    f"cannot contain characters: {chars_str}")
 
-        if validation_errors:
-            logger.error(
-                "git_create_branch: Invalid branch name: %s", branch_name)
-            errors_str = "; ".join(validation_errors)
-            error_msg = f"Invalid branch name '{branch_name}': {errors_str}"
-            return _error_response(error_msg, "INVALID_INPUT")
+            # Check for control characters (ASCII 0-31, 127)
+            if any(ord(char) < 32 or ord(char) == 127 for char in branch_name):
+                validation_errors.append("cannot contain control characters")
 
-        base_branch = args.get("base", "")
+            if validation_errors:
+                logger.error(
+                    "git_create_branch: Invalid branch name: %s", branch_name)
+                errors_str = "; ".join(validation_errors)
+                error_msg = f"Invalid branch name '{branch_name}': {errors_str}"
+                return _error_response(error_msg, "INVALID_INPUT")
 
-        # Build checkout command
-        checkout_args = ["checkout", "-b", branch_name]
-        if base_branch:
-            checkout_args.append(base_branch)
+            base_branch = args.get("base", "HEAD")
 
-        try:
-            stdout, stderr, returncode = await _run_git_command(
-                *checkout_args, cwd=working_dir
-            )
+            # Create branch using GitRunner
+            result = await runner.create_branch(branch_name, from_ref=base_branch)
 
-            if returncode != 0:
+            if not result.success:
+                error_msg = (result.error or "").lower()
+
                 # Check for branch already exists
-                if "already exists" in stderr.lower():
+                if "already exists" in error_msg:
                     logger.error(
                         "git_create_branch: Branch '%s' already exists", branch_name
                     )
@@ -814,9 +685,9 @@ def create_git_tools_server(
 
                 # Check for base branch not found
                 if (
-                    "not found" in stderr.lower()
-                    or "did not match" in stderr.lower()
-                    or "unknown revision" in stderr.lower()
+                    "not found" in error_msg
+                    or "did not match" in error_msg
+                    or "unknown revision" in error_msg
                 ):
                     logger.error(
                         "git_create_branch: Base branch '%s' not found", base_branch
@@ -828,14 +699,14 @@ def create_git_tools_server(
 
                 # Generic git error
                 logger.error(
-                    "git_create_branch: Failed to create branch: %s", stderr)
+                    "git_create_branch: Failed to create branch: %s", result.error)
                 return _error_response(
-                    f"Failed to create branch: {stderr}",
+                    f"Failed to create branch: {result.error}",
                     "GIT_ERROR",
                 )
 
             # Successfully created branch
-            effective_base = base_branch if base_branch else "(current)"
+            effective_base = base_branch if base_branch != "HEAD" else "(current)"
             logger.info(
                 "git_create_branch: Created and checked out branch '%s' from '%s'",
                 branch_name,
@@ -850,9 +721,6 @@ def create_git_tools_server(
                 }
             )
 
-        except asyncio.TimeoutError:
-            logger.error("git_create_branch: Operation timed out")
-            return _error_response("Operation timed out", "GIT_ERROR")
         except Exception as e:
             logger.error("git_create_branch: Unexpected error: %s", e)
             return _error_response(str(e), "GIT_ERROR")

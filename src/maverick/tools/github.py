@@ -3,6 +3,12 @@
 This module provides MCP tools for GitHub operations using the gh CLI.
 Tools are async functions decorated with @tool that return MCP-formatted responses.
 
+This is the MCP (Model Context Protocol) interface layer that:
+- Takes tool calls from agents
+- Validates inputs
+- Delegates to CommandRunner for actual gh CLI operations
+- Returns MCP-formatted responses (dicts with "content" and "isError" keys)
+
 Usage:
     from maverick.tools.github import create_github_tools_server
 
@@ -27,6 +33,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.exceptions import GitHubToolsError
+from maverick.runners.command import CommandRunner
 from maverick.utils.security import scrub_secrets
 
 logger = logging.getLogger(__name__)
@@ -41,14 +48,32 @@ DEFAULT_TIMEOUT: float = 30.0
 #: Default max diff size in bytes (100KB)
 DEFAULT_MAX_DIFF_SIZE: int = 102400
 
+#: Maximum retries for transient failures
+MAX_RETRIES: int = 3
+
+#: Initial retry delay in seconds
+RETRY_DELAY: float = 1.0
+
 #: MCP Server configuration
 SERVER_NAME: str = "github-tools"
 SERVER_VERSION: str = "1.0.0"
 
 
 # =============================================================================
-# Helper Functions (T005-T007)
+# Internal Helpers
 # =============================================================================
+
+
+def _get_runner(cwd: Path | None = None) -> CommandRunner:
+    """Get a CommandRunner instance for gh commands.
+
+    Args:
+        cwd: Working directory for command execution.
+
+    Returns:
+        CommandRunner instance configured for GitHub operations.
+    """
+    return CommandRunner(cwd=cwd, timeout=DEFAULT_TIMEOUT)
 
 
 async def _run_gh_command(
@@ -58,6 +83,10 @@ async def _run_gh_command(
 ) -> tuple[str, str, int]:
     """Run a gh CLI command asynchronously.
 
+    This is a compatibility wrapper around CommandRunner for backward
+    compatibility with existing tests. New code should use _get_runner()
+    directly.
+
     Args:
         *args: gh command arguments (without 'gh' prefix).
         cwd: Working directory for the command.
@@ -65,33 +94,15 @@ async def _run_gh_command(
 
     Returns:
         Tuple of (stdout, stderr, return_code).
-
-    Raises:
-        asyncio.TimeoutError: If command times out.
     """
-    process = await asyncio.create_subprocess_exec(
-        "gh",
-        *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    runner = _get_runner(cwd)
+    result = await runner.run(
+        ["gh", *args],
+        timeout=timeout,
+        max_retries=MAX_RETRIES,
+        retry_delay=RETRY_DELAY,
     )
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
-        raise
-
-    stdout = stdout_bytes.decode().strip()
-    stderr = stderr_bytes.decode().strip()
-    return_code = process.returncode or 0
-
-    return stdout, stderr, return_code
+    return result.stdout, result.stderr, result.returncode
 
 
 def _parse_rate_limit_wait(stderr: str) -> int | None:
@@ -217,6 +228,7 @@ async def _verify_prerequisites(cwd: Path | None = None) -> None:
     """Verify gh CLI and git repo prerequisites (T004).
 
     Internal helper for lazy verification on first tool use.
+    Uses CommandRunner for consistent subprocess handling.
 
     Args:
         cwd: Working directory to check.
@@ -233,6 +245,8 @@ async def verify_github_prerequisites(cwd: Path | None = None) -> None:
     Public function for callers who want fail-fast verification before
     using GitHub tools. This is optional - tools will verify prerequisites
     lazily on first use if not called explicitly.
+
+    Uses CommandRunner for consistent subprocess handling with timeout.
 
     Args:
         cwd: Working directory to check. Defaults to current directory.
@@ -260,94 +274,65 @@ async def verify_github_prerequisites(cwd: Path | None = None) -> None:
         ```
     """
     working_dir = cwd or Path.cwd()
+    runner = _get_runner(working_dir)
 
     # Check 1: gh CLI installed
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "gh",
-            "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(process.communicate(), timeout=5.0)
-        if process.returncode != 0:
-            raise GitHubToolsError(
-                "GitHub CLI (gh) not installed. Install: https://cli.github.com/",
-                check_failed="gh_installed",
-            )
-    except FileNotFoundError as err:
+    result = await runner.run(["gh", "--version"], timeout=5.0)
+    if result.returncode == 127:  # Command not found
         raise GitHubToolsError(
             "GitHub CLI (gh) not installed. Install: https://cli.github.com/",
             check_failed="gh_installed",
-        ) from err
-    except asyncio.TimeoutError as err:
+        )
+    if result.timed_out:
         raise GitHubToolsError(
             "GitHub CLI check timed out",
             check_failed="gh_installed",
-        ) from err
+        )
+    if not result.success:
+        raise GitHubToolsError(
+            f"GitHub CLI (gh) returned error: {result.stderr or result.stdout}",
+            check_failed="gh_installed",
+        )
 
     # Check 2: gh CLI authenticated
-    stdout, stderr, return_code = await _run_gh_command(
-        "auth",
-        "status",
-        cwd=working_dir,
-        timeout=10.0,
-    )
-    if return_code != 0:
+    result = await runner.run(["gh", "auth", "status"], timeout=10.0)
+    if not result.success:
         raise GitHubToolsError(
             "GitHub CLI not authenticated. Run: gh auth login",
             check_failed="gh_authenticated",
         )
 
     # Check 3: Inside git repository
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            "rev-parse",
-            "--git-dir",
-            cwd=working_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(process.communicate(), timeout=5.0)
-        if process.returncode != 0:
-            raise GitHubToolsError(
-                "Not inside a git repository",
-                check_failed="git_repo",
-            )
-    except FileNotFoundError as err:
+    result = await runner.run(["git", "rev-parse", "--git-dir"], timeout=5.0)
+    if result.returncode == 127:
         raise GitHubToolsError(
             "Git not installed",
             check_failed="git_installed",
-        ) from err
-    except asyncio.TimeoutError as err:
+        )
+    if result.timed_out:
         raise GitHubToolsError(
-            "Git check timed out",
+            "Git repository check timed out",
             check_failed="git_repo",
-        ) from err
+        )
+    if not result.success:
+        raise GitHubToolsError(
+            "Not inside a git repository",
+            check_failed="git_repo",
+        )
 
     # Check 4: Has remote configured
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            "remote",
-            "get-url",
-            "origin",
-            cwd=working_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(process.communicate(), timeout=5.0)
-        if process.returncode != 0:
-            raise GitHubToolsError(
-                "No git remote 'origin' configured",
-                check_failed="git_remote",
-            )
-    except asyncio.TimeoutError as err:
+    result = await runner.run(
+        ["git", "remote", "get-url", "origin"], timeout=5.0)
+    if result.timed_out:
         raise GitHubToolsError(
             "Git remote check timed out",
             check_failed="git_remote",
-        ) from err
+        )
+    if not result.success:
+        raise GitHubToolsError(
+            "No git remote 'origin' configured",
+            check_failed="git_remote",
+        )
 
     logger.debug("GitHub tools prerequisites verified successfully")
 
@@ -381,16 +366,11 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
     )
 
     cmd_args = [
-        "pr",
-        "create",
-        "--title",
-        title,
-        "--body",
-        body,
-        "--base",
-        base,
-        "--head",
-        head,
+        "pr", "create",
+        "--title", title,
+        "--body", body,
+        "--base", base,
+        "--head", head,
     ]
     if draft:
         cmd_args.append("--draft")
@@ -425,7 +405,7 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     except asyncio.TimeoutError:
-        logger.error("PR creation timed out")
+        logger.error("Timeout creating PR")
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error creating PR")
@@ -458,14 +438,10 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
                 state, label, limit)
 
     cmd_args = [
-        "issue",
-        "list",
-        "--state",
-        state,
-        "--limit",
-        str(limit),
-        "--json",
-        "number,title,labels,state,url",
+        "issue", "list",
+        "--state", state,
+        "--limit", str(limit),
+        "--json", "number,title,labels,state,url",
     ]
     if label:
         cmd_args.extend(["--label", label])
@@ -502,7 +478,7 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
         logger.error("Failed to parse issue list: %s", e)
         return _error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
     except asyncio.TimeoutError:
-        logger.error("Issue list timed out")
+        logger.error("Timeout listing issues")
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error listing issues")
@@ -571,7 +547,7 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
         logger.error("Failed to parse issue: %s", e)
         return _error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
     except asyncio.TimeoutError:
-        logger.error("Get issue timed out")
+        logger.error("Timeout getting issue #%d", issue_number)
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error getting issue")
@@ -633,7 +609,7 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
         return _success_response({"diff": diff, "truncated": False})
 
     except asyncio.TimeoutError:
-        logger.error("Get PR diff timed out")
+        logger.error("Timeout getting PR #%d diff", pr_number)
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error getting PR diff")
@@ -745,7 +721,7 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
         logger.error("Failed to parse PR status: %s", e)
         return _error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
     except asyncio.TimeoutError:
-        logger.error("Get PR status timed out")
+        logger.error("Timeout getting PR #%d status", pr_number)
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error getting PR status")
@@ -795,7 +771,7 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     except asyncio.TimeoutError:
-        logger.error("Add labels timed out")
+        logger.error("Timeout adding labels to #%d", issue_number)
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error adding labels")
@@ -853,7 +829,7 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     except asyncio.TimeoutError:
-        logger.error("Close issue timed out")
+        logger.error("Timeout closing issue #%d", issue_number)
         return _error_response("Operation timed out", "TIMEOUT")
     except Exception as e:
         logger.exception("Unexpected error closing issue")

@@ -6,14 +6,43 @@ Tests the git tools edge cases and error handling including:
 - Invalid branch names
 - Authentication failures
 - Factory async context safety
+
+These tests mock GitRunner to isolate the MCP tools layer.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from maverick.runners.git import DiffStats, GitResult
 from maverick.tools.git import create_git_tools_server, verify_git_prerequisites
+
+
+@pytest.fixture
+def mock_git_runner() -> MagicMock:
+    """Create a mock GitRunner for testing git tools."""
+    runner = MagicMock()
+    # Default to successful results
+    runner.is_inside_repo = AsyncMock(return_value=True)
+    runner.add = AsyncMock(return_value=GitResult(
+        success=True, output="", error=None, duration_ms=10
+    ))
+    runner.commit = AsyncMock(return_value=GitResult(
+        success=True, output="", error=None, duration_ms=10
+    ))
+    runner.get_head_sha = AsyncMock(return_value="abc123def456")
+    runner.get_current_branch = AsyncMock(return_value="main")
+    runner.push = AsyncMock(return_value=GitResult(
+        success=True, output="main -> main", error=None, duration_ms=100
+    ))
+    runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+        files_changed=0, insertions=0, deletions=0, per_file={}
+    ))
+    runner.create_branch = AsyncMock(return_value=GitResult(
+        success=True, output="Switched to a new branch", error=None, duration_ms=10
+    ))
+    return runner
 
 
 @pytest.fixture
@@ -23,34 +52,26 @@ def git_tools():
 
 
 @pytest.mark.asyncio
-async def test_git_commit_timeout(git_tools):
-    """Test git_commit handles timeout gracefully."""
-    with (
-        patch("maverick.tools.git.verify_git_prerequisites",
-              new_callable=AsyncMock),
-        patch("maverick.tools.git._run_git_command",
-              side_effect=asyncio.TimeoutError),
-    ):
+async def test_git_commit_exception(git_tools, mock_git_runner):
+    """Test git_commit handles exceptions gracefully."""
+    mock_git_runner.add = AsyncMock(side_effect=Exception("Unexpected error"))
+
+    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_commit"].handler(
             {"message": "test", "type": "feat"}
         )
 
         response = result["content"][0]["text"]
         assert '"isError": true' in response
-        assert "TIMEOUT" in response
+        assert "INTERNAL_ERROR" in response
 
 
 @pytest.mark.asyncio
-async def test_git_push_detached_head(git_tools):
+async def test_git_push_detached_head(git_tools, mock_git_runner):
     """Test git_push fails when in detached HEAD state."""
-    with (
-        patch("maverick.tools.git.verify_git_prerequisites",
-              new_callable=AsyncMock),
-        patch("maverick.tools.git._run_git_command") as mock_run,
-    ):
-        # Mock rev-parse returning HEAD (detached)
-        mock_run.return_value = ("HEAD", "", 0)
+    mock_git_runner.get_current_branch = AsyncMock(return_value="(detached)")
 
+    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_push"].handler({})
 
         response = result["content"][0]["text"]
@@ -59,9 +80,9 @@ async def test_git_push_detached_head(git_tools):
 
 
 @pytest.mark.asyncio
-async def test_git_create_branch_invalid_name(git_tools):
+async def test_git_create_branch_invalid_name(git_tools, mock_git_runner):
     """Test git_create_branch validates branch name."""
-    with patch("maverick.tools.git.verify_git_prerequisites", new_callable=AsyncMock):
+    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         # Test space
         result = await git_tools["git_create_branch"].handler({"name": "invalid name"})
         assert "INVALID_INPUT" in result["content"][0]["text"]
@@ -76,18 +97,16 @@ async def test_git_create_branch_invalid_name(git_tools):
 
 
 @pytest.mark.asyncio
-async def test_git_push_auth_failure(git_tools):
+async def test_git_push_auth_failure(git_tools, mock_git_runner):
     """Test git_push handles authentication failure."""
-    with (
-        patch("maverick.tools.git.verify_git_prerequisites",
-              new_callable=AsyncMock),
-        patch("maverick.tools.git._run_git_command") as mock_run,
-    ):
-        # First call gets branch (success)
-        # Second call pushes (failure)
-        mock_run.side_effect = [
-            ("main", "", 0), ("", "Authentication failed", 128)]
+    mock_git_runner.push = AsyncMock(return_value=GitResult(
+        success=False,
+        output="",
+        error="Authentication failed",
+        duration_ms=100,
+    ))
 
+    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_push"].handler({})
 
         response = result["content"][0]["text"]
@@ -96,20 +115,16 @@ async def test_git_push_auth_failure(git_tools):
 
 
 @pytest.mark.asyncio
-async def test_git_diff_stats_error(git_tools):
+async def test_git_diff_stats_error(git_tools, mock_git_runner):
     """Test git_diff_stats handles errors."""
-    with (
-        patch("maverick.tools.git.verify_git_prerequisites",
-              new_callable=AsyncMock),
-        patch("maverick.tools.git._run_git_command") as mock_run,
-    ):
-        mock_run.return_value = ("", "Some error", 1)
+    mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
+    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_diff_stats"].handler({})
 
         response = result["content"][0]["text"]
         assert '"isError": true' in response
-        assert "GIT_ERROR" in response
+        assert "NOT_A_REPOSITORY" in response
 
 
 # =============================================================================
@@ -184,19 +199,10 @@ class TestVerifyGitPrerequisitesPublic:
     @pytest.mark.asyncio
     async def test_verify_git_prerequisites_success(self) -> None:
         """Test verify_git_prerequisites succeeds when all checks pass."""
+        mock_runner = MagicMock()
+        mock_runner.is_inside_repo = AsyncMock(return_value=True)
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock successful subprocess execution."""
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                return_value=(b"git version 2.40.0", b""))
-            mock_process.returncode = 0
-            return mock_process
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=mock_subprocess_exec,
-        ):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_runner):
             # Should complete without raising
             await verify_git_prerequisites()
 
@@ -205,10 +211,12 @@ class TestVerifyGitPrerequisitesPublic:
         """Test verify_git_prerequisites raises when git is not found."""
         from maverick.exceptions import GitToolsError
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError("git command not found"),
-        ):
+        mock_runner = MagicMock()
+        mock_runner.is_inside_repo = AsyncMock(
+            side_effect=FileNotFoundError("git command not found")
+        )
+
+        with patch("maverick.tools.git.GitRunner", return_value=mock_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -220,26 +228,10 @@ class TestVerifyGitPrerequisitesPublic:
         """Test verify_git_prerequisites raises when not in a git repo."""
         from maverick.exceptions import GitToolsError
 
-        call_count = 0
+        mock_runner = MagicMock()
+        mock_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            mock_process = AsyncMock()
-            if call_count == 1:
-                # First call: git --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"git version 2.40", b""))
-                mock_process.returncode = 0
-            else:
-                # Second call: git rev-parse fails
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: not a git repository")
-                )
-                mock_process.returncode = 128
-            return mock_process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -263,15 +255,10 @@ class TestVerifyGitPrerequisitesPublic:
             await verify_git_prerequisites()  # fail-fast check
             server = create_git_tools_server()  # create server
         """
+        mock_runner = MagicMock()
+        mock_runner.is_inside_repo = AsyncMock(return_value=True)
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                return_value=(b"git version 2.40", b""))
-            mock_process.returncode = 0
-            return mock_process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_runner):
             # Fail-fast verification
             await verify_git_prerequisites()
 

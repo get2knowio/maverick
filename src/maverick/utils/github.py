@@ -1,19 +1,19 @@
 """GitHub CLI helper utilities for Maverick agents.
 
-This module provides async functions for GitHub operations using the gh CLI
-with automatic retry and exponential backoff.
+This module provides async functions for GitHub operations using the gh CLI.
+Delegates to the canonical GitHubCLIRunner for core operations while providing
+a simpler interface for utilities that only need basic GitHub operations.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
-from maverick.exceptions import GitHubError
+from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
+from maverick.runners.command import CommandRunner
+from maverick.runners.github import GitHubCLIRunner
 
 logger = logging.getLogger(__name__)
 
@@ -30,82 +30,44 @@ MAX_GITHUB_RETRIES: int = 3
 #: Base backoff time in seconds for exponential backoff
 BACKOFF_BASE: float = 2.0
 
-
 # =============================================================================
-# Low-level GitHub CLI Operations
+# Module-level runner instance (lazy-initialized)
 # =============================================================================
 
+_github_runner: GitHubCLIRunner | None = None
+_command_runner: CommandRunner | None = None
 
-async def _run_gh_command(
-    *args: str,
-    cwd: Path,
-    timeout: float = DEFAULT_GITHUB_TIMEOUT,
-) -> tuple[str, str, int]:
-    """Run a gh CLI command asynchronously.
 
-    Args:
-        *args: gh command arguments (without 'gh' prefix).
-        cwd: Working directory for the command.
-        timeout: Timeout in seconds.
+def _get_github_runner() -> GitHubCLIRunner:
+    """Get or create the module-level GitHubCLIRunner instance.
 
     Returns:
-        Tuple of (stdout, stderr, return_code).
+        GitHubCLIRunner instance.
 
     Raises:
-        asyncio.TimeoutError: If command times out.
+        GitHubError: If gh CLI is not installed.
     """
-    process = await asyncio.create_subprocess_exec(
-        "gh",
-        *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
-        raise
-
-    stdout = stdout_bytes.decode().strip()
-    stderr = stderr_bytes.decode().strip()
-    return_code = process.returncode or 0
-
-    return stdout, stderr, return_code
+    global _github_runner
+    if _github_runner is None:
+        try:
+            _github_runner = GitHubCLIRunner()
+        except GitHubCLINotFoundError as e:
+            raise GitHubError(
+                "GitHub CLI (gh) not found. Install: https://cli.github.com"
+            ) from e
+    return _github_runner
 
 
-def _parse_rate_limit_wait(stderr: str) -> int | None:
-    """Parse rate limit wait time from error message.
+def _get_command_runner(cwd: Path | None = None) -> CommandRunner:
+    """Get a CommandRunner instance for direct gh commands.
 
     Args:
-        stderr: Standard error output from gh command.
+        cwd: Working directory for command execution.
 
     Returns:
-        Seconds to wait, or None if not a rate limit error.
+        CommandRunner instance.
     """
-    # Look for patterns like "retry after 60 seconds" or "wait 120s"
-    patterns = [
-        r"retry after (\d+)",
-        r"wait (\d+)\s*s",
-        r"(\d+)\s*seconds",
-    ]
-
-    stderr_lower = stderr.lower()
-    if "rate limit" not in stderr_lower:
-        return None
-
-    for pattern in patterns:
-        match = re.search(pattern, stderr_lower)
-        if match:
-            return int(match.group(1))
-
-    # Default wait time if rate limited but no specific time given
-    return 60
+    return CommandRunner(cwd=cwd, timeout=DEFAULT_GITHUB_TIMEOUT)
 
 
 # =============================================================================
@@ -136,102 +98,49 @@ async def fetch_issue(
         >>> issue["title"]
         'Bug: Login fails on Safari'
     """
-    fields = "number,title,body,labels,state,url,author,assignees,createdAt,updatedAt"
+    try:
+        runner = _get_github_runner()
+        issue = await runner.get_issue(issue_number)
 
-    for attempt in range(max_retries):
-        try:
-            stdout, stderr, return_code = await _run_gh_command(
-                "issue",
-                "view",
-                str(issue_number),
-                "--json",
-                fields,
-                cwd=cwd,
-            )
+        # Convert GitHubIssue to dict for backward compatibility
+        data: dict[str, Any] = {
+            "number": issue.number,
+            "title": issue.title,
+            "body": issue.body,
+            "labels": [{"name": label} for label in issue.labels],
+            "state": issue.state,
+            "url": issue.url,
+            "assignees": [{"login": assignee} for assignee in issue.assignees],
+        }
 
-            if return_code == 0:
-                data: dict[str, Any] = json.loads(stdout)
-                title = data.get("title", "")
-                logger.debug("Fetched issue #%d: %s", issue_number, title)
-                return data
+        logger.debug("Fetched issue #%d: %s", issue_number, issue.title)
+        return data
 
-            error_msg = stderr or stdout
-            error_lower = error_msg.lower()
+    except GitHubAuthError as e:
+        raise GitHubError(
+            "GitHub authentication failed. Run: gh auth login",
+            issue_number=issue_number,
+        ) from e
+    except RuntimeError as e:
+        error_msg = str(e).lower()
 
-            # Check for specific error types
-            if "not found" in error_lower or "could not find" in error_lower:
-                raise GitHubError(
-                    f"Issue #{issue_number} not found",
-                    issue_number=issue_number,
-                )
-
-            if "rate limit" in error_lower:
-                retry_after = _parse_rate_limit_wait(error_msg)
-                if attempt < max_retries - 1:
-                    wait_time = retry_after or (BACKOFF_BASE ** (attempt + 1))
-                    logger.warning(
-                        "GitHub rate limit hit, waiting %.1fs (attempt %d/%d)",
-                        wait_time,
-                        attempt + 1,
-                        max_retries,
-                    )
-                    await asyncio.sleep(wait_time)
-                    continue
-                raise GitHubError(
-                    f"GitHub rate limit exceeded, retry after {retry_after} seconds",
-                    issue_number=issue_number,
-                    retry_after=retry_after,
-                )
-
-            if "authentication" in error_lower or "unauthorized" in error_lower:
-                raise GitHubError(
-                    "GitHub authentication failed. Run: gh auth login",
-                    issue_number=issue_number,
-                )
-
-            # Generic error with retry
-            if attempt < max_retries - 1:
-                wait_time = BACKOFF_BASE ** (attempt + 1)
-                logger.warning(
-                    "GitHub CLI error, retrying in %.1fs (attempt %d/%d): %s",
-                    wait_time,
-                    attempt + 1,
-                    max_retries,
-                    error_msg,
-                )
-                await asyncio.sleep(wait_time)
-                continue
-
+        if "not found" in error_msg or "could not find" in error_msg:
             raise GitHubError(
-                f"GitHub CLI error: {error_msg}",
-                issue_number=issue_number,
-            )
-
-        except asyncio.TimeoutError as err:
-            if attempt < max_retries - 1:
-                wait_time = BACKOFF_BASE ** (attempt + 1)
-                logger.warning(
-                    "GitHub request timed out, retrying in %.1fs (attempt %d/%d)",
-                    wait_time,
-                    attempt + 1,
-                    max_retries,
-                )
-                await asyncio.sleep(wait_time)
-                continue
-            raise GitHubError(
-                "GitHub request timed out after retries",
-                issue_number=issue_number,
-            ) from err
-        except json.JSONDecodeError as e:
-            raise GitHubError(
-                f"Failed to parse GitHub response: {e}",
+                f"Issue #{issue_number} not found",
                 issue_number=issue_number,
             ) from e
 
-    raise GitHubError(
-        "GitHub fetch failed after all retries",
-        issue_number=issue_number,
-    )
+        if "rate limit" in error_msg:
+            raise GitHubError(
+                "GitHub rate limit exceeded",
+                issue_number=issue_number,
+                retry_after=60,
+            ) from e
+
+        raise GitHubError(
+            f"GitHub CLI error: {e}",
+            issue_number=issue_number,
+        ) from e
 
 
 async def list_issues(
@@ -254,22 +163,60 @@ async def list_issues(
     Raises:
         GitHubError: On CLI or API errors.
     """
-    args = ["issue", "list", "--state", state, "--limit", str(limit)]
-    args.extend(["--json", "number,title,body,labels,state,url"])
-
-    if labels:
-        for label in labels:
-            args.extend(["--label", label])
-
-    stdout, stderr, return_code = await _run_gh_command(*args, cwd=cwd)
-
-    if return_code != 0:
-        raise GitHubError(f"Failed to list issues: {stderr or stdout}")
-
     try:
-        return json.loads(stdout) if stdout else []
-    except json.JSONDecodeError as e:
-        raise GitHubError(f"Failed to parse issue list: {e}") from e
+        runner = _get_github_runner()
+
+        # GitHubCLIRunner.list_issues only supports a single label
+        # For multiple labels, we need to make multiple calls and merge
+        if labels and len(labels) > 1:
+            # Use CommandRunner directly for multiple labels
+            cmd_runner = _get_command_runner(cwd)
+            args = ["gh", "issue", "list", "--state",
+                    state, "--limit", str(limit)]
+            args.extend(["--json", "number,title,body,labels,state,url"])
+
+            for label in labels:
+                args.extend(["--label", label])
+
+            result = await cmd_runner.run(
+                args,
+                max_retries=MAX_GITHUB_RETRIES,
+                retry_delay=BACKOFF_BASE,
+            )
+
+            if not result.success:
+                raise GitHubError(f"Failed to list issues: {result.stderr}")
+
+            import json
+
+            try:
+                return json.loads(result.stdout) if result.stdout.strip() else []
+            except json.JSONDecodeError as e:
+                raise GitHubError(f"Failed to parse issue list: {e}") from e
+
+        # Use runner for single or no label filter
+        label = labels[0] if labels else None
+        issues = await runner.list_issues(label=label, state=state, limit=limit)
+
+        # Convert to dicts for backward compatibility
+        return [
+            {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "labels": [{"name": lbl} for lbl in issue.labels],
+                "state": issue.state,
+                "url": issue.url,
+            }
+            for issue in issues
+        ]
+
+    except GitHubAuthError as e:
+        raise GitHubError(
+            "GitHub authentication failed. Run: gh auth login"
+        ) from e
+    except RuntimeError as e:
+        raise GitHubError(f"Failed to list issues: {e}") from e
 
 
 async def add_issue_comment(
@@ -287,18 +234,18 @@ async def add_issue_comment(
     Raises:
         GitHubError: On CLI or API errors.
     """
-    stdout, stderr, return_code = await _run_gh_command(
-        "issue",
-        "comment",
-        str(issue_number),
-        "--body",
-        body,
-        cwd=cwd,
+    cmd_runner = _get_command_runner(cwd)
+
+    result = await cmd_runner.run(
+        ["gh", "issue", "comment", str(issue_number), "--body", body],
+        max_retries=MAX_GITHUB_RETRIES,
+        retry_delay=BACKOFF_BASE,
+        scrub_secrets=True,
     )
 
-    if return_code != 0:
+    if not result.success:
         raise GitHubError(
-            f"Failed to add comment: {stderr or stdout}",
+            f"Failed to add comment: {result.stderr}",
             issue_number=issue_number,
         )
 
@@ -314,10 +261,11 @@ async def check_gh_auth(cwd: Path) -> bool:
     Returns:
         True if authenticated, False otherwise.
     """
-    stdout, stderr, return_code = await _run_gh_command(
-        "auth",
-        "status",
-        cwd=cwd,
+    cmd_runner = _get_command_runner(cwd)
+
+    result = await cmd_runner.run(
+        ["gh", "auth", "status"],
         timeout=10.0,
     )
-    return return_code == 0
+
+    return result.success

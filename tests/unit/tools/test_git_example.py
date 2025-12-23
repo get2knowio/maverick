@@ -1,11 +1,14 @@
 """Example unit tests for MCP tools - testing pattern reference.
 
 This file demonstrates best practices for testing MCP tools in Maverick:
-1. How to mock subprocess calls for git commands
+1. How to mock GitRunner methods for git commands
 2. How to test tool response structure
 3. Using MCPToolValidator for schema validation
 
 Use this as a reference when writing tests for other MCP tools.
+
+NOTE: Maverick's MCP tools delegate to GitRunner from maverick.runners.git.
+Tests should mock GitRunner methods rather than subprocess calls directly.
 """
 
 from __future__ import annotations
@@ -24,19 +27,38 @@ from tests.utils.mcp import MCPToolValidator
 
 
 @pytest.fixture
+def mock_git_runner() -> MagicMock:
+    """Create a mock GitRunner for testing git commands.
+
+    This fixture demonstrates how to set up a mock GitRunner that
+    simulates git operations without actually running git.
+
+    Returns:
+        Mock GitRunner with configurable method returns.
+
+    Example:
+        >>> mock_runner = mock_git_runner()
+        >>> mock_runner.is_inside_repo = AsyncMock(return_value=True)
+        >>> mock_runner.get_current_branch = AsyncMock(return_value="main")
+    """
+    mock_runner = MagicMock()
+    mock_runner.is_inside_repo = AsyncMock(return_value=True)
+    mock_runner.get_current_branch = AsyncMock(return_value="main")
+    mock_runner.get_diff_stats = AsyncMock(return_value=MagicMock(
+        files_changed=0, insertions=0, deletions=0
+    ))
+    return mock_runner
+
+
+@pytest.fixture
 def mock_subprocess() -> MagicMock:
     """Create a mock subprocess for testing git commands.
 
-    This fixture demonstrates how to set up a mock subprocess that
-    simulates git command execution without actually running git.
+    This fixture is kept for backwards compatibility but the preferred
+    approach is to mock GitRunner methods directly (see mock_git_runner).
 
     Returns:
         Mock subprocess with configurable stdout, stderr, and returncode.
-
-    Example:
-        >>> mock_proc = mock_subprocess()
-        >>> mock_proc.returncode = 0
-        >>> mock_proc.communicate = AsyncMock(return_value=(b"main", b""))
     """
     mock_proc = MagicMock()
     mock_proc.returncode = 0
@@ -101,49 +123,39 @@ class TestGitToolPatterns:
     """
 
     @pytest.mark.asyncio
-    async def test_git_command_mocking(self, mock_subprocess: MagicMock) -> None:
-        """Demonstrate how to mock subprocess.run for git commands.
+    async def test_git_command_mocking(self, mock_git_runner: MagicMock) -> None:
+        """Demonstrate how to mock GitRunner for git commands.
 
-        This test shows the complete pattern for mocking git commands:
-        1. Configure mock subprocess return values
-        2. Patch asyncio.create_subprocess_exec
+        This test shows the complete pattern for mocking git operations:
+        1. Configure mock GitRunner method return values
+        2. Patch GitRunner class to return our mock instance
         3. Call the tool
-        4. Verify the git command was called correctly
+        4. Verify the GitRunner methods were called
         5. Validate the response structure
 
         Pattern:
-            - Mock stdout/stderr as bytes (git returns bytes)
-            - Use AsyncMock for communicate()
-            - Patch at asyncio.create_subprocess_exec level
-            - Assert command arguments match expected
+            - Mock GitRunner methods with AsyncMock
+            - Patch maverick.runners.git.GitRunner class
+            - Assert GitRunner methods were called
         """
-        # Configure mock to return "main" as the current branch
-        mock_subprocess.returncode = 0
-        mock_subprocess.communicate = AsyncMock(return_value=(b"main\n", b""))
+        # Configure mock GitRunner to return "main" as the current branch
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=True)
+        mock_git_runner.get_current_branch = AsyncMock(return_value="main")
 
         # Create the MCP server
         server = create_git_tools_server()
         git_current_branch = server["tools"]["git_current_branch"]
 
-        # Patch subprocess creation
+        # Patch GitRunner class to return our mock when instantiated
         with patch(
-            "asyncio.create_subprocess_exec", return_value=mock_subprocess
-        ) as mock_exec:
+            "maverick.tools.git.GitRunner", return_value=mock_git_runner
+        ):
             # Call the tool via handler
             response = await git_current_branch.handler({})
 
-            # Verify git command was called correctly
-            # First call is for git --version (prerequisite check)
-            # Second call is for git rev-parse --git-dir (prerequisite check)
-            # Third call is the actual git rev-parse --abbrev-ref HEAD
-            assert mock_exec.call_count >= 3
-
-            # Get the last call (actual branch query)
-            last_call_args = mock_exec.call_args_list[-1][0]
-            assert last_call_args[0] == "git"
-            assert last_call_args[1] == "rev-parse"
-            assert last_call_args[2] == "--abbrev-ref"
-            assert last_call_args[3] == "HEAD"
+            # Verify GitRunner methods were called
+            mock_git_runner.is_inside_repo.assert_called_once()
+            mock_git_runner.get_current_branch.assert_called_once()
 
         # Validate response structure
         assert "content" in response
@@ -156,7 +168,7 @@ class TestGitToolPatterns:
 
     @pytest.mark.asyncio
     async def test_tool_response_validation(
-        self, mock_subprocess: MagicMock, tool_validator: MCPToolValidator
+        self, mock_git_runner: MagicMock, tool_validator: MCPToolValidator
     ) -> None:
         """Demonstrate how to validate tool response structure.
 
@@ -172,17 +184,20 @@ class TestGitToolPatterns:
             - Parse MCP response to get data
             - Use validator.assert_valid() to check schema
         """
-        # Configure mock for diff stats
-        diff_output = b" 3 files changed, 50 insertions(+), 20 deletions(-)"
-        mock_subprocess.returncode = 0
-        mock_subprocess.communicate = AsyncMock(return_value=(diff_output, b""))
+        # Configure mock GitRunner for diff stats
+        from maverick.runners.git import DiffStats
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=True)
+        mock_git_runner.is_dirty = AsyncMock(return_value=True)
+        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+            files_changed=3, insertions=50, deletions=20
+        ))
 
         # Create server and get tool
         server = create_git_tools_server()
         git_diff_stats = server["tools"]["git_diff_stats"]
 
         # Call the tool via handler
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             response = await git_diff_stats.handler({})
 
         # Parse MCP response
@@ -198,7 +213,7 @@ class TestGitToolPatterns:
         assert data["deletions"] == 20
 
     @pytest.mark.asyncio
-    async def test_error_response_structure(self, mock_subprocess: MagicMock) -> None:
+    async def test_error_response_structure(self, mock_git_runner: MagicMock) -> None:
         """Demonstrate how to test error responses.
 
         This test shows how to verify error responses follow
@@ -213,18 +228,15 @@ class TestGitToolPatterns:
             - Verify error response structure
             - Check error_code matches expected value
         """
-        # Configure mock to simulate "not a git repository" error
-        mock_subprocess.returncode = 128
-        mock_subprocess.communicate = AsyncMock(
-            return_value=(b"", b"fatal: not a git repository")
-        )
+        # Configure mock GitRunner to indicate not in a git repo
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
         # Create server and get tool
         server = create_git_tools_server()
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Call the tool via handler
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             response = await git_current_branch.handler({})
 
         # Validate error response structure
@@ -238,46 +250,44 @@ class TestGitToolPatterns:
         assert data["error_code"] == "NOT_A_REPOSITORY"
 
     @pytest.mark.asyncio
-    async def test_multiple_subprocess_calls(self, mock_subprocess: MagicMock) -> None:
-        """Demonstrate testing tools that make multiple git calls.
+    async def test_multiple_subprocess_calls(self, mock_git_runner: MagicMock) -> None:
+        """Demonstrate testing tools that make multiple GitRunner calls.
 
-        Some tools make multiple subprocess calls (e.g., prerequisite
+        Some tools make multiple GitRunner method calls (e.g., prerequisite
         checks, then the actual operation). This shows how to handle
         that pattern.
 
         Pattern:
-            - Track call count with side_effect or multiple mocks
-            - Verify each call's arguments
+            - Configure mock GitRunner with different method returns
+            - Verify each method was called appropriately
             - Test that failures at different stages are handled correctly
         """
-        # Configure mock to return different values for different calls
-        mock_subprocess.returncode = 0
+        # Track which methods were called
+        calls_made: list[str] = []
 
-        call_count = 0
+        async def track_is_inside_repo() -> bool:
+            calls_made.append("is_inside_repo")
+            return True
 
-        async def communicate_side_effect() -> tuple[bytes, bytes]:
-            """Simulate different responses for different calls."""
-            nonlocal call_count
-            call_count += 1
+        async def track_get_current_branch() -> str:
+            calls_made.append("get_current_branch")
+            return "feature-branch"
 
-            # First few calls are prerequisites (version, rev-parse)
-            if call_count <= 2:
-                return (b"output", b"")
-            # Last call is the actual branch query
-            return (b"feature-branch\n", b"")
-
-        mock_subprocess.communicate = AsyncMock(side_effect=communicate_side_effect)
+        mock_git_runner.is_inside_repo = AsyncMock(
+            side_effect=track_is_inside_repo)
+        mock_git_runner.get_current_branch = AsyncMock(
+            side_effect=track_get_current_branch)
 
         # Create server and get tool
         server = create_git_tools_server()
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Call the tool via handler
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             response = await git_current_branch.handler({})
 
-        # Verify multiple calls were made
-        assert call_count >= 3  # version + git-dir check + actual command
+        # Verify multiple GitRunner methods were called
+        assert len(calls_made) >= 2  # is_inside_repo + get_current_branch
 
         # Validate response
         data = json.loads(response["content"][0]["text"])
@@ -288,11 +298,11 @@ class TestGitToolPatterns:
 # Key Testing Patterns Summary
 # =============================================================================
 #
-# 1. MOCKING GIT COMMANDS:
-#    - Use AsyncMock for subprocess.communicate()
-#    - Return bytes (b"output") not strings
-#    - Set returncode (0 for success, non-zero for errors)
-#    - Patch at asyncio.create_subprocess_exec level
+# 1. MOCKING GIT COMMANDS (GitRunner pattern):
+#    - Create mock GitRunner with AsyncMock methods
+#    - Patch maverick.tools.git._get_runner to return mock
+#    - Configure method returns for specific scenarios
+#    - Use side_effect for tracking calls or multiple returns
 #
 # 2. TESTING SUCCESS RESPONSES:
 #    - Verify MCP structure: {"content": [{"type": "text", "text": "..."}]}
@@ -307,7 +317,7 @@ class TestGitToolPatterns:
 #    - Test all error conditions (invalid input, git errors, etc.)
 #
 # 4. FIXTURES:
-#    - Create reusable mock_subprocess fixture
+#    - Create reusable mock_git_runner fixture
 #    - Register common schemas in tool_validator fixture
 #    - Use parametrized tests for similar test cases
 #

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from maverick.runners.coderabbit import CodeRabbitRunner
 from maverick.runners.command import CommandRunner
-from maverick.runners.git import GitResult, GitRunner
+from maverick.runners.git import CommitInfo, DiffStats, GitResult, GitRunner
 from maverick.runners.github import GitHubCLIRunner
 from maverick.runners.models import (
     CheckStatus,
@@ -34,6 +34,8 @@ __all__ = [
     "CheckStatus",
     "CodeRabbitFinding",
     "CodeRabbitResult",
+    "DiffStats",
+    "CommitInfo",
     # Runners
     "CommandRunner",
     "GitRunner",

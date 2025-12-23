@@ -7,19 +7,27 @@ commands, etc.) and return a dict suitable for the target component.
 Each context builder receives workflow inputs and prior step results,
 and returns a dictionary containing all the information needed by the
 target agent or generator.
+
+Git operations are delegated to the canonical GitRunner from maverick.runners.git.
+Non-git shell commands (e.g., `tree`) use CommandRunner from maverick.runners.command.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
+
+from maverick.runners.command import CommandRunner
+from maverick.runners.git import GitRunner
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
 logger = logging.getLogger(__name__)
+
+# Default timeout for shell commands (tree, etc.)
+DEFAULT_COMMAND_TIMEOUT: float = 30.0
 
 
 # =============================================================================
@@ -82,31 +90,10 @@ class IssueAnalyzerInputs(TypedDict, total=False):
 # =============================================================================
 
 
-async def _run_git_command(*args: str) -> tuple[str, str, int]:
-    """Run a git command and return stdout, stderr, returncode.
-
-    Args:
-        *args: Git command arguments (without 'git' prefix).
-
-    Returns:
-        Tuple of (stdout, stderr, returncode).
-    """
-    process = await asyncio.create_subprocess_exec(
-        "git",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout_bytes, stderr_bytes = await process.communicate()
-    return (
-        stdout_bytes.decode().strip(),
-        stderr_bytes.decode().strip(),
-        process.returncode or 0,
-    )
-
-
 async def _get_project_structure(max_depth: int = 3) -> str:
     """Get a directory tree structure for the project.
+
+    Uses the `tree` command via CommandRunner with proper timeout handling.
 
     Args:
         max_depth: Maximum depth to traverse.
@@ -115,36 +102,35 @@ async def _get_project_structure(max_depth: int = 3) -> str:
         String representation of the directory tree.
     """
     cwd = Path.cwd()
+    runner = CommandRunner(cwd=cwd, timeout=DEFAULT_COMMAND_TIMEOUT)
 
     # Try using tree command if available
     ignore_pattern = (
         "__pycache__|*.pyc|.git|.venv|venv|node_modules|.pytest_cache|.ruff_cache"
     )
-    process = await asyncio.create_subprocess_exec(
+    result = await runner.run([
         "tree",
         "-L",
         str(max_depth),
         "-I",
         ignore_pattern,
         "--dirsfirst",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout_bytes, stderr_bytes = await process.communicate()
+    ])
 
-    if process.returncode == 0:
-        return stdout_bytes.decode().strip()
+    if result.success:
+        return result.stdout.strip()
 
     # Fallback: simple directory listing
     try:
-        result = []
-        result.append(str(cwd.name) + "/")
+        lines: list[str] = []
+        lines.append(str(cwd.name) + "/")
 
         def add_tree(path: Path, prefix: str = "", depth: int = 0) -> None:
             if depth >= max_depth:
                 return
 
-            items = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
+            items = sorted(path.iterdir(), key=lambda p: (
+                not p.is_dir(), p.name))
             # Filter out common ignore patterns
             items = [
                 item
@@ -172,13 +158,13 @@ async def _get_project_structure(max_depth: int = 3) -> str:
                 next_prefix = "    " if is_last else "│   "
 
                 if item.is_dir():
-                    result.append(f"{prefix}{current_prefix}{item.name}/")
+                    lines.append(f"{prefix}{current_prefix}{item.name}/")
                     add_tree(item, prefix + next_prefix, depth + 1)
                 else:
-                    result.append(f"{prefix}{current_prefix}{item.name}")
+                    lines.append(f"{prefix}{current_prefix}{item.name}")
 
         add_tree(cwd)
-        return "\n".join(result)
+        return "\n".join(lines)
 
     except Exception as e:
         logger.debug(f"Failed to generate project structure: {e}")
@@ -194,10 +180,11 @@ async def _get_spec_artifacts() -> dict[str, str]:
     artifacts: dict[str, str] = {}
     cwd = Path.cwd()
 
-    # Look for spec directory based on branch name
-    stdout, _, returncode = await _run_git_command("rev-parse", "--abbrev-ref", "HEAD")
-    if returncode == 0:
-        branch_name = stdout
+    # Get current branch name using GitRunner
+    git_runner = GitRunner(cwd=cwd)
+    branch_name = await git_runner.get_current_branch()
+
+    if branch_name and branch_name != "(detached)":
         # Try to find spec directory matching branch name
         spec_patterns = [
             cwd / ".specify" / branch_name,
@@ -226,16 +213,10 @@ async def _get_diff(ref: str = "HEAD", staged: bool = False) -> str:
         staged: If True, get staged changes only.
 
     Returns:
-        Git diff output.
+        Git diff output, or empty string on error.
     """
-    args = ["diff"]
-    if staged:
-        args.append("--staged")
-    else:
-        args.append(ref)
-
-    stdout, _, returncode = await _run_git_command(*args)
-    return stdout if returncode == 0 else ""
+    git_runner = GitRunner(cwd=Path.cwd())
+    return await git_runner.get_diff_output(ref=ref, staged=staged)
 
 
 async def _get_changed_files(ref: str = "HEAD") -> list[str]:
@@ -247,10 +228,8 @@ async def _get_changed_files(ref: str = "HEAD") -> list[str]:
     Returns:
         List of changed file paths.
     """
-    stdout, _, returncode = await _run_git_command("diff", "--name-only", ref)
-    if returncode != 0 or not stdout:
-        return []
-    return [line.strip() for line in stdout.split("\n") if line.strip()]
+    git_runner = GitRunner(cwd=Path.cwd())
+    return await git_runner.get_changed_files(ref=ref)
 
 
 async def _get_file_stats(ref: str = "HEAD") -> dict[str, dict[str, int]]:
@@ -262,22 +241,16 @@ async def _get_file_stats(ref: str = "HEAD") -> dict[str, dict[str, int]]:
     Returns:
         Dict mapping file paths to stats with 'additions' and 'deletions' keys.
     """
-    stdout, _, returncode = await _run_git_command("diff", "--numstat", ref)
-    if returncode != 0 or not stdout:
-        return {}
+    git_runner = GitRunner(cwd=Path.cwd())
+    diff_stats = await git_runner.get_diff_stats(ref=ref)
 
-    stats: dict[str, dict[str, int]] = {}
-    for line in stdout.split("\n"):
-        if not line.strip():
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 3:
-            added = int(parts[0]) if parts[0] != "-" else 0
-            removed = int(parts[1]) if parts[1] != "-" else 0
-            file_path = parts[2]
-            stats[file_path] = {"additions": added, "deletions": removed}
-
-    return stats
+    # Convert DiffStats per_file format to the legacy dict format
+    # DiffStats uses per_file: dict[str, tuple[int, int]] (added, removed)
+    # Legacy format: dict[str, dict[str, int]] with 'additions' and 'deletions' keys
+    result: dict[str, dict[str, int]] = {}
+    for file_path, (added, removed) in diff_stats.per_file.items():
+        result[file_path] = {"additions": added, "deletions": removed}
+    return result
 
 
 async def _get_recent_commits(limit: int = 10) -> list[str]:
@@ -289,12 +262,8 @@ async def _get_recent_commits(limit: int = 10) -> list[str]:
     Returns:
         List of commit messages.
     """
-    stdout, _, returncode = await _run_git_command(
-        "log", f"-{limit}", "--pretty=format:%s"
-    )
-    if returncode != 0 or not stdout:
-        return []
-    return [line.strip() for line in stdout.split("\n") if line.strip()]
+    git_runner = GitRunner(cwd=Path.cwd())
+    return await git_runner.get_commit_messages(limit=limit)
 
 
 async def _get_commits_on_branch(base_branch: str = "main") -> list[str]:
@@ -306,12 +275,8 @@ async def _get_commits_on_branch(base_branch: str = "main") -> list[str]:
     Returns:
         List of commit messages.
     """
-    stdout, _, returncode = await _run_git_command(
-        "log", f"{base_branch}..HEAD", "--pretty=format:%s"
-    )
-    if returncode != 0 or not stdout:
-        return []
-    return [line.strip() for line in stdout.split("\n") if line.strip()]
+    git_runner = GitRunner(cwd=Path.cwd())
+    return await git_runner.get_commit_messages_since(ref=base_branch)
 
 
 async def _find_related_files(issue_body: str, issue_title: str) -> list[str]:
@@ -446,7 +411,8 @@ async def review_context(
         conventions = claude_md.read_text()
 
     # Get coderabbit findings from prior step if available
-    coderabbit_result = step_results.get("run_coderabbit", {}).get("output", {})
+    coderabbit_result = step_results.get(
+        "run_coderabbit", {}).get("output", {})
     coderabbit_findings = coderabbit_result.get("findings", [])
 
     # Get PR metadata from prior step if available
@@ -618,15 +584,19 @@ async def pr_title_context(
     # Get commits on this branch
     commits = await _get_commits_on_branch(base_branch)
 
-    # Get current branch name
-    stdout, _, returncode = await _run_git_command("rev-parse", "--abbrev-ref", "HEAD")
-    branch_name = stdout if returncode == 0 else inputs.get("branch_name", "")
+    # Get current branch name using GitRunner
+    git_runner = GitRunner(cwd=Path.cwd())
+    branch_name = await git_runner.get_current_branch()
+    if branch_name == "(detached)":
+        branch_name = inputs.get("branch_name", "")
 
     # Get brief diff overview (just file names and stats)
     diff_stats = await _get_file_stats(base_branch)
     if diff_stats:
-        total_additions = sum(stats["additions"] for stats in diff_stats.values())
-        total_deletions = sum(stats["deletions"] for stats in diff_stats.values())
+        total_additions = sum(stats["additions"]
+                              for stats in diff_stats.values())
+        total_deletions = sum(stats["deletions"]
+                              for stats in diff_stats.values())
         file_count = len(diff_stats)
         diff_overview = (
             f"{file_count} files changed, "
@@ -677,10 +647,13 @@ def register_all_context_builders(registry: ComponentRegistry) -> None:
     Args:
         registry: Component registry to register context builders with.
     """
-    registry.context_builders.register("implementation_context", implementation_context)
+    registry.context_builders.register(
+        "implementation_context", implementation_context)
     registry.context_builders.register("review_context", review_context)
     registry.context_builders.register("issue_fix_context", issue_fix_context)
-    registry.context_builders.register("commit_message_context", commit_message_context)
+    registry.context_builders.register(
+        "commit_message_context", commit_message_context)
     registry.context_builders.register("pr_body_context", pr_body_context)
     registry.context_builders.register("pr_title_context", pr_title_context)
-    registry.context_builders.register("issue_analyzer_context", issue_analyzer_context)
+    registry.context_builders.register(
+        "issue_analyzer_context", issue_analyzer_context)

@@ -1,13 +1,19 @@
-"""Unit tests for git utilities."""
+"""Unit tests for git utilities.
+
+These tests verify the utils/git.py module which delegates to GitRunner
+for actual git operations while adding error handling with GitError and
+auto-recovery logic.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from maverick.exceptions import GitError
+from maverick.runners.git import GitResult
 from maverick.utils.git import (
     create_commit,
     get_current_branch,
@@ -19,45 +25,46 @@ from maverick.utils.git import (
 )
 
 
+def make_git_result(
+    success: bool = True,
+    output: str = "",
+    error: str | None = None,
+    duration_ms: int = 10,
+) -> GitResult:
+    """Create a GitResult for testing."""
+    return GitResult(
+        success=success,
+        output=output,
+        error=error,
+        duration_ms=duration_ms,
+    )
+
+
 class TestHasUncommittedChanges:
     """Tests for has_uncommitted_changes function."""
 
     @pytest.mark.asyncio
     async def test_returns_false_when_no_changes(self) -> None:
         """Test returns False when no uncommitted changes."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=False)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await has_uncommitted_changes(Path("/repo"))
 
         assert result is False
+        mock_runner.is_dirty.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_returns_true_when_changes_exist(self) -> None:
         """Test returns True when uncommitted changes exist."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b" M src/file.py\n", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=True)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await has_uncommitted_changes(Path("/repo"))
 
         assert result is True
-
-    @pytest.mark.asyncio
-    async def test_ignores_git_command_errors(self) -> None:
-        """Test gracefully handles git status errors."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
-        mock_process.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            # Should not raise, just return False (treating error as "no changes")
-            result = await has_uncommitted_changes(Path("/repo"))
-
-        assert result is False
 
 
 class TestStashChanges:
@@ -66,11 +73,10 @@ class TestStashChanges:
     @pytest.mark.asyncio
     async def test_stash_changes_returns_false_when_nothing_to_stash(self) -> None:
         """Test stash_changes returns False when no changes to stash."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=False)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await stash_changes(Path("/repo"))
 
         assert result is False
@@ -78,56 +84,46 @@ class TestStashChanges:
     @pytest.mark.asyncio
     async def test_stash_changes_returns_true_when_stashed(self) -> None:
         """Test stash_changes returns True when changes were stashed."""
-        # First call to has_uncommitted_changes
-        mock_status_process = AsyncMock()
-        mock_status_process.communicate = AsyncMock(return_value=(b" M file.py\n", b""))
-        mock_status_process.returncode = 0
-
-        # Second call to stash push
-        mock_stash_process = AsyncMock()
-        mock_stash_process.communicate = AsyncMock(
-            return_value=(b"Saved working directory", b"")
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=True)
+        mock_runner.stash = AsyncMock(
+            return_value=make_git_result(
+                success=True, output="Saved working directory")
         )
-        mock_stash_process.returncode = 0
 
-        processes = [mock_status_process, mock_stash_process]
-        call_count = [0]
-
-        def mock_exec(*args, **kwargs):
-            process = processes[call_count[0]]
-            call_count[0] += 1
-            return process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await stash_changes(Path("/repo"))
 
         assert result is True
+        mock_runner.stash.assert_called_once_with("maverick-auto-stash")
 
     @pytest.mark.asyncio
     async def test_stash_changes_uses_custom_message(self) -> None:
         """Test stash_changes uses provided message."""
-        mock_status_process = AsyncMock()
-        mock_status_process.communicate = AsyncMock(return_value=(b" M file.py\n", b""))
-        mock_status_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=True)
+        mock_runner.stash = AsyncMock(
+            return_value=make_git_result(success=True))
 
-        mock_stash_process = AsyncMock()
-        mock_stash_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_stash_process.returncode = 0
-
-        processes = [mock_status_process, mock_stash_process]
-        call_count = [0]
-
-        def mock_exec(*args, **kwargs):
-            process = processes[call_count[0]]
-            call_count[0] += 1
-            return process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec) as mock:
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             await stash_changes(Path("/repo"), message="custom-message")
 
-            # Check the stash push command includes the custom message
-            stash_call = mock.call_args_list[1]
-            assert "custom-message" in stash_call[0]
+        mock_runner.stash.assert_called_once_with("custom-message")
+
+    @pytest.mark.asyncio
+    async def test_stash_changes_raises_git_error_on_failure(self) -> None:
+        """Test stash_changes raises GitError when stash fails."""
+        mock_runner = MagicMock()
+        mock_runner.is_dirty = AsyncMock(return_value=True)
+        mock_runner.stash = AsyncMock(
+            return_value=make_git_result(success=False, error="stash failed")
+        )
+
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
+            with pytest.raises(GitError) as exc_info:
+                await stash_changes(Path("/repo"))
+
+        assert "stash" in exc_info.value.operation
 
 
 class TestUnstashChanges:
@@ -136,11 +132,14 @@ class TestUnstashChanges:
     @pytest.mark.asyncio
     async def test_unstash_changes_returns_false_when_no_stash_found(self) -> None:
         """Test unstash_changes returns False when stash not found."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.stash_pop_by_message = AsyncMock(
+            return_value=make_git_result(
+                success=False, error="No stash found with message: maverick-auto-stash"
+            )
+        )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await unstash_changes(Path("/repo"))
 
         assert result is False
@@ -148,29 +147,13 @@ class TestUnstashChanges:
     @pytest.mark.asyncio
     async def test_unstash_changes_returns_true_when_restored(self) -> None:
         """Test unstash_changes returns True when changes restored."""
-        # First call to stash list
-        mock_list_process = AsyncMock()
-        mock_list_process.communicate = AsyncMock(
-            return_value=(b"stash@{0}: WIP on main: maverick-auto-stash\n", b"")
+        mock_runner = MagicMock()
+        mock_runner.stash_pop_by_message = AsyncMock(
+            return_value=make_git_result(
+                success=True, output="Dropped stash@{0}")
         )
-        mock_list_process.returncode = 0
 
-        # Second call to stash pop
-        mock_pop_process = AsyncMock()
-        mock_pop_process.communicate = AsyncMock(
-            return_value=(b"Dropped stash@{0}", b"")
-        )
-        mock_pop_process.returncode = 0
-
-        processes = [mock_list_process, mock_pop_process]
-        call_count = [0]
-
-        def mock_exec(*args, **kwargs):
-            process = processes[call_count[0]]
-            call_count[0] += 1
-            return process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await unstash_changes(Path("/repo"))
 
         assert result is True
@@ -178,29 +161,17 @@ class TestUnstashChanges:
     @pytest.mark.asyncio
     async def test_unstash_changes_matches_custom_message(self) -> None:
         """Test unstash_changes finds stash by custom message."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"stash@{0}: WIP on main: custom-stash\n", b"")
+        mock_runner = MagicMock()
+        mock_runner.stash_pop_by_message = AsyncMock(
+            return_value=make_git_result(success=True)
         )
-        mock_process.returncode = 0
 
-        # Matches the message, so will try to pop
-        mock_pop_process = AsyncMock()
-        mock_pop_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_pop_process.returncode = 0
-
-        processes = [mock_process, mock_pop_process]
-        call_count = [0]
-
-        def mock_exec(*args, **kwargs):
-            process = processes[call_count[0]]
-            call_count[0] += 1
-            return process
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             result = await unstash_changes(Path("/repo"), message="custom-stash")
 
         assert result is True
+        mock_runner.stash_pop_by_message.assert_called_once_with(
+            "custom-stash")
 
 
 class TestStageFiles:
@@ -209,47 +180,55 @@ class TestStageFiles:
     @pytest.mark.asyncio
     async def test_stage_single_file(self) -> None:
         """Test staging a single file."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             await stage_files(Path("/repo"), "src/file.py")
 
-            # Verify git add was called
-            mock.assert_called_once()
-            call_args = mock.call_args[0]
-            assert call_args[0] == "git"
-            assert "add" in call_args
-            assert "src/file.py" in call_args
+        mock_runner.add.assert_called_once()
+        call_kwargs = mock_runner.add.call_args[1]
+        assert "src/file.py" in call_kwargs["paths"]
 
     @pytest.mark.asyncio
     async def test_stage_multiple_files(self) -> None:
         """Test staging multiple files."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             await stage_files(Path("/repo"), "file1.py", "file2.py", "file3.py")
 
-            call_args = mock.call_args[0]
-            assert "file1.py" in call_args
-            assert "file2.py" in call_args
-            assert "file3.py" in call_args
+        call_kwargs = mock_runner.add.call_args[1]
+        assert "file1.py" in call_kwargs["paths"]
+        assert "file2.py" in call_kwargs["paths"]
+        assert "file3.py" in call_kwargs["paths"]
 
     @pytest.mark.asyncio
     async def test_stage_all_changes(self) -> None:
         """Test staging all changes with '.'."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock:
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             await stage_files(Path("/repo"), ".")
 
-            call_args = mock.call_args[0]
-            assert "." in call_args
+        call_kwargs = mock_runner.add.call_args[1]
+        assert call_kwargs["add_all"] is True
+
+    @pytest.mark.asyncio
+    async def test_stage_files_raises_git_error_on_failure(self) -> None:
+        """Test stage_files raises GitError on failure."""
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(
+            return_value=make_git_result(success=False, error="add failed")
+        )
+
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
+            with pytest.raises(GitError) as exc_info:
+                await stage_files(Path("/repo"), "file.py")
+
+        assert exc_info.value.operation == "add"
 
 
 class TestCreateCommit:
@@ -258,97 +237,64 @@ class TestCreateCommit:
     @pytest.mark.asyncio
     async def test_create_commit_success(self) -> None:
         """Test successful commit creation."""
-        # Mock stage_files
-        with patch(
-            "maverick.utils.git.stage_files", new_callable=AsyncMock
-        ) as mock_stage:
-            # Mock _run_git_command for commit
-            mock_commit_process = AsyncMock()
-            mock_commit_process.communicate = AsyncMock(
-                return_value=(b"[main abc1234] Test commit", b"")
-            )
-            mock_commit_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
+        mock_runner.commit = AsyncMock(
+            return_value=make_git_result(
+                success=True, output="[main abc1234] Test commit")
+        )
+        mock_runner.get_head_sha = AsyncMock(return_value="abc1234567890def")
 
-            # Mock _run_git_command for get_head_sha
-            mock_sha_process = AsyncMock()
-            mock_sha_process.communicate = AsyncMock(
-                return_value=(b"abc1234567890def", b"")
-            )
-            mock_sha_process.returncode = 0
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
+            sha = await create_commit("Test commit", Path("/repo"))
 
-            processes = [mock_commit_process, mock_sha_process]
-            call_count = [0]
-
-            def mock_exec(*args, **kwargs):
-                process = processes[call_count[0]]
-                call_count[0] += 1
-                return process
-
-            with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                sha = await create_commit("Test commit", Path("/repo"))
-
-            assert sha == "abc1234567890def"
-            mock_stage.assert_called_once()
+        assert sha == "abc1234567890def"
+        mock_runner.commit.assert_called_once_with("Test commit")
 
     @pytest.mark.asyncio
     async def test_create_commit_raises_git_error_on_failure(self) -> None:
         """Test create_commit raises GitError on failure."""
-        with patch("maverick.utils.git.stage_files", new_callable=AsyncMock):
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                return_value=(b"", b"nothing to commit")
-            )
-            mock_process.returncode = 1
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
+        mock_runner.commit = AsyncMock(
+            return_value=make_git_result(
+                success=False, error="nothing to commit")
+        )
 
-            with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-                with pytest.raises(GitError):
-                    await create_commit("Test", Path("/repo"), auto_recover=False)
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
+            with pytest.raises(GitError):
+                await create_commit("Test", Path("/repo"), auto_recover=False)
 
     @pytest.mark.asyncio
     async def test_create_commit_recovery_on_precommit_hook_failure(self) -> None:
         """Test create_commit attempts recovery on pre-commit hook failure."""
-        # First attempt fails with hook error
-        mock_fail_process = AsyncMock()
-        mock_fail_process.communicate = AsyncMock(
-            return_value=(b"", b"pre-commit hook failed")
-        )
-        mock_fail_process.returncode = 1
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
 
-        # Recovery runs ruff format
+        # First commit attempt fails with hook error, second succeeds
+        mock_runner.commit = AsyncMock(
+            side_effect=[
+                make_git_result(success=False, error="pre-commit hook failed"),
+                make_git_result(success=True, output="[main abc1234] Test"),
+            ]
+        )
+        mock_runner.get_head_sha = AsyncMock(return_value="abc1234")
+
+        # Mock ruff format subprocess for recovery
         mock_ruff_process = AsyncMock()
         mock_ruff_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_ruff_process.returncode = 0
 
-        # Second attempt succeeds
-        mock_success_process = AsyncMock()
-        mock_success_process.communicate = AsyncMock(
-            return_value=(b"[main abc1234] Test", b"")
-        )
-        mock_success_process.returncode = 0
+        with (
+            patch("maverick.utils.git._get_runner", return_value=mock_runner),
+            patch(
+                "asyncio.create_subprocess_exec", return_value=mock_ruff_process
+            ),
+        ):
+            sha = await create_commit("Test", Path("/repo"), auto_recover=True)
 
-        # SHA retrieval
-        mock_sha_process = AsyncMock()
-        mock_sha_process.communicate = AsyncMock(return_value=(b"abc1234", b""))
-        mock_sha_process.returncode = 0
-
-        with patch("maverick.utils.git.stage_files", new_callable=AsyncMock):
-            processes = [
-                mock_fail_process,
-                mock_ruff_process,
-                mock_success_process,
-                mock_sha_process,
-            ]
-            call_count = [0]
-
-            def mock_exec(*args, **kwargs):
-                process = processes[call_count[0]]
-                call_count[0] += 1
-                return process
-
-            with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                # Should succeed after recovery
-                sha = await create_commit("Test", Path("/repo"), auto_recover=True)
-                assert sha == "abc1234"
+        assert sha == "abc1234"
+        # Should have called commit twice (first failed, second succeeded)
+        assert mock_runner.commit.call_count == 2
 
 
 class TestGetHeadSha:
@@ -357,28 +303,26 @@ class TestGetHeadSha:
     @pytest.mark.asyncio
     async def test_get_head_sha_returns_sha(self) -> None:
         """Test get_head_sha returns commit SHA."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"abc1234567890def1234567890abcdef12345678\n", b"")
+        mock_runner = MagicMock()
+        mock_runner.get_head_sha = AsyncMock(
+            return_value="abc1234567890def1234567890abcdef12345678"
         )
-        mock_process.returncode = 0
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             sha = await get_head_sha(Path("/repo"))
 
         assert sha == "abc1234567890def1234567890abcdef12345678"
 
     @pytest.mark.asyncio
-    async def test_get_head_sha_strips_whitespace(self) -> None:
-        """Test get_head_sha strips whitespace from output."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"  abc1234  \n\n", b""))
-        mock_process.returncode = 0
+    async def test_get_head_sha_delegates_to_runner(self) -> None:
+        """Test get_head_sha properly delegates to GitRunner."""
+        mock_runner = MagicMock()
+        mock_runner.get_head_sha = AsyncMock(return_value="abc1234")
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            sha = await get_head_sha(Path("/repo"))
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
+            await get_head_sha(Path("/repo"))
 
-        assert sha == "abc1234"
+        mock_runner.get_head_sha.assert_called_once()
 
 
 class TestGetCurrentBranch:
@@ -387,11 +331,10 @@ class TestGetCurrentBranch:
     @pytest.mark.asyncio
     async def test_get_current_branch_returns_branch_name(self) -> None:
         """Test get_current_branch returns branch name."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"main\n", b""))
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.get_current_branch = AsyncMock(return_value="main")
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             branch = await get_current_branch(Path("/repo"))
 
         assert branch == "main"
@@ -399,28 +342,25 @@ class TestGetCurrentBranch:
     @pytest.mark.asyncio
     async def test_get_current_branch_handles_feature_branches(self) -> None:
         """Test get_current_branch handles feature branch names."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"feature/new-feature\n", b"")
-        )
-        mock_process.returncode = 0
+        mock_runner = MagicMock()
+        mock_runner.get_current_branch = AsyncMock(
+            return_value="feature/new-feature")
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             branch = await get_current_branch(Path("/repo"))
 
         assert branch == "feature/new-feature"
 
     @pytest.mark.asyncio
-    async def test_get_current_branch_strips_whitespace(self) -> None:
-        """Test get_current_branch strips whitespace."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"  main  \n", b""))
-        mock_process.returncode = 0
+    async def test_get_current_branch_handles_detached_head(self) -> None:
+        """Test get_current_branch handles detached HEAD state."""
+        mock_runner = MagicMock()
+        mock_runner.get_current_branch = AsyncMock(return_value="(detached)")
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             branch = await get_current_branch(Path("/repo"))
 
-        assert branch == "main"
+        assert branch == "(detached)"
 
 
 class TestGitErrorHandling:
@@ -429,29 +369,33 @@ class TestGitErrorHandling:
     @pytest.mark.asyncio
     async def test_git_error_is_recoverable_when_dirty(self) -> None:
         """Test git errors with 'dirty' are marked recoverable."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"fatal: your local changes are dirty")
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
+        mock_runner.commit = AsyncMock(
+            return_value=make_git_result(
+                success=False, error="fatal: your local changes are dirty"
+            )
         )
-        mock_process.returncode = 1
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             with pytest.raises(GitError) as exc_info:
                 await create_commit("Test", Path("/repo"), auto_recover=False)
 
-            assert exc_info.value.recoverable is True
+        assert exc_info.value.recoverable is True
 
     @pytest.mark.asyncio
     async def test_git_error_is_not_recoverable_for_other_errors(self) -> None:
         """Test git errors without recovery patterns are not recoverable."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"fatal: some other error")
+        mock_runner = MagicMock()
+        mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
+        mock_runner.commit = AsyncMock(
+            return_value=make_git_result(
+                success=False, error="fatal: some other error"
+            )
         )
-        mock_process.returncode = 1
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             with pytest.raises(GitError) as exc_info:
                 await create_commit("Test", Path("/repo"), auto_recover=False)
 
-            assert exc_info.value.recoverable is False
+        assert exc_info.value.recoverable is False

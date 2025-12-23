@@ -2064,25 +2064,32 @@ class TestTimeoutAndExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_run_gh_command_timeout(self) -> None:
-        """Test _run_gh_command handles timeout correctly (lines 65-87)."""
-        import asyncio
+        """Test _run_gh_command handles timeout correctly.
 
+        Now that _run_gh_command delegates to CommandRunner, timeout handling
+        is done by CommandRunner. This test verifies the timeout behavior
+        still surfaces correctly through the wrapper.
+        """
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import _run_gh_command
 
-        # Mock process that times out
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            side_effect=asyncio.TimeoutError())
-        mock_process.kill = AsyncMock()
-        mock_process.wait = AsyncMock()
+        # Mock CommandRunner.run to return a timed-out result
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=-1, stdout="", stderr="",
+                duration_ms=30000, timed_out=True
+            )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            with pytest.raises(asyncio.TimeoutError):
-                await _run_gh_command("pr", "list", timeout=0.1)
+        with patch(
+            "maverick.tools.github.CommandRunner.run",
+            side_effect=mock_run,
+        ):
+            stdout, stderr, returncode = await _run_gh_command("pr", "list", timeout=0.1)
 
-            # Verify process was killed
-            mock_process.kill.assert_called_once()
-            mock_process.wait.assert_called_once()
+            # Verify timeout result is returned
+            assert returncode == -1
+            assert stdout == ""
+            assert stderr == ""
 
     @pytest.mark.asyncio
     async def test_run_gh_command_success(self) -> None:
@@ -2674,29 +2681,34 @@ class TestVerifyPrerequisites:
     async def test_verify_prerequisites_gh_not_authenticated(self) -> None:
         """Test gh auth status fails."""
         from maverick.exceptions import GitHubToolsError
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import _verify_prerequisites
 
-        # Mock gh --version succeeds but gh auth status fails
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock subprocess that succeeds for gh --version."""
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                return_value=(b"gh version 2.0.0", b"")
-            )
-            mock_process.returncode = 0
-            return mock_process
+        call_count = 0
 
-        with (
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=mock_subprocess_exec,
-            ),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=(
-                    "", "You are not logged into any GitHub hosts", 1),
-            ),
+        # Mock CommandRunner.run to succeed for gh --version but fail for gh auth status
+        async def mock_run(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if cmd == ["gh", "--version"]:
+                return CommandResult(
+                    returncode=0, stdout="gh version 2.0.0", stderr="",
+                    duration_ms=10, timed_out=False
+                )
+            elif cmd == ["gh", "auth", "status"]:
+                return CommandResult(
+                    returncode=1, stdout="",
+                    stderr="You are not logged into any GitHub hosts",
+                    duration_ms=10, timed_out=False
+                )
+            # Default success for other commands
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=10, timed_out=False
+            )
+
+        with patch(
+            "maverick.tools.github.CommandRunner.run",
+            side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
                 await _verify_prerequisites()
@@ -2882,48 +2894,39 @@ class TestVerifyPrerequisites:
     @pytest.mark.asyncio
     async def test_verify_prerequisites_git_timeout(self) -> None:
         """Test git rev-parse times out."""
-        import asyncio
-
         from maverick.exceptions import GitHubToolsError
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import _verify_prerequisites
 
         call_count = 0
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock subprocess: gh succeeds, git rev-parse times out."""
+        # Mock CommandRunner.run to succeed for gh but timeout for git rev-parse
+        async def mock_run(cmd, **kwargs):
             nonlocal call_count
             call_count += 1
-
-            mock_process = AsyncMock()
-            command = args[0]
-
-            if command == "gh":
-                # gh --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"gh version 2.0.0", b"")
+            if cmd == ["gh", "--version"]:
+                return CommandResult(
+                    returncode=0, stdout="gh version 2.0.0", stderr="",
+                    duration_ms=10, timed_out=False
                 )
-                mock_process.returncode = 0
-            elif command == "git" and "rev-parse" in args:
-                # git rev-parse times out
-                mock_process.communicate = AsyncMock(
-                    side_effect=asyncio.TimeoutError())
-            else:
-                # Other commands succeed
-                mock_process.communicate = AsyncMock(return_value=(b"", b""))
-                mock_process.returncode = 0
+            elif cmd == ["gh", "auth", "status"]:
+                return CommandResult(
+                    returncode=0, stdout="Logged in as user", stderr="",
+                    duration_ms=10, timed_out=False
+                )
+            elif cmd == ["git", "rev-parse", "--git-dir"]:
+                return CommandResult(
+                    returncode=-1, stdout="", stderr="",
+                    duration_ms=5000, timed_out=True
+                )
+            # Default success for other commands
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=10, timed_out=False
+            )
 
-            return mock_process
-
-        with (
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=mock_subprocess_exec,
-            ),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=("Logged in as user", "", 0),
-            ),
+        with patch(
+            "maverick.tools.github.CommandRunner.run",
+            side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
                 await _verify_prerequisites()
@@ -2937,45 +2940,43 @@ class TestVerifyPrerequisites:
         import asyncio
 
         from maverick.exceptions import GitHubToolsError
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import _verify_prerequisites
 
         call_count = 0
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock subprocess: gh and git rev-parse succeed, git remote times out."""
+        # Mock CommandRunner.run to succeed for all checks except git remote (timeout)
+        async def mock_run(cmd, **kwargs):
             nonlocal call_count
             call_count += 1
-
-            mock_process = AsyncMock()
-            command = args[0]
-
-            if command == "gh":
-                # gh --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"gh version 2.0.0", b"")
+            if cmd == ["gh", "--version"]:
+                return CommandResult(
+                    returncode=0, stdout="gh version 2.0.0", stderr="",
+                    duration_ms=10, timed_out=False
                 )
-                mock_process.returncode = 0
-            elif command == "git" and "remote" in args and "get-url" in args:
-                # git remote get-url origin times out
-                mock_process.communicate = AsyncMock(
-                    side_effect=asyncio.TimeoutError())
-            else:
-                # Other commands succeed
-                mock_process.communicate = AsyncMock(return_value=(b"", b""))
-                mock_process.returncode = 0
+            elif cmd == ["gh", "auth", "status"]:
+                return CommandResult(
+                    returncode=0, stdout="Logged in as user", stderr="",
+                    duration_ms=10, timed_out=False
+                )
+            elif cmd == ["git", "rev-parse", "--git-dir"]:
+                return CommandResult(
+                    returncode=0, stdout=".git", stderr="",
+                    duration_ms=10, timed_out=False
+                )
+            elif cmd == ["git", "remote", "get-url", "origin"]:
+                return CommandResult(
+                    returncode=-1, stdout="", stderr="",
+                    duration_ms=5000, timed_out=True
+                )
+            # Default success for other commands
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=10, timed_out=False
+            )
 
-            return mock_process
-
-        with (
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=mock_subprocess_exec,
-            ),
-            patch(
-                "maverick.tools.github._run_gh_command",
-                new_callable=AsyncMock,
-                return_value=("Logged in as user", "", 0),
-            ),
+        with patch(
+            "maverick.tools.github.CommandRunner.run",
+            side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
                 await _verify_prerequisites()
@@ -2987,18 +2988,24 @@ class TestVerifyPrerequisites:
     async def test_verify_prerequisites_gh_returncode_nonzero(self) -> None:
         """Test gh --version returns non-zero exit code."""
         from maverick.exceptions import GitHubToolsError
+        from maverick.runners.models import CommandResult
         from maverick.tools.github import _verify_prerequisites
 
-        async def mock_subprocess_exec(*args, **kwargs):
-            """Mock subprocess that returns non-zero for gh --version."""
-            mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
-            mock_process.returncode = 1
-            return mock_process
+        # Mock CommandRunner.run to return non-zero for gh --version
+        async def mock_run(cmd, **kwargs):
+            if cmd == ["gh", "--version"]:
+                return CommandResult(
+                    returncode=1, stdout="", stderr="error",
+                    duration_ms=10, timed_out=False
+                )
+            # Default success for other commands
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=10, timed_out=False
+            )
 
         with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=mock_subprocess_exec,
+            "maverick.tools.github.CommandRunner.run",
+            side_effect=mock_run,
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
                 await _verify_prerequisites()

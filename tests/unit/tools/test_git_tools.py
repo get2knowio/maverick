@@ -7,22 +7,22 @@ Tests the git tools functionality including:
 - git_diff_stats: Getting diff statistics
 - git_create_branch: Creating and checking out new branches
 - Error handling and validation
+
+These tests mock GitRunner to isolate the MCP tools layer from the git runner layer.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.exceptions import GitToolsError
+from maverick.runners.git import DiffStats, GitResult
 from maverick.tools.git import (
     _error_response,
     _format_commit_message,
-    _run_git_command,
     _success_response,
     create_git_tools_server,
     verify_git_prerequisites,
@@ -34,29 +34,33 @@ from maverick.tools.git import (
 
 
 @pytest.fixture
-def mock_subprocess() -> MagicMock:
-    """Create a mock subprocess for testing git commands (T058).
+def mock_git_runner() -> MagicMock:
+    """Create a mock GitRunner for testing git tools.
 
     Returns:
-        Mock subprocess with configurable stdout, stderr, and returncode.
+        Mock GitRunner with configurable async methods.
     """
-    mock_proc = MagicMock()
-    mock_proc.returncode = 0
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    return mock_proc
-
-
-@pytest.fixture
-def mock_create_subprocess_exec(mock_subprocess: MagicMock) -> AsyncMock:
-    """Create a mock for asyncio.create_subprocess_exec (T058).
-
-    Args:
-        mock_subprocess: Mock subprocess to return.
-
-    Returns:
-        AsyncMock that returns the mock subprocess.
-    """
-    return AsyncMock(return_value=mock_subprocess)
+    runner = MagicMock()
+    # Default to successful results
+    runner.is_inside_repo = AsyncMock(return_value=True)
+    runner.add = AsyncMock(return_value=GitResult(
+        success=True, output="", error=None, duration_ms=10
+    ))
+    runner.commit = AsyncMock(return_value=GitResult(
+        success=True, output="", error=None, duration_ms=10
+    ))
+    runner.get_head_sha = AsyncMock(return_value="abc123def456")
+    runner.get_current_branch = AsyncMock(return_value="main")
+    runner.push = AsyncMock(return_value=GitResult(
+        success=True, output="main -> main", error=None, duration_ms=100
+    ))
+    runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+        files_changed=0, insertions=0, deletions=0, per_file={}
+    ))
+    runner.create_branch = AsyncMock(return_value=GitResult(
+        success=True, output="Switched to a new branch", error=None, duration_ms=10
+    ))
+    return runner
 
 
 # =============================================================================
@@ -130,102 +134,26 @@ class TestHelperFunctions:
         assert result == "feat(api)!: breaking change"
 
     @pytest.mark.asyncio
-    async def test_run_git_command_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
-    ) -> None:
-        """Test _run_git_command with successful execution."""
-        mock_subprocess.communicate.return_value = (b"output\n", b"")
-        mock_subprocess.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            stdout, stderr, returncode = await _run_git_command("status")
-
-        assert stdout == "output"
-        assert stderr == ""
-        assert returncode == 0
-        mock_create_subprocess_exec.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_run_git_command_with_stderr(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
-    ) -> None:
-        """Test _run_git_command with stderr output."""
-        mock_subprocess.communicate.return_value = (b"", b"error output\n")
-        mock_subprocess.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            stdout, stderr, returncode = await _run_git_command("commit")
-
-        assert stdout == ""
-        assert stderr == "error output"
-        assert returncode == 1
-
-    @pytest.mark.asyncio
-    async def test_run_git_command_timeout(
-        self, mock_create_subprocess_exec: AsyncMock
-    ) -> None:
-        """Test _run_git_command with timeout."""
-        # Mock communicate to raise TimeoutError
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        mock_proc.kill = MagicMock()
-        mock_proc.wait = AsyncMock()
-        mock_create_subprocess_exec.return_value = mock_proc
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            with pytest.raises(asyncio.TimeoutError):
-                await _run_git_command("status", timeout=0.1)
-
-        # Verify process was killed
-        mock_proc.kill.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_verify_git_prerequisites_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test verify_git_prerequisites with all checks passing."""
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             # Should not raise
             await verify_git_prerequisites()
 
-        # Should be called twice: once for git --version, once for git rev-parse
-        assert mock_create_subprocess_exec.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_verify_git_prerequisites_git_not_installed(
-        self, mock_create_subprocess_exec: AsyncMock
-    ) -> None:
-        """Test verify_git_prerequisites when git is not installed."""
-        mock_create_subprocess_exec.side_effect = FileNotFoundError
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            with pytest.raises(GitToolsError) as exc_info:
-                await verify_git_prerequisites()
-
-        assert "not installed" in str(exc_info.value)
-        assert exc_info.value.check_failed == "git_installed"
+        mock_git_runner.is_inside_repo.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_verify_git_prerequisites_not_in_repo(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test verify_git_prerequisites when not in git repository."""
+        from maverick.exceptions import GitToolsError
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args:
-                # rev-parse fails
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: not a git repository")
-                )
-                return proc
-            # git --version succeeds
-            return mock_subprocess
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -243,7 +171,7 @@ class TestGitCommit:
 
     @pytest.mark.asyncio
     async def test_git_commit_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_commit with successful commit creation (T064).
 
@@ -252,16 +180,10 @@ class TestGitCommit:
         - Commit SHA is retrieved
         - Response contains success, commit_sha, and message fields
         """
-        # First call: git commit
-        # Second call: git rev-parse HEAD
         commit_sha = "abc123def456"
-        mock_subprocess.communicate.side_effect = [
-            (b"[main abc123d] feat: add feature\n", b""),
-            (f"{commit_sha}\n".encode(), b""),
-        ]
-        mock_subprocess.returncode = 0
+        mock_git_runner.get_head_sha = AsyncMock(return_value=commit_sha)
 
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {"message": "add feature", "type": "feat"}
@@ -276,7 +198,7 @@ class TestGitCommit:
 
     @pytest.mark.asyncio
     async def test_git_commit_conventional_format(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_commit with type, scope, and breaking change (T065).
 
@@ -285,13 +207,9 @@ class TestGitCommit:
         - All parameters properly formatted
         """
         commit_sha = "def789abc123"
-        mock_subprocess.communicate.side_effect = [
-            (b"[main def789a] fix(auth)!: breaking change\n", b""),
-            (f"{commit_sha}\n".encode(), b""),
-        ]
-        mock_subprocess.returncode = 0
+        mock_git_runner.get_head_sha = AsyncMock(return_value=commit_sha)
 
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {
@@ -308,7 +226,7 @@ class TestGitCommit:
 
     @pytest.mark.asyncio
     async def test_git_commit_nothing_to_commit(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_commit when there are no changes to commit (T066).
 
@@ -316,13 +234,14 @@ class TestGitCommit:
         - NOTHING_TO_COMMIT error code
         - Helpful error message
         """
-        mock_subprocess.communicate.return_value = (
-            b"",
-            b"nothing to commit, working tree clean",
-        )
-        mock_subprocess.returncode = 1
+        mock_git_runner.commit = AsyncMock(return_value=GitResult(
+            success=False,
+            output="nothing to commit, working tree clean",
+            error="nothing to commit",
+            duration_ms=10,
+        ))
 
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {"message": "test commit"}
@@ -358,36 +277,18 @@ class TestGitCommit:
         assert "invalid" in parsed["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_git_commit_timeout(
-        self, mock_create_subprocess_exec: AsyncMock
-    ) -> None:
-        """Test git_commit timeout handling."""
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        mock_proc.kill = MagicMock()
-        mock_proc.wait = AsyncMock()
-        mock_create_subprocess_exec.return_value = mock_proc
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler({"message": "test"})
-
-        parsed = json.loads(result["content"][0]["text"])
-        assert parsed["isError"] is True
-        assert parsed["error_code"] == "TIMEOUT"
-
-    @pytest.mark.asyncio
     async def test_git_commit_git_error(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_commit with generic git error."""
-        mock_subprocess.communicate.return_value = (
-            b"",
-            b"fatal: some git error",
-        )
-        mock_subprocess.returncode = 1
+        mock_git_runner.commit = AsyncMock(return_value=GitResult(
+            success=False,
+            output="",
+            error="fatal: some git error",
+            duration_ms=10,
+        ))
 
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler({"message": "test"})
 
@@ -406,7 +307,7 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push with successful push (T067).
 
@@ -414,35 +315,16 @@ class TestGitPush:
         - Push succeeds
         - Response contains success, commits_pushed, remote, and branch
         """
+        mock_git_runner.get_current_branch = AsyncMock(
+            return_value="feature-branch")
+        mock_git_runner.push = AsyncMock(return_value=GitResult(
+            success=True,
+            output="feature-branch -> feature-branch",
+            error=None,
+            duration_ms=100,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args:
-                # Get current branch
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(b"feature-branch\n", b""))
-                return proc
-            if "push" in args:
-                # Push succeeds
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b"",
-                        (
-                            b"To github.com:org/repo\n"
-                            b"   abc123..def456  feature-branch -> feature-branch\n"
-                        ),
-                    )
-                )
-                return proc
-            # git --version and rev-parse --git-dir
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -454,7 +336,7 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_detached_head(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push from detached HEAD state (T068).
 
@@ -462,20 +344,10 @@ class TestGitPush:
         - DETACHED_HEAD error code
         - Appropriate error message
         """
+        mock_git_runner.get_current_branch = AsyncMock(
+            return_value="(detached)")
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                # Return HEAD for detached HEAD state
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"HEAD\n", b""))
-                return proc
-            # Other commands succeed
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -485,7 +357,7 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_auth_required(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push with authentication failure (T069).
 
@@ -493,28 +365,14 @@ class TestGitPush:
         - AUTHENTICATION_REQUIRED error code
         - Detects various auth error patterns
         """
+        mock_git_runner.push = AsyncMock(return_value=GitResult(
+            success=False,
+            output="",
+            error="fatal: Authentication failed for 'https://github.com/org/repo'",
+            duration_ms=100,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"main\n", b""))
-                return proc
-            if "push" in args:
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b"",
-                        b"fatal: Authentication failed for 'https://github.com/org/repo'\n",
-                    )
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -524,29 +382,17 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_network_error(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push with network error."""
+        mock_git_runner.push = AsyncMock(return_value=GitResult(
+            success=False,
+            output="",
+            error="fatal: could not resolve host: github.com",
+            duration_ms=100,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"main\n", b""))
-                return proc
-            if "push" in args:
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b"", b"fatal: could not resolve host: github.com\n")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -556,24 +402,12 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_not_a_repository(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push when not in a git repository."""
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--git-dir" in args:
-                # Not a git repo
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: not a git repository\n")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -583,43 +417,27 @@ class TestGitPush:
 
     @pytest.mark.asyncio
     async def test_git_push_set_upstream(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_push with set_upstream=True."""
+        mock_git_runner.get_current_branch = AsyncMock(return_value="feature")
+        mock_git_runner.push = AsyncMock(return_value=GitResult(
+            success=True,
+            output="Branch 'feature' set up to track remote branch 'feature' from 'origin'.",
+            error=None,
+            duration_ms=100,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"feature\n", b""))
-                return proc
-            if "push" in args:
-                # Verify -u flag is present
-                assert "-u" in args
-                assert "origin" in args
-                assert "feature" in args
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b"",
-                        (
-                            b"Branch 'feature' set up to track remote branch "
-                            b"'feature' from 'origin'.\n"
-                        ),
-                    )
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": True})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
+        # Verify push was called with set_upstream=True
+        mock_git_runner.push.assert_called_once()
+        call_kwargs = mock_git_runner.push.call_args.kwargs
+        assert call_kwargs.get("set_upstream") is True
 
 
 # =============================================================================
@@ -632,7 +450,7 @@ class TestGitCurrentBranch:
 
     @pytest.mark.asyncio
     async def test_git_current_branch_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_current_branch with successful branch retrieval (T059).
 
@@ -640,19 +458,10 @@ class TestGitCurrentBranch:
         - Branch name is retrieved correctly
         - Response contains branch field
         """
+        mock_git_runner.get_current_branch = AsyncMock(
+            return_value="feature-branch")
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(b"feature-branch\n", b""))
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -661,7 +470,7 @@ class TestGitCurrentBranch:
 
     @pytest.mark.asyncio
     async def test_git_current_branch_detached(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_current_branch in detached HEAD state (T060).
 
@@ -669,19 +478,10 @@ class TestGitCurrentBranch:
         - Returns "(detached)" when in detached HEAD state
         - No error is raised
         """
+        mock_git_runner.get_current_branch = AsyncMock(
+            return_value="(detached)")
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--abbrev-ref" in args:
-                # Return "HEAD" for detached HEAD
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"HEAD\n", b""))
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -690,7 +490,7 @@ class TestGitCurrentBranch:
 
     @pytest.mark.asyncio
     async def test_git_current_branch_not_repo(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_current_branch when not in a git repository (T061).
 
@@ -698,21 +498,9 @@ class TestGitCurrentBranch:
         - NOT_A_REPOSITORY error code
         - Appropriate error message
         """
+        mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        async def side_effect(*args, **kwargs):
-            if "rev-parse" in args and "--git-dir" in args:
-                # Not a git repo
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: not a git repository\n")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -731,7 +519,7 @@ class TestGitDiffStats:
 
     @pytest.mark.asyncio
     async def test_git_diff_stats_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_diff_stats with changes present (T070).
 
@@ -739,23 +527,14 @@ class TestGitDiffStats:
         - Statistics are parsed correctly
         - Response contains files_changed, insertions, deletions
         """
+        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+            files_changed=3,
+            insertions=50,
+            deletions=20,
+            per_file={"file1.py": (30, 10), "file2.py": (20, 10)},
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "diff" in args and "--shortstat" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b" 3 files changed, 50 insertions(+), 20 deletions(-)\n",
-                        b"",
-                    )
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -766,7 +545,7 @@ class TestGitDiffStats:
 
     @pytest.mark.asyncio
     async def test_git_diff_stats_no_changes(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_diff_stats with no changes (T071).
 
@@ -774,18 +553,14 @@ class TestGitDiffStats:
         - Empty diff returns zeros
         - No error is raised
         """
+        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+            files_changed=0,
+            insertions=0,
+            deletions=0,
+            per_file={},
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "diff" in args and "--shortstat" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"", b""))
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -796,24 +571,17 @@ class TestGitDiffStats:
 
     @pytest.mark.asyncio
     async def test_git_diff_stats_insertions_only(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_diff_stats with only insertions."""
+        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+            files_changed=2,
+            insertions=100,
+            deletions=0,
+            per_file={"new_file.py": (100, 0)},
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "diff" in args and "--shortstat" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b" 2 files changed, 100 insertions(+)\n", b"")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -824,23 +592,17 @@ class TestGitDiffStats:
 
     @pytest.mark.asyncio
     async def test_git_diff_stats_deletions_only(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_diff_stats with only deletions."""
+        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
+            files_changed=1,
+            insertions=0,
+            deletions=50,
+            per_file={"deleted_file.py": (0, 50)},
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "diff" in args and "--shortstat" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(b" 1 file changed, 50 deletions(-)\n", b"")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -860,7 +622,7 @@ class TestGitCreateBranch:
 
     @pytest.mark.asyncio
     async def test_git_create_branch_success(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_create_branch with successful branch creation (T062).
 
@@ -868,20 +630,14 @@ class TestGitCreateBranch:
         - Branch is created and checked out
         - Response contains success, branch, and base
         """
+        mock_git_runner.create_branch = AsyncMock(return_value=GitResult(
+            success=True,
+            output="Switched to a new branch 'feature'",
+            error=None,
+            duration_ms=10,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "checkout" in args and "-b" in args:
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(b"Switched to a new branch 'feature'\n", b"")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature"}
@@ -894,25 +650,17 @@ class TestGitCreateBranch:
 
     @pytest.mark.asyncio
     async def test_git_create_branch_with_base(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_create_branch with base branch specified."""
+        mock_git_runner.create_branch = AsyncMock(return_value=GitResult(
+            success=True,
+            output="Switched to a new branch 'feature'",
+            error=None,
+            duration_ms=10,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "checkout" in args and "-b" in args:
-                # Verify base branch is in args
-                assert "main" in args
-                proc = MagicMock()
-                proc.returncode = 0
-                proc.communicate = AsyncMock(
-                    return_value=(b"Switched to a new branch 'feature'\n", b"")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "main"}
@@ -921,10 +669,13 @@ class TestGitCreateBranch:
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
         assert parsed["base"] == "main"
+        # Verify create_branch was called with correct from_ref
+        mock_git_runner.create_branch.assert_called_once_with(
+            "feature", from_ref="main")
 
     @pytest.mark.asyncio
     async def test_git_create_branch_exists(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_create_branch when branch already exists (T063).
 
@@ -932,23 +683,14 @@ class TestGitCreateBranch:
         - BRANCH_EXISTS error code
         - Appropriate error message
         """
+        mock_git_runner.create_branch = AsyncMock(return_value=GitResult(
+            success=False,
+            output="",
+            error="fatal: A branch named 'feature' already exists.",
+            duration_ms=10,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "checkout" in args and "-b" in args:
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(
-                        b"",
-                        b"fatal: A branch named 'feature' already exists.\n",
-                    )
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature"}
@@ -990,23 +732,17 @@ class TestGitCreateBranch:
 
     @pytest.mark.asyncio
     async def test_git_create_branch_base_not_found(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
+        self, mock_git_runner: MagicMock
     ) -> None:
         """Test git_create_branch when base branch doesn't exist."""
+        mock_git_runner.create_branch = AsyncMock(return_value=GitResult(
+            success=False,
+            output="",
+            error="fatal: 'nonexistent' not found",
+            duration_ms=10,
+        ))
 
-        async def side_effect(*args, **kwargs):
-            if "checkout" in args and "-b" in args:
-                proc = MagicMock()
-                proc.returncode = 1
-                proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: 'nonexistent' not found\n")
-                )
-                return proc
-            return mock_subprocess
-
-        mock_create_subprocess_exec.side_effect = side_effect
-
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "nonexistent"}
@@ -1025,9 +761,7 @@ class TestGitCreateBranch:
 class TestCreateGitToolsServer:
     """Tests for create_git_tools_server factory (T072)."""
 
-    def test_create_git_tools_server(
-        self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
-    ) -> None:
+    def test_create_git_tools_server(self) -> None:
         """Test create_git_tools_server creates server with all tools (T072).
 
         Verifies:
@@ -1035,8 +769,7 @@ class TestCreateGitToolsServer:
         - All 5 tools are registered
         - Server has correct name and version
         """
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            server = create_git_tools_server()
+        server = create_git_tools_server()
 
         # Verify server was created
         assert server is not None
@@ -1053,14 +786,10 @@ class TestCreateGitToolsServer:
 
     def test_create_git_tools_server_with_cwd(
         self,
-        mock_create_subprocess_exec: AsyncMock,
-        mock_subprocess: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Test create_git_tools_server with custom working directory."""
-        with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
-            server = create_git_tools_server(cwd=tmp_path)
-
+        server = create_git_tools_server(cwd=tmp_path)
         assert server is not None
 
     def test_create_git_tools_server_safe_in_async_context(self) -> None:
