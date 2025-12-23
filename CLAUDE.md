@@ -126,6 +126,17 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 
 6. **Simplicity**: No global mutable state, no god-classes, no premature abstractions.
 
+## Operating Standard (Ownership & Follow-Through)
+
+The default stance is full ownership of the repository state while you work. “That’s not my problem” is not an acceptable response.
+
+- **Do what you’re asked, then keep going**: Complete the requested change end-to-end, then address collateral failures and obvious correctness issues you encountered along the way.
+- **Fix what you find**: If you encounter broken tests, lint failures, type errors, flaky behavior, or obvious bugs while working, attempt to fix them—even if they predate your changes.
+- **Keep the tree green**: Don’t rationalize failures as “unrelated” or “not introduced by me.” If the repo is failing, the task is not done yet.
+- **No artificial scope minimization**: We are not operating under time pressure. Unless explicitly instructed otherwise, prefer a complete, robust solution over a narrowly-scoped patch.
+- **No deferral by difficulty**: “Too hard” or “too far-reaching” is a signal to decompose the work, not to stop. Break the problem down and make real progress now.
+- **Only defer when truly blocked**: Defer work only when it is impossible in the current context (missing requirements, missing access, non-reproducible failures). If you must defer, document exactly what’s blocked and what the next concrete step is.
+
 ## Claude Agent SDK Patterns
 
 - Always specify `allowed_tools` explicitly (principle of least privilege)
@@ -155,7 +166,7 @@ Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict ad
 
 ### 1. Testing is Not Optional (Anti-Deferral)
 - No PR shall be merged without passing **new** tests covering added functionality
-- Do not comment out or skip failing tests; fix them immediately
+- Do not comment out or skip failing tests; fix them immediately (including failures that predate your change)
 - For async components (Agents/Workflows), test concurrency and error states, not just happy paths
 
 ### 2. Modularize Early (Keep Files Small)
