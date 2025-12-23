@@ -140,7 +140,7 @@ class TestHelperFunctions:
         self, mock_git_runner: MagicMock
     ) -> None:
         """Test verify_git_prerequisites with all checks passing."""
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_git_runner):
             # Should not raise
             await verify_git_prerequisites()
 
@@ -155,7 +155,7 @@ class TestHelperFunctions:
 
         mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_git_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -183,7 +183,7 @@ class TestGitCommit:
         commit_sha = "abc123def456"
         mock_git_runner.get_head_sha = AsyncMock(return_value=commit_sha)
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.commit.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {"message": "add feature", "type": "feat"}
@@ -209,7 +209,7 @@ class TestGitCommit:
         commit_sha = "def789abc123"
         mock_git_runner.get_head_sha = AsyncMock(return_value=commit_sha)
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.commit.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {
@@ -243,7 +243,7 @@ class TestGitCommit:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.commit.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler(
                 {"message": "test commit"}
@@ -290,7 +290,7 @@ class TestGitCommit:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.commit.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_commit"].handler({"message": "test"})
 
@@ -325,7 +325,7 @@ class TestGitPush:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -345,7 +345,7 @@ class TestGitPush:
         """
         mock_git_runner.get_current_branch = AsyncMock(return_value="(detached)")
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -370,7 +370,7 @@ class TestGitPush:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -390,7 +390,7 @@ class TestGitPush:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -403,7 +403,7 @@ class TestGitPush:
         """Test git_push when not in a git repository."""
         mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": False})
 
@@ -427,7 +427,7 @@ class TestGitPush:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_push"].handler({"set_upstream": True})
 
@@ -457,7 +457,7 @@ class TestGitCurrentBranch:
         """
         mock_git_runner.get_current_branch = AsyncMock(return_value="feature-branch")
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -476,7 +476,7 @@ class TestGitCurrentBranch:
         """
         mock_git_runner.get_current_branch = AsyncMock(return_value="(detached)")
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -495,7 +495,7 @@ class TestGitCurrentBranch:
         """
         mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_current_branch"].handler({})
 
@@ -529,7 +529,7 @@ class TestGitDiffStats:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -555,7 +555,7 @@ class TestGitDiffStats:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -578,7 +578,7 @@ class TestGitDiffStats:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -601,7 +601,7 @@ class TestGitDiffStats:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_diff_stats"].handler({})
 
@@ -636,7 +636,7 @@ class TestGitCreateBranch:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature"}
@@ -661,7 +661,7 @@ class TestGitCreateBranch:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "main"}
@@ -692,7 +692,7 @@ class TestGitCreateBranch:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature"}
@@ -746,7 +746,7 @@ class TestGitCreateBranch:
             )
         )
 
-        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
             server = create_git_tools_server()
             result = await server["tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "nonexistent"}
