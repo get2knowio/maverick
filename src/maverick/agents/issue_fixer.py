@@ -165,25 +165,15 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
                 issue_data, context
             )
 
-            # Detect file changes
+            # Detect file changes (informational - used for result reporting)
             files_changed = await self._detect_file_changes(context.cwd)
 
-            # Verify the fix
-            verification_passed = await self._verify_fix(issue_data, context)
-
-            # Run validation
+            # Validation, verification, and commits are handled by the workflow layer
+            # Agent returns file changes and fix analysis; orchestration runs validation/commits
+            verification_passed = True  # Workflow handles verification
             validation_results: list[ValidationResult] = []
-            validation_passed = True
-            if not context.skip_validation:
-                validation_results = await self._run_validation(context.cwd)
-                validation_passed = all(v.success for v in validation_results)
-
-            # Create commit
-            commit_sha = None
-            if not context.dry_run and files_changed:
-                commit_sha = await self._create_commit(
-                    issue_number, fix_description, context
-                )
+            validation_passed = True  # Workflow handles validation
+            commit_sha = None  # Workflow handles commits
 
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -268,7 +258,8 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         """Build the prompt for fixing an issue."""
         title = issue_data.get("title", "")
         body = issue_data.get("body", "")
-        labels = [label.get("name", "") for label in issue_data.get("labels", [])]
+        labels = [label.get("name", "")
+                  for label in issue_data.get("labels", [])]
 
         return f"""Fix the following GitHub issue:
 
@@ -299,6 +290,10 @@ After fixing, provide:
         context: IssueFixerContext,
     ) -> bool:
         """Verify the fix works.
+
+        .. deprecated::
+            This method will be removed in a future version.
+            Verification is now handled by the workflow layer.
 
         Args:
             issue_data: Issue details.
@@ -339,7 +334,12 @@ After fixing, provide:
             return []
 
     async def _run_validation(self, cwd: Path) -> list[ValidationResult]:
-        """Run validation pipeline."""
+        """Run validation pipeline.
+
+        .. deprecated::
+            This method will be removed in a future version.
+            Validation is now handled by the workflow layer via utils/validation.py.
+        """
         from maverick.utils.validation import run_validation_pipeline
 
         try:
@@ -354,7 +354,12 @@ After fixing, provide:
         fix_description: str,
         context: IssueFixerContext,
     ) -> str | None:
-        """Create a git commit for the fix."""
+        """Create a git commit for the fix.
+
+        .. deprecated::
+            This method will be removed in a future version.
+            Commits are now handled by the workflow layer via utils/git.py.
+        """
         from maverick.utils.git import create_commit, has_uncommitted_changes
 
         try:

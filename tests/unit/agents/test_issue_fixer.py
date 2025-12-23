@@ -261,7 +261,8 @@ class TestExecuteMethod:
             ) as mock_commit,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
             mock_detect.return_value = []
             mock_verify.return_value = True
             mock_validate.return_value = [
@@ -989,14 +990,14 @@ class TestErrorHandling:
             assert any("Unexpected error" in e for e in result.errors)
 
     @pytest.mark.asyncio
-    async def test_execute_returns_partial_results_on_verification_failure(
+    async def test_verification_passed_always_true_when_agent_does_not_verify(
         self,
         agent: IssueFixerAgent,
         issue_context: IssueFixerContext,
         sample_issue_data: dict,
         sample_file_changes: list[FileChange],
     ) -> None:
-        """Test execute returns partial FixResult when verification fails."""
+        """Test that verification_passed is True since agent defers verification to workflow."""
         with (
             patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
@@ -1005,30 +1006,133 @@ class TestErrorHandling:
             patch.object(
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
             mock_detect.return_value = sample_file_changes
-            mock_verify.return_value = False
 
             result = await agent.execute(issue_context)
 
-            # Should have partial results
-            assert result.success is False
-            assert result.verification_passed is False
+            assert result.verification_passed is True
+            assert result.success is True
             assert len(result.files_changed) > 0
             assert result.root_cause == "cause"
             assert result.fix_description == "fix"
 
     @pytest.mark.asyncio
-    async def test_execute_returns_partial_results_on_validation_failure(
+    async def test_validation_passed_always_true_when_agent_does_not_validate(
         self,
         agent: IssueFixerAgent,
         issue_context: IssueFixerContext,
         sample_issue_data: dict,
     ) -> None:
-        """Test execute returns partial FixResult when validation fails."""
+        """Test that validation_passed is True since agent defers validation to workflow."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = ("output", "cause", "fix")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            assert result.validation_passed is True
+            assert result.success is True
+
+
+# =============================================================================
+# Side-Effect Free Tests (Issue #160)
+# =============================================================================
+
+
+class TestSideEffectFree:
+    """Tests verifying agents are side-effect free per issue #160.
+
+    IssueFixerAgent should NOT:
+    - Call _run_validation (workflow handles validation)
+    - Call _create_commit (workflow handles commits)
+    - Call _verify_fix (workflow handles verification)
+
+    FixResult should have:
+    - Empty validation_results
+    - commit_sha=None
+    - validation_passed=True (no validation ran, default pass)
+    """
+
+    @pytest.mark.asyncio
+    async def test_execute_does_not_call_validation(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that execute does not run validation (workflow handles this)."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+            patch.object(
+                agent, "_run_validation", new_callable=AsyncMock
+            ) as mock_validate,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            # _run_validation should NOT be called
+            mock_validate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_does_not_call_create_commit(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that execute does not create commits (workflow handles this)."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+            patch.object(
+                agent, "_create_commit", new_callable=AsyncMock
+            ) as mock_commit,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            # _create_commit should NOT be called
+            mock_commit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_does_not_call_verify_fix(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that execute does not verify fix (workflow handles this)."""
         with (
             patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
             patch.object(
@@ -1038,24 +1142,94 @@ class TestErrorHandling:
                 agent, "_detect_file_changes", new_callable=AsyncMock
             ) as mock_detect,
             patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock
-            ) as mock_validate,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "cause", "fix")
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
             mock_detect.return_value = []
-            mock_verify.return_value = True
-            mock_validate.return_value = [
-                ValidationResult(
-                    step=ValidationStep.LINT,
-                    success=False,
-                    output="Lint errors",
-                )
-            ]
 
             result = await agent.execute(issue_context)
 
-            assert result.success is False
+            # _verify_fix should NOT be called
+            mock_verify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fix_result_has_no_commit_sha(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that fix result has no commit_sha."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            # Verify commit_sha is None (workflow handles commits)
+            assert result.commit_sha is None
+
+    @pytest.mark.asyncio
+    async def test_fix_result_has_validation_passed_true(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that fix result has validation_passed=True (no validation ran)."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            # Verify validation_passed is True (default, workflow handles actual validation)
+            assert result.validation_passed is True
+
+    @pytest.mark.asyncio
+    async def test_fix_result_has_verification_passed_true(
+        self,
+        agent: IssueFixerAgent,
+        issue_context: IssueFixerContext,
+        sample_issue_data: dict,
+    ) -> None:
+        """Test that fix result has verification_passed=True (no verification ran)."""
+        with (
+            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
+            patch.object(
+                agent, "_analyze_and_fix", new_callable=AsyncMock
+            ) as mock_analyze,
+            patch.object(
+                agent, "_detect_file_changes", new_callable=AsyncMock
+            ) as mock_detect,
+        ):
+            mock_fetch.return_value = sample_issue_data
+            mock_analyze.return_value = (
+                "output", "root cause", "fix description")
+            mock_detect.return_value = []
+
+            result = await agent.execute(issue_context)
+
+            # Verify verification_passed is True (default, workflow handles actual verification)
             assert result.verification_passed is True
-            assert result.validation_passed is False
