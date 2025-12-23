@@ -1,22 +1,21 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 → 1.3.0
+Version change: 1.3.0 → 1.4.0
 Modified principles:
-  - II. Separation of Concerns → Enhanced with TUI display-only rule and agent/workflow boundary
-  - I. Async-First → Enhanced with "no blocking on event loop" rule
-  - IV. Fail Gracefully → Enhanced with "resilience must be real, not stubs"
-  - VI. Type Safety → Enhanced with "single typed contract for actions"
+  - VII. Simplicity & DRY → Enhanced with "One canonical wrapper" moved to guardrails
+  - X. Architectural Guardrails → Unchanged
 Added sections:
-  - X. Architectural Guardrails (new principle consolidating 7 concrete truisms)
+  - XI. Modularize Early (new principle from CLAUDE.md/GEMINI.md debt prevention)
+  - Appendix A: Preferred Split Patterns (repository-specific conventions)
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
   - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
 Propagation:
-  - CLAUDE.md: ✅ Source of guardrails (already contains Architectural Guardrails section)
-  - GEMINI.md: ✅ Source of guardrails (already contains Architectural Guardrails section)
+  - CLAUDE.md: ✅ Source of modularization guidelines (already contains detailed rules)
+  - GEMINI.md: ✅ Source of modularization guidelines (already contains detailed rules)
 Follow-up TODOs: None
 -->
 
@@ -154,12 +153,6 @@ Zero tolerance for duplication.
 - If logic regarding Git operations, Validation, or GitHub API calls is needed in a
   second location, refactor to a shared utility IMMEDIATELY—do not wait for "cleanup"
 - Use Mixins or Composition over inheritance for shared agent capabilities
-- **One canonical wrapper per external system**: Do not create new `git`/`gh`/validation
-  subprocess wrappers in random modules. Prefer:
-  - `src/maverick/runners/**` for deterministic execution + parsing
-  - `src/maverick/tools/**` for MCP surfaces (delegate to runners/utilities)
-  - `src/maverick/dsl/context_builders.py` for context composition (delegate; no
-    subprocess re-implementation)
 
 **Rationale**: YAGNI (You Aren't Gonna Need It). Simple code is easier to understand,
 test, and maintain. Copy-paste creates maintenance nightmares and inconsistent behavior
@@ -247,6 +240,50 @@ the design before proceeding.
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
 the principle it operationalizes.
+
+### XI. Modularize Early
+
+Long, multi-responsibility modules are a primary driver of slow iteration, merge
+conflicts, and accumulated technical debt. Treat file growth as a design smell.
+
+**Line-of-Code Thresholds**:
+
+- **Soft limit**: Aim for modules < ~500 LOC and test modules < ~400–600 LOC
+- **Refactor trigger**: If a module exceeds ~800 LOC or has many unrelated top-level
+  definitions, split it as part of the change (or create a `tech debt` issue scoped
+  to the split)
+- **Hard stop**: Avoid adding new features to modules > ~1000 LOC without first carving
+  out a focused submodule/package
+
+**Single Responsibility**: Each module/package MUST have one "reason to change"—one
+domain, one layer, one cohesive feature area.
+
+**Backwards-Compatible Refactors**: When splitting a public module, preserve import
+stability:
+
+- Prefer creating a package and re-exporting the current public surface from `__init__.py`
+- If external consumers import from the old module path, keep a small shim module that
+  imports/re-exports from the new package for a migration period
+- Maintain `__all__` (or equivalent explicit exports) so the public API stays intentional
+  and discoverable
+
+**Rationale**: "God modules" accumulate multiple responsibilities, slow navigation,
+increase merge conflicts, and make testing brittle. Proactive modularization prevents
+the debt spiral observed in issues #61-#152. Small, focused modules are easier to
+understand, test, and refactor independently.
+
+## Appendix A: Preferred Split Patterns
+
+Use these repository-specific patterns to prevent common "god file" failures:
+
+| Component | Pattern |
+|-----------|---------|
+| **CLI** | Keep `src/maverick/main.py` as a thin entrypoint; put each Click command in `src/maverick/cli/commands/<command>.py`; keep shared Click options/error handling in `src/maverick/cli/common.py` |
+| **Workflows** | Use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `dsl.py`/`constants.py`, and `workflow.py` |
+| **TUI models** | Split `src/maverick/tui/models.py` into a `src/maverick/tui/models/` package grouped by domain (enums, dialogs, widget state, screen state, theme) |
+| **Tools (MCP servers)** | Split into a package with `runner.py` (subprocess), `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules |
+| **DSL execution** | Isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small |
+| **Tests** | Split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste |
 
 ## Technology Stack
 
@@ -355,5 +392,6 @@ MUST comply with these principles.
 - Complexity deviations MUST be justified in PR descriptions
 - Use `.specify/memory/constitution.md` as the authoritative reference
 - Architectural guardrails (Principle X) MUST be checked in code review
+- Module size thresholds (Principle XI) MUST be checked before merging large files
 
-**Version**: 1.3.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
+**Version**: 1.4.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
