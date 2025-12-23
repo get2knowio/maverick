@@ -1,21 +1,19 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.3.0 → 1.4.0
+Version change: 1.4.0 → 1.5.0
 Modified principles:
-  - VII. Simplicity & DRY → Enhanced with "One canonical wrapper" moved to guardrails
-  - X. Architectural Guardrails → Unchanged
+  - V. Test-First → Enhanced with "including failures that predate your change"
 Added sections:
-  - XI. Modularize Early (new principle from CLAUDE.md/GEMINI.md debt prevention)
-  - Appendix A: Preferred Split Patterns (repository-specific conventions)
+  - XII. Ownership & Follow-Through (new principle from CLAUDE.md/GEMINI.md Operating Standard)
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
   - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
 Propagation:
-  - CLAUDE.md: ✅ Source of modularization guidelines (already contains detailed rules)
-  - GEMINI.md: ✅ Source of modularization guidelines (already contains detailed rules)
+  - CLAUDE.md: ✅ Source of Operating Standard (already contains detailed rules)
+  - GEMINI.md: ✅ Source of Operating Standard (already contains detailed rules)
 Follow-up TODOs: None
 -->
 
@@ -107,7 +105,8 @@ No PR shall be merged without tests covering new functionality.
 - TUI tests use Textual's `pilot` fixture
 - Async tests use `pytest.mark.asyncio`
 - Tests are written BEFORE implementation (Red-Green-Refactor)
-- Do NOT comment out or skip failing tests; fix them immediately
+- Do NOT comment out or skip failing tests; fix them immediately (including failures
+  that predate your change)
 - For async components (Agents/Workflows), testing MUST verify concurrency and error states,
   not just happy paths
 
@@ -272,6 +271,32 @@ increase merge conflicts, and make testing brittle. Proactive modularization pre
 the debt spiral observed in issues #61-#152. Small, focused modules are easier to
 understand, test, and refactor independently.
 
+### XII. Ownership & Follow-Through
+
+The default stance is full ownership of the repository state while working. "That's not
+my problem" is not an acceptable response.
+
+- **Do what you're asked, then keep going**: Complete the requested change end-to-end,
+  then address collateral failures and obvious correctness issues encountered along the way
+- **Fix what you find**: If you encounter broken tests, lint failures, type errors, flaky
+  behavior, or obvious bugs while working, attempt to fix them—even if they predate your
+  changes
+- **Keep the tree green**: Do not rationalize failures as "unrelated" or "not introduced
+  by me." If the repo is failing, the task is not done yet
+- **No artificial scope minimization**: We are not operating under time pressure. Unless
+  explicitly instructed otherwise, prefer a complete, robust solution over a narrowly-scoped
+  patch
+- **No deferral by difficulty**: "Too hard" or "too far-reaching" is a signal to decompose
+  the work, not to stop. Break the problem down and make real progress now
+- **Only defer when truly blocked**: Defer work only when it is impossible in the current
+  context (missing requirements, missing access, non-reproducible failures). If you must
+  defer, document exactly what's blocked and what the next concrete step is
+
+**Rationale**: Autonomous agents and human contributors alike must leave the codebase
+better than they found it. Partial fixes that "work for my change" accumulate into
+systemic rot. Full ownership prevents the tragedy of the commons where everyone assumes
+someone else will clean up.
+
 ## Appendix A: Preferred Split Patterns
 
 Use these repository-specific patterns to prevent common "god file" failures:
@@ -393,5 +418,6 @@ MUST comply with these principles.
 - Use `.specify/memory/constitution.md` as the authoritative reference
 - Architectural guardrails (Principle X) MUST be checked in code review
 - Module size thresholds (Principle XI) MUST be checked before merging large files
+- Ownership expectations (Principle XII) apply to all contributors including AI agents
 
-**Version**: 1.4.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
+**Version**: 1.5.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
