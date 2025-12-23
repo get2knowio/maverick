@@ -66,9 +66,7 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_push: Not inside a git repository")
-                return error_response(
-                    "Not inside a git repository", "NOT_A_REPOSITORY"
-                )
+                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
             set_upstream = args.get("set_upstream", False)
 

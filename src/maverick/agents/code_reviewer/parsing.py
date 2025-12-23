@@ -131,8 +131,7 @@ def parse_findings(response: str) -> list[ReviewFinding]:
             findings.append(finding)
         except Exception as e:
             logger.warning(
-                f"Failed to validate finding at index {idx}: {e}. "
-                f"Data: {finding_dict}"
+                f"Failed to validate finding at index {idx}: {e}. Data: {finding_dict}"
             )
             # Continue processing remaining findings (graceful degradation)
             continue

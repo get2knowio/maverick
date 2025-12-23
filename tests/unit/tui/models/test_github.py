@@ -54,7 +54,6 @@ class TestStatusCheck:
             check.status = CheckStatus.PASSING  # type: ignore[misc]
 
 
-
 class TestPRInfo:
     """Tests for PRInfo dataclass."""
 
@@ -197,5 +196,3 @@ class TestPRInfo:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             pr.state = PRState.MERGED  # type: ignore[misc]
-
-

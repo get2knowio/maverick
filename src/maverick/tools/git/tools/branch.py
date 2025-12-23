@@ -63,9 +63,7 @@ def create_git_current_branch_tool(cwd: Path | None = None) -> Any:
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_current_branch: Not inside a git repository")
-                return error_response(
-                    "Not inside a git repository", "NOT_A_REPOSITORY"
-                )
+                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
             # Get current branch using GitRunner
             branch_name = await runner.get_current_branch()
@@ -130,9 +128,7 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_create_branch: Not inside a git repository")
-                return error_response(
-                    "Not inside a git repository", "NOT_A_REPOSITORY"
-                )
+                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
             # Validate required arguments
             branch_name = args.get("name")

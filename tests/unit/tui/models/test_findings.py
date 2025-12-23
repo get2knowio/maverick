@@ -57,7 +57,6 @@ class TestCodeLocation:
             location.line_number = 2  # type: ignore[misc]
 
 
-
 class TestCodeContext:
     """Tests for CodeContext dataclass."""
 
@@ -105,7 +104,6 @@ class TestCodeContext:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             context.highlight_line = 2  # type: ignore[misc]
-
 
 
 class TestReviewFinding:
@@ -202,7 +200,6 @@ class TestReviewFinding:
             finding.title = "Modified"  # type: ignore[misc]
 
 
-
 class TestReviewFindingItem:
     """Tests for ReviewFindingItem dataclass."""
 
@@ -263,5 +260,3 @@ class TestReviewFindingItem:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             item.selected = True  # type: ignore[misc]
-
-

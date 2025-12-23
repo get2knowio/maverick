@@ -62,9 +62,7 @@ def create_git_diff_stats_tool(cwd: Path | None = None) -> Any:
             # Verify prerequisites using GitRunner
             if not await runner.is_inside_repo():
                 logger.error("git_diff_stats: Not inside a git repository")
-                return error_response(
-                    "Not inside a git repository", "NOT_A_REPOSITORY"
-                )
+                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
 
             # Get diff stats using GitRunner
             stats = await runner.get_diff_stats()

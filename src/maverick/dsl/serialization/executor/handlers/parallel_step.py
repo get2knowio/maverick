@@ -48,9 +48,7 @@ async def execute_parallel_step(
 
     if step.for_each:
         # Execute steps for each item in the iteration list
-        return await _execute_parallel_for_each(
-            step, context, execute_step_fn
-        )
+        return await _execute_parallel_for_each(step, context, execute_step_fn)
     else:
         # Execute steps in parallel once
         tasks = [execute_step_fn(s, context) for s in step.steps]

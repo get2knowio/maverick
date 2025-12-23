@@ -137,5 +137,3 @@ class TestThemeConstants:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             LIGHT_THEME.background = "#ffffff"  # type: ignore[misc]
-
-

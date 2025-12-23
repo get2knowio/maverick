@@ -74,6 +74,7 @@ class TestScreenState:
 
 # =============================================================================
 
+
 class TestHomeScreenState:
     """Tests for HomeScreenState dataclass."""
 
@@ -191,6 +192,7 @@ class TestHomeScreenState:
 
 
 # =============================================================================
+
 
 class TestWorkflowScreenState:
     """Tests for WorkflowScreenState dataclass."""
@@ -367,6 +369,7 @@ class TestWorkflowScreenState:
 
 # =============================================================================
 
+
 class TestReviewScreenState:
     """Tests for ReviewScreenState dataclass."""
 
@@ -529,6 +532,7 @@ class TestReviewScreenState:
 
 
 # =============================================================================
+
 
 class TestConfigScreenState:
     """Tests for ConfigScreenState dataclass."""

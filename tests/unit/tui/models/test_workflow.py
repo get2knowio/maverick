@@ -57,7 +57,6 @@ class TestToolCallInfo:
             tool_call.result = "modified"  # type: ignore[misc]
 
 
-
 class TestStageState:
     """Tests for StageState dataclass."""
 
@@ -143,7 +142,6 @@ class TestStageState:
 # =============================================================================
 # WorkflowScreenState Tests
 # =============================================================================
-
 
 
 class TestWorkflowStage:
@@ -292,7 +290,6 @@ class TestWorkflowStage:
             stage.status = StageStatus.COMPLETED  # type: ignore[misc]
 
 
-
 class TestValidationStep:
     """Tests for ValidationStep dataclass."""
 
@@ -354,7 +351,6 @@ class TestValidationStep:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             step.status = ValidationStepStatus.PASSED  # type: ignore[misc]
-
 
 
 class TestAgentMessage:
@@ -481,5 +477,3 @@ class TestAgentMessage:
 # =============================================================================
 # Widget State Model Tests (012-workflow-widgets)
 # =============================================================================
-
-

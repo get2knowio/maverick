@@ -43,8 +43,7 @@ async def load_checkpoint_if_resuming(
 
     if checkpoint_data is None:
         logger.info(
-            f"No checkpoint found for workflow '{workflow.name}', "
-            f"executing from start"
+            f"No checkpoint found for workflow '{workflow.name}', executing from start"
         )
         return None, None
 

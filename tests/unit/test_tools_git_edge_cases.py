@@ -76,9 +76,7 @@ async def test_git_push_detached_head(git_tools, mock_git_runner):
     """Test git_push fails when in detached HEAD state."""
     mock_git_runner.get_current_branch = AsyncMock(return_value="(detached)")
 
-    with patch(
-        "maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner
-    ):
+    with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_push"].handler({})
 
         response = result["content"][0]["text"]
@@ -117,9 +115,7 @@ async def test_git_push_auth_failure(git_tools, mock_git_runner):
         )
     )
 
-    with patch(
-        "maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner
-    ):
+    with patch("maverick.tools.git.tools.push.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_push"].handler({})
 
         response = result["content"][0]["text"]
@@ -132,9 +128,7 @@ async def test_git_diff_stats_error(git_tools, mock_git_runner):
     """Test git_diff_stats handles errors."""
     mock_git_runner.is_inside_repo = AsyncMock(return_value=False)
 
-    with patch(
-        "maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner
-    ):
+    with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_diff_stats"].handler({})
 
         response = result["content"][0]["text"]
@@ -216,9 +210,7 @@ class TestVerifyGitPrerequisitesPublic:
         mock_runner = MagicMock()
         mock_runner.is_inside_repo = AsyncMock(return_value=True)
 
-        with patch(
-            "maverick.tools.git.prereqs.GitRunner", return_value=mock_runner
-        ):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_runner):
             # Should complete without raising
             await verify_git_prerequisites()
 
@@ -232,9 +224,7 @@ class TestVerifyGitPrerequisitesPublic:
             side_effect=FileNotFoundError("git command not found")
         )
 
-        with patch(
-            "maverick.tools.git.prereqs.GitRunner", return_value=mock_runner
-        ):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -249,9 +239,7 @@ class TestVerifyGitPrerequisitesPublic:
         mock_runner = MagicMock()
         mock_runner.is_inside_repo = AsyncMock(return_value=False)
 
-        with patch(
-            "maverick.tools.git.prereqs.GitRunner", return_value=mock_runner
-        ):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_runner):
             with pytest.raises(GitToolsError) as exc_info:
                 await verify_git_prerequisites()
 
@@ -278,9 +266,7 @@ class TestVerifyGitPrerequisitesPublic:
         mock_runner = MagicMock()
         mock_runner.is_inside_repo = AsyncMock(return_value=True)
 
-        with patch(
-            "maverick.tools.git.prereqs.GitRunner", return_value=mock_runner
-        ):
+        with patch("maverick.tools.git.prereqs.GitRunner", return_value=mock_runner):
             # Fail-fast verification
             await verify_git_prerequisites()
 

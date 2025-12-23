@@ -531,9 +531,7 @@ class TestTimeoutAndExceptionHandling:
             "maverick.tools.github.runner.CommandRunner.run",
             side_effect=mock_run,
         ):
-            stdout, stderr, returncode = await run_gh_command(
-                "pr", "list", timeout=0.1
-            )
+            stdout, stderr, returncode = await run_gh_command("pr", "list", timeout=0.1)
 
             # Verify timeout result is returned
             assert returncode == -1

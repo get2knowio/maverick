@@ -197,7 +197,6 @@ class TestAgentOutputState:
         assert state.search_query == "test"
 
 
-
 class TestWorkflowProgressState:
     """Tests for WorkflowProgressState dataclass."""
 
@@ -284,5 +283,3 @@ class TestWorkflowProgressState:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             state.loading = True  # type: ignore[misc]
-
-

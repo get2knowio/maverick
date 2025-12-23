@@ -105,8 +105,7 @@ async def execute_generate_step(
     # Runtime validation: ensure generate method exists
     if not hasattr(generator_instance, "generate"):
         raise AttributeError(
-            f"Generator instance '{step.generator}' does not have "
-            f"a 'generate' method"
+            f"Generator instance '{step.generator}' does not have a 'generate' method"
         )
 
     # Call generate method (runtime validated above)

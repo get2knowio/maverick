@@ -227,7 +227,6 @@ class TestReviewFindingsState:
             state.focused_index = 1  # type: ignore[misc]
 
 
-
 class TestValidationStatusState:
     """Tests for ValidationStatusState dataclass."""
 
@@ -424,7 +423,6 @@ class TestValidationStatusState:
             state.loading = True  # type: ignore[misc]
 
 
-
 class TestPRSummaryState:
     """Tests for PRSummaryState dataclass."""
 
@@ -485,5 +483,3 @@ class TestPRSummaryState:
 # =============================================================================
 # Cross-Model Integration Tests
 # =============================================================================
-
-
