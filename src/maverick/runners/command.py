@@ -31,8 +31,10 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(gh[opsu]_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
     (re.compile(r"\b(gh_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
     # Bearer tokens
-    (re.compile(r"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*",
-     re.IGNORECASE), r"\1[BEARER_TOKEN]"),
+    (
+        re.compile(r"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
+        r"\1[BEARER_TOKEN]",
+    ),
     # API keys in common formats (key=value, key: value)
     (
         re.compile(
@@ -307,8 +309,7 @@ class CommandRunner:
                         partial_stdout = await asyncio.wait_for(
                             process.stdout.read(), timeout=0.1
                         )
-                        stdout_str = partial_stdout.decode(
-                            "utf-8", errors="replace")
+                        stdout_str = partial_stdout.decode("utf-8", errors="replace")
                     except (asyncio.TimeoutError, Exception):
                         pass
                 if process.stderr:
@@ -316,8 +317,7 @@ class CommandRunner:
                         partial_stderr = await asyncio.wait_for(
                             process.stderr.read(), timeout=0.1
                         )
-                        stderr_str = partial_stderr.decode(
-                            "utf-8", errors="replace")
+                        stderr_str = partial_stderr.decode("utf-8", errors="replace")
                     except (asyncio.TimeoutError, Exception):
                         pass
 
@@ -399,8 +399,7 @@ class CommandRunner:
                     line_bytes = await stream.readline()
                     if not line_bytes:
                         break
-                    content = line_bytes.decode(
-                        "utf-8", errors="replace").rstrip("\n")
+                    content = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
 
                     # Store lines based on stream type
                     if stream_name == "stdout":
@@ -410,8 +409,7 @@ class CommandRunner:
 
                     # self._start_time is guaranteed to be set before this point
                     assert self._start_time is not None
-                    timestamp_ms = int(
-                        (time.monotonic() - self._start_time) * 1000)
+                    timestamp_ms = int((time.monotonic() - self._start_time) * 1000)
                     await queue.put(
                         StreamLine(
                             content=content,
@@ -446,10 +444,8 @@ class CommandRunner:
                 pass
 
         # Start concurrent tasks for reading both streams and monitoring timeout
-        stdout_task = asyncio.create_task(
-            read_stream(self._process.stdout, "stdout"))
-        stderr_task = asyncio.create_task(
-            read_stream(self._process.stderr, "stderr"))
+        stdout_task = asyncio.create_task(read_stream(self._process.stdout, "stdout"))
+        stderr_task = asyncio.create_task(read_stream(self._process.stderr, "stderr"))
         timeout_task = asyncio.create_task(monitor_timeout())
 
         try:
@@ -503,8 +499,7 @@ class CommandRunner:
             RuntimeError: If no streaming process is active.
         """
         if self._process is None or self._start_time is None:
-            raise RuntimeError(
-                "No streaming process active. Call stream() first.")
+            raise RuntimeError("No streaming process active. Call stream() first.")
 
         duration_ms = int((time.monotonic() - self._start_time) * 1000)
         returncode = self._process.returncode or 0

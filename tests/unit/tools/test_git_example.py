@@ -44,9 +44,9 @@ def mock_git_runner() -> MagicMock:
     mock_runner = MagicMock()
     mock_runner.is_inside_repo = AsyncMock(return_value=True)
     mock_runner.get_current_branch = AsyncMock(return_value="main")
-    mock_runner.get_diff_stats = AsyncMock(return_value=MagicMock(
-        files_changed=0, insertions=0, deletions=0
-    ))
+    mock_runner.get_diff_stats = AsyncMock(
+        return_value=MagicMock(files_changed=0, insertions=0, deletions=0)
+    )
     return mock_runner
 
 
@@ -147,9 +147,7 @@ class TestGitToolPatterns:
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Patch GitRunner class to return our mock when instantiated
-        with patch(
-            "maverick.tools.git.GitRunner", return_value=mock_git_runner
-        ):
+        with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
             # Call the tool via handler
             response = await git_current_branch.handler({})
 
@@ -186,11 +184,12 @@ class TestGitToolPatterns:
         """
         # Configure mock GitRunner for diff stats
         from maverick.runners.git import DiffStats
+
         mock_git_runner.is_inside_repo = AsyncMock(return_value=True)
         mock_git_runner.is_dirty = AsyncMock(return_value=True)
-        mock_git_runner.get_diff_stats = AsyncMock(return_value=DiffStats(
-            files_changed=3, insertions=50, deletions=20
-        ))
+        mock_git_runner.get_diff_stats = AsyncMock(
+            return_value=DiffStats(files_changed=3, insertions=50, deletions=20)
+        )
 
         # Create server and get tool
         server = create_git_tools_server()
@@ -273,10 +272,10 @@ class TestGitToolPatterns:
             calls_made.append("get_current_branch")
             return "feature-branch"
 
-        mock_git_runner.is_inside_repo = AsyncMock(
-            side_effect=track_is_inside_repo)
+        mock_git_runner.is_inside_repo = AsyncMock(side_effect=track_is_inside_repo)
         mock_git_runner.get_current_branch = AsyncMock(
-            side_effect=track_get_current_branch)
+            side_effect=track_get_current_branch
+        )
 
         # Create server and get tool
         server = create_git_tools_server()

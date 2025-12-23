@@ -108,14 +108,16 @@ async def _get_project_structure(max_depth: int = 3) -> str:
     ignore_pattern = (
         "__pycache__|*.pyc|.git|.venv|venv|node_modules|.pytest_cache|.ruff_cache"
     )
-    result = await runner.run([
-        "tree",
-        "-L",
-        str(max_depth),
-        "-I",
-        ignore_pattern,
-        "--dirsfirst",
-    ])
+    result = await runner.run(
+        [
+            "tree",
+            "-L",
+            str(max_depth),
+            "-I",
+            ignore_pattern,
+            "--dirsfirst",
+        ]
+    )
 
     if result.success:
         return result.stdout.strip()
@@ -129,8 +131,7 @@ async def _get_project_structure(max_depth: int = 3) -> str:
             if depth >= max_depth:
                 return
 
-            items = sorted(path.iterdir(), key=lambda p: (
-                not p.is_dir(), p.name))
+            items = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
             # Filter out common ignore patterns
             items = [
                 item
@@ -411,8 +412,7 @@ async def review_context(
         conventions = claude_md.read_text()
 
     # Get coderabbit findings from prior step if available
-    coderabbit_result = step_results.get(
-        "run_coderabbit", {}).get("output", {})
+    coderabbit_result = step_results.get("run_coderabbit", {}).get("output", {})
     coderabbit_findings = coderabbit_result.get("findings", [])
 
     # Get PR metadata from prior step if available
@@ -593,10 +593,8 @@ async def pr_title_context(
     # Get brief diff overview (just file names and stats)
     diff_stats = await _get_file_stats(base_branch)
     if diff_stats:
-        total_additions = sum(stats["additions"]
-                              for stats in diff_stats.values())
-        total_deletions = sum(stats["deletions"]
-                              for stats in diff_stats.values())
+        total_additions = sum(stats["additions"] for stats in diff_stats.values())
+        total_deletions = sum(stats["deletions"] for stats in diff_stats.values())
         file_count = len(diff_stats)
         diff_overview = (
             f"{file_count} files changed, "
@@ -647,13 +645,10 @@ def register_all_context_builders(registry: ComponentRegistry) -> None:
     Args:
         registry: Component registry to register context builders with.
     """
-    registry.context_builders.register(
-        "implementation_context", implementation_context)
+    registry.context_builders.register("implementation_context", implementation_context)
     registry.context_builders.register("review_context", review_context)
     registry.context_builders.register("issue_fix_context", issue_fix_context)
-    registry.context_builders.register(
-        "commit_message_context", commit_message_context)
+    registry.context_builders.register("commit_message_context", commit_message_context)
     registry.context_builders.register("pr_body_context", pr_body_context)
     registry.context_builders.register("pr_title_context", pr_title_context)
-    registry.context_builders.register(
-        "issue_analyzer_context", issue_analyzer_context)
+    registry.context_builders.register("issue_analyzer_context", issue_analyzer_context)

@@ -171,8 +171,7 @@ async def list_issues(
         if labels and len(labels) > 1:
             # Use CommandRunner directly for multiple labels
             cmd_runner = _get_command_runner(cwd)
-            args = ["gh", "issue", "list", "--state",
-                    state, "--limit", str(limit)]
+            args = ["gh", "issue", "list", "--state", state, "--limit", str(limit)]
             args.extend(["--json", "number,title,body,labels,state,url"])
 
             for label in labels:
@@ -212,9 +211,7 @@ async def list_issues(
         ]
 
     except GitHubAuthError as e:
-        raise GitHubError(
-            "GitHub authentication failed. Run: gh auth login"
-        ) from e
+        raise GitHubError("GitHub authentication failed. Run: gh auth login") from e
     except RuntimeError as e:
         raise GitHubError(f"Failed to list issues: {e}") from e
 

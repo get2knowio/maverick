@@ -258,8 +258,7 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         """Build the prompt for fixing an issue."""
         title = issue_data.get("title", "")
         body = issue_data.get("body", "")
-        labels = [label.get("name", "")
-                  for label in issue_data.get("labels", [])]
+        labels = [label.get("name", "") for label in issue_data.get("labels", [])]
 
         return f"""Fix the following GitHub issue:
 

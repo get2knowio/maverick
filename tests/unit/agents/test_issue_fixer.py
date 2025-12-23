@@ -261,8 +261,7 @@ class TestExecuteMethod:
             ) as mock_commit,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
             mock_verify.return_value = True
             mock_validate.return_value = [
@@ -1086,8 +1085,7 @@ class TestSideEffectFree:
             ) as mock_validate,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             await agent.execute(issue_context)
@@ -1116,8 +1114,7 @@ class TestSideEffectFree:
             ) as mock_commit,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             await agent.execute(issue_context)
@@ -1144,8 +1141,7 @@ class TestSideEffectFree:
             patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             await agent.execute(issue_context)
@@ -1171,8 +1167,7 @@ class TestSideEffectFree:
             ) as mock_detect,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
@@ -1198,8 +1193,7 @@ class TestSideEffectFree:
             ) as mock_detect,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
@@ -1225,8 +1219,7 @@ class TestSideEffectFree:
             ) as mock_detect,
         ):
             mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = (
-                "output", "root cause", "fix description")
+            mock_analyze.return_value = ("output", "root cause", "fix description")
             mock_detect.return_value = []
 
             result = await agent.execute(issue_context)

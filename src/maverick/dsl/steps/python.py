@@ -79,9 +79,7 @@ class PythonStep(StepDefinition):
                 result = await self.action(*self.args, **self.kwargs)
             else:
                 # Offload sync callables to thread to avoid blocking event loop
-                result = await asyncio.to_thread(
-                    self.action, *self.args, **self.kwargs
-                )
+                result = await asyncio.to_thread(self.action, *self.args, **self.kwargs)
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
 

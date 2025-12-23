@@ -105,9 +105,7 @@ async def gather_pr_context(
                     title=pr_data.get("title"),
                     description=pr_data.get("body"),
                     author=pr_data.get("author", {}).get("login"),
-                    labels=tuple(
-                        label["name"] for label in pr_data.get("labels", [])
-                    ),
+                    labels=tuple(label["name"] for label in pr_data.get("labels", [])),
                     base_branch=base_branch,
                 )
 
@@ -124,8 +122,7 @@ async def gather_pr_context(
             ["git", "diff", "--name-only", f"{base_branch}...HEAD"],
         )
         if not files_result.success:
-            raise RuntimeError(
-                f"Failed to get changed files: {files_result.stderr}")
+            raise RuntimeError(f"Failed to get changed files: {files_result.stderr}")
         changed_files = tuple(
             f.strip() for f in files_result.stdout.strip().split("\n") if f.strip()
         )
@@ -140,8 +137,7 @@ async def gather_pr_context(
             ],
         )
         if not log_result.success:
-            raise RuntimeError(
-                f"Failed to get commit log: {log_result.stderr}")
+            raise RuntimeError(f"Failed to get commit log: {log_result.stderr}")
         commits = tuple(
             c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
         )
@@ -253,8 +249,7 @@ async def run_coderabbit_review(
                 elif isinstance(coderabbit_data, list):
                     findings = coderabbit_data
             except json.JSONDecodeError:
-                logger.warning(
-                    "CodeRabbit output is not valid JSON, treating as text")
+                logger.warning("CodeRabbit output is not valid JSON, treating as text")
                 findings = [{"message": result.stdout, "severity": "info"}]
 
         return CodeRabbitResult(
@@ -353,8 +348,7 @@ async def combine_review_results(
     report_lines.append(f"- Total issues found: {len(all_issues)}")
     agent_count = len([i for i in all_issues if i.get("source") == "agent"])
     report_lines.append(f"- Agent review issues: {agent_count}")
-    coderabbit_count = len(
-        [i for i in all_issues if i.get("source") == "coderabbit"])
+    coderabbit_count = len([i for i in all_issues if i.get("source") == "coderabbit"])
     report_lines.append(f"- CodeRabbit issues: {coderabbit_count}")
     report_lines.append("")
 

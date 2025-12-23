@@ -1371,8 +1371,7 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "API rate limit exceeded. Retry after 120 seconds", 1),
+            return_value=("", "API rate limit exceeded. Retry after 120 seconds", 1),
         ):
             result = await github_create_pr.handler(
                 {
@@ -1430,8 +1429,7 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "rate limit exceeded, retry after 90 seconds", 1),
+            return_value=("", "rate limit exceeded, retry after 90 seconds", 1),
         ):
             result = await github_pr_status.handler({"pr_number": 456})
 
@@ -1446,8 +1444,7 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "Rate limit exceeded. Try again in 45 seconds", 1),
+            return_value=("", "Rate limit exceeded. Try again in 45 seconds", 1),
         ):
             result = await github_get_pr_diff.handler({"pr_number": 789})
 
@@ -1462,8 +1459,7 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "GitHub API rate limit. Retry after 30 seconds.", 1),
+            return_value=("", "GitHub API rate limit. Retry after 30 seconds.", 1),
         ):
             result = await github_add_labels.handler(
                 {
@@ -1573,8 +1569,7 @@ class TestNetworkErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "Network error: unable to connect to GitHub API", 1),
+            return_value=("", "Network error: unable to connect to GitHub API", 1),
         ):
             result = await github_get_issue.handler({"issue_number": 999})
 
@@ -1729,8 +1724,7 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "unauthorized access - authentication required", 1),
+            return_value=("", "unauthorized access - authentication required", 1),
         ):
             result = await github_pr_status.handler({"pr_number": 222})
 
@@ -1758,8 +1752,7 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "Authentication credentials are missing or invalid", 1),
+            return_value=("", "Authentication credentials are missing or invalid", 1),
         ):
             result = await github_add_labels.handler(
                 {
@@ -1778,8 +1771,7 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=(
-                "", "unauthorized - please authenticate with GitHub", 1),
+            return_value=("", "unauthorized - please authenticate with GitHub", 1),
         ):
             result = await github_close_issue.handler(
                 {
@@ -1881,8 +1873,7 @@ index 1234567..abcdefg 100644
         pr_number = 456
         # Create a large diff (larger than default 100KB)
         large_diff = (
-            "diff --git a/file.py b/file.py\n" +
-            ("+" + "x" * 1000 + "\n") * 150
+            "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 150
         )  # ~150KB
         max_size = 50000  # 50KB limit
 
@@ -1906,8 +1897,7 @@ index 1234567..abcdefg 100644
         assert "warning" in response_data
         assert "truncated" in response_data["warning"].lower()
         assert "original_size_bytes" in response_data
-        assert response_data["original_size_bytes"] == len(
-            large_diff.encode("utf-8"))
+        assert response_data["original_size_bytes"] == len(large_diff.encode("utf-8"))
 
         # Verify diff was actually truncated
         diff_size = len(response_data["diff"].encode("utf-8"))
@@ -2076,8 +2066,7 @@ class TestTimeoutAndExceptionHandling:
         # Mock CommandRunner.run to return a timed-out result
         async def mock_run(cmd, **kwargs):
             return CommandResult(
-                returncode=-1, stdout="", stderr="",
-                duration_ms=30000, timed_out=True
+                returncode=-1, stdout="", stderr="", duration_ms=30000, timed_out=True
             )
 
         with patch(
@@ -2100,8 +2089,7 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock successful process
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"output data", b""))
+        mock_process.communicate = AsyncMock(return_value=(b"output data", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -2119,8 +2107,7 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock process with error
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"error message"))
+        mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -2472,8 +2459,7 @@ class TestHelperFunctions:
         """Test success response correctly serializes complex data."""
         data = {
             "issues": [
-                {"number": 1, "title": "Bug",
-                    "labels": ["bug", "priority-high"]},
+                {"number": 1, "title": "Bug", "labels": ["bug", "priority-high"]},
                 {"number": 2, "title": "Feature", "labels": []},
             ],
             "count": 2,
@@ -2513,8 +2499,7 @@ class TestHelperFunctions:
         message = "Rate limit exceeded"
         error_code = "RATE_LIMIT"
         retry_after = 120
-        result = _error_response(
-            message, error_code, retry_after_seconds=retry_after)
+        result = _error_response(message, error_code, retry_after_seconds=retry_after)
 
         error_data = json.loads(result["content"][0]["text"])
         assert error_data["isError"] is True
@@ -2694,14 +2679,19 @@ class TestVerifyPrerequisites:
             call_count += 1
             if cmd == ["gh", "--version"]:
                 return CommandResult(
-                    returncode=0, stdout="gh version 2.0.0", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout="gh version 2.0.0",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["gh", "auth", "status"]:
                 return CommandResult(
-                    returncode=1, stdout="",
+                    returncode=1,
+                    stdout="",
                     stderr="You are not logged into any GitHub hosts",
-                    duration_ms=10, timed_out=False
+                    duration_ms=10,
+                    timed_out=False,
                 )
             # Default success for other commands
             return CommandResult(
@@ -2833,8 +2823,7 @@ class TestVerifyPrerequisites:
         async def mock_subprocess_exec(*args, **kwargs):
             """Mock subprocess that times out for gh --version."""
             mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                side_effect=asyncio.TimeoutError())
+            mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
             return mock_process
 
         with patch(
@@ -2908,18 +2897,27 @@ class TestVerifyPrerequisites:
             call_count += 1
             if cmd == ["gh", "--version"]:
                 return CommandResult(
-                    returncode=0, stdout="gh version 2.0.0", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout="gh version 2.0.0",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["gh", "auth", "status"]:
                 return CommandResult(
-                    returncode=0, stdout="Logged in as user", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout="Logged in as user",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["git", "rev-parse", "--git-dir"]:
                 return CommandResult(
-                    returncode=-1, stdout="", stderr="",
-                    duration_ms=5000, timed_out=True
+                    returncode=-1,
+                    stdout="",
+                    stderr="",
+                    duration_ms=5000,
+                    timed_out=True,
                 )
             # Default success for other commands
             return CommandResult(
@@ -2952,23 +2950,35 @@ class TestVerifyPrerequisites:
             call_count += 1
             if cmd == ["gh", "--version"]:
                 return CommandResult(
-                    returncode=0, stdout="gh version 2.0.0", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout="gh version 2.0.0",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["gh", "auth", "status"]:
                 return CommandResult(
-                    returncode=0, stdout="Logged in as user", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout="Logged in as user",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["git", "rev-parse", "--git-dir"]:
                 return CommandResult(
-                    returncode=0, stdout=".git", stderr="",
-                    duration_ms=10, timed_out=False
+                    returncode=0,
+                    stdout=".git",
+                    stderr="",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             elif cmd == ["git", "remote", "get-url", "origin"]:
                 return CommandResult(
-                    returncode=-1, stdout="", stderr="",
-                    duration_ms=5000, timed_out=True
+                    returncode=-1,
+                    stdout="",
+                    stderr="",
+                    duration_ms=5000,
+                    timed_out=True,
                 )
             # Default success for other commands
             return CommandResult(
@@ -2996,8 +3006,11 @@ class TestVerifyPrerequisites:
         async def mock_run(cmd, **kwargs):
             if cmd == ["gh", "--version"]:
                 return CommandResult(
-                    returncode=1, stdout="", stderr="error",
-                    duration_ms=10, timed_out=False
+                    returncode=1,
+                    stdout="",
+                    stderr="error",
+                    duration_ms=10,
+                    timed_out=False,
                 )
             # Default success for other commands
             return CommandResult(
@@ -3178,14 +3191,12 @@ class TestVerifyGitHubPrerequisites:
 
         async def mock_subprocess_exec(*args, **kwargs):
             mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(
-                return_value=(b"gh version 2.40", b""))
+            mock_process.communicate = AsyncMock(return_value=(b"gh version 2.40", b""))
             mock_process.returncode = 0
             return mock_process
 
         with (
-            patch("asyncio.create_subprocess_exec",
-                  side_effect=mock_subprocess_exec),
+            patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec),
             patch(
                 "maverick.tools.github._run_gh_command",
                 new_callable=AsyncMock,
@@ -3218,8 +3229,7 @@ class TestVerifyGitHubPrerequisites:
             return True
 
         with (
-            patch("asyncio.create_subprocess_exec",
-                  side_effect=mock_subprocess_exec),
+            patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec),
             patch(
                 "maverick.tools.github._run_gh_command",
                 new_callable=AsyncMock,

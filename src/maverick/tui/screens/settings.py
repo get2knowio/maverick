@@ -327,16 +327,12 @@ class SettingsScreen(MaverickScreen):
 
         if not enabled_field or not enabled_field.value.current_value:
             self.notification_status = "✗ Notifications are disabled"
-            self._update_status_display(
-                "notification-status", self.notification_status
-            )
+            self._update_status_display("notification-status", self.notification_status)
             return
 
         if not topic_field or not topic_field.value.current_value:
             self.notification_status = "✗ No topic configured"
-            self._update_status_display(
-                "notification-status", self.notification_status
-            )
+            self._update_status_display("notification-status", self.notification_status)
             return
 
         topic = topic_field.value.current_value

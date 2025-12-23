@@ -288,8 +288,7 @@ def create_git_tools_server(
 
         # Validate commit type if provided
         if commit_type and commit_type not in COMMIT_TYPES:
-            logger.warning(
-                "git_commit called with invalid type: %s", commit_type)
+            logger.warning("git_commit called with invalid type: %s", commit_type)
             valid_types = ", ".join(sorted(COMMIT_TYPES))
             return _error_response(
                 f"Invalid commit type '{commit_type}'. Must be one of: {valid_types}",
@@ -317,7 +316,8 @@ def create_git_tools_server(
             add_result = await runner.add(add_all=True)
             if not add_result.success:
                 logger.error(
-                    "git_commit: Failed to stage changes: %s", add_result.error)
+                    "git_commit: Failed to stage changes: %s", add_result.error
+                )
                 return _error_response(
                     f"Failed to stage changes: {add_result.error}",
                     "GIT_ERROR",
@@ -435,8 +435,7 @@ def create_git_tools_server(
                         "credentials",
                     ]
                 ):
-                    logger.error(
-                        "git_push: Authentication failed: %s", result.error)
+                    logger.error("git_push: Authentication failed: %s", result.error)
                     return _error_response(
                         f"Authentication required: {result.error}. "
                         "Run 'gh auth login' or configure git credentials",
@@ -530,8 +529,7 @@ def create_git_tools_server(
 
             # Get current branch using GitRunner
             branch_name = await runner.get_current_branch()
-            logger.info(
-                "git_current_branch: Current branch is '%s'", branch_name)
+            logger.info("git_current_branch: Current branch is '%s'", branch_name)
 
             return _success_response({"branch": branch_name})
 
@@ -646,8 +644,7 @@ def create_git_tools_server(
 
             # No consecutive dots (..)
             if ".." in branch_name:
-                validation_errors.append(
-                    "cannot contain consecutive dots '..'")
+                validation_errors.append("cannot contain consecutive dots '..'")
 
             # No @{ sequence
             if "@{" in branch_name:
@@ -655,20 +652,17 @@ def create_git_tools_server(
 
             # Invalid characters: space, ~, ^, :, ?, *, [, \, control characters
             invalid_chars = {" ", "~", "^", ":", "?", "*", "[", "\\"}
-            found_invalid = [
-                char for char in invalid_chars if char in branch_name]
+            found_invalid = [char for char in invalid_chars if char in branch_name]
             if found_invalid:
                 chars_str = ", ".join(repr(c) for c in found_invalid)
-                validation_errors.append(
-                    f"cannot contain characters: {chars_str}")
+                validation_errors.append(f"cannot contain characters: {chars_str}")
 
             # Check for control characters (ASCII 0-31, 127)
             if any(ord(char) < 32 or ord(char) == 127 for char in branch_name):
                 validation_errors.append("cannot contain control characters")
 
             if validation_errors:
-                logger.error(
-                    "git_create_branch: Invalid branch name: %s", branch_name)
+                logger.error("git_create_branch: Invalid branch name: %s", branch_name)
                 errors_str = "; ".join(validation_errors)
                 error_msg = f"Invalid branch name '{branch_name}': {errors_str}"
                 return _error_response(error_msg, "INVALID_INPUT")
@@ -707,7 +701,8 @@ def create_git_tools_server(
 
                 # Generic git error
                 logger.error(
-                    "git_create_branch: Failed to create branch: %s", result.error)
+                    "git_create_branch: Failed to create branch: %s", result.error
+                )
                 return _error_response(
                     f"Failed to create branch: {result.error}",
                     "GIT_ERROR",

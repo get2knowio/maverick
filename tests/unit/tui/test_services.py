@@ -342,7 +342,7 @@ class TestListGitHubIssues:
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.timed_out = False
-        mock_result.stdout = '''[
+        mock_result.stdout = """[
             {
                 "number": 1,
                 "title": "Test Issue",
@@ -357,7 +357,7 @@ class TestListGitHubIssues:
                 "url": "https://github.com/test/repo/issues/2",
                 "state": "open"
             }
-        ]'''
+        ]"""
 
         with (
             patch("maverick.tui.services.shutil.which", return_value="/usr/bin/gh"),

@@ -574,8 +574,7 @@ class TestGetParallelBatch:
     ) -> None:
         """Test excludes parallel tasks that have dependencies."""
         tasks = [
-            Task(id="T001", description="Test 1",
-                 parallel=True, dependencies=["T000"]),
+            Task(id="T001", description="Test 1", parallel=True, dependencies=["T000"]),
         ]
         batch = agent._get_parallel_batch(tasks)
         assert batch == []

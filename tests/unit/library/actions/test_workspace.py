@@ -42,9 +42,7 @@ class TestInitWorkspace:
         """Test creates new branch when it doesn't exist."""
         branch_name = "feature/new-feature"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=1),  # Branch doesn't exist
@@ -62,17 +60,14 @@ class TestInitWorkspace:
 
             # Verify git checkout -b was called
             checkout_call = mock_runner.run.call_args_list[1]
-            assert checkout_call[0][0] == [
-                "git", "checkout", "-b", branch_name]
+            assert checkout_call[0][0] == ["git", "checkout", "-b", branch_name]
 
     @pytest.mark.asyncio
     async def test_checks_out_existing_branch(self, tmp_path: Path) -> None:
         """Test checks out existing branch instead of creating new one."""
         branch_name = "feature/existing"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
@@ -94,9 +89,7 @@ class TestInitWorkspace:
         """Test detects when workspace is clean."""
         branch_name = "feature/test"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
@@ -114,9 +107,7 @@ class TestInitWorkspace:
         """Test detects when workspace has uncommitted changes."""
         branch_name = "feature/test"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
@@ -150,9 +141,7 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch(
-                "maverick.library.actions.workspace._runner"
-            ) as mock_runner:
+            with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
                         make_result(returncode=0),  # Branch exists
@@ -163,8 +152,7 @@ class TestInitWorkspace:
 
                 result = await init_workspace(branch_name)
 
-                assert result.task_file_path == Path(
-                    f"specs/{branch_name}/tasks.md")
+                assert result.task_file_path == Path(f"specs/{branch_name}/tasks.md")
         finally:
             os.chdir(original_cwd)
 
@@ -188,9 +176,7 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch(
-                "maverick.library.actions.workspace._runner"
-            ) as mock_runner:
+            with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
                         make_result(returncode=0),  # Branch exists
@@ -201,8 +187,7 @@ class TestInitWorkspace:
 
                 result = await init_workspace(branch_name)
 
-                assert result.task_file_path == Path(
-                    f".specify/{branch_name}/tasks.md")
+                assert result.task_file_path == Path(f".specify/{branch_name}/tasks.md")
         finally:
             os.chdir(original_cwd)
 
@@ -222,9 +207,7 @@ class TestInitWorkspace:
         try:
             os.chdir(tmp_path)
 
-            with patch(
-                "maverick.library.actions.workspace._runner"
-            ) as mock_runner:
+            with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
                         make_result(returncode=0),  # Branch exists
@@ -251,9 +234,7 @@ class TestInitWorkspace:
             # Use tmp_path which has no task files
             os.chdir(tmp_path)
 
-            with patch(
-                "maverick.library.actions.workspace._runner"
-            ) as mock_runner:
+            with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
                         make_result(returncode=0),  # Branch exists
@@ -274,9 +255,7 @@ class TestInitWorkspace:
         """Test handles git command errors gracefully."""
         branch_name = "feature/test"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             # Simulate a failure result from git
             mock_runner.run = AsyncMock(
                 return_value=make_result(
@@ -297,9 +276,7 @@ class TestInitWorkspace:
         """Test always returns 'main' as base_branch."""
         branch_name = "feature/test"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
@@ -317,9 +294,7 @@ class TestInitWorkspace:
         """Test returns synced_with_base as True (simplified implementation)."""
         branch_name = "feature/test"
 
-        with patch(
-            "maverick.library.actions.workspace._runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
                     make_result(returncode=0),  # Branch exists

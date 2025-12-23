@@ -87,8 +87,7 @@ class TestStashChanges:
         mock_runner = MagicMock()
         mock_runner.is_dirty = AsyncMock(return_value=True)
         mock_runner.stash = AsyncMock(
-            return_value=make_git_result(
-                success=True, output="Saved working directory")
+            return_value=make_git_result(success=True, output="Saved working directory")
         )
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):
@@ -102,8 +101,7 @@ class TestStashChanges:
         """Test stash_changes uses provided message."""
         mock_runner = MagicMock()
         mock_runner.is_dirty = AsyncMock(return_value=True)
-        mock_runner.stash = AsyncMock(
-            return_value=make_git_result(success=True))
+        mock_runner.stash = AsyncMock(return_value=make_git_result(success=True))
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             await stash_changes(Path("/repo"), message="custom-message")
@@ -149,8 +147,7 @@ class TestUnstashChanges:
         """Test unstash_changes returns True when changes restored."""
         mock_runner = MagicMock()
         mock_runner.stash_pop_by_message = AsyncMock(
-            return_value=make_git_result(
-                success=True, output="Dropped stash@{0}")
+            return_value=make_git_result(success=True, output="Dropped stash@{0}")
         )
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):
@@ -170,8 +167,7 @@ class TestUnstashChanges:
             result = await unstash_changes(Path("/repo"), message="custom-stash")
 
         assert result is True
-        mock_runner.stash_pop_by_message.assert_called_once_with(
-            "custom-stash")
+        mock_runner.stash_pop_by_message.assert_called_once_with("custom-stash")
 
 
 class TestStageFiles:
@@ -241,7 +237,8 @@ class TestCreateCommit:
         mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
         mock_runner.commit = AsyncMock(
             return_value=make_git_result(
-                success=True, output="[main abc1234] Test commit")
+                success=True, output="[main abc1234] Test commit"
+            )
         )
         mock_runner.get_head_sha = AsyncMock(return_value="abc1234567890def")
 
@@ -257,8 +254,7 @@ class TestCreateCommit:
         mock_runner = MagicMock()
         mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
         mock_runner.commit = AsyncMock(
-            return_value=make_git_result(
-                success=False, error="nothing to commit")
+            return_value=make_git_result(success=False, error="nothing to commit")
         )
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):
@@ -286,9 +282,7 @@ class TestCreateCommit:
 
         with (
             patch("maverick.utils.git._get_runner", return_value=mock_runner),
-            patch(
-                "asyncio.create_subprocess_exec", return_value=mock_ruff_process
-            ),
+            patch("asyncio.create_subprocess_exec", return_value=mock_ruff_process),
         ):
             sha = await create_commit("Test", Path("/repo"), auto_recover=True)
 
@@ -343,8 +337,7 @@ class TestGetCurrentBranch:
     async def test_get_current_branch_handles_feature_branches(self) -> None:
         """Test get_current_branch handles feature branch names."""
         mock_runner = MagicMock()
-        mock_runner.get_current_branch = AsyncMock(
-            return_value="feature/new-feature")
+        mock_runner.get_current_branch = AsyncMock(return_value="feature/new-feature")
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):
             branch = await get_current_branch(Path("/repo"))
@@ -389,9 +382,7 @@ class TestGitErrorHandling:
         mock_runner = MagicMock()
         mock_runner.add = AsyncMock(return_value=make_git_result(success=True))
         mock_runner.commit = AsyncMock(
-            return_value=make_git_result(
-                success=False, error="fatal: some other error"
-            )
+            return_value=make_git_result(success=False, error="fatal: some other error")
         )
 
         with patch("maverick.utils.git._get_runner", return_value=mock_runner):

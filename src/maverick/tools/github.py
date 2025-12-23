@@ -321,8 +321,7 @@ async def verify_github_prerequisites(cwd: Path | None = None) -> None:
         )
 
     # Check 4: Has remote configured
-    result = await runner.run(
-        ["git", "remote", "get-url", "origin"], timeout=5.0)
+    result = await runner.run(["git", "remote", "get-url", "origin"], timeout=5.0)
     if result.timed_out:
         raise GitHubToolsError(
             "Git remote check timed out",
@@ -366,11 +365,16 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
     )
 
     cmd_args = [
-        "pr", "create",
-        "--title", title,
-        "--body", body,
-        "--base", base,
-        "--head", head,
+        "pr",
+        "create",
+        "--title",
+        title,
+        "--body",
+        body,
+        "--base",
+        base,
+        "--head",
+        head,
     ]
     if draft:
         cmd_args.append("--draft")
@@ -434,14 +438,17 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
     if limit < 1:
         return _error_response("Limit must be positive", "INVALID_INPUT")
 
-    logger.info("Listing issues: state=%s, label=%s, limit=%d",
-                state, label, limit)
+    logger.info("Listing issues: state=%s, label=%s, limit=%d", state, label, limit)
 
     cmd_args = [
-        "issue", "list",
-        "--state", state,
-        "--limit", str(limit),
-        "--json", "number,title,labels,state,url",
+        "issue",
+        "list",
+        "--state",
+        state,
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,labels,state,url",
     ]
     if label:
         cmd_args.extend(["--label", label])
@@ -593,8 +600,7 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
             # Truncate at byte boundary to avoid breaking multibyte UTF-8 characters
             diff_bytes = diff.encode("utf-8")[:max_size]
             diff = diff_bytes.decode("utf-8", errors="ignore")
-            logger.info("Diff truncated from %d to %d bytes",
-                        original_size, max_size)
+            logger.info("Diff truncated from %d to %d bytes", original_size, max_size)
             return _success_response(
                 {
                     "diff": diff,
@@ -604,8 +610,7 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-        logger.info("Retrieved diff for PR #%d (%d bytes)",
-                    pr_number, original_size)
+        logger.info("Retrieved diff for PR #%d (%d bytes)", pr_number, original_size)
         return _success_response({"diff": diff, "truncated": False})
 
     except asyncio.TimeoutError:
@@ -694,8 +699,7 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
 
         # Detect conflicts
         has_conflicts = (
-            merge_state in (
-                "dirty", "conflicting") or mergeable_raw == "CONFLICTING"
+            merge_state in ("dirty", "conflicting") or mergeable_raw == "CONFLICTING"
         )
 
         status = {

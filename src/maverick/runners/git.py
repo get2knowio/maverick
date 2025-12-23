@@ -151,8 +151,7 @@ class GitRunner:
         """
         self._cwd = cwd
         self._timeout = timeout
-        self._runner = command_runner or CommandRunner(
-            cwd=cwd, timeout=timeout)
+        self._runner = command_runner or CommandRunner(cwd=cwd, timeout=timeout)
 
     @property
     def cwd(self) -> Path | None:
@@ -313,9 +312,7 @@ class GitRunner:
                 print("Not on a branch")
             ```
         """
-        result = await self._runner.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"]
-        )
+        result = await self._runner.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         branch = result.stdout.strip()
         return branch if branch != "HEAD" else "(detached)"
 
@@ -490,9 +487,7 @@ class GitRunner:
             ```
         """
         # Get per-file stats using --numstat
-        numstat_result = await self._runner.run(
-            ["git", "diff", "--numstat", ref]
-        )
+        numstat_result = await self._runner.run(["git", "diff", "--numstat", ref])
 
         per_file: dict[str, tuple[int, int]] = {}
         total_insertions = 0
@@ -642,9 +637,7 @@ class GitRunner:
                 duration_ms=0,
             )
 
-        result = await self._runner.run(
-            ["git", "stash", "push", "-m", message]
-        )
+        result = await self._runner.run(["git", "stash", "push", "-m", message])
         return self._make_result(
             success=result.success,
             output=result.stdout,
@@ -906,9 +899,7 @@ class GitRunner:
         Returns:
             Path to repository root, or None if not in a repo.
         """
-        result = await self._runner.run(
-            ["git", "rev-parse", "--show-toplevel"]
-        )
+        result = await self._runner.run(["git", "rev-parse", "--show-toplevel"])
         if result.success and result.stdout.strip():
             return Path(result.stdout.strip())
         return None

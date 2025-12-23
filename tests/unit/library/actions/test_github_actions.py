@@ -343,8 +343,7 @@ class TestFetchGitHubIssue:
         """Test handles request for nonexistent issue number."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    returncode=1, stderr="issue not found")
+                return_value=make_result(returncode=1, stderr="issue not found")
             )
 
             result = await fetch_github_issue(issue_number=9999)

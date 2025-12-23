@@ -170,9 +170,7 @@ async def send_test_notification(
     runner = CommandRunner(timeout=timeout)
 
     try:
-        result = await runner.run(
-            ["curl", "-d", message, f"https://ntfy.sh/{topic}"]
-        )
+        result = await runner.run(["curl", "-d", message, f"https://ntfy.sh/{topic}"])
 
         if result.timed_out:
             return NotificationResult(

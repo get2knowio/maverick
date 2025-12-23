@@ -24,23 +24,27 @@ def mock_git_runner() -> MagicMock:
     runner = MagicMock()
     # Default to successful results
     runner.is_inside_repo = AsyncMock(return_value=True)
-    runner.add = AsyncMock(return_value=GitResult(
-        success=True, output="", error=None, duration_ms=10
-    ))
-    runner.commit = AsyncMock(return_value=GitResult(
-        success=True, output="", error=None, duration_ms=10
-    ))
+    runner.add = AsyncMock(
+        return_value=GitResult(success=True, output="", error=None, duration_ms=10)
+    )
+    runner.commit = AsyncMock(
+        return_value=GitResult(success=True, output="", error=None, duration_ms=10)
+    )
     runner.get_head_sha = AsyncMock(return_value="abc123def456")
     runner.get_current_branch = AsyncMock(return_value="main")
-    runner.push = AsyncMock(return_value=GitResult(
-        success=True, output="main -> main", error=None, duration_ms=100
-    ))
-    runner.get_diff_stats = AsyncMock(return_value=DiffStats(
-        files_changed=0, insertions=0, deletions=0, per_file={}
-    ))
-    runner.create_branch = AsyncMock(return_value=GitResult(
-        success=True, output="Switched to a new branch", error=None, duration_ms=10
-    ))
+    runner.push = AsyncMock(
+        return_value=GitResult(
+            success=True, output="main -> main", error=None, duration_ms=100
+        )
+    )
+    runner.get_diff_stats = AsyncMock(
+        return_value=DiffStats(files_changed=0, insertions=0, deletions=0, per_file={})
+    )
+    runner.create_branch = AsyncMock(
+        return_value=GitResult(
+            success=True, output="Switched to a new branch", error=None, duration_ms=10
+        )
+    )
     return runner
 
 
@@ -98,12 +102,14 @@ async def test_git_create_branch_invalid_name(git_tools, mock_git_runner):
 @pytest.mark.asyncio
 async def test_git_push_auth_failure(git_tools, mock_git_runner):
     """Test git_push handles authentication failure."""
-    mock_git_runner.push = AsyncMock(return_value=GitResult(
-        success=False,
-        output="",
-        error="Authentication failed",
-        duration_ms=100,
-    ))
+    mock_git_runner.push = AsyncMock(
+        return_value=GitResult(
+            success=False,
+            output="",
+            error="Authentication failed",
+            duration_ms=100,
+        )
+    )
 
     with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
         result = await git_tools["git_push"].handler({})

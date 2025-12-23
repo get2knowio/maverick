@@ -73,8 +73,7 @@ class TestGatherPRContext:
                     # git diff --name-only
                     make_result(stdout="src/file1.py\nsrc/file2.py\n"),
                     # git log
-                    make_result(
-                        stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
+                    make_result(stdout="abc123 feat: add feature\ndef456 fix: bug\n"),
                 ]
             )
 
@@ -88,8 +87,7 @@ class TestGatherPRContext:
             assert result.pr_metadata.base_branch == "main"
             assert result.changed_files == ("src/file1.py", "src/file2.py")
             assert result.diff == "diff --git a/file.py b/file.py\n"
-            assert result.commits == (
-                "abc123 feat: add feature", "def456 fix: bug")
+            assert result.commits == ("abc123 feat: add feature", "def456 fix: bug")
             assert result.coderabbit_available is True
 
     @pytest.mark.asyncio
@@ -180,8 +178,7 @@ class TestGatherPRContext:
             mock_which.return_value = "/usr/local/bin/coderabbit"
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps(
-                        {"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
                     make_result(stdout="diff\n"),
                     make_result(stdout="file.py\n"),
                     make_result(stdout="sha1 msg\n"),
@@ -206,8 +203,7 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps(
-                        {"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
                     make_result(stdout="diff\n"),
                     make_result(stdout="file.py\n"),
                     make_result(stdout="sha1 msg\n"),
@@ -231,8 +227,7 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps(
-                        {"number": 123, "labels": []})),
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
                     make_result(stdout=""),  # empty diff
                     make_result(stdout=""),  # no files
                     make_result(stdout=""),  # no commits
@@ -258,8 +253,7 @@ class TestGatherPRContext:
         ):
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    returncode=1, stderr="Error: PR not found")
+                return_value=make_result(returncode=1, stderr="Error: PR not found")
             )
 
             result = await gather_pr_context(pr_number, base_branch)
@@ -286,10 +280,8 @@ class TestGatherPRContext:
             mock_which.return_value = None
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(stdout=json.dumps(
-                        {"number": 123, "labels": []})),
-                    make_result(returncode=128,
-                                stderr="fatal: not a git repository"),
+                    make_result(stdout=json.dumps({"number": 123, "labels": []})),
+                    make_result(returncode=128, stderr="fatal: not a git repository"),
                 ]
             )
 
@@ -327,9 +319,7 @@ class TestRunCoderabbitReview:
             ]
         }
 
-        with patch(
-            "maverick.library.actions.review._coderabbit_runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.review._coderabbit_runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
@@ -345,8 +335,7 @@ class TestRunCoderabbitReview:
             # Verify command
             mock_runner.run.assert_called_once()
             call_args = mock_runner.run.call_args[0][0]
-            assert call_args == ["coderabbit",
-                                 "review", "--pr", "123", "--json"]
+            assert call_args == ["coderabbit", "review", "--pr", "123", "--json"]
 
     @pytest.mark.asyncio
     async def test_skips_review_when_coderabbit_unavailable(self) -> None:
@@ -355,9 +344,7 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": False}
 
         with (
-            patch(
-                "maverick.library.actions.review._coderabbit_runner"
-            ) as mock_runner,
+            patch("maverick.library.actions.review._coderabbit_runner") as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             result = await run_coderabbit_review(pr_number, context)
@@ -375,9 +362,7 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch(
-                "maverick.library.actions.review._coderabbit_runner"
-            ) as mock_runner,
+            patch("maverick.library.actions.review._coderabbit_runner") as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             result = await run_coderabbit_review(pr_number, context)
@@ -395,13 +380,10 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch(
-                "maverick.library.actions.review._coderabbit_runner"
-            ) as mock_runner,
+            patch("maverick.library.actions.review._coderabbit_runner") as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
-            mock_runner.run = AsyncMock(
-                return_value=make_result(timed_out=True))
+            mock_runner.run = AsyncMock(return_value=make_result(timed_out=True))
 
             result = await run_coderabbit_review(pr_number, context)
 
@@ -417,9 +399,7 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch(
-                "maverick.library.actions.review._coderabbit_runner"
-            ) as mock_runner,
+            patch("maverick.library.actions.review._coderabbit_runner") as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             mock_runner.run = AsyncMock(
@@ -448,9 +428,7 @@ class TestRunCoderabbitReview:
             ]
         }
 
-        with patch(
-            "maverick.library.actions.review._coderabbit_runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.review._coderabbit_runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
@@ -472,9 +450,7 @@ class TestRunCoderabbitReview:
             "severity": "info",
         }
 
-        with patch(
-            "maverick.library.actions.review._coderabbit_runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.review._coderabbit_runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
@@ -495,9 +471,7 @@ class TestRunCoderabbitReview:
             {"file": "b.py", "message": "Finding B"},
         ]
 
-        with patch(
-            "maverick.library.actions.review._coderabbit_runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.review._coderabbit_runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 return_value=make_result(stdout=json.dumps(coderabbit_output))
             )
@@ -513,9 +487,7 @@ class TestRunCoderabbitReview:
         context = {"coderabbit_available": True}
 
         with (
-            patch(
-                "maverick.library.actions.review._coderabbit_runner"
-            ) as mock_runner,
+            patch("maverick.library.actions.review._coderabbit_runner") as mock_runner,
             patch("maverick.library.actions.review.logger") as mock_logger,
         ):
             mock_runner.run = AsyncMock(
@@ -535,9 +507,7 @@ class TestRunCoderabbitReview:
         pr_number = 123
         context = {"coderabbit_available": True}
 
-        with patch(
-            "maverick.library.actions.review._coderabbit_runner"
-        ) as mock_runner:
+        with patch("maverick.library.actions.review._coderabbit_runner") as mock_runner:
             mock_runner.run = AsyncMock(return_value=make_result(stdout=""))
 
             result = await run_coderabbit_review(pr_number, context)
@@ -814,8 +784,7 @@ class TestCombineReviewResults:
     @pytest.mark.asyncio
     async def test_handles_missing_file_line_info(self) -> None:
         """Test handles issues without file or line information."""
-        agent_review = {"issues": [
-            {"message": "General issue", "severity": "info"}]}
+        agent_review = {"issues": [{"message": "General issue", "severity": "info"}]}
         coderabbit_review = {"findings": ()}
         pr_metadata = {"number": 123}
 

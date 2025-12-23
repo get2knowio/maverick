@@ -200,8 +200,7 @@ async def create_commit(
 
             # Get commit SHA
             sha = await runner.get_head_sha()
-            logger.info("Created commit %s: %s",
-                        sha[:7], message.split("\n")[0])
+            logger.info("Created commit %s: %s", sha[:7], message.split("\n")[0])
             return sha
 
         except GitError as e:
@@ -211,15 +210,13 @@ async def create_commit(
             # Try recovery
             if e.recoverable:
                 logger.warning(
-                    "Commit failed (attempt %d), recovery: %s", attempt +
-                    1, e.message
+                    "Commit failed (attempt %d), recovery: %s", attempt + 1, e.message
                 )
                 await _attempt_recovery(cwd, e)
             else:
                 raise
 
-    raise GitError("Commit failed after all recovery attempts",
-                   operation="commit")
+    raise GitError("Commit failed after all recovery attempts", operation="commit")
 
 
 async def _attempt_recovery(cwd: Path, error: GitError) -> None:
