@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from subprocess import CalledProcessError
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -30,6 +29,7 @@ from maverick.dsl.events import (
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.serialization.registry import ComponentRegistry
+from maverick.runners.models import CommandResult
 
 
 class TestQuickFixWorkflowIntegration:
@@ -102,23 +102,31 @@ class TestQuickFixWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        # Mock subprocess calls for GitHub CLI
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            # Mock issue fetch
-            issue_data = {
-                "number": 123,
-                "title": "Fix critical bug",
-                "body": "This is a critical bug that needs fixing",
-                "labels": [{"name": "bug"}],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/123",
-                "state": "open",
-            }
+        # Mock GitHub CLI via CommandRunner
+        issue_data = {
+            "number": 123,
+            "title": "Fix critical bug",
+            "body": "This is a critical bug that needs fixing",
+            "labels": [{"name": "bug"}],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/123",
+            "state": "open",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ) as mock_runner:
             # Mock step execution for sub-workflows
             original_execute = WorkflowFileExecutor._execute_step
             executed_steps = []
@@ -173,8 +181,8 @@ class TestQuickFixWorkflowIntegration:
                 assert "fetch_issue" in executed_steps
                 assert "create_branch" in executed_steps
 
-                # Verify subprocess call for issue fetch
-                assert mock_run.call_count >= 1
+                # Verify CommandRunner was called for issue fetch
+                assert mock_runner.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_quick_fix_workflow_issue_fetch_failure(
@@ -190,14 +198,20 @@ class TestQuickFixWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            # Mock issue fetch failure
-            mock_run.side_effect = CalledProcessError(
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
                 returncode=1,
-                cmd=["gh", "issue", "view"],
+                stdout="",
                 stderr="Error: issue not found",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             executor = WorkflowFileExecutor(registry=registry)
             events = []
             async for event in executor.execute(
@@ -231,20 +245,30 @@ class TestQuickFixWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 123,
-                "title": "Complex fix",
-                "body": "This requires complex changes",
-                "labels": [],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/123",
-                "state": "open",
-            }
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        issue_data = {
+            "number": 123,
+            "title": "Complex fix",
+            "body": "This requires complex changes",
+            "labels": [],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/123",
+            "state": "open",
+        }
+
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             original_execute = WorkflowFileExecutor._execute_step
 
             async def mock_execute_step(self, step, context):
@@ -286,20 +310,30 @@ class TestQuickFixWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 123,
-                "title": "Test issue",
-                "body": "Test body",
-                "labels": [],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/123",
-                "state": "open",
-            }
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        issue_data = {
+            "number": 123,
+            "title": "Test issue",
+            "body": "Test body",
+            "labels": [],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/123",
+            "state": "open",
+        }
+
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             original_execute = WorkflowFileExecutor._execute_step
 
             async def mock_execute_step(self, step, context):
@@ -342,74 +376,99 @@ class TestQuickFixWorkflowActions:
         """Test fetch_github_issue action executes successfully."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 456,
-                "title": "Test Issue",
-                "body": "Description",
-                "labels": [{"name": "bug"}, {"name": "high-priority"}],
-                "assignees": [{"login": "user1"}],
-                "url": "https://github.com/org/repo/issues/456",
-                "state": "open",
-            }
+        issue_data = {
+            "number": 456,
+            "title": "Test Issue",
+            "body": "Description",
+            "labels": [{"name": "bug"}, {"name": "high-priority"}],
+            "assignees": [{"login": "user1"}],
+            "url": "https://github.com/org/repo/issues/456",
+            "state": "open",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(456)
 
-            assert result["success"] is True
-            assert result["issue"]["number"] == 456
-            assert result["issue"]["title"] == "Test Issue"
-            assert "bug" in result["issue"]["labels"]
-            assert "high-priority" in result["issue"]["labels"]
-            assert result["issue"]["assignee"] == "user1"
-            assert result["error"] is None
+            assert result.success is True
+            assert result.issue.number == 456
+            assert result.issue.title == "Test Issue"
+            assert "bug" in result.issue.labels
+            assert "high-priority" in result.issue.labels
+            assert result.issue.assignee == "user1"
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_fetch_issue_action_failure(self) -> None:
         """Test fetch_github_issue action handles failure gracefully."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            mock_run.side_effect = CalledProcessError(
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
                 returncode=1,
-                cmd=["gh", "issue", "view"],
+                stdout="",
                 stderr="Error: could not resolve to an Issue",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(99999)
 
-            assert result["success"] is False
-            assert result["issue"] is None
-            assert result["error"] is not None
-            assert "could not resolve" in result["error"]
+            assert result.success is False
+            assert result.issue is None
+            assert result.error is not None
+            assert "could not resolve" in result.error
 
     @pytest.mark.asyncio
     async def test_fetch_issue_with_no_assignees(self) -> None:
         """Test fetch_github_issue handles issues with no assignees."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 789,
-                "title": "Unassigned Issue",
-                "body": "No one assigned yet",
-                "labels": [],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/789",
-                "state": "open",
-            }
+        issue_data = {
+            "number": 789,
+            "title": "Unassigned Issue",
+            "body": "No one assigned yet",
+            "labels": [],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/789",
+            "state": "open",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(789)
 
-            assert result["success"] is True
-            assert result["issue"]["assignee"] is None
+            assert result.success is True
+            assert result.issue.assignee is None
 
 
 class TestQuickFixWorkflowEdgeCases:
@@ -420,26 +479,35 @@ class TestQuickFixWorkflowEdgeCases:
         """Test workflow handles already-closed issues."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 100,
-                "title": "Already Fixed",
-                "body": "This was already fixed",
-                "labels": [],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/100",
-                "state": "closed",
-            }
+        issue_data = {
+            "number": 100,
+            "title": "Already Fixed",
+            "body": "This was already fixed",
+            "labels": [],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/100",
+            "state": "closed",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(100)
 
             # Should fetch successfully
-            assert result["success"] is True
-            assert result["issue"]["state"] == "closed"
+            assert result.success is True
+            assert result.issue.state == "closed"
 
             # Workflow could check state and skip fix if closed
             # This would be workflow logic, not action logic
@@ -449,54 +517,72 @@ class TestQuickFixWorkflowEdgeCases:
         """Test workflow handles Unicode characters in issue metadata."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            # Issue with Unicode characters
-            issue_data = {
-                "number": 200,
-                "title": "Fix emoji support 🐛",
-                "body": "Add support for 日本語 and émojis",
-                "labels": [{"name": "enhancement"}],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/200",
-                "state": "open",
-            }
+        # Issue with Unicode characters
+        issue_data = {
+            "number": 200,
+            "title": "Fix emoji support 🐛",
+            "body": "Add support for 日本語 and émojis",
+            "labels": [{"name": "enhancement"}],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/200",
+            "state": "open",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data, ensure_ascii=False)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data, ensure_ascii=False),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(200)
 
             # Unicode should be preserved
-            assert result["success"] is True
-            assert "🐛" in result["issue"]["title"]
-            assert "日本語" in result["issue"]["body"]
-            assert "émojis" in result["issue"]["body"]
+            assert result.success is True
+            assert "🐛" in result.issue.title
+            assert "日本語" in result.issue.body
+            assert "émojis" in result.issue.body
 
     @pytest.mark.asyncio
     async def test_workflow_with_missing_issue_body(self) -> None:
         """Test workflow handles issues with no body/description."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            issue_data = {
-                "number": 300,
-                "title": "Issue with no description",
-                "body": None,  # No body
-                "labels": [],
-                "assignees": [],
-                "url": "https://github.com/org/repo/issues/300",
-                "state": "open",
-            }
+        issue_data = {
+            "number": 300,
+            "title": "Issue with no description",
+            "body": None,  # No body
+            "labels": [],
+            "assignees": [],
+            "url": "https://github.com/org/repo/issues/300",
+            "state": "open",
+        }
 
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(issue_data)
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
+                returncode=0,
+                stdout=json.dumps(issue_data),
+                stderr="",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(300)
 
-            assert result["success"] is True
-            assert result["issue"]["body"] is None
+            assert result.success is True
+            assert result.issue.body is None
             # Workflow should handle None body gracefully
 
     @pytest.mark.asyncio
@@ -504,15 +590,21 @@ class TestQuickFixWorkflowEdgeCases:
         """Test workflow handles network timeouts gracefully."""
         from maverick.library.actions.github import fetch_github_issue
 
-        with patch("maverick.library.actions.github.subprocess.run") as mock_run:
-            # Simulate timeout or network error
-            mock_run.side_effect = CalledProcessError(
+        async def mock_run(cmd, **kwargs):
+            return CommandResult(
                 returncode=1,
-                cmd=["gh", "issue", "view"],
+                stdout="",
                 stderr="Error: timeout connecting to GitHub",
+                duration_ms=100,
+                timed_out=False,
             )
 
+        with patch(
+            "maverick.library.actions.github._runner.run",
+            new_callable=AsyncMock,
+            side_effect=mock_run,
+        ):
             result = await fetch_github_issue(400)
 
-            assert result["success"] is False
-            assert "timeout" in result["error"].lower()
+            assert result.success is False
+            assert "timeout" in result.error.lower()
