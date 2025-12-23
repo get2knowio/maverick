@@ -24,8 +24,8 @@ from maverick.tools.git import (
     _format_commit_message,
     _run_git_command,
     _success_response,
-    _verify_git_prerequisites,
     create_git_tools_server,
+    verify_git_prerequisites,
 )
 
 # =============================================================================
@@ -92,7 +92,8 @@ class TestHelperFunctions:
 
     def test_error_response_with_retry(self) -> None:
         """Test _error_response with retry_after_seconds."""
-        response = _error_response("Rate limit", "RATE_LIMIT", retry_after_seconds=60)
+        response = _error_response(
+            "Rate limit", "RATE_LIMIT", retry_after_seconds=60)
 
         parsed = json.loads(response["content"][0]["text"])
         assert parsed["isError"] is True
@@ -110,7 +111,8 @@ class TestHelperFunctions:
 
     def test_format_commit_message_with_scope(self) -> None:
         """Test _format_commit_message with type and scope."""
-        result = _format_commit_message("add feature", commit_type="feat", scope="api")
+        result = _format_commit_message(
+            "add feature", commit_type="feat", scope="api")
         assert result == "feat(api): add feature"
 
     def test_format_commit_message_breaking(self) -> None:
@@ -181,10 +183,10 @@ class TestHelperFunctions:
     async def test_verify_git_prerequisites_success(
         self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
     ) -> None:
-        """Test _verify_git_prerequisites with all checks passing."""
+        """Test verify_git_prerequisites with all checks passing."""
         with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             # Should not raise
-            await _verify_git_prerequisites()
+            await verify_git_prerequisites()
 
         # Should be called twice: once for git --version, once for git rev-parse
         assert mock_create_subprocess_exec.call_count == 2
@@ -193,12 +195,12 @@ class TestHelperFunctions:
     async def test_verify_git_prerequisites_git_not_installed(
         self, mock_create_subprocess_exec: AsyncMock
     ) -> None:
-        """Test _verify_git_prerequisites when git is not installed."""
+        """Test verify_git_prerequisites when git is not installed."""
         mock_create_subprocess_exec.side_effect = FileNotFoundError
 
         with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             with pytest.raises(GitToolsError) as exc_info:
-                await _verify_git_prerequisites()
+                await verify_git_prerequisites()
 
         assert "not installed" in str(exc_info.value)
         assert exc_info.value.check_failed == "git_installed"
@@ -207,7 +209,7 @@ class TestHelperFunctions:
     async def test_verify_git_prerequisites_not_in_repo(
         self, mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
     ) -> None:
-        """Test _verify_git_prerequisites when not in git repository."""
+        """Test verify_git_prerequisites when not in git repository."""
 
         async def side_effect(*args, **kwargs):
             if "rev-parse" in args:
@@ -225,7 +227,7 @@ class TestHelperFunctions:
 
         with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
             with pytest.raises(GitToolsError) as exc_info:
-                await _verify_git_prerequisites()
+                await verify_git_prerequisites()
 
         assert "not inside a git repository" in str(exc_info.value)
         assert exc_info.value.check_failed == "in_git_repo"
@@ -418,7 +420,8 @@ class TestGitPush:
                 # Get current branch
                 proc = MagicMock()
                 proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"feature-branch\n", b""))
+                proc.communicate = AsyncMock(
+                    return_value=(b"feature-branch\n", b""))
                 return proc
             if "push" in args:
                 # Push succeeds
@@ -535,7 +538,8 @@ class TestGitPush:
                 proc = MagicMock()
                 proc.returncode = 1
                 proc.communicate = AsyncMock(
-                    return_value=(b"", b"fatal: could not resolve host: github.com\n")
+                    return_value=(
+                        b"", b"fatal: could not resolve host: github.com\n")
                 )
                 return proc
             return mock_subprocess
@@ -641,7 +645,8 @@ class TestGitCurrentBranch:
             if "rev-parse" in args and "--abbrev-ref" in args:
                 proc = MagicMock()
                 proc.returncode = 0
-                proc.communicate = AsyncMock(return_value=(b"feature-branch\n", b""))
+                proc.communicate = AsyncMock(
+                    return_value=(b"feature-branch\n", b""))
                 return proc
             return mock_subprocess
 
@@ -800,7 +805,8 @@ class TestGitDiffStats:
                 proc = MagicMock()
                 proc.returncode = 0
                 proc.communicate = AsyncMock(
-                    return_value=(b" 2 files changed, 100 insertions(+)\n", b"")
+                    return_value=(
+                        b" 2 files changed, 100 insertions(+)\n", b"")
                 )
                 return proc
             return mock_subprocess
@@ -1057,15 +1063,23 @@ class TestCreateGitToolsServer:
 
         assert server is not None
 
-    def test_create_git_tools_server_async_context_error(self) -> None:
-        """Test create_git_tools_server raises error when called from async context."""
+    def test_create_git_tools_server_safe_in_async_context(self) -> None:
+        """Test create_git_tools_server is safe to call from async context.
 
-        async def call_in_async_context():
-            with pytest.raises(GitToolsError) as exc_info:
-                create_git_tools_server()
-            assert "async context" in str(exc_info.value)
+        After refactoring to use lazy verification, the factory no longer
+        uses asyncio.run() and is safe to call from both sync and async contexts.
+        """
+        import asyncio
 
-        # This test verifies the behavior but can't actually run
-        # the async function since we can't use asyncio.run() here
-        # Just verify the test structure is correct
-        assert callable(call_in_async_context)
+        from maverick.tools.git import create_git_tools_server
+
+        async def async_caller():
+            """Call create_git_tools_server from async context."""
+            # Should succeed - no longer raises error in async context
+            server = create_git_tools_server()
+            assert server is not None
+            return server
+
+        # Run the async test
+        server = asyncio.run(async_caller())
+        assert server is not None

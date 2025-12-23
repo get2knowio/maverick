@@ -8,6 +8,10 @@ Usage:
 
     server = create_git_tools_server()
     agent = MaverickAgent(mcp_servers={"git-tools": server})
+
+    # Optional: verify prerequisites explicitly for fail-fast behavior
+    from maverick.tools.git import verify_git_prerequisites
+    await verify_git_prerequisites()
 """
 
 from __future__ import annotations
@@ -91,14 +95,34 @@ def _error_response(
     return {"content": [{"type": "text", "text": json.dumps(error_data)}]}
 
 
-async def _verify_git_prerequisites(cwd: Path | None = None) -> None:
+async def verify_git_prerequisites(cwd: Path | None = None) -> None:
     """Verify git is installed and we're in a repository.
 
+    Public function for callers who want fail-fast verification before
+    using git tools. This is optional - tools will verify prerequisites
+    lazily on first use if not called explicitly.
+
     Args:
-        cwd: Working directory to check.
+        cwd: Working directory to check. Defaults to current directory.
 
     Raises:
-        GitToolsError: If any prerequisite check fails.
+        GitToolsError: If any prerequisite check fails:
+            - git_installed: Git not found
+            - in_git_repo: Not inside a git repository
+
+    Example:
+        ```python
+        from maverick.tools.git import (
+            create_git_tools_server,
+            verify_git_prerequisites,
+        )
+
+        # Optional fail-fast verification
+        await verify_git_prerequisites()
+
+        # Create server (will use lazy verification if not pre-verified)
+        server = create_git_tools_server()
+        ```
     """
     # Check git installed
     try:
@@ -231,7 +255,7 @@ def create_git_tools_server(
 
     This factory function creates an MCP server instance with all 5 git
     tools registered. Verification is lazy - tools will verify prerequisites
-    on first use via _verify_git_prerequisites().
+    on first use via verify_git_prerequisites().
 
     Args:
         cwd: Working directory for prerequisite checks and git operations.
@@ -251,6 +275,15 @@ def create_git_tools_server(
             mcp_servers={"git-tools": server},
             allowed_tools=["mcp__git-tools__git_commit"],
         )
+        ```
+
+    Note:
+        For fail-fast verification, call verify_git_prerequisites()
+        before creating the server:
+
+        ```python
+        await verify_git_prerequisites()
+        server = create_git_tools_server()
         ```
     """
     # Capture cwd in closure (no global state)
@@ -296,7 +329,8 @@ def create_git_tools_server(
 
         # Validate commit type if provided
         if commit_type and commit_type not in COMMIT_TYPES:
-            logger.warning("git_commit called with invalid type: %s", commit_type)
+            logger.warning(
+                "git_commit called with invalid type: %s", commit_type)
             valid_types = ", ".join(sorted(COMMIT_TYPES))
             return _error_response(
                 f"Invalid commit type '{commit_type}'. Must be one of: {valid_types}",
@@ -419,7 +453,7 @@ def create_git_tools_server(
 
         try:
             # Verify prerequisites
-            await _verify_git_prerequisites(working_dir)
+            await verify_git_prerequisites(working_dir)
         except GitToolsError as e:
             logger.error("git_push: Prerequisites check failed: %s", e)
             return _error_response(str(e), "NOT_A_REPOSITORY")
@@ -558,9 +592,10 @@ def create_git_tools_server(
 
         try:
             # Verify prerequisites
-            await _verify_git_prerequisites(working_dir)
+            await verify_git_prerequisites(working_dir)
         except GitToolsError as e:
-            logger.error("git_current_branch: Prerequisites check failed: %s", e)
+            logger.error(
+                "git_current_branch: Prerequisites check failed: %s", e)
             return _error_response(str(e), "NOT_A_REPOSITORY")
 
         try:
@@ -569,14 +604,16 @@ def create_git_tools_server(
             )
 
             if returncode != 0:
-                logger.error("git_current_branch: Failed to get branch: %s", stderr)
+                logger.error(
+                    "git_current_branch: Failed to get branch: %s", stderr)
                 return _error_response(
                     f"Failed to get current branch: {stderr}",
                     "GIT_ERROR",
                 )
 
             branch_name = stdout if stdout != "HEAD" else "(detached)"
-            logger.info("git_current_branch: Current branch is '%s'", branch_name)
+            logger.info(
+                "git_current_branch: Current branch is '%s'", branch_name)
 
             return _success_response({"branch": branch_name})
 
@@ -615,7 +652,7 @@ def create_git_tools_server(
 
         try:
             # Verify prerequisites
-            await _verify_git_prerequisites(working_dir)
+            await verify_git_prerequisites(working_dir)
         except GitToolsError as e:
             logger.error("git_diff_stats: Prerequisites check failed: %s", e)
             return _error_response(str(e), "NOT_A_REPOSITORY")
@@ -626,7 +663,8 @@ def create_git_tools_server(
             )
 
             if returncode != 0:
-                logger.error("git_diff_stats: Failed to get diff stats: %s", stderr)
+                logger.error(
+                    "git_diff_stats: Failed to get diff stats: %s", stderr)
                 return _error_response(
                     f"Failed to get diff statistics: {stderr}",
                     "GIT_ERROR",
@@ -706,9 +744,10 @@ def create_git_tools_server(
 
         try:
             # Verify prerequisites
-            await _verify_git_prerequisites(working_dir)
+            await verify_git_prerequisites(working_dir)
         except GitToolsError as e:
-            logger.error("git_create_branch: Prerequisites check failed: %s", e)
+            logger.error(
+                "git_create_branch: Prerequisites check failed: %s", e)
             return _error_response(str(e), "NOT_A_REPOSITORY")
 
         # Validate required arguments
@@ -744,7 +783,8 @@ def create_git_tools_server(
             validation_errors.append("cannot contain control characters")
 
         if validation_errors:
-            logger.error("git_create_branch: Invalid branch name: %s", branch_name)
+            logger.error(
+                "git_create_branch: Invalid branch name: %s", branch_name)
             errors_str = "; ".join(validation_errors)
             error_msg = f"Invalid branch name '{branch_name}': {errors_str}"
             return _error_response(error_msg, "INVALID_INPUT")
@@ -787,7 +827,8 @@ def create_git_tools_server(
                     )
 
                 # Generic git error
-                logger.error("git_create_branch: Failed to create branch: %s", stderr)
+                logger.error(
+                    "git_create_branch: Failed to create branch: %s", stderr)
                 return _error_response(
                     f"Failed to create branch: {stderr}",
                     "GIT_ERROR",

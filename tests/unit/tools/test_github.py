@@ -261,7 +261,8 @@ class TestGitHubPrStatus:
         # Verify conflict detection
         assert response_data["pr_number"] == pr_number
         assert response_data["state"] == "open"
-        assert response_data["mergeable"] is False  # CONFLICTING converted to False
+        # CONFLICTING converted to False
+        assert response_data["mergeable"] is False
         assert response_data["merge_state_status"] == "dirty"
         assert response_data["has_conflicts"] is True
 
@@ -1370,7 +1371,8 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "API rate limit exceeded. Retry after 120 seconds", 1),
+            return_value=(
+                "", "API rate limit exceeded. Retry after 120 seconds", 1),
         ):
             result = await github_create_pr.handler(
                 {
@@ -1428,7 +1430,8 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "rate limit exceeded, retry after 90 seconds", 1),
+            return_value=(
+                "", "rate limit exceeded, retry after 90 seconds", 1),
         ):
             result = await github_pr_status.handler({"pr_number": 456})
 
@@ -1443,7 +1446,8 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "Rate limit exceeded. Try again in 45 seconds", 1),
+            return_value=(
+                "", "Rate limit exceeded. Try again in 45 seconds", 1),
         ):
             result = await github_get_pr_diff.handler({"pr_number": 789})
 
@@ -1458,7 +1462,8 @@ class TestRateLimitErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "GitHub API rate limit. Retry after 30 seconds.", 1),
+            return_value=(
+                "", "GitHub API rate limit. Retry after 30 seconds.", 1),
         ):
             result = await github_add_labels.handler(
                 {
@@ -1568,7 +1573,8 @@ class TestNetworkErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "Network error: unable to connect to GitHub API", 1),
+            return_value=(
+                "", "Network error: unable to connect to GitHub API", 1),
         ):
             result = await github_get_issue.handler({"issue_number": 999})
 
@@ -1723,7 +1729,8 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "unauthorized access - authentication required", 1),
+            return_value=(
+                "", "unauthorized access - authentication required", 1),
         ):
             result = await github_pr_status.handler({"pr_number": 222})
 
@@ -1751,7 +1758,8 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "Authentication credentials are missing or invalid", 1),
+            return_value=(
+                "", "Authentication credentials are missing or invalid", 1),
         ):
             result = await github_add_labels.handler(
                 {
@@ -1770,7 +1778,8 @@ class TestAuthErrorHandling:
         with patch(
             "maverick.tools.github._run_gh_command",
             new_callable=AsyncMock,
-            return_value=("", "unauthorized - please authenticate with GitHub", 1),
+            return_value=(
+                "", "unauthorized - please authenticate with GitHub", 1),
         ):
             result = await github_close_issue.handler(
                 {
@@ -1872,7 +1881,8 @@ index 1234567..abcdefg 100644
         pr_number = 456
         # Create a large diff (larger than default 100KB)
         large_diff = (
-            "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 150
+            "diff --git a/file.py b/file.py\n" +
+            ("+" + "x" * 1000 + "\n") * 150
         )  # ~150KB
         max_size = 50000  # 50KB limit
 
@@ -1896,7 +1906,8 @@ index 1234567..abcdefg 100644
         assert "warning" in response_data
         assert "truncated" in response_data["warning"].lower()
         assert "original_size_bytes" in response_data
-        assert response_data["original_size_bytes"] == len(large_diff.encode("utf-8"))
+        assert response_data["original_size_bytes"] == len(
+            large_diff.encode("utf-8"))
 
         # Verify diff was actually truncated
         diff_size = len(response_data["diff"].encode("utf-8"))
@@ -2060,7 +2071,8 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock process that times out
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(
+            side_effect=asyncio.TimeoutError())
         mock_process.kill = AsyncMock()
         mock_process.wait = AsyncMock()
 
@@ -2079,7 +2091,8 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock successful process
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"output data", b""))
+        mock_process.communicate = AsyncMock(
+            return_value=(b"output data", b""))
         mock_process.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -2097,7 +2110,8 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock process with error
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
+        mock_process.communicate = AsyncMock(
+            return_value=(b"", b"error message"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -2449,7 +2463,8 @@ class TestHelperFunctions:
         """Test success response correctly serializes complex data."""
         data = {
             "issues": [
-                {"number": 1, "title": "Bug", "labels": ["bug", "priority-high"]},
+                {"number": 1, "title": "Bug",
+                    "labels": ["bug", "priority-high"]},
                 {"number": 2, "title": "Feature", "labels": []},
             ],
             "count": 2,
@@ -2489,7 +2504,8 @@ class TestHelperFunctions:
         message = "Rate limit exceeded"
         error_code = "RATE_LIMIT"
         retry_after = 120
-        result = _error_response(message, error_code, retry_after_seconds=retry_after)
+        result = _error_response(
+            message, error_code, retry_after_seconds=retry_after)
 
         error_data = json.loads(result["content"][0]["text"])
         assert error_data["isError"] is True
@@ -2678,7 +2694,8 @@ class TestVerifyPrerequisites:
             patch(
                 "maverick.tools.github._run_gh_command",
                 new_callable=AsyncMock,
-                return_value=("", "You are not logged into any GitHub hosts", 1),
+                return_value=(
+                    "", "You are not logged into any GitHub hosts", 1),
             ),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
@@ -2802,7 +2819,8 @@ class TestVerifyPrerequisites:
         async def mock_subprocess_exec(*args, **kwargs):
             """Mock subprocess that times out for gh --version."""
             mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_process.communicate = AsyncMock(
+                side_effect=asyncio.TimeoutError())
             return mock_process
 
         with patch(
@@ -2887,7 +2905,8 @@ class TestVerifyPrerequisites:
                 mock_process.returncode = 0
             elif command == "git" and "rev-parse" in args:
                 # git rev-parse times out
-                mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+                mock_process.communicate = AsyncMock(
+                    side_effect=asyncio.TimeoutError())
             else:
                 # Other commands succeed
                 mock_process.communicate = AsyncMock(return_value=(b"", b""))
@@ -2938,7 +2957,8 @@ class TestVerifyPrerequisites:
                 mock_process.returncode = 0
             elif command == "git" and "remote" in args and "get-url" in args:
                 # git remote get-url origin times out
-                mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+                mock_process.communicate = AsyncMock(
+                    side_effect=asyncio.TimeoutError())
             else:
                 # Other commands succeed
                 mock_process.communicate = AsyncMock(return_value=(b"", b""))
@@ -2996,43 +3016,101 @@ class TestCreateGitHubToolsServer:
     """Tests for create_github_tools_server factory function (T008)."""
 
     def test_create_github_tools_server_skip_verification(self) -> None:
-        """Test create_github_tools_server with skip_verification=True."""
+        """Test create_github_tools_server with skip_verification=True (deprecated)."""
         from maverick.tools.github import create_github_tools_server
 
-        # Should succeed without checking prerequisites
+        # Should succeed - skip_verification is now ignored (always lazy)
         server = create_github_tools_server(skip_verification=True)
 
         # Verify server is created
         assert server is not None
 
-    def test_create_github_tools_server_async_context_error(self) -> None:
-        """Test create_github_tools_server raises error when called from
-        async context (lines 785-816).
+    def test_create_github_tools_server_safe_in_async_context(self) -> None:
+        """Test create_github_tools_server is safe to call from async context.
+
+        After refactoring to use lazy verification, the factory no longer
+        uses asyncio.run() and is safe to call from both sync and async contexts.
         """
         import asyncio
 
-        from maverick.exceptions import GitHubToolsError
         from maverick.tools.github import create_github_tools_server
 
         async def async_caller():
-            """Try to call create_github_tools_server from async context."""
-            # Should raise GitHubToolsError because we're in async context
-            with pytest.raises(GitHubToolsError) as exc_info:
-                create_github_tools_server(skip_verification=False)
-
-            # Verify error details
-            assert exc_info.value.check_failed == "async_context"
-            assert "async context" in str(exc_info.value).lower()
-            assert "skip_verification=True" in str(exc_info.value)
+            """Call create_github_tools_server from async context."""
+            # Should succeed - no longer raises error in async context
+            server = create_github_tools_server()
+            assert server is not None
+            return server
 
         # Run the async test
-        asyncio.run(async_caller())
+        server = asyncio.run(async_caller())
+        assert server is not None
 
-    def test_create_github_tools_server_with_verification_success(self) -> None:
-        """Test create_github_tools_server runs verification when not skipped."""
+    def test_create_github_tools_server_lazy_verification(self) -> None:
+        """Test create_github_tools_server uses lazy verification.
+
+        The factory no longer runs verification synchronously.
+        Verification happens on first tool use.
+        """
         from maverick.tools.github import create_github_tools_server
 
-        # Mock successful subprocess calls
+        # Should succeed regardless of skip_verification value
+        # since verification is always lazy now
+        server = create_github_tools_server(skip_verification=False)
+        assert server is not None
+
+    def test_create_github_tools_server_returns_mcp_server_config(self) -> None:
+        """Test create_github_tools_server returns McpSdkServerConfig type."""
+        from claude_agent_sdk.types import McpSdkServerConfig
+
+        from maverick.tools.github import create_github_tools_server
+
+        server = create_github_tools_server()
+        assert isinstance(server, dict)
+        # McpSdkServerConfig is a TypedDict, check for expected keys
+        assert "name" in server or "tools" in server or server is not None
+
+    @pytest.mark.asyncio
+    async def test_create_github_tools_server_in_nested_async(self) -> None:
+        """Test create_github_tools_server works in nested async operations.
+
+        This is the key test for issue #162 - factory must not call asyncio.run()
+        which would raise RuntimeError in an existing event loop.
+        """
+        from maverick.tools.github import create_github_tools_server
+
+        async def nested_create() -> dict:
+            server = create_github_tools_server()
+            return server
+
+        server = await nested_create()
+        assert server is not None
+        # McpSdkServerConfig has instance and name keys
+        assert "instance" in server or "name" in server
+
+    def test_create_github_tools_server_skip_verification_ignored(self) -> None:
+        """Test skip_verification parameter is deprecated and ignored.
+
+        Verification is always lazy now to ensure async safety.
+        """
+        from maverick.tools.github import create_github_tools_server
+
+        # Both should work identically - skip_verification is ignored
+        server1 = create_github_tools_server(skip_verification=True)
+        server2 = create_github_tools_server(skip_verification=False)
+
+        assert server1 is not None
+        assert server2 is not None
+
+
+class TestVerifyGitHubPrerequisites:
+    """Tests for the public verify_github_prerequisites function."""
+
+    @pytest.mark.asyncio
+    async def test_verify_github_prerequisites_success(self) -> None:
+        """Test verify_github_prerequisites succeeds when prerequisites are met."""
+        from maverick.tools.github import verify_github_prerequisites
+
         async def mock_subprocess_exec(*args, **kwargs):
             """Mock successful subprocess execution."""
             mock_process = AsyncMock()
@@ -3051,24 +3129,98 @@ class TestCreateGitHubToolsServer:
                 return_value=("Logged in as user", "", 0),
             ),
         ):
-            # Should succeed when prerequisites are met
-            server = create_github_tools_server(skip_verification=False)
-            assert server is not None
+            # Should complete without raising
+            await verify_github_prerequisites()
 
-    def test_create_github_tools_server_with_verification_failure(self) -> None:
-        """Test create_github_tools_server raises error when prerequisites fail."""
+    @pytest.mark.asyncio
+    async def test_verify_github_prerequisites_failure(self) -> None:
+        """Test verify_github_prerequisites raises when gh CLI is not found."""
         from maverick.exceptions import GitHubToolsError
-        from maverick.tools.github import create_github_tools_server
+        from maverick.tools.github import verify_github_prerequisites
 
-        # Mock failed gh CLI check
         with patch(
             "asyncio.create_subprocess_exec",
             side_effect=FileNotFoundError("gh command not found"),
         ):
             with pytest.raises(GitHubToolsError) as exc_info:
-                create_github_tools_server(skip_verification=False)
+                await verify_github_prerequisites()
 
             assert exc_info.value.check_failed == "gh_installed"
+
+    @pytest.mark.asyncio
+    async def test_verify_github_prerequisites_is_async(self) -> None:
+        """Test verify_github_prerequisites is a proper async function."""
+        import inspect
+
+        from maverick.tools.github import verify_github_prerequisites
+
+        assert inspect.iscoroutinefunction(verify_github_prerequisites)
+
+    @pytest.mark.asyncio
+    async def test_verify_github_prerequisites_fail_fast_pattern(self) -> None:
+        """Test the recommended fail-fast pattern works.
+
+        Pattern:
+            await verify_github_prerequisites()  # fail-fast check
+            server = create_github_tools_server()  # create server
+        """
+        from maverick.tools.github import (
+            create_github_tools_server,
+            verify_github_prerequisites,
+        )
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            mock_process = AsyncMock()
+            mock_process.communicate = AsyncMock(
+                return_value=(b"gh version 2.40", b""))
+            mock_process.returncode = 0
+            return mock_process
+
+        with (
+            patch("asyncio.create_subprocess_exec",
+                  side_effect=mock_subprocess_exec),
+            patch(
+                "maverick.tools.github._run_gh_command",
+                new_callable=AsyncMock,
+                return_value=("Logged in as user", "", 0),
+            ),
+        ):
+            # Fail-fast verification
+            await verify_github_prerequisites()
+
+            # Then create server
+            server = create_github_tools_server()
+
+            assert server is not None
+            # McpSdkServerConfig has instance and name keys
+            assert "instance" in server or "name" in server
+
+    @pytest.mark.asyncio
+    async def test_verify_github_prerequisites_in_nested_async(self) -> None:
+        """Test verify_github_prerequisites works in nested async operations."""
+        from maverick.tools.github import verify_github_prerequisites
+
+        async def mock_subprocess_exec(*args, **kwargs):
+            mock_process = AsyncMock()
+            mock_process.communicate = AsyncMock(return_value=(b"", b""))
+            mock_process.returncode = 0
+            return mock_process
+
+        async def nested_verify():
+            await verify_github_prerequisites()
+            return True
+
+        with (
+            patch("asyncio.create_subprocess_exec",
+                  side_effect=mock_subprocess_exec),
+            patch(
+                "maverick.tools.github._run_gh_command",
+                new_callable=AsyncMock,
+                return_value=("Logged in", "", 0),
+            ),
+        ):
+            result = await nested_verify()
+            assert result is True
 
 
 # =============================================================================

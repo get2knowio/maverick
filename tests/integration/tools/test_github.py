@@ -346,15 +346,37 @@ class TestGitHubToolsPerformance:
 class TestGitHubToolsErrorHandling:
     """Test error handling for integration scenarios."""
 
-    def test_create_server_outside_git_repo_fails(self, tmp_path) -> None:
-        """Test that server creation fails when not in a git repository.
+    def test_create_server_outside_git_repo_succeeds_with_lazy_verification(
+        self, tmp_path
+    ) -> None:
+        """Test that server creation succeeds even outside a git repository.
 
-        This test verifies the prerequisite check correctly detects
-        when the directory is not a git repository.
+        With lazy verification, the factory function no longer fails immediately.
+        Prerequisites are checked on first tool use. This allows creating servers
+        in any context, including async contexts.
         """
-        # Create server in a non-git directory should fail
+        # Create server in a non-git directory should succeed now
+        # (verification is lazy)
+        server_config = create_github_tools_server(cwd=tmp_path)
+
+        # Verify server was created
+        assert server_config is not None
+        assert isinstance(server_config, dict)
+        assert "name" in server_config
+        assert server_config["name"] == "github-tools"
+
+    @pytest.mark.asyncio
+    async def test_verify_prerequisites_outside_git_repo_fails(self, tmp_path) -> None:
+        """Test that verify_github_prerequisites fails outside a git repository.
+
+        This test verifies the explicit verification function correctly detects
+        when the directory is not a git repository. Use this for fail-fast behavior.
+        """
+        from maverick.tools.github import verify_github_prerequisites
+
+        # Explicit verification in a non-git directory should fail
         with pytest.raises(GitHubToolsError) as exc_info:
-            create_github_tools_server(cwd=tmp_path)
+            await verify_github_prerequisites(cwd=tmp_path)
 
         # Verify error details
         error = exc_info.value

@@ -6,9 +6,12 @@ Tools are async functions decorated with @tool that return MCP-formatted respons
 Usage:
     from maverick.tools.github import create_github_tools_server
 
-    # Raises GitHubToolsError if prerequisites not met
     server = create_github_tools_server()
     agent = MaverickAgent(mcp_servers={"github-tools": server})
+
+    # Optional: verify prerequisites explicitly for fail-fast behavior
+    from maverick.tools.github import verify_github_prerequisites
+    await verify_github_prerequisites()
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
+from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.exceptions import GitHubToolsError
 from maverick.utils.security import scrub_secrets
@@ -212,11 +216,48 @@ def _classify_error(stderr: str, stdout: str = "") -> tuple[str, str, int | None
 async def _verify_prerequisites(cwd: Path | None = None) -> None:
     """Verify gh CLI and git repo prerequisites (T004).
 
+    Internal helper for lazy verification on first tool use.
+
     Args:
         cwd: Working directory to check.
 
     Raises:
         GitHubToolsError: If any prerequisite check fails.
+    """
+    await verify_github_prerequisites(cwd)
+
+
+async def verify_github_prerequisites(cwd: Path | None = None) -> None:
+    """Verify gh CLI and git repo prerequisites.
+
+    Public function for callers who want fail-fast verification before
+    using GitHub tools. This is optional - tools will verify prerequisites
+    lazily on first use if not called explicitly.
+
+    Args:
+        cwd: Working directory to check. Defaults to current directory.
+
+    Raises:
+        GitHubToolsError: If any prerequisite check fails:
+            - gh_installed: GitHub CLI not found
+            - gh_authenticated: GitHub CLI not authenticated
+            - git_installed: Git not found
+            - git_repo: Not inside a git repository
+            - git_remote: No 'origin' remote configured
+
+    Example:
+        ```python
+        from maverick.tools.github import (
+            create_github_tools_server,
+            verify_github_prerequisites,
+        )
+
+        # Optional fail-fast verification
+        await verify_github_prerequisites()
+
+        # Create server (will use lazy verification if not pre-verified)
+        server = create_github_tools_server()
+        ```
     """
     working_dir = cwd or Path.cwd()
 
@@ -413,7 +454,8 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
     if limit < 1:
         return _error_response("Limit must be positive", "INVALID_INPUT")
 
-    logger.info("Listing issues: state=%s, label=%s, limit=%d", state, label, limit)
+    logger.info("Listing issues: state=%s, label=%s, limit=%d",
+                state, label, limit)
 
     cmd_args = [
         "issue",
@@ -575,7 +617,8 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
             # Truncate at byte boundary to avoid breaking multibyte UTF-8 characters
             diff_bytes = diff.encode("utf-8")[:max_size]
             diff = diff_bytes.decode("utf-8", errors="ignore")
-            logger.info("Diff truncated from %d to %d bytes", original_size, max_size)
+            logger.info("Diff truncated from %d to %d bytes",
+                        original_size, max_size)
             return _success_response(
                 {
                     "diff": diff,
@@ -585,7 +628,8 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-        logger.info("Retrieved diff for PR #%d (%d bytes)", pr_number, original_size)
+        logger.info("Retrieved diff for PR #%d (%d bytes)",
+                    pr_number, original_size)
         return _success_response({"diff": diff, "truncated": False})
 
     except asyncio.TimeoutError:
@@ -674,7 +718,8 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
 
         # Detect conflicts
         has_conflicts = (
-            merge_state in ("dirty", "conflicting") or mergeable_raw == "CONFLICTING"
+            merge_state in (
+                "dirty", "conflicting") or mergeable_raw == "CONFLICTING"
         )
 
         status = {
@@ -822,23 +867,22 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
 
 def create_github_tools_server(
     cwd: Path | None = None,
-    skip_verification: bool = False,
-) -> Any:
+    skip_verification: bool = True,
+) -> McpSdkServerConfig:
     """Create MCP server with all GitHub tools registered (T008).
 
     This factory function creates an MCP server instance with all 7 GitHub
-    tools registered. By default, it verifies prerequisites (gh CLI installed,
-    authenticated, in git repo) before creating the server.
+    tools registered. Verification is lazy - tools will verify prerequisites
+    on first use via verify_github_prerequisites().
 
     Args:
-        cwd: Working directory for prerequisite checks. Defaults to cwd.
-        skip_verification: Skip prerequisite checks (for testing).
+        cwd: Working directory for prerequisite checks and GitHub operations.
+            Defaults to current working directory.
+        skip_verification: Deprecated parameter, ignored. Verification is
+            always lazy to avoid asyncio.run() in factory functions.
 
     Returns:
         Configured MCP server instance.
-
-    Raises:
-        GitHubToolsError: If prerequisites not met (unless skip_verification=True).
 
     Example:
         ```python
@@ -850,21 +894,18 @@ def create_github_tools_server(
             allowed_tools=["mcp__github-tools__github_create_pr"],
         )
         ```
+
+    Note:
+        For fail-fast verification, call verify_github_prerequisites()
+        before creating the server:
+
+        ```python
+        await verify_github_prerequisites()
+        server = create_github_tools_server()
+        ```
     """
-    # Verify prerequisites (fail fast)
-    if not skip_verification:
-        try:
-            # Try to get the running event loop
-            asyncio.get_running_loop()
-            # If we're here, we're in an async context - cannot use asyncio.run()
-            msg = (
-                "create_github_tools_server() cannot be called from async context. "
-                "Use skip_verification=True or call from synchronous code."
-            )
-            raise GitHubToolsError(msg, check_failed="async_context")
-        except RuntimeError:
-            # No running event loop - safe to create a new one with asyncio.run()
-            asyncio.run(_verify_prerequisites(cwd))
+    # Capture cwd in closure (no global state)
+    _cwd = cwd
 
     logger.info("Creating GitHub tools MCP server (version %s)", SERVER_VERSION)
 
