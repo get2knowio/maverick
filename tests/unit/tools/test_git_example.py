@@ -147,7 +147,10 @@ class TestGitToolPatterns:
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Patch GitRunner class to return our mock when instantiated
-        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
+        with patch(
+            "maverick.tools.git.tools.branch.GitRunner",
+            return_value=mock_git_runner,
+        ):
             # Call the tool via handler
             response = await git_current_branch.handler({})
 
@@ -196,7 +199,9 @@ class TestGitToolPatterns:
         git_diff_stats = server["tools"]["git_diff_stats"]
 
         # Call the tool via handler
-        with patch("maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner):
+        with patch(
+            "maverick.tools.git.tools.diff.GitRunner", return_value=mock_git_runner
+        ):
             response = await git_diff_stats.handler({})
 
         # Parse MCP response
@@ -235,7 +240,10 @@ class TestGitToolPatterns:
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Call the tool via handler
-        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
+        with patch(
+            "maverick.tools.git.tools.branch.GitRunner",
+            return_value=mock_git_runner,
+        ):
             response = await git_current_branch.handler({})
 
         # Validate error response structure
@@ -282,7 +290,10 @@ class TestGitToolPatterns:
         git_current_branch = server["tools"]["git_current_branch"]
 
         # Call the tool via handler
-        with patch("maverick.tools.git.tools.branch.GitRunner", return_value=mock_git_runner):
+        with patch(
+            "maverick.tools.git.tools.branch.GitRunner",
+            return_value=mock_git_runner,
+        ):
             response = await git_current_branch.handler({})
 
         # Verify multiple GitRunner methods were called
