@@ -141,7 +141,7 @@ class TestReviewWorkflowIntegration:
         ]
         response_iter = iter(responses)
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
         # Mock subprocess calls
@@ -252,7 +252,7 @@ class TestReviewWorkflowIntegration:
         ]
         response_iter = iter(responses)
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
         with (
@@ -342,11 +342,11 @@ class TestReviewWorkflowIntegration:
         ]
         runner_iter = iter(runner_responses)
 
-        async def mock_runner_run(cmd, **kwargs):
+        async def mock_runner_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(runner_iter)
 
         # CodeRabbit runner response
-        async def mock_coderabbit_run(cmd, **kwargs):
+        async def mock_coderabbit_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(coderabbit_findings),
@@ -430,7 +430,7 @@ class TestReviewWorkflowActions:
         ]
         response_iter = iter(responses)
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
         with (
@@ -474,7 +474,7 @@ class TestReviewWorkflowActions:
 
         context = {"coderabbit_available": True}
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(
@@ -579,7 +579,7 @@ class TestReviewWorkflowEdgeCases:
         ]
         response_iter = iter(responses)
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
         with (
@@ -605,7 +605,7 @@ class TestReviewWorkflowEdgeCases:
         """Test workflow handles PR fetch failures gracefully."""
         from maverick.library.actions.review import gather_pr_context
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             # Simulate PR fetch failure with non-zero returncode
             return CommandResult(
                 returncode=1,
@@ -679,7 +679,7 @@ class TestReviewWorkflowEdgeCases:
         ]
         response_iter = iter(responses)
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
         with (

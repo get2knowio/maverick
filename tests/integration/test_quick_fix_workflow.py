@@ -113,7 +113,7 @@ class TestQuickFixWorkflowIntegration:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -131,7 +131,7 @@ class TestQuickFixWorkflowIntegration:
             original_execute = WorkflowFileExecutor._execute_step
             executed_steps = []
 
-            async def mock_execute_step(self, step, context):
+            async def mock_execute_step(self: Any, step: Any, context: Any) -> Any:
                 """Track step execution and mock sub-workflows."""
                 executed_steps.append(step.name)
 
@@ -198,7 +198,7 @@ class TestQuickFixWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=1,
                 stdout="",
@@ -255,7 +255,7 @@ class TestQuickFixWorkflowIntegration:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -271,7 +271,7 @@ class TestQuickFixWorkflowIntegration:
         ):
             original_execute = WorkflowFileExecutor._execute_step
 
-            async def mock_execute_step(self, step, context):
+            async def mock_execute_step(self: Any, step: Any, context: Any) -> Any:
                 """Mock validation failure."""
                 if step.type == "subworkflow" and step.workflow == "validate-and-fix":
                     # Validation exhausts attempts
@@ -320,7 +320,7 @@ class TestQuickFixWorkflowIntegration:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -336,7 +336,7 @@ class TestQuickFixWorkflowIntegration:
         ):
             original_execute = WorkflowFileExecutor._execute_step
 
-            async def mock_execute_step(self, step, context):
+            async def mock_execute_step(self: Any, step: Any, context: Any) -> Any:
                 """Mock sub-workflows."""
                 if step.type == "subworkflow":
                     return {"success": True}
@@ -386,7 +386,7 @@ class TestQuickFixWorkflowActions:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -415,7 +415,7 @@ class TestQuickFixWorkflowActions:
         """Test fetch_github_issue action handles failure gracefully."""
         from maverick.library.actions.github import fetch_github_issue
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=1,
                 stdout="",
@@ -451,7 +451,7 @@ class TestQuickFixWorkflowActions:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -489,7 +489,7 @@ class TestQuickFixWorkflowEdgeCases:
             "state": "closed",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -528,7 +528,7 @@ class TestQuickFixWorkflowEdgeCases:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data, ensure_ascii=False),
@@ -565,7 +565,7 @@ class TestQuickFixWorkflowEdgeCases:
             "state": "open",
         }
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=0,
                 stdout=json.dumps(issue_data),
@@ -590,7 +590,7 @@ class TestQuickFixWorkflowEdgeCases:
         """Test workflow handles network timeouts gracefully."""
         from maverick.library.actions.github import fetch_github_issue
 
-        async def mock_run(cmd, **kwargs):
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return CommandResult(
                 returncode=1,
                 stdout="",
