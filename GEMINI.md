@@ -70,6 +70,18 @@ The project adheres to strict quality standards.
     *   **Workflows**: Stateful orchestrators.
     *   **Tools**: Safe interfaces to external systems.
 
+## Architectural Guardrails (Non-Negotiables)
+
+These truisms are required to maintain the clarity/segmentation described in `.specify/memory/constitution.md` and the Slidev training content.
+
+1. **TUI is display-only**: `src/maverick/tui/**` must not execute subprocesses or make network calls. Delegate to runners/services and only render/update state.
+2. **Async-first means no blocking on the event loop**: never use `subprocess.run` in an `async def` path. Prefer `CommandRunner` (`src/maverick/runners/command.py`). DSL `PythonStep` callables must be async or offloaded (e.g., `asyncio.to_thread`).
+3. **Deterministic ops belong to workflows/runners, not agents**: agents provide judgment; workflows own git/validation execution, retries, checkpointing, and recovery policy.
+4. **Actions must have a single typed contract**: avoid ad-hoc `dict[str, Any]` outputs; prefer frozen dataclasses (with `to_dict()` for serialization) or `TypedDict` + boundary validation.
+5. **Resilience features must be real**: retry/fix loops must actually invoke fixers and re-run validation (no “simulated” recovery).
+6. **One canonical wrapper per external system**: don’t duplicate `git`/`gh`/validation wrappers; prefer `src/maverick/runners/**` and have tools/context builders delegate.
+7. **Tool server factories must be async-safe**: avoid `asyncio.run` inside factories; prefer lazy verification or explicit async verify APIs; keep public return types concrete (avoid `Any`).
+
 ## Key Files
 *   `CLAUDE.md`: Detailed coding guidelines and context for AI assistants.
 *   `CONTRIBUTING.md`: Developer setup and contribution guide.

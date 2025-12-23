@@ -153,6 +153,46 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 
 Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict adherence to these rules prevents debt accumulation.
 
+## Architectural Guardrails (Non-Negotiables)
+
+These “truisms” are required to preserve the clarity and layer boundaries described in `.specify/memory/constitution.md` and the Slidev training. If a change would violate any item below, stop and refactor the design before proceeding.
+
+### 1. TUI is display-only
+- `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`, `asyncio.create_subprocess_exec`) or make network calls.
+- TUI code MUST delegate external interactions to runners/services and only update reactive state + render results.
+
+### 2. Async-first means “no blocking on the event loop”
+- Never call `subprocess.run` from an `async def` path.
+- Prefer `CommandRunner` (`src/maverick/runners/command.py`) for subprocess execution with timeouts.
+- DSL `PythonStep` callables MUST be async, or must be run off-thread (e.g., `asyncio.to_thread`) to avoid freezing the TUI/workflows.
+
+### 3. Deterministic ops belong to workflows/runners, not agents
+- Agents provide judgment (implementation/review/fix suggestions). They MUST NOT own deterministic side effects like git commits/pushes or running validation.
+- Workflows (or DSL steps/actions) own deterministic execution, retries, checkpointing, and error recovery policies.
+
+### 4. Actions must have a single, typed contract
+- Workflow actions MUST not return ad-hoc `dict[str, Any]` blobs.
+- Use one canonical contract:
+  - preferred: frozen dataclasses (with `to_dict()` for DSL serialization), or
+  - acceptable: `TypedDict` + validation at boundaries.
+- Keep action outputs stable across versions; treat them as public interfaces.
+
+### 5. Resilience features must be real, not stubs
+- “Retry/fix loops” and “recovery” must actually invoke the fixer/retry validation or be removed.
+- If the DSL/workflow definition is the right place for retry logic, implement it there rather than simulating it in a Python action.
+
+### 6. One canonical wrapper per external system
+- Do not create new `git`/`gh`/validation subprocess wrappers in random modules.
+- Prefer:
+  - `src/maverick/runners/**` for deterministic execution + parsing
+  - `src/maverick/tools/**` for MCP surfaces (delegate to runners/utilities)
+  - `src/maverick/dsl/context_builders.py` for context composition (delegate; no subprocess re-implementation)
+
+### 7. Tool server factories must be async-safe and consistent
+- Factory functions MUST NOT call `asyncio.run()` internally.
+- Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
+- Return concrete, correct types (avoid `Any` on public APIs).
+
 ### 1. Testing is Not Optional (Anti-Deferral)
 - No PR shall be merged without passing **new** tests covering added functionality
 - Do not comment out or skip failing tests; fix them immediately
