@@ -1,20 +1,22 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0
+Version change: 1.2.0 → 1.3.0
 Modified principles:
-  - V. Test-First → Enhanced with anti-deferral rules from debt analysis
-  - VI. Type Safety → Enhanced with Protocol usage and no magic numbers
-  - VII. Simplicity → Enhanced with DRY and hardening requirements
+  - II. Separation of Concerns → Enhanced with TUI display-only rule and agent/workflow boundary
+  - I. Async-First → Enhanced with "no blocking on event loop" rule
+  - IV. Fail Gracefully → Enhanced with "resilience must be real, not stubs"
+  - VI. Type Safety → Enhanced with "single typed contract for actions"
 Added sections:
-  - IX. Debt Prevention (new principle based on analysis of issues #61-#152)
+  - X. Architectural Guardrails (new principle consolidating 7 concrete truisms)
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
-  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with resilience principle)
+  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
 Propagation:
-  - CLAUDE.md: ✅ Updated with Debt Prevention Guidelines section
+  - CLAUDE.md: ✅ Source of guardrails (already contains Architectural Guardrails section)
+  - GEMINI.md: ✅ Source of guardrails (already contains Architectural Guardrails section)
 Follow-up TODOs: None
 -->
 
@@ -31,23 +33,37 @@ responsiveness and enabling concurrent operations.
 - Workflows MUST yield progress updates as async generators for TUI consumption
 - All Claude Agent SDK interactions are inherently async and MUST remain so
 - Blocking I/O in async contexts is prohibited
+- **Never call `subprocess.run` from an `async def` path**—use `CommandRunner` or
+  `asyncio.create_subprocess_exec` with proper timeouts
+- DSL `PythonStep` callables MUST be async, or MUST be offloaded via `asyncio.to_thread`
+  to avoid freezing the TUI/workflows
 
 **Rationale**: The TUI requires responsive updates during long-running agent operations.
 Async generators enable real-time progress reporting without blocking the event loop.
+Blocking calls in async contexts cause UI freezes and deadlocks.
 
 ### II. Separation of Concerns
 
 Components have distinct, non-overlapping responsibilities:
 
-- **Agents**: Know HOW to do a task (system prompts, tool selection, Claude SDK interaction)
-- **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing)
-- **TUI**: Presents state and captures input (no business logic, display only)
-- **Tools**: Wrap external systems (GitHub CLI, git, notifications)
+- **Agents**: Know HOW to do a task (system prompts, tool selection, Claude SDK interaction).
+  Agents provide judgment (implementation/review/fix suggestions). They MUST NOT own
+  deterministic side effects like git commits/pushes or running validation.
+- **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing).
+  Workflows (or DSL steps/actions) own deterministic execution, retries, checkpointing,
+  and error recovery policies.
+- **TUI**: Presents state and captures input. **Display-only—no business logic.**
+  `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`,
+  `asyncio.create_subprocess_exec`) or make network calls. TUI code MUST delegate
+  external interactions to runners/services and only update reactive state + render results.
+- **Tools**: Wrap external systems (GitHub CLI, git, notifications). Delegate execution
+  to runners/utilities; do not re-implement subprocess logic.
 
 Business logic MUST NOT leak into TUI components. Agents MUST NOT orchestrate themselves.
 
 **Rationale**: Clear boundaries enable independent testing, easier debugging, and prevent
-the coupling that makes systems brittle.
+the coupling that makes systems brittle. The TUI display-only rule prevents UI code from
+accumulating I/O responsibilities that belong in the service layer.
 
 ### III. Dependency Injection
 
@@ -73,10 +89,14 @@ forward progress over early termination.
 - Log errors with sufficient context for debugging
 - Continue processing remaining work items even when some fail
 - Aggregate partial results rather than discarding successful work
+- **Resilience features MUST be real, not stubs**: "Retry/fix loops" and "recovery" MUST
+  actually invoke the fixer/retry validation. If the DSL/workflow definition is the right
+  place for retry logic, implement it there rather than simulating it in a Python action.
 
 **Rationale**: Parallel agent execution means partial success is valuable. Users should
 get results from successful operations even when some fail. Unattended operation requires
-the system to recover from transient failures without human intervention.
+the system to recover from transient failures without human intervention. Stub resilience
+creates false confidence and hides real failure modes.
 
 ### V. Test-First (Anti-Deferral)
 
@@ -96,9 +116,10 @@ No PR shall be merged without tests covering new functionality.
 refactoring and serve as executable documentation. Deferring tests creates debt that
 compounds over time (learned from issues #61-#152).
 
-### VI. Type Safety & Constants
+### VI. Type Safety & Typed Contracts
 
 Complete type hints are required throughout the codebase. No magic numbers or strings.
+All workflow actions MUST have a single, typed contract.
 
 - All public functions MUST have complete type annotations
 - Use `TypeAlias` for complex types to improve readability
@@ -109,10 +130,15 @@ Complete type hints are required throughout the codebase. No magic numbers or st
 - No magic numbers or string literals in logic code; extract to named constants or config
 - Use `Protocol` (structural typing) to define interfaces between components
   (e.g., between DSL and Agents) to avoid circular dependencies and tight coupling
+- **Workflow actions MUST NOT return ad-hoc `dict[str, Any]` blobs.** Use one canonical
+  contract: preferred is frozen dataclasses (with `to_dict()` for DSL serialization),
+  or acceptable is `TypedDict` + validation at boundaries.
+- **Keep action outputs stable across versions**; treat them as public interfaces.
 
 **Rationale**: Static typing catches errors at development time, improves IDE support,
 and serves as inline documentation. Named constants prevent "magic value" bugs and
-enable centralized configuration changes.
+enable centralized configuration changes. Typed contracts prevent runtime surprises
+and make refactoring safe.
 
 ### VII. Simplicity & DRY
 
@@ -128,6 +154,12 @@ Zero tolerance for duplication.
 - If logic regarding Git operations, Validation, or GitHub API calls is needed in a
   second location, refactor to a shared utility IMMEDIATELY—do not wait for "cleanup"
 - Use Mixins or Composition over inheritance for shared agent capabilities
+- **One canonical wrapper per external system**: Do not create new `git`/`gh`/validation
+  subprocess wrappers in random modules. Prefer:
+  - `src/maverick/runners/**` for deterministic execution + parsing
+  - `src/maverick/tools/**` for MCP surfaces (delegate to runners/utilities)
+  - `src/maverick/dsl/context_builders.py` for context composition (delegate; no
+    subprocess re-implementation)
 
 **Rationale**: YAGNI (You Aren't Gonna Need It). Simple code is easier to understand,
 test, and maintain. Copy-paste creates maintenance nightmares and inconsistent behavior
@@ -174,6 +206,47 @@ Never assume external calls will succeed on the first attempt.
 **Rationale**: Transient failures are inevitable in distributed systems. Proper hardening
 prevents cascading failures and makes debugging easier. Bare exception handlers hide bugs.
 (Learned from network reliability issues in #61-#152.)
+
+### X. Architectural Guardrails
+
+These concrete rules operationalize the abstract principles above. Violations MUST be
+caught in code review. If a change would violate any item below, stop and refactor
+the design before proceeding.
+
+1. **TUI is display-only**: `src/maverick/tui/**` MUST NOT execute subprocesses or make
+   network calls. TUI code delegates to runners/services and only updates reactive
+   state + renders results. (Enforces Principle II)
+
+2. **Async-first means no blocking on the event loop**: Never call `subprocess.run` from
+   an `async def` path. Prefer `CommandRunner` (`src/maverick/runners/command.py`) for
+   subprocess execution with timeouts. DSL `PythonStep` callables MUST be async or
+   offloaded via `asyncio.to_thread`. (Enforces Principle I)
+
+3. **Deterministic ops belong to workflows/runners, not agents**: Agents provide judgment.
+   They MUST NOT own deterministic side effects like git commits/pushes or running
+   validation. Workflows own execution, retries, checkpointing, and recovery. (Enforces
+   Principle II)
+
+4. **Actions MUST have a single typed contract**: Workflow actions MUST NOT return ad-hoc
+   `dict[str, Any]` blobs. Use frozen dataclasses with `to_dict()` or `TypedDict` with
+   boundary validation. Keep outputs stable across versions. (Enforces Principle VI)
+
+5. **Resilience features MUST be real, not stubs**: Retry/fix loops MUST actually invoke
+   fixers and re-run validation. If the DSL/workflow definition is the right place for
+   retry logic, implement it there. (Enforces Principle IV)
+
+6. **One canonical wrapper per external system**: Do not duplicate `git`/`gh`/validation
+   wrappers. Prefer `src/maverick/runners/**` for execution and have tools/context
+   builders delegate. (Enforces Principle VII)
+
+7. **Tool server factories MUST be async-safe**: Factory functions MUST NOT call
+   `asyncio.run()` internally. Prefer lazy prerequisite verification on first tool use,
+   or provide an explicit async `verify_prerequisites()` API. Return concrete types;
+   avoid `Any` on public APIs. (Enforces Principles I and VI)
+
+**Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
+rules prevent principle drift and make code review objective. Each guardrail traces to
+the principle it operationalizes.
 
 ## Technology Stack
 
@@ -252,9 +325,10 @@ src/maverick/
 │   ├── base.py          # MaverickAgent abstract base class
 │   └── *.py             # Concrete agent implementations
 ├── workflows/           # Workflow orchestration
-├── tools/               # MCP tool definitions
+├── runners/             # Deterministic command execution (git, gh, validation)
+├── tools/               # MCP tool definitions (delegate to runners)
 ├── hooks/               # Safety and logging hooks
-├── tui/                 # Textual application
+├── tui/                 # Textual application (display-only)
 │   ├── app.py           # Main Textual App
 │   ├── screens/         # Screen components
 │   └── widgets/         # Reusable widgets
@@ -280,5 +354,6 @@ MUST comply with these principles.
 - All PRs MUST be reviewed for constitution compliance
 - Complexity deviations MUST be justified in PR descriptions
 - Use `.specify/memory/constitution.md` as the authoritative reference
+- Architectural guardrails (Principle X) MUST be checked in code review
 
-**Version**: 1.2.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-22
+**Version**: 1.3.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
