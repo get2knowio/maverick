@@ -221,7 +221,8 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                         parallel=False,
                     )
                 ]
-                task_file = TaskFile(path=Path("direct-task"), tasks=tasks, phases={})
+                task_file = TaskFile(
+                    path=Path("direct-task"), tasks=tasks, phases={})
             else:
                 if not context.task_file or not context.task_file.exists():
                     raise TaskParseError(
@@ -276,12 +277,14 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                         if task_result.commit_sha:
                             commits.append(task_result.commit_sha)
                     else:
-                        errors.append(task_result.error or f"Task {task.id} failed")
+                        errors.append(
+                            task_result.error or f"Task {task.id} failed")
                         # Continue with next task per Constitution IV
 
             # Compute summary
             tasks_completed = sum(1 for r in task_results if r.succeeded)
-            tasks_failed = sum(1 for r in task_results if r.status == TaskStatus.FAILED)
+            tasks_failed = sum(
+                1 for r in task_results if r.status == TaskStatus.FAILED)
             tasks_skipped = sum(
                 1 for r in task_results if r.status == TaskStatus.SKIPPED
             )
@@ -341,7 +344,8 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         start_time = time.monotonic()
 
         try:
-            logger.info("Executing task %s: %s", task.id, task.description[:50])
+            logger.info("Executing task %s: %s",
+                        task.id, task.description[:50])
 
             # Build prompt for Claude
             prompt = self._build_task_prompt(task, context)
@@ -354,15 +358,10 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             # Parse result from output (simplified - full parsing in enhancement phase)
             files_changed = await self._detect_file_changes(context.cwd)
 
-            # Run validation if not skipped
+            # Validation and commits are handled by the workflow layer
+            # Agent returns file changes; orchestration runs validation/commits
             validation_results: list[ValidationResult] = []
-            if not context.skip_validation:
-                validation_results = await self._run_validation(context.cwd)
-
-            # Create commit if not dry run
             commit_sha = None
-            if not context.dry_run:
-                commit_sha = await self._create_commit(task, context)
 
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -425,7 +424,13 @@ After completion, provide a summary of changes made.
             return []
 
     async def _run_validation(self, cwd: Path) -> list[ValidationResult]:
-        """Run validation pipeline."""
+        """Run validation pipeline.
+
+        .. deprecated::
+            This method is deprecated and will be removed in a future version.
+            Validation is now handled by the workflow layer via utils/validation.py.
+            Agents should be side-effect free and not run validation directly.
+        """
         from maverick.utils.validation import run_validation_pipeline
 
         try:
@@ -437,7 +442,13 @@ After completion, provide a summary of changes made.
     async def _create_commit(
         self, task: Task, context: ImplementerContext
     ) -> str | None:
-        """Create a git commit for the task."""
+        """Create a git commit for the task.
+
+        .. deprecated::
+            This method is deprecated and will be removed in a future version.
+            Git commits are now handled by the workflow layer via utils/git.py.
+            Agents should be side-effect free and not create commits directly.
+        """
         from maverick.utils.git import create_commit, has_uncommitted_changes
 
         try:
@@ -543,7 +554,8 @@ After completion, provide a summary of changes made.
         try:
             # Parse task file
             if not context.task_file.exists():
-                raise TaskParseError(f"Task file not found: {context.task_file}")
+                raise TaskParseError(
+                    f"Task file not found: {context.task_file}")
 
             task_file = TaskFile.parse(context.task_file)
 
@@ -561,7 +573,8 @@ After completion, provide a summary of changes made.
             ]
 
             if not phase_tasks:
-                logger.info("No pending tasks in phase '%s'", context.phase_name)
+                logger.info("No pending tasks in phase '%s'",
+                            context.phase_name)
                 return ImplementationResult(
                     success=True,
                     tasks_completed=0,
@@ -585,7 +598,8 @@ After completion, provide a summary of changes made.
             )
 
             # Build phase prompt with all tasks
-            prompt = self._build_phase_prompt(context.phase_name, phase_tasks, context)
+            prompt = self._build_phase_prompt(
+                context.phase_name, phase_tasks, context)
 
             # Execute via Claude SDK - Claude handles parallelization
             messages = []
@@ -685,7 +699,8 @@ After completion, provide a summary of changes made.
         task_lines = []
         for task in tasks:
             parallel_marker = "[P] " if task.parallel else ""
-            task_lines.append(f"- {task.id} {parallel_marker}{task.description}")
+            task_lines.append(
+                f"- {task.id} {parallel_marker}{task.description}")
 
         task_list = "\n".join(task_lines)
 
