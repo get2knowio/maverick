@@ -1,9 +1,10 @@
-"""Refuel Workflow compatibility shim.
+"""Refuel Workflow package.
 
-This module provides backwards compatibility for imports from the old monolithic
-refuel.py module. All implementation has been moved to the refuel/ package.
+This package provides the Refuel workflow implementation which orchestrates
+tech-debt resolution by discovering GitHub issues, processing them, and creating PRs.
 
-Deprecated: Import from maverick.workflows.refuel package instead.
+The public API is re-exported from this module to maintain backwards
+compatibility with imports like:
     from maverick.workflows.refuel import RefuelWorkflow, RefuelInputs
 """
 
@@ -12,7 +13,7 @@ from __future__ import annotations
 # Re-export DSL dependencies for test mocking compatibility
 from maverick.dsl.serialization.executor import WorkflowFileExecutor  # noqa: F401
 
-# Re-export all public names from the refuel package
+# Import events
 from maverick.workflows.refuel.events import (
     IssueProcessingCompleted,
     IssueProcessingStarted,
@@ -20,6 +21,11 @@ from maverick.workflows.refuel.events import (
     RefuelProgressEvent,
     RefuelStarted,
 )
+
+# Import helpers
+from maverick.workflows.refuel.helpers import convert_runner_issue_to_workflow_issue
+
+# Import models
 from maverick.workflows.refuel.models import (
     GitHubIssue,
     IssueProcessingResult,
@@ -29,6 +35,8 @@ from maverick.workflows.refuel.models import (
     RefuelResult,
     RefuelStepName,
 )
+
+# Import workflow
 from maverick.workflows.refuel.workflow import RefuelWorkflow
 
 __all__ = [
@@ -47,6 +55,10 @@ __all__ = [
     "IssueProcessingCompleted",
     "RefuelCompleted",
     "RefuelProgressEvent",
+    # Helpers
+    "convert_runner_issue_to_workflow_issue",
     # Workflow
     "RefuelWorkflow",
+    # DSL (for test mocking compatibility)
+    "WorkflowFileExecutor",
 ]
