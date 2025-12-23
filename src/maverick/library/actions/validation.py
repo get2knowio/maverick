@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Stage name to command mapping for validation re-runs
+# =============================================================================
+
+# Default stage commands for common validation stages
+# These are used when re-running validation after fix attempts
+DEFAULT_STAGE_COMMANDS: dict[str, tuple[str, ...]] = {
+    "format": ("ruff", "format", "--check", "."),
+    "lint": ("ruff", "check", "."),
+    "typecheck": ("mypy", "."),
+    "test": ("pytest", "-x", "--tb=short"),
+}
 
 
 async def run_fix_retry_loop(
@@ -13,6 +29,7 @@ async def run_fix_retry_loop(
     max_attempts: int,
     fixer_agent: str,
     validation_result: dict[str, Any],
+    cwd: str | None = None,
 ) -> dict[str, Any]:
     """Execute fix-and-retry loop for validation failures.
 
@@ -24,8 +41,9 @@ async def run_fix_retry_loop(
     Args:
         stages: Validation stages to run
         max_attempts: Maximum fix attempts (0 disables retry)
-        fixer_agent: Name of fixer agent to use
+        fixer_agent: Name of fixer agent to use (currently unused, FixerAgent is used)
         validation_result: Initial validation result from validate step
+        cwd: Working directory for validation commands (defaults to Path.cwd())
 
     Returns:
         Dict with:
@@ -57,10 +75,14 @@ async def run_fix_retry_loop(
             "final_result": validation_result,
         }
 
+    # Resolve working directory
+    working_dir = Path(cwd) if cwd else Path.cwd()
+
     # Attempt fixes up to max_attempts
     attempts = 0
     fixes_applied: list[str] = []
     current_result = validation_result
+    base_backoff_seconds = 1.0  # Exponential backoff: 1s, 2s, 4s, ...
 
     while attempts < max_attempts and not current_result.get("success", False):
         attempts += 1
@@ -71,41 +93,54 @@ async def run_fix_retry_loop(
             fixer_agent,
         )
 
+        # Apply exponential backoff between attempts (skip on first attempt)
+        if attempts > 1:
+            backoff_time = base_backoff_seconds * (2 ** (attempts - 2))
+            logger.debug("Waiting %.1f seconds before retry attempt", backoff_time)
+            await asyncio.sleep(backoff_time)
+
         try:
             # Build fix context from validation errors
-            # Note: fix_prompt would be used if agent invocation was enabled
-            _build_fix_prompt(current_result, stages, attempts)
+            fix_prompt = _build_fix_prompt(current_result, stages, attempts)
 
             # Invoke the fixer agent
-            # Note: In the DSL context, agents are invoked through the executor's
-            # agent step mechanism. For this Python action, we simulate the fix
-            # by logging the attempt and assuming the fix was applied.
-            # The actual agent invocation happens through the AgentStep in the workflow.
-            #
-            # For now, we record the fix attempt. A full implementation would:
-            # 1. Get agent from registry: registry.agents.get(fixer_agent)
-            # 2. Instantiate agent with config
-            # 3. Build AgentContext with cwd, branch, extra={'prompt': fix_prompt}
-            # 4. Call agent.execute(context)
-            # 5. Parse agent result to extract fixes applied
-            #
-            # However, since actions don't have direct access to the registry or
-            # workflow context (by design - they're pure functions), the proper
-            # pattern is to have the YAML workflow define an agent step for fixing,
-            # and this action just orchestrates the retry logic.
+            fix_result = await _invoke_fixer_agent(
+                fix_prompt=fix_prompt,
+                cwd=working_dir,
+            )
 
-            fix_description = f"Attempted fix for {_summarize_errors(current_result)}"
-            fixes_applied.append(fix_description)
+            if fix_result.get("success", False):
+                fix_description = fix_result.get(
+                    "changes_made",
+                    f"Applied fix for {_summarize_errors(current_result)}",
+                )
+                fixes_applied.append(fix_description)
+                logger.info("Fix attempt %d succeeded: %s", attempts, fix_description)
+            else:
+                error_msg = fix_result.get("error", "Unknown error")
+                fixes_applied.append(f"Fix attempt {attempts} failed: {error_msg}")
+                logger.warning("Fix attempt %d failed: %s", attempts, error_msg)
+                # Continue to re-run validation anyway - the fix may have been partial
 
             # Re-run validation to check if fixed
-            # Note: Similar to agent invocation, validation re-execution should
-            # happen through the workflow's validate step mechanism. For this
-            # Python action, we simulate by returning the current state.
-            # A full implementation would invoke ValidationRunner here.
+            current_result = await _run_validation(
+                stages=stages,
+                cwd=working_dir,
+            )
 
-            # For now, mark as not fixed (stub implementation)
-            # The actual validation will be re-run by the workflow engine
-            logger.debug("Fix attempt %d recorded: %s", attempts, fix_description)
+            if current_result.get("success", False):
+                logger.info(
+                    "Validation passed after fix attempt %d",
+                    attempts,
+                )
+                break
+
+            logger.debug(
+                "Validation still failing after fix attempt %d, "
+                "%d attempt(s) remaining",
+                attempts,
+                max_attempts - attempts,
+            )
 
         except Exception as e:
             # Graceful failure: log error but don't crash the workflow
@@ -116,6 +151,7 @@ async def run_fix_retry_loop(
                 exc_info=True,
             )
             fixes_applied.append(f"Fix attempt {attempts} failed: {str(e)}")
+            # Don't break - continue to next attempt
 
     # Return the fix loop results
     # Note: The 'passed' status reflects whether validation succeeded after fixes
@@ -125,6 +161,160 @@ async def run_fix_retry_loop(
         "fixes_applied": fixes_applied,
         "final_result": current_result,
     }
+
+
+async def _invoke_fixer_agent(
+    fix_prompt: str,
+    cwd: Path,
+) -> dict[str, Any]:
+    """Invoke the FixerAgent to apply fixes based on the prompt.
+
+    Args:
+        fix_prompt: The prompt describing fixes to apply
+        cwd: Working directory for the agent
+
+    Returns:
+        Dict with success status and fix details or error message
+    """
+    try:
+        # Import here to avoid circular imports
+        from maverick.agents.context import AgentContext
+        from maverick.agents.fixer import FixerAgent
+        from maverick.config import MaverickConfig
+
+        # Create agent instance
+        agent = FixerAgent()
+
+        # Build context with the fix prompt
+        context = AgentContext.from_cwd(
+            cwd=cwd,
+            config=MaverickConfig(),
+            extra={"prompt": fix_prompt},
+        )
+
+        # Execute the agent
+        result = await agent.execute(context)
+
+        # Parse the result
+        if result.success:
+            # Try to extract structured info from output
+            output = result.output or ""
+            try:
+                import json
+
+                parsed = json.loads(output)
+                return {
+                    "success": True,
+                    "file_modified": parsed.get("file_modified", False),
+                    "file_path": parsed.get("file_path", ""),
+                    "changes_made": parsed.get("changes_made", "Fix applied"),
+                }
+            except (json.JSONDecodeError, TypeError):
+                return {
+                    "success": True,
+                    "changes_made": output[:200] if output else "Fix applied",
+                }
+        else:
+            # Extract error message from result
+            error_messages = []
+            for error in result.errors or []:
+                if hasattr(error, "message"):
+                    error_messages.append(error.message)
+                else:
+                    error_messages.append(str(error))
+
+            return {
+                "success": False,
+                "error": "; ".join(error_messages) if error_messages else "Fix failed",
+            }
+
+    except ImportError as e:
+        logger.error("Failed to import agent modules: %s", e)
+        return {"success": False, "error": f"Import error: {e}"}
+    except ValueError as e:
+        # AgentContext.from_cwd raises ValueError for invalid directories
+        logger.error("Invalid context configuration: %s", e)
+        return {"success": False, "error": f"Context error: {e}"}
+    except Exception as e:
+        logger.exception("Unexpected error invoking fixer agent: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+async def _run_validation(
+    stages: list[str],
+    cwd: Path,
+) -> dict[str, Any]:
+    """Re-run validation stages after fix attempts.
+
+    Args:
+        stages: List of stage names to run
+        cwd: Working directory for validation commands
+
+    Returns:
+        Validation result dict with success status and per-stage results
+    """
+    try:
+        # Import here to avoid circular imports
+        from maverick.runners.models import ValidationStage as RunnerValidationStage
+        from maverick.runners.validation import ValidationRunner
+
+        # Build ValidationStage objects from stage names
+        validation_stages = []
+        for stage_name in stages:
+            command = DEFAULT_STAGE_COMMANDS.get(stage_name)
+            if command:
+                validation_stages.append(
+                    RunnerValidationStage(
+                        name=stage_name,
+                        command=command,
+                        fixable=False,  # Don't auto-fix during re-run
+                        timeout_seconds=300.0,
+                    )
+                )
+            else:
+                logger.warning(
+                    "Unknown stage '%s', skipping validation re-run for this stage",
+                    stage_name,
+                )
+
+        if not validation_stages:
+            logger.error("No valid stages to run for validation")
+            return {"success": False, "stages": [], "error": "No valid stages"}
+
+        # Create runner and execute
+        runner = ValidationRunner(
+            stages=validation_stages,
+            cwd=cwd,
+            continue_on_failure=True,  # Run all stages to get complete picture
+        )
+
+        output = await runner.run()
+
+        # Convert ValidationOutput to dict format expected by the rest of the code
+        stage_results = []
+        for stage_result in output.stages:
+            stage_results.append(
+                {
+                    "stage": stage_result.stage_name,
+                    "success": stage_result.passed,
+                    "output": stage_result.output,
+                    "duration_ms": stage_result.duration_ms,
+                    "error": stage_result.output if not stage_result.passed else None,
+                }
+            )
+
+        return {
+            "success": output.success,
+            "stages": stage_results,
+            "total_duration_ms": output.total_duration_ms,
+        }
+
+    except ImportError as e:
+        logger.error("Failed to import validation modules: %s", e)
+        return {"success": False, "stages": [], "error": f"Import error: {e}"}
+    except Exception as e:
+        logger.exception("Unexpected error running validation: %s", e)
+        return {"success": False, "stages": [], "error": str(e)}
 
 
 def _build_fix_prompt(
