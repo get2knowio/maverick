@@ -1,25 +1,20 @@
-"""Fly Workflow implementation module.
+"""Fly Workflow orchestrator implementation.
 
-This module defines the implementation for the Fly Workflow, which
-orchestrates the complete spec-based development workflow including setup,
-implementation, code review, validation, convention updates, and PR management.
+This module defines the FlyWorkflow class which orchestrates the complete
+spec-based development workflow including setup, implementation, code review,
+validation, convention updates, and PR management.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from maverick.agents.result import AgentResult, AgentUsage
+from maverick.agents.result import AgentUsage
 from maverick.dsl.events import (
     ProgressEvent,
 )
@@ -38,11 +33,23 @@ from maverick.dsl.events import (
 from maverick.dsl.results import WorkflowResult
 from maverick.dsl.serialization.executor import WorkflowFileExecutor
 from maverick.dsl.serialization.registry import ComponentRegistry
-from maverick.exceptions import (
-    AgentError,  # noqa: F401 - required for Pydantic type resolution
-)
-from maverick.models.validation import ValidationWorkflowResult
 from maverick.workflows.base import WorkflowDSLMixin
+from maverick.workflows.fly.dsl import DSL_STEP_TO_STAGE
+from maverick.workflows.fly.events import (
+    FlyProgressEvent,
+    FlyStageCompleted,
+    FlyStageStarted,
+    FlyWorkflowCompleted,
+    FlyWorkflowFailed,
+    FlyWorkflowStarted,
+)
+from maverick.workflows.fly.models import (
+    FlyConfig,
+    FlyInputs,
+    FlyResult,
+    WorkflowStage,
+    WorkflowState,
+)
 
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
@@ -54,247 +61,6 @@ if TYPE_CHECKING:
     from maverick.runners.validation import ValidationRunner
 
 logger = logging.getLogger(__name__)
-
-
-class WorkflowStage(str, Enum):
-    """Eight workflow stages with string representation."""
-
-    INIT = "init"
-    IMPLEMENTATION = "implementation"
-    VALIDATION = "validation"
-    CODE_REVIEW = "code_review"
-    CONVENTION_UPDATE = "convention_update"
-    PR_CREATION = "pr_creation"
-    COMPLETE = "complete"
-    FAILED = "failed"
-
-    def __str__(self) -> str:
-        """Return the lowercase string value."""
-        return self.value
-
-
-class DslStepName(str, Enum):
-    """DSL step names used in fly.yaml workflow definition.
-
-    Maps step names from the YAML workflow to standardized constants,
-    preventing magic strings in event translation logic.
-    """
-
-    INIT = "init"
-    INIT_DRY_RUN = "init_dry_run"
-    IMPLEMENT = "implement"
-    VALIDATE_AND_FIX = "validate_and_fix"
-    COMMIT_AND_PUSH = "commit_and_push"
-    REVIEW = "review"
-    CREATE_PR = "create_pr"
-
-    def __str__(self) -> str:
-        """Return the lowercase string value."""
-        return self.value
-
-
-# Mapping from DSL step names to workflow stages
-DSL_STEP_TO_STAGE: dict[str, WorkflowStage] = {
-    DslStepName.INIT.value: WorkflowStage.INIT,
-    DslStepName.INIT_DRY_RUN.value: WorkflowStage.INIT,
-    DslStepName.IMPLEMENT.value: WorkflowStage.IMPLEMENTATION,
-    DslStepName.VALIDATE_AND_FIX.value: WorkflowStage.VALIDATION,
-    DslStepName.COMMIT_AND_PUSH.value: WorkflowStage.PR_CREATION,
-    DslStepName.REVIEW.value: WorkflowStage.CODE_REVIEW,
-    DslStepName.CREATE_PR.value: WorkflowStage.PR_CREATION,
-}
-
-
-class FlyConfig(BaseModel):
-    """Configuration for fly workflow execution."""
-
-    model_config = ConfigDict(frozen=True)
-
-    parallel_reviews: bool = Field(default=True, description="Run reviews in parallel")
-    max_validation_attempts: int = Field(
-        default=3, ge=1, le=10, description="Max validation retries"
-    )
-    coderabbit_enabled: bool = Field(default=False, description="Enable CodeRabbit CLI")
-    auto_merge: bool = Field(default=False, description="Auto-merge on success")
-    notification_on_complete: bool = Field(
-        default=True, description="Send notification on completion"
-    )
-
-
-class FlyInputs(BaseModel):
-    """Validated inputs for fly workflow execution."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Required
-    branch_name: str = Field(min_length=1, description="Feature branch name")
-
-    # Optional with defaults
-    task_file: Path | None = Field(default=None, description="Path to tasks.md")
-    skip_review: bool = Field(default=False, description="Skip code review stage")
-    skip_pr: bool = Field(default=False, description="Skip PR creation stage")
-    draft_pr: bool = Field(default=False, description="Create PR as draft")
-    base_branch: str = Field(default="main", description="Base branch for PR")
-    dry_run: bool = Field(default=False, description="Preview mode (no changes)")
-
-
-class WorkflowState(BaseModel):
-    """Mutable state tracking workflow progress.
-
-    Note on timestamps:
-        WorkflowState uses datetime objects for started_at/completed_at for
-        human-readable state inspection and serialization. Event dataclasses
-        use float (Unix timestamps) for performance in high-frequency emission.
-        Use datetime.fromtimestamp() to convert event timestamps if needed.
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
-
-    # Stage tracking
-    stage: WorkflowStage = Field(default=WorkflowStage.INIT)
-    branch: str = Field(description="Current branch name")
-    task_file: Path | None = Field(default=None)
-
-    # Results (populated as stages complete)
-    implementation_result: AgentResult | None = Field(default=None)
-    validation_result: ValidationWorkflowResult | None = Field(default=None)
-    review_results: list[AgentResult] = Field(default_factory=list)
-
-    # Final outputs
-    pr_url: str | None = Field(default=None)
-    errors: list[str] = Field(default_factory=list)
-
-    # Timestamps (datetime for human readability; events use float for performance)
-    started_at: datetime = Field(default_factory=datetime.now)
-    completed_at: datetime | None = Field(default=None)
-
-
-# Rebuild the model to resolve forward references
-WorkflowState.model_rebuild()
-
-
-class FlyResult(BaseModel):
-    """Immutable workflow execution result."""
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    success: bool = Field(description="Overall workflow success")
-    state: WorkflowState = Field(description="Final workflow state")
-    summary: str = Field(description="Human-readable outcome summary")
-    token_usage: AgentUsage = Field(
-        description="Aggregated token usage from all agent interactions in the workflow"
-    )
-    total_cost_usd: float = Field(ge=0.0, description="Total execution cost")
-
-
-@dataclass(frozen=True, slots=True)
-class FlyWorkflowStarted:
-    """Event emitted when fly workflow starts."""
-
-    inputs: FlyInputs
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyStageStarted:
-    """Event emitted when a stage starts."""
-
-    stage: WorkflowStage
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyStageCompleted:
-    """Event emitted when a stage completes."""
-
-    stage: WorkflowStage
-    result: Any  # Stage-specific result type
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyWorkflowCompleted:
-    """Event emitted when workflow completes successfully."""
-
-    result: FlyResult
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyWorkflowFailed:
-    """Event emitted when workflow fails."""
-
-    error: str
-    state: WorkflowState
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyPhaseStarted:
-    """Event emitted when a phase starts execution.
-
-    Used for phase-level task execution where Claude handles
-    parallelization of [P] marked tasks within each phase.
-    """
-
-    phase_name: str
-    phase_index: int
-    total_phases: int
-    task_count: int
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True, slots=True)
-class FlyPhaseCompleted:
-    """Event emitted when a phase completes execution."""
-
-    phase_name: str
-    phase_index: int
-    success: bool
-    tasks_completed: int
-    tasks_failed: int
-    timestamp: float = field(default_factory=time.time)
-
-
-# Union type for event handling
-FlyProgressEvent = (
-    FlyWorkflowStarted
-    | FlyStageStarted
-    | FlyStageCompleted
-    | FlyWorkflowCompleted
-    | FlyWorkflowFailed
-    | FlyPhaseStarted
-    | FlyPhaseCompleted
-)
-
-
-def get_phase_names(task_file: str | Path) -> list[str]:
-    """Extract ordered phase names from a tasks.md file.
-
-    This helper function is used by the DSL workflow to iterate over phases,
-    enabling phase-level task execution where Claude handles parallelization
-    of [P] marked tasks within each phase.
-
-    Args:
-        task_file: Path to the tasks.md file.
-
-    Returns:
-        List of phase names in the order they appear in the file.
-
-    Raises:
-        FileNotFoundError: If task_file doesn't exist.
-        TaskParseError: If file format is invalid.
-
-    Example:
-        >>> phases = get_phase_names("specs/001/tasks.md")
-        >>> phases
-        ['Phase 1: Setup', 'Phase 2: Core', 'Phase 3: Integration']
-    """
-    from maverick.models.implementation import TaskFile
-
-    path = Path(task_file) if isinstance(task_file, str) else task_file
-    task_file_obj = TaskFile.parse(path)
-    return list(task_file_obj.phases.keys())
 
 
 class FlyWorkflow(WorkflowDSLMixin):
@@ -974,29 +740,5 @@ class FlyWorkflow(WorkflowDSLMixin):
 
 
 __all__ = [
-    # Enums
-    "WorkflowStage",
-    "DslStepName",
-    # Constants
-    "DSL_STEP_TO_STAGE",
-    # Configuration
-    "FlyInputs",
-    "FlyConfig",
-    # State
-    "WorkflowState",
-    # Result
-    "FlyResult",
-    # Progress Events
-    "FlyWorkflowStarted",
-    "FlyStageStarted",
-    "FlyStageCompleted",
-    "FlyWorkflowCompleted",
-    "FlyWorkflowFailed",
-    "FlyPhaseStarted",
-    "FlyPhaseCompleted",
-    "FlyProgressEvent",
-    # Helper Functions
-    "get_phase_names",
-    # Workflow
     "FlyWorkflow",
 ]

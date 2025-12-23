@@ -96,7 +96,7 @@ class TestFlyWorkflowDSLExecution:
         with (
             patch.object(workflow, "_load_workflow", return_value=mock_workflow_file),
             patch(
-                "maverick.workflows.fly.WorkflowFileExecutor",
+                "maverick.workflows.fly.workflow.WorkflowFileExecutor",
                 return_value=mock_executor,
             ),
         ):
@@ -476,7 +476,7 @@ class TestDSLExecutionErrorHandling:
         with (
             patch.object(workflow, "_load_workflow", return_value=mock_workflow_file),
             patch(
-                "maverick.workflows.fly.WorkflowFileExecutor",
+                "maverick.workflows.fly.workflow.WorkflowFileExecutor",
                 return_value=mock_executor,
             ),
         ):
