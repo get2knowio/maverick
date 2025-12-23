@@ -102,7 +102,7 @@ async def test_send_request_non_200_with_json(
         assert success is True
         assert message == "Notification not delivered"
         assert notification_id is None
-        
+
         # Should have retried
         assert len(mock_session.post_calls) == 2
 
@@ -114,10 +114,10 @@ async def test_send_request_malformed_json(
     """Test response when server returns malformed JSON on 200 OK."""
     # Simulate 200 OK but json() raises error
     mock_response = MockResponse(status=200, json_data=None, text_data="invalid-json")
-    
+
     # We need to make sure json() raises exception.
-    # The MockResponse.json() implemented above raises ContentTypeError if _json_data is None
-    
+    # MockResponse.json() raises ContentTypeError if _json_data is None
+
     mock_session = MockClientSession(mock_response)
 
     with (

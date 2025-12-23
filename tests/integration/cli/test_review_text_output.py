@@ -76,7 +76,11 @@ def test_review_command_text_output(
                 mock_agent = AsyncMock()
                 mock_agent_class.return_value = mock_agent
 
-                from maverick.models.review import ReviewResult, ReviewFinding, ReviewSeverity
+                from maverick.models.review import (
+                    ReviewFinding,
+                    ReviewResult,
+                    ReviewSeverity,
+                )
 
                 mock_result = ReviewResult(
                     summary="Review complete",
@@ -94,14 +98,12 @@ def test_review_command_text_output(
                 mock_agent.execute.return_value = mock_result
 
                 # Run review command with text output
-                result = runner.invoke(
-                    cli, ["review", "123", "--output", "text"]
-                )
+                result = runner.invoke(cli, ["review", "123", "--output", "text"])
 
                 # Verify
                 assert result.exit_code == ExitCode.SUCCESS
                 assert "Review complete" in result.output
                 assert "[MAJOR] test.py" in result.output
                 assert "Line 10" in result.output
-                assert "WARNING" not in result.output # Because we used MAJOR
+                assert "WARNING" not in result.output  # Because we used MAJOR
                 assert "Fix this issue please" in result.output

@@ -1705,9 +1705,7 @@ def test_review_output_text_option(
 
                 mock_agent.execute = mock_execute
 
-                result = cli_runner.invoke(
-                    cli, ["review", "123", "--output", "text"]
-                )
+                result = cli_runner.invoke(cli, ["review", "123", "--output", "text"])
 
                 assert result.exit_code == 0
                 # Verify text formatting (should contain summary)

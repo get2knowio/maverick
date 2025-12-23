@@ -7,7 +7,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -15,6 +14,7 @@ import pytest
 
 from maverick.config import ValidationConfig
 from maverick.tools.validation import create_validation_tools_server
+
 
 @pytest.fixture
 def mock_process() -> Mock:
@@ -25,15 +25,18 @@ def mock_process() -> Mock:
     process.kill = Mock()
     return process
 
+
 @pytest.fixture
 def mock_subprocess_exec(mock_process: Mock) -> AsyncMock:
     """Create a mock for asyncio.create_subprocess_exec."""
     return AsyncMock(return_value=mock_process)
 
+
 @pytest.fixture
 def validation_config() -> ValidationConfig:
     """Create a basic ValidationConfig."""
     return ValidationConfig()
+
 
 @pytest.mark.asyncio
 async def test_stdout_and_stderr_simultaneous(
@@ -46,7 +49,7 @@ async def test_stdout_and_stderr_simultaneous(
     stdout_data = b"Standard Output"
     stderr_data = b"Error Output"
     mock_process.communicate.return_value = (stdout_data, stderr_data)
-    mock_process.returncode = 1 # Usually stderr implies some issue
+    mock_process.returncode = 1  # Usually stderr implies some issue
 
     server = create_validation_tools_server(config=validation_config)
     # Access tools directly
@@ -57,7 +60,7 @@ async def test_stdout_and_stderr_simultaneous(
 
     response_data = json.loads(response["content"][0]["text"])
     result = response_data["results"][0]
-    
+
     # Check that both outputs are present in the result
     assert "Standard Output" in result["output"]
     assert "Error Output" in result["output"]
@@ -72,15 +75,15 @@ async def test_interleaved_output_handling(
     validation_config: ValidationConfig,
 ) -> None:
     """Test commands that produce 'interleaved' output (captured separately).
-    
-    Since communicate() separates streams, we verify that we capture large amounts 
+
+    Since communicate() separates streams, we verify that we capture large amounts
     of data on both streams without hanging or losing data.
     """
     # Simulate large output on both
     large_stdout = b"out\n" * 1000
     large_stderr = b"err\n" * 1000
     mock_process.communicate.return_value = (large_stdout, large_stderr)
-    
+
     server = create_validation_tools_server(config=validation_config)
     run_validation = server["_tools"]["run_validation"]
 

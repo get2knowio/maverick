@@ -555,7 +555,8 @@ After completion, provide a summary of changes made.
                 )
 
             phase_tasks = [
-                t for t in task_file.phases[context.phase_name]
+                t
+                for t in task_file.phases[context.phase_name]
                 if t.status == TaskStatus.PENDING
             ]
 

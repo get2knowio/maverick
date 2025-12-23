@@ -1141,7 +1141,9 @@ class TestPhaseLevelExecution:
         return task_file
 
     @pytest.fixture
-    def phase_context(self, tmp_path: Path, phase_task_file: Path) -> ImplementerContext:
+    def phase_context(
+        self, tmp_path: Path, phase_task_file: Path
+    ) -> ImplementerContext:
         """Create context for phase-level execution."""
         return ImplementerContext(
             task_file=phase_task_file,

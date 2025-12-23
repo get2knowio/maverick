@@ -204,7 +204,7 @@ steps:
     type: parallel
     when: ${{ not inputs.dry_run and steps.get_phases.output }}
     for_each: ${{ steps.get_phases.output }}
-    max_concurrency: 1  # Execute phases sequentially
+    max_concurrency: 1 # Execute phases sequentially
     steps:
       # Execute all tasks in this phase
       - name: implement_phase
@@ -230,7 +230,7 @@ steps:
             - lint
             - typecheck
             - test
-          max_attempts: 2  # Fewer attempts per phase
+          max_attempts: 2 # Fewer attempts per phase
           fixer_agent: validation_fixer
         metadata:
           progress:
@@ -244,7 +244,7 @@ steps:
         workflow: commit-and-push
         when: ${{ steps.validate_phase.output.success }}
         inputs:
-          push: false  # Don't push until all phases done
+          push: false # Don't push until all phases done
           commit_message: "feat(${{ item }}): complete phase tasks"
         metadata:
           progress:

@@ -7,17 +7,17 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.tools.git import create_git_tools_server, _run_git_command
+from maverick.tools.git import _run_git_command, create_git_tools_server
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def mock_subprocess() -> MagicMock:
@@ -26,6 +26,7 @@ def mock_subprocess() -> MagicMock:
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
     return mock_proc
+
 
 @pytest.fixture
 def mock_create_subprocess_exec(mock_subprocess: MagicMock) -> AsyncMock:
@@ -36,6 +37,7 @@ def mock_create_subprocess_exec(mock_subprocess: MagicMock) -> AsyncMock:
 # =============================================================================
 # Edge Case Tests
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_git_output_unicode(
@@ -70,19 +72,20 @@ async def test_git_output_large(
     assert len(stdout) == len(large_output.strip())
     assert stdout == large_output.strip()
 
+
 @pytest.mark.asyncio
 async def test_git_commit_unicode_message(
     mock_create_subprocess_exec: AsyncMock, mock_subprocess: MagicMock
 ) -> None:
     """Test creating a commit with unicode message."""
     unicode_message = "feat: add 🚀 support"
-    
+
     # Mock successful commit
     mock_subprocess.communicate.side_effect = [
-        (f"[main 1234567] {unicode_message}\n".encode("utf-8"), b""), # commit output
-        (b"1234567\n", b"") # rev-parse output
+        (f"[main 1234567] {unicode_message}\n".encode(), b""),  # commit output
+        (b"1234567\n", b""),  # rev-parse output
     ]
-    
+
     with patch("asyncio.create_subprocess_exec", mock_create_subprocess_exec):
         server = create_git_tools_server()
         result = await server["tools"]["git_commit"].handler(
@@ -92,4 +95,3 @@ async def test_git_commit_unicode_message(
     parsed = json.loads(result["content"][0]["text"])
     assert parsed["success"] is True
     assert parsed["message"] == unicode_message
-
