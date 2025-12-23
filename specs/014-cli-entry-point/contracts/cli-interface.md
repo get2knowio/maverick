@@ -142,7 +142,7 @@ maverick review <pr-number> [OPTIONS]
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
 | `--fix/--no-fix` | - | FLAG | --no-fix | Automatically apply suggested fixes |
-| `--output` | `-o` | CHOICE | tui | Output format: tui, json, markdown |
+| `--output` | `-o` | CHOICE | tui | Output format: tui, json, markdown, text |
 
 **Exit Codes**:
 - 0: Review completed successfully

@@ -49,6 +49,67 @@ src/maverick/
 - **TUI**: Presents state and captures input (no business logic)
 - **Tools**: Wrap external systems (GitHub CLI, git, notifications)
 
+## Workflow Architecture: Two Workflow Types
+
+Maverick supports two distinct workflow representations, each serving different use cases:
+
+### WorkflowFile (YAML/JSON Serialization)
+
+**Location**: `maverick.dsl.serialization.schema`
+
+Used for file-based workflows defined in YAML/JSON. Best for:
+- Declarative workflow definitions shared across projects
+- User-editable workflows without Python knowledge
+- Built-in workflow library (discovery, CI integration)
+
+```python
+from maverick.dsl.serialization.schema import WorkflowFile
+
+# Load from YAML
+workflow = WorkflowFile.from_yaml(yaml_content)
+
+# Convert to YAML
+yaml_str = workflow.to_yaml()
+```
+
+**Key methods**: `to_dict()`, `to_yaml()`, `from_dict()`, `from_yaml()`
+
+### WorkflowDefinition (Python Decorator)
+
+**Location**: `maverick.dsl.decorator`
+
+Used for code-based workflows defined with the `@workflow` decorator. Best for:
+- Complex logic requiring Python control flow
+- Workflows needing dynamic step generation
+- Integration tests and programmatic workflows
+
+```python
+from maverick.dsl import workflow, step, WorkflowEngine
+
+@workflow(name="my-workflow", description="A code-based workflow")
+def my_workflow(input_data: str):
+    result = yield step("process").python(action=transform, args=(input_data,))
+    return {"result": result}
+
+# Execute with engine
+engine = WorkflowEngine()
+async for event in engine.execute(my_workflow, input_data="test"):
+    print(event)
+```
+
+**Note**: `WorkflowDefinition` does NOT support serialization to YAML. This is by design—Python generator workflows with arbitrary lambdas cannot be reliably serialized.
+
+### When to Use Which
+
+| Use Case | Recommended Type |
+|----------|-----------------|
+| Shareable workflow templates | `WorkflowFile` (YAML) |
+| CI/CD pipeline definitions | `WorkflowFile` (YAML) |
+| Complex conditional logic | `WorkflowDefinition` (Python) |
+| Dynamic step generation | `WorkflowDefinition` (Python) |
+| Built-in workflow library | `WorkflowFile` (YAML) |
+| Unit/integration tests | `WorkflowDefinition` (Python) |
+
 ## Core Principles
 
 See `.specify/memory/constitution.md` for the authoritative reference.

@@ -72,6 +72,36 @@ print(f"Success rate: {metrics.success_rate:.1%}")
 print(f"P95 latency: {metrics.p95_duration_ms:.1f}ms")
 ```
 
+### 4. Metrics with Time Window
+
+Configure metrics to track only recent activity using `time_window_seconds`:
+
+```python
+from maverick.hooks import HookConfig, MetricsConfig, create_logging_hooks, MetricsCollector
+
+# Track metrics for the last 5 minutes only
+config = HookConfig(
+    metrics=MetricsConfig(
+        max_entries=10000,        # Maximum entries in rolling window
+        time_window_seconds=300,  # 5 minutes (must be >= 60)
+    ),
+)
+
+collector = MetricsCollector()
+logging_hooks = create_logging_hooks(config, metrics_collector=collector)
+
+# After agent execution...
+# Metrics reflect only the last 5 minutes of activity
+metrics = await collector.get_metrics("Bash")
+print(f"Recent calls (last 5 min): {metrics.call_count}")
+```
+
+**Relationship between `max_entries` and `time_window_seconds`:**
+- `max_entries`: Hard limit on stored metric entries (prevents unbounded memory growth)
+- `time_window_seconds`: Soft limit that filters entries by age when querying
+- Use both together: `max_entries` prevents memory issues, `time_window_seconds` focuses on recency
+- If `time_window_seconds` is `None` (default), all entries up to `max_entries` are considered
+
 ## What Gets Blocked
 
 ### Dangerous Bash Commands
