@@ -26,7 +26,7 @@ const statusClasses = {
 
 <template>
   <div
-    class="flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all"
+    class="flex items-center gap-2 px-2 py-1 rounded-lg border transition-all"
     :class="statusClasses[status]"
   >
     <span class="text-base font-mono">{{ statusIcons[status] }}</span>

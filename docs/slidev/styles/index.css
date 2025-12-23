@@ -80,6 +80,10 @@
   @apply mt-4;
 }
 
+.slidev-layout .mt-12 {
+  @apply mt-6;
+}
+
 .slidev-layout .mt-6 {
   @apply mt-3;
 }
@@ -222,7 +226,7 @@ ul.custom-bullets li::marker {
 
 /* Terminal-style output */
 .terminal {
-  @apply font-mono text-sm bg-slate-900 p-4 rounded-lg border border-slate-700;
+  @apply font-mono text-sm bg-slate-900 p-2 rounded-lg border border-slate-700;
 }
 
 .terminal .prompt {
