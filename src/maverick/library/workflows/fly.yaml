@@ -212,12 +212,12 @@ steps:
         agent: implementer
         context:
           task_file: ${{ inputs.task_file }}
-          phase_name: ${{ iteration.item }}
+          phase_name: ${{ item }}
           branch: ${{ inputs.branch_name }}
         metadata:
           progress:
             stage: "implementation"
-            phase: ${{ iteration.item }}
+            phase: ${{ item }}
             weight: 10
 
       # Validate after each phase (fail fast)
@@ -235,7 +235,7 @@ steps:
         metadata:
           progress:
             stage: "validation"
-            phase: ${{ iteration.item }}
+            phase: ${{ item }}
             weight: 5
 
       # Commit phase changes
@@ -245,21 +245,21 @@ steps:
         when: ${{ steps.validate_phase.output.success }}
         inputs:
           push: false  # Don't push until all phases done
-          commit_message: "feat(${{ iteration.item }}): complete phase tasks"
+          commit_message: "feat(${{ item }}): complete phase tasks"
         metadata:
           progress:
             stage: "commit"
-            phase: ${{ iteration.item }}
+            phase: ${{ item }}
             weight: 2
 
       # Checkpoint after phase completion
       - name: checkpoint_phase
         type: checkpoint
-        checkpoint_id: "phase_${{ iteration.index }}_complete"
+        checkpoint_id: "phase_${{ index }}_complete"
         metadata:
           progress:
             stage: "checkpoint"
-            phase: ${{ iteration.item }}
+            phase: ${{ item }}
             weight: 1
 
   # Fallback: Single-phase implementation (no phases in task file)

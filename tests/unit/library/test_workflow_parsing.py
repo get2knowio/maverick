@@ -178,10 +178,10 @@ class TestSpecificWorkflows:
         assert "branch_name" in workflow.inputs
         assert workflow.inputs["branch_name"].required is True
 
-        # Check for key steps
+        # Check for key steps (fly workflow uses phased implementation)
         step_names = [step.name for step in workflow.steps]
         assert "init" in step_names
-        assert "implement" in step_names
+        assert "implement_by_phase" in step_names  # Phased implementation step
         assert "validate_and_fix" in step_names
 
     def test_refuel_workflow_structure(self) -> None:
