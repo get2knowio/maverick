@@ -72,7 +72,7 @@ class DiscoveredWorkflow:
         overrides: Paths of workflows with same name that this overrides.
     """
 
-    workflow: "WorkflowFile"
+    workflow: WorkflowFile
     file_path: Path
     source: str  # WorkflowSource value
     overrides: tuple[Path, ...]
@@ -219,7 +219,7 @@ class WorkflowLoader(Protocol):
         """
         ...
 
-    def load_full(self, path: Path) -> "WorkflowFile":
+    def load_full(self, path: Path) -> WorkflowFile:
         """Load and fully validate workflow file.
 
         Args:

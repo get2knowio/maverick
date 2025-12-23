@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import os
 import shutil
 import subprocess
@@ -13,8 +12,10 @@ import tempfile
 import urllib.error
 import urllib.parse
 import zipfile
+from dataclasses import dataclass
 
 from github_utils import github_request
+
 DEFAULT_REF = "main"
 
 

@@ -64,7 +64,9 @@ async def test_git_commit_unicode_message(mock_git_runner: MagicMock) -> None:
 
     mock_git_runner.get_head_sha = AsyncMock(return_value="1234567")
 
-    with patch("maverick.tools.git.GitRunner", return_value=mock_git_runner):
+    with patch(
+        "maverick.tools.git.tools.commit.GitRunner", return_value=mock_git_runner
+    ):
         server = create_git_tools_server()
         result = await server["tools"]["git_commit"].handler(
             {"message": "add 🚀 support", "type": "feat"}

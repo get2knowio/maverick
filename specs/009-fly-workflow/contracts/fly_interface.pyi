@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.models.validation import ValidationWorkflowResult
 
-
 # =============================================================================
 # Enums (FR-001, FR-002)
 # =============================================================================

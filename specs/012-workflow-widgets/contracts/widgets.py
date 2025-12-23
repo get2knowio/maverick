@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from textual.message import Message
 
 
 # =============================================================================

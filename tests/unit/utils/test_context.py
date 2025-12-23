@@ -532,7 +532,7 @@ class TestBuildImplementationContext:
     ) -> None:
         """Returns complete context with all expected keys (T017)."""
         with patch(
-            "maverick.utils.context.Path.cwd", return_value=temp_conventions_file.parent
+            "maverick.utils.files.Path.cwd", return_value=temp_conventions_file.parent
         ):
             context = build_implementation_context(
                 task_file=temp_task_file,
@@ -671,7 +671,7 @@ class TestBuildReviewContext:
             ),
         )
 
-        with patch("maverick.utils.context.Path.cwd", return_value=tmp_path):
+        with patch("maverick.utils.files.Path.cwd", return_value=tmp_path):
             context = build_review_context(
                 git=mock_git,
                 base_branch="main",
@@ -967,7 +967,7 @@ class TestBuildIssueContext:
         (tmp_path / "tests").mkdir(exist_ok=True)
         (tmp_path / "tests" / "test_context.py").write_text("# tests")
 
-        with patch("maverick.utils.context.Path.cwd", return_value=tmp_path):
+        with patch("maverick.utils.files.Path.cwd", return_value=tmp_path):
             context = build_issue_context(
                 issue=mock_github_issue,
                 git=mock_git,
@@ -997,7 +997,7 @@ class TestBuildIssueContext:
         (tmp_path / "src" / "utils").mkdir(parents=True)
         (tmp_path / "src" / "utils" / "helper.py").write_text("# helper")
 
-        with patch("maverick.utils.context.Path.cwd", return_value=tmp_path):
+        with patch("maverick.utils.files.Path.cwd", return_value=tmp_path):
             context = build_issue_context(issue=issue, git=mock_git)
 
         # Should have found the referenced file

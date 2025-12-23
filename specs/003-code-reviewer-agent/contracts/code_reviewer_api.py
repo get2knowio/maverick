@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    pass
 
 
 # =============================================================================

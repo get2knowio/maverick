@@ -72,7 +72,9 @@ def test_review_command_text_output(
             ]
 
             # Mock CodeReviewerAgent
-            with patch("maverick.main.CodeReviewerAgent") as mock_agent_class:
+            with patch(
+                "maverick.cli.commands.review.CodeReviewerAgent"
+            ) as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent_class.return_value = mock_agent
 

@@ -209,7 +209,9 @@ steps:
 
         # Mock validate step to fail
 
-        async def mock_execute_validate(self, step, resolved_inputs, context):
+        async def mock_execute_validate(
+            step, resolved_inputs, context, registry, config=None
+        ):
             """Mock validation that fails."""
             return {
                 "success": False,
@@ -218,8 +220,9 @@ steps:
                 ],
             }
 
-        with patch.object(
-            WorkflowFileExecutor, "_execute_validate_step", mock_execute_validate
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.validate_step.execute_validate_step",
+            mock_execute_validate,
         ):
             executor = WorkflowFileExecutor(registry=registry)
             events = []
