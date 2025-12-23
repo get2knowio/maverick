@@ -242,7 +242,7 @@ class ReviewCommandInputs:
     Attributes:
         pr_number: Pull request number to review.
         fix: Automatically apply suggested fixes.
-        output_format: Output format (tui, json, markdown).
+        output_format: Output format (tui, json, markdown, text).
     """
     pr_number: int
     fix: bool = False
