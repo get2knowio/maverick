@@ -7,7 +7,7 @@ name = "maverick"
 version = "0.1.0"
 description = "AI-powered development workflow orchestration"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
     { name = "Maverick Contributors" }
@@ -42,9 +42,9 @@ maverick = "maverick.main:cli"
 
 [dependency-groups]
 test = [
-    "pytest>=7.0.0,<8",
-    "pytest-asyncio>=0.21.0,<1",
-    "pytest-cov>=4.0.0,<5",
+    "pytest>=8.2.0,<9",
+    "pytest-asyncio>=0.24.0,<1",
+    "pytest-cov>=4.0.0,<6",
     "pytest-timeout>=2.0.0,<3",
 ]
 lint = [
@@ -54,6 +54,8 @@ lint = [
 dev = [
     { include-group = "test" },
     { include-group = "lint" },
+    "types-aiofiles>=25.1.0.20251011",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [tool.hatchling.build.targets.wheel]
@@ -120,6 +122,7 @@ markers = [
     "slow: marks tests as slow (>5s execution time)",
     "integration: marks tests requiring external services",
     "tui: marks TUI-specific tests requiring Textual pilot",
+    "benchmark: marks performance benchmark tests",
 ]
 timeout = 30  # 30-second default timeout for async tests (FR-026)
 

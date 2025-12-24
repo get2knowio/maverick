@@ -40,3 +40,7 @@ Thumbs.db
 .claude/settings.local.json
 .codex/auth.json
 *.jsonl
+
+.coverage.*
+results.xml
+coverage.xml

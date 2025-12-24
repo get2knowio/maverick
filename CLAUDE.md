@@ -8,16 +8,18 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 
 ## Technology Stack
 
-| Category | Technology | Notes |
-|----------|------------|-------|
-| Language | Python 3.10+ | Use `from __future__ import annotations` |
-| AI/Agents | Claude Agent SDK | `claude-agent-sdk` package |
-| TUI | Textual | `textual` package |
-| CLI | Click | `click` package |
-| Validation | Pydantic | For configuration and data models |
-| Testing | pytest + pytest-asyncio | All tests async-compatible |
-| Linting | Ruff | Fast, comprehensive Python linter |
-| Type Checking | MyPy | Strict mode recommended |
+| Category        | Technology              | Notes                                    |
+| --------------- | ----------------------- | ---------------------------------------- |
+| Language        | Python 3.10+            | Use `from __future__ import annotations` |
+| Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
+| Build System    | Make                    | AI-friendly commands with minimal output |
+| AI/Agents       | Claude Agent SDK        | `claude-agent-sdk` package               |
+| TUI             | Textual                 | `textual` package                        |
+| CLI             | Click                   | `click` package                          |
+| Validation      | Pydantic                | For configuration and data models        |
+| Testing         | pytest + pytest-asyncio | All tests async-compatible               |
+| Linting         | Ruff                    | Fast, comprehensive Python linter        |
+| Type Checking   | MyPy                    | Strict mode recommended                  |
 
 ## Architecture
 
@@ -58,6 +60,7 @@ Maverick supports two distinct workflow representations, each serving different 
 **Location**: `maverick.dsl.serialization.schema`
 
 Used for file-based workflows defined in YAML/JSON. Best for:
+
 - Declarative workflow definitions shared across projects
 - User-editable workflows without Python knowledge
 - Built-in workflow library (discovery, CI integration)
@@ -79,6 +82,7 @@ yaml_str = workflow.to_yaml()
 **Location**: `maverick.dsl.decorator`
 
 Used for code-based workflows defined with the `@workflow` decorator. Best for:
+
 - Complex logic requiring Python control flow
 - Workflows needing dynamic step generation
 - Integration tests and programmatic workflows
@@ -101,14 +105,30 @@ async for event in engine.execute(my_workflow, input_data="test"):
 
 ### When to Use Which
 
-| Use Case | Recommended Type |
-|----------|-----------------|
-| Shareable workflow templates | `WorkflowFile` (YAML) |
-| CI/CD pipeline definitions | `WorkflowFile` (YAML) |
-| Complex conditional logic | `WorkflowDefinition` (Python) |
-| Dynamic step generation | `WorkflowDefinition` (Python) |
-| Built-in workflow library | `WorkflowFile` (YAML) |
-| Unit/integration tests | `WorkflowDefinition` (Python) |
+| Use Case                     | Recommended Type              |
+| ---------------------------- | ----------------------------- |
+| Shareable workflow templates | `WorkflowFile` (YAML)         |
+| CI/CD pipeline definitions   | `WorkflowFile` (YAML)         |
+| Complex conditional logic    | `WorkflowDefinition` (Python) |
+| Dynamic step generation      | `WorkflowDefinition` (Python) |
+| Built-in workflow library    | `WorkflowFile` (YAML)         |
+| Unit/integration tests       | `WorkflowDefinition` (Python) |
+
+## Development Commands
+
+**IMPORTANT**: Always use `make` commands instead of `uv run` directly. The Makefile provides AI-agent-friendly output with minimal noise.
+
+| Command               | Purpose                                |
+| --------------------- | -------------------------------------- |
+| `make test`           | Run tests (errors only)                |
+| `make lint`           | Run ruff linter (errors only)          |
+| `make typecheck`      | Run mypy (errors only)                 |
+| `make format`         | Check formatting (diff if needed)      |
+| `make format-fix`     | Apply formatting fixes                 |
+| `make check`          | Run all checks (lint, typecheck, test) |
+| `make ci`             | CI mode: fail fast on any error        |
+| `make clean`          | Remove build artifacts and caches      |
+| `make VERBOSE=1 test` | Full output for debugging              |
 
 ## Core Principles
 
@@ -148,12 +168,12 @@ The default stance is full ownership of the repository state while you work. “
 
 ## Code Style
 
-| Element | Convention | Example |
-|---------|------------|---------|
-| Classes | PascalCase | `CodeReviewerAgent`, `FlyWorkflow` |
-| Functions | snake_case | `execute_review`, `create_pr` |
-| Constants | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT` |
-| Private | Leading underscore | `_build_prompt`, `_validate_input` |
+| Element   | Convention           | Example                            |
+| --------- | -------------------- | ---------------------------------- |
+| Classes   | PascalCase           | `CodeReviewerAgent`, `FlyWorkflow` |
+| Functions | snake_case           | `execute_review`, `create_pr`      |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT`   |
+| Private   | Leading underscore   | `_build_prompt`, `_validate_input` |
 
 - Docstrings: Google-style format with Args, Returns, Raises sections
 - Exceptions: Hierarchy from `MaverickError` → `AgentError`, `WorkflowError`, `ConfigError`
@@ -165,11 +185,13 @@ The default stance is full ownership of the repository state while you work. “
 Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict adherence to these rules prevents debt accumulation.
 
 ### 1. Testing is Not Optional (Anti-Deferral)
+
 - No PR shall be merged without passing **new** tests covering added functionality
 - Do not comment out or skip failing tests; fix them immediately (including failures that predate your change)
 - For async components (Agents/Workflows), test concurrency and error states, not just happy paths
 
 ### 2. Modularize Early (Keep Files Small)
+
 Long, multi-responsibility modules are a primary driver of slow iteration and merge conflicts. Treat file growth as a design smell.
 
 - **Soft limit**: aim for modules < ~500 LOC and test modules < ~400–600 LOC.
@@ -178,6 +200,7 @@ Long, multi-responsibility modules are a primary driver of slow iteration and me
 - **Single responsibility**: each module/package should have one “reason to change” (one domain, one layer, one cohesive feature area).
 
 ### 3. Preferred Split Patterns (Repository-Specific)
+
 Use these patterns to prevent the common “god file” failures seen in this repo:
 
 - **CLI**: keep `src/maverick/main.py` as a thin entrypoint; put each Click command in `src/maverick/cli/commands/<command>.py`; keep shared Click options/error handling in `src/maverick/cli/common.py`.
@@ -188,6 +211,7 @@ Use these patterns to prevent the common “god file” failures seen in this re
 - **Tests**: split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste.
 
 ### 4. Backwards-Compatible Refactors
+
 When splitting a public module, preserve import stability:
 
 - Prefer creating a package and re-exporting the current public surface from `__init__.py`.
@@ -195,20 +219,24 @@ When splitting a public module, preserve import stability:
 - Maintain `__all__` (or equivalent explicit exports) so the public API stays intentional and discoverable.
 
 ### 5. Zero-Tolerance for Duplication (DRY)
+
 - If logic (Git operations, Validation, GitHub API calls) is needed in a second location, **refactor to a shared utility immediately**—do not wait for "cleanup"
 - Use Mixins or Composition over inheritance for shared agent capabilities
 
 ### 6. Hardening by Default (Anti-Assumption)
+
 - All external calls (GitHub API, Git subprocesses) **MUST** have:
   - Explicit timeouts
   - Retry logic with exponential backoff for network operations
   - Specific exception handling (no bare `except Exception`)
 
 ### 7. Type Safety & Constants
+
 - No magic numbers or string literals in logic code; extract to named constants or configuration
 - Use `Protocol` (structural typing) to define interfaces between components to avoid circular dependencies
 
 ### 8. Documentation Integrity
+
 - Treat documentation examples as code—where possible, add tests that validate code snippets in `README.md` or `docs/quickstart.md`
 
 ## Architectural Guardrails (Non-Negotiables)
@@ -216,19 +244,23 @@ When splitting a public module, preserve import stability:
 These “truisms” are required to preserve the clarity and layer boundaries described in `.specify/memory/constitution.md` and the Slidev training. If a change would violate any item below, stop and refactor the design before proceeding.
 
 ### 1. TUI is display-only
+
 - `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`, `asyncio.create_subprocess_exec`) or make network calls.
 - TUI code MUST delegate external interactions to runners/services and only update reactive state + render results.
 
 ### 2. Async-first means “no blocking on the event loop”
+
 - Never call `subprocess.run` from an `async def` path.
 - Prefer `CommandRunner` (`src/maverick/runners/command.py`) for subprocess execution with timeouts.
 - DSL `PythonStep` callables MUST be async, or must be run off-thread (e.g., `asyncio.to_thread`) to avoid freezing the TUI/workflows.
 
 ### 3. Deterministic ops belong to workflows/runners, not agents
+
 - Agents provide judgment (implementation/review/fix suggestions). They MUST NOT own deterministic side effects like git commits/pushes or running validation.
 - Workflows (or DSL steps/actions) own deterministic execution, retries, checkpointing, and error recovery policies.
 
 ### 4. Actions must have a single, typed contract
+
 - Workflow actions MUST not return ad-hoc `dict[str, Any]` blobs.
 - Use one canonical contract:
   - preferred: frozen dataclasses (with `to_dict()` for DSL serialization), or
@@ -236,10 +268,12 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 - Keep action outputs stable across versions; treat them as public interfaces.
 
 ### 5. Resilience features must be real, not stubs
+
 - “Retry/fix loops” and “recovery” must actually invoke the fixer/retry validation or be removed.
 - If the DSL/workflow definition is the right place for retry logic, implement it there rather than simulating it in a Python action.
 
 ### 6. One canonical wrapper per external system
+
 - Do not create new `git`/`gh`/validation subprocess wrappers in random modules.
 - Prefer:
   - `src/maverick/runners/**` for deterministic execution + parsing
@@ -247,6 +281,7 @@ These “truisms” are required to preserve the clarity and layer boundaries de
   - `src/maverick/dsl/context_builders.py` for context composition (delegate; no subprocess re-implementation)
 
 ### 7. Tool server factories must be async-safe and consistent
+
 - Factory functions MUST NOT call `asyncio.run()` internally.
 - Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
 - Return concrete, correct types (avoid `Any` on public APIs).
@@ -254,7 +289,9 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 ## Workflows
 
 ### FlyWorkflow
+
 Full spec-based development workflow:
+
 1. **Setup**: Sync branch with origin/main, validate spec directory
 2. **Implementation**: Parse tasks.md, execute tasks (parallel for "P:" marked)
 3. **Code Review**: Parallel CodeRabbit + architecture review
@@ -263,7 +300,9 @@ Full spec-based development workflow:
 6. **PR Management**: Generate PR body, create/update via GitHub CLI
 
 ### RefuelWorkflow
+
 Tech-debt resolution workflow:
+
 1. **Discovery**: List open issues with target label
 2. **Selection**: Analyze and select up to 3 non-conflicting issues
 3. **Implementation**: Execute fixes in parallel
@@ -272,6 +311,8 @@ Tech-debt resolution workflow:
 
 ## Dependencies
 
+- [uv](https://docs.astral.sh/uv/) for dependency management (`uv sync`)
+- [Make](https://www.gnu.org/software/make/) for development commands (see Development Commands section)
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
 - Optional: [ntfy](https://ntfy.sh) for push notifications
@@ -279,10 +320,12 @@ Tech-debt resolution workflow:
 ## Legacy Plugin Reference
 
 The `plugins/maverick/` directory contains the legacy Claude Code plugin implementation being migrated. Reference for workflow logic:
+
 - `plugins/maverick/commands/` - Slash command definitions
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
 
 ## Active Technologies
+
 - Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic (001-maverick-foundation)
 - YAML config files (project: `maverick.yaml`, user: `~/.config/maverick/config.yaml`) (001-maverick-foundation)
 - Claude Agent SDK (`claude-agent-sdk`), Pydantic for MaverickAgent base class (002-base-agent)
@@ -332,6 +375,7 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A for persistence; in-memory state during workflow execution; optional JSON checkpoints under `.maverick/checkpoints/` (026-dsl-builtin-workflows)
 
 ## Recent Changes
+
 - 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
 - 002-base-agent: Added MaverickAgent abstract base class with Claude Agent SDK integration
 - 001-maverick-foundation: Added Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic

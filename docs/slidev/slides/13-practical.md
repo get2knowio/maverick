@@ -17,6 +17,7 @@ Complete setup process for Maverick
 <v-click>
 
 - **Python 3.10+** installed
+- **[uv](https://docs.astral.sh/uv/)** - Fast Python package manager (recommended)
 - **GitHub CLI** (`gh`) authenticated
 - **Claude API key** from Anthropic
 - **[Speckit](https://speckit.org)** installed for task generation
@@ -28,15 +29,18 @@ Complete setup process for Maverick
 ## Installation
 
 ```bash
+# Install uv (if needed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Clone repository
 git clone https://github.com/get2knowio/maverick.git
 cd maverick
 
-# Install with pip
-pip install -e .
+# Install with uv (recommended - uses uv.lock)
+uv sync
 
-# Or with uv (recommended)
-uv pip install -e .
+# Run maverick
+uv run maverick --help
 ```
 
 </v-click>
