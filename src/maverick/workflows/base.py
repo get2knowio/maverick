@@ -189,14 +189,12 @@ class WorkflowDSLMixin:
 
         # Validate custom tools from config
         if include_custom_tools and preflight_config.custom_tools:
-            custom_validator = CustomToolValidator(
-                preflight_config.custom_tools)
+            custom_validator = CustomToolValidator(preflight_config.custom_tools)
             custom_result = await custom_validator.validate()
             all_results.append(custom_result)
 
         # Build final result
-        total_duration_ms = int(
-            (time.monotonic() - start_time) * 1000)
+        total_duration_ms = int((time.monotonic() - start_time) * 1000)
         result = PreflightResult.from_results(all_results, total_duration_ms)
 
         # Raise if any validation failed

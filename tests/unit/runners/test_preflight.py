@@ -139,14 +139,11 @@ class TestPreflightResult:
         """Test from_results() with all successful validations."""
         results = [
             ValidationResult(success=True, component="Git", duration_ms=50),
-            ValidationResult(success=True, component="GitHub",
-                             duration_ms=100),
-            ValidationResult(
-                success=True, component="Validation", duration_ms=75),
+            ValidationResult(success=True, component="GitHub", duration_ms=100),
+            ValidationResult(success=True, component="Validation", duration_ms=75),
         ]
 
-        preflight = PreflightResult.from_results(
-            results, total_duration_ms=150)
+        preflight = PreflightResult.from_results(results, total_duration_ms=150)
 
         assert preflight.success is True
         assert len(preflight.results) == 3
@@ -189,12 +186,10 @@ class TestPreflightResult:
                 errors=("auth error",),
                 duration_ms=30,
             ),
-            ValidationResult(
-                success=True, component="Validation", duration_ms=40),
+            ValidationResult(success=True, component="Validation", duration_ms=40),
         ]
 
-        preflight = PreflightResult.from_results(
-            results, total_duration_ms=100)
+        preflight = PreflightResult.from_results(results, total_duration_ms=100)
 
         assert preflight.success is False
         assert preflight.failed_components == ("GitHub",)
@@ -235,8 +230,7 @@ class TestPreflightResult:
             ),
         ]
 
-        preflight = PreflightResult.from_results(
-            results, total_duration_ms=100)
+        preflight = PreflightResult.from_results(results, total_duration_ms=100)
 
         assert preflight.success is False
         assert len(preflight.all_errors) == 3
@@ -269,8 +263,7 @@ class TestPreflightResult:
 
     def test_frozen_immutability(self) -> None:
         """Test that PreflightResult is immutable (frozen dataclass)."""
-        preflight = PreflightResult(
-            success=True, results=(), total_duration_ms=0)
+        preflight = PreflightResult(success=True, results=(), total_duration_ms=0)
 
         with pytest.raises(AttributeError):
             preflight.success = False
@@ -668,10 +661,8 @@ class TestCustomToolValidator:
         """Test validation with some tools missing."""
         tools = [
             CustomToolConfig(name="Present", command="present", required=True),
-            CustomToolConfig(name="MissingReq",
-                             command="missing-req", required=True),
-            CustomToolConfig(name="MissingOpt",
-                             command="missing-opt", required=False),
+            CustomToolConfig(name="MissingReq", command="missing-req", required=True),
+            CustomToolConfig(name="MissingOpt", command="missing-opt", required=False),
         ]
 
         validator = CustomToolValidator(custom_tools=tools)
@@ -725,8 +716,7 @@ class TestCustomToolValidator:
     async def test_component_name_is_custom_tools(self) -> None:
         """Test that component name is always 'CustomTools'."""
         tools = [
-            CustomToolConfig(
-                name="SomeTool", command="some-tool", required=True),
+            CustomToolConfig(name="SomeTool", command="some-tool", required=True),
         ]
 
         validator = CustomToolValidator(custom_tools=tools)

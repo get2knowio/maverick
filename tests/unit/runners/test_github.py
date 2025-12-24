@@ -97,8 +97,7 @@ class TestGitHubCLIRunner:
         # Verify auth check was called only once (first call)
         assert mock_runner.run.call_count == 3
         # First call was auth check
-        assert mock_runner.run.call_args_list[0][0][0] == [
-            "gh", "auth", "status"]
+        assert mock_runner.run.call_args_list[0][0][0] == ["gh", "auth", "status"]
         # Second and third calls were issue commands
         assert mock_runner.run.call_args_list[1][0][0][0] == "gh"
         assert mock_runner.run.call_args_list[2][0][0][0] == "gh"
@@ -291,8 +290,7 @@ class TestGitHubCLIRunner:
 
         runner = GitHubCLIRunner()
         mock_runner = AsyncMock()
-        mock_runner.run = AsyncMock(
-            side_effect=[auth_result, malformed_result])
+        mock_runner.run = AsyncMock(side_effect=[auth_result, malformed_result])
         runner._command_runner = mock_runner
 
         # Should raise ValidationError with clear error message
@@ -593,8 +591,7 @@ class TestErrorHandlingInCommands:
 
         mock_runner = AsyncMock()
         # First call fails with network error, second succeeds
-        mock_runner.run = AsyncMock(
-            side_effect=[network_error_result, success_result])
+        mock_runner.run = AsyncMock(side_effect=[network_error_result, success_result])
         runner._command_runner = mock_runner
 
         result = await runner._run_gh_command("issue", "list")

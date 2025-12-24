@@ -162,8 +162,7 @@ class FlyWorkflow(WorkflowDSLMixin):
         return AgentUsage(
             input_tokens=sum(u.input_tokens for u in self._usage_records),
             output_tokens=sum(u.output_tokens for u in self._usage_records),
-            total_cost_usd=sum(
-                u.total_cost_usd or 0.0 for u in self._usage_records),
+            total_cost_usd=sum(u.total_cost_usd or 0.0 for u in self._usage_records),
             duration_ms=sum(u.duration_ms for u in self._usage_records),
         )
 
@@ -183,8 +182,7 @@ class FlyWorkflow(WorkflowDSLMixin):
         if isinstance(event, DslWorkflowStarted):
             # Extract inputs from DSL event
             task_file = (
-                Path(event.inputs["task_file"]
-                     ) if "task_file" in event.inputs else None
+                Path(event.inputs["task_file"]) if "task_file" in event.inputs else None
             )
             fly_inputs = FlyInputs(
                 branch_name=event.inputs.get("branch_name", "unknown"),
@@ -337,8 +335,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                 workflow_inputs = inputs.model_dump()
                 # Convert Path to string for YAML compatibility
                 if workflow_inputs.get("task_file"):
-                    workflow_inputs["task_file"] = str(
-                        workflow_inputs["task_file"])
+                    workflow_inputs["task_file"] = str(workflow_inputs["task_file"])
 
                 # Execute workflow and translate events
                 async for event in self._executor.execute(
@@ -382,8 +379,7 @@ class FlyWorkflow(WorkflowDSLMixin):
 
             # Create branch via GitRunner
             if inputs.dry_run:
-                logger.info(
-                    f"[DRY-RUN] Would create branch: {inputs.branch_name}")
+                logger.info(f"[DRY-RUN] Would create branch: {inputs.branch_name}")
                 actual_branch = inputs.branch_name
                 self._state.branch = actual_branch
             else:
@@ -417,12 +413,10 @@ class FlyWorkflow(WorkflowDSLMixin):
             tasks: list[str] = []
             if inputs.task_file is not None:
                 if inputs.dry_run:
-                    logger.info(
-                        f"[DRY-RUN] Would parse task file: {inputs.task_file}")
+                    logger.info(f"[DRY-RUN] Would parse task file: {inputs.task_file}")
                 else:
                     try:
-                        task_content = inputs.task_file.read_text(
-                            encoding="utf-8")
+                        task_content = inputs.task_file.read_text(encoding="utf-8")
                         # Parse tasks - each line starting with "- [ ]" is a task
                         for line in task_content.splitlines():
                             stripped = line.strip()
@@ -457,8 +451,7 @@ class FlyWorkflow(WorkflowDSLMixin):
             self._state.stage = WorkflowStage.IMPLEMENTATION
 
             if inputs.dry_run:
-                logger.info(
-                    "[DRY-RUN] Would execute ImplementerAgent on tasks")
+                logger.info("[DRY-RUN] Would execute ImplementerAgent on tasks")
                 # Still emit progress event in dry-run mode
             else:
                 if self._implementer_agent is not None:
@@ -489,11 +482,9 @@ class FlyWorkflow(WorkflowDSLMixin):
             validation_passed = False
 
             if inputs.dry_run:
-                logger.info(
-                    "[DRY-RUN] Would run validation (format, lint, test)")
+                logger.info("[DRY-RUN] Would run validation (format, lint, test)")
                 max_attempts = self._config.max_validation_attempts
-                logger.info(
-                    f"[DRY-RUN] Would retry up to {max_attempts} times")
+                logger.info(f"[DRY-RUN] Would retry up to {max_attempts} times")
                 validation_passed = True  # Assume success in dry-run
             else:
                 if self._validation_runner is not None:
@@ -505,8 +496,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                             return
 
                         max_attempts = self._config.max_validation_attempts
-                        logger.info(
-                            f"Validation attempt {attempt}/{max_attempts}")
+                        logger.info(f"Validation attempt {attempt}/{max_attempts}")
 
                         try:
                             validation_output = await self._validation_runner.run()
@@ -519,8 +509,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                             validation_passed = validation_result.success
 
                             if validation_passed:
-                                logger.info(
-                                    f"Validation passed on attempt {attempt}")
+                                logger.info(f"Validation passed on attempt {attempt}")
                                 break
 
                             # Validation failed - invoke fix agent if available (FR-008)
@@ -535,14 +524,11 @@ class FlyWorkflow(WorkflowDSLMixin):
                                         agent = self._implementer_agent
                                         # type: ignore[call-arg]
                                         fix_result = await agent.execute()
-                                        has_usage = hasattr(
-                                            fix_result, "usage")
+                                        has_usage = hasattr(fix_result, "usage")
                                         if has_usage and fix_result.usage:
-                                            self._usage_records.append(
-                                                fix_result.usage)
+                                            self._usage_records.append(fix_result.usage)
                                     except Exception as e:
-                                        logger.warning(
-                                            f"Fix agent failed: {e}")
+                                        logger.warning(f"Fix agent failed: {e}")
 
                         except Exception as e:
                             error_msg = f"Validation attempt {attempt} failed: {e}"
@@ -605,8 +591,7 @@ class FlyWorkflow(WorkflowDSLMixin):
             self._state.stage = WorkflowStage.CONVENTION_UPDATE
 
             if inputs.dry_run:
-                logger.info(
-                    "[DRY-RUN] Would analyze findings and update conventions")
+                logger.info("[DRY-RUN] Would analyze findings and update conventions")
             else:
                 # Placeholder logic: In future this will use ConventionAgent
                 # For now, we assume convention updates happen via manual review or
@@ -624,8 +609,7 @@ class FlyWorkflow(WorkflowDSLMixin):
             commit_message = "chore: workflow changes"
 
             if inputs.dry_run:
-                logger.info(
-                    "[DRY-RUN] Would stage all changes with 'git add --all'")
+                logger.info("[DRY-RUN] Would stage all changes with 'git add --all'")
                 logger.info("[DRY-RUN] Would get staged diff")
                 logger.info("[DRY-RUN] Would generate commit message")
                 logger.info(f"[DRY-RUN] Would commit: {commit_message}")
@@ -651,16 +635,14 @@ class FlyWorkflow(WorkflowDSLMixin):
                         assert isinstance(result, str)
                         commit_message = result
                     except Exception as e:
-                        logger.warning(
-                            f"Commit message generation failed: {e}")
+                        logger.warning(f"Commit message generation failed: {e}")
 
                 # Create commit
                 if self._git_runner is not None:
                     try:
                         commit_result = await self._git_runner.commit(commit_message)
                         if not commit_result.success:
-                            logger.warning(
-                                f"Commit failed: {commit_result.error}")
+                            logger.warning(f"Commit failed: {commit_result.error}")
                     except Exception as e:
                         logger.warning(f"Failed to create commit: {e}")
 
@@ -690,10 +672,8 @@ class FlyWorkflow(WorkflowDSLMixin):
 
             if inputs.dry_run:
                 logger.info("[DRY-RUN] Would generate PR description")
-                logger.info(
-                    f"[DRY-RUN] Would create PR: feat: {actual_branch}")
-                logger.info(
-                    f"[DRY-RUN] Would target base branch: {inputs.base_branch}")
+                logger.info(f"[DRY-RUN] Would create PR: feat: {actual_branch}")
+                logger.info(f"[DRY-RUN] Would target base branch: {inputs.base_branch}")
                 is_draft_pr = inputs.draft_pr or not validation_passed
                 logger.info(f"[DRY-RUN] Would set draft={is_draft_pr}")
                 pr_url = "https://github.com/owner/repo/pull/[dry-run]"
@@ -716,8 +696,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                         assert isinstance(result, str)
                         pr_body = result
                     except Exception as e:
-                        logger.warning(
-                            f"PR description generation failed: {e}")
+                        logger.warning(f"PR description generation failed: {e}")
 
                 # Create PR
                 if self._github_runner is not None:
@@ -783,8 +762,7 @@ class FlyWorkflow(WorkflowDSLMixin):
             RuntimeError: If called before execute() completes.
         """
         if self._result is None:
-            raise RuntimeError(
-                "Workflow has not completed. Call execute() first.")
+            raise RuntimeError("Workflow has not completed. Call execute() first.")
         return self._result
 
 

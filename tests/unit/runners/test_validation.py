@@ -30,8 +30,7 @@ class TestValidationRunner:
     async def test_all_stages_pass(self, mock_command_result_success):
         """Test all stages passing."""
         stages = [
-            ValidationStage(name="format", command=(
-                "ruff", "format", "--check")),
+            ValidationStage(name="format", command=("ruff", "format", "--check")),
             ValidationStage(name="lint", command=("ruff", "check")),
         ]
 
@@ -169,8 +168,7 @@ class TestValidationRunnerValidate:
     async def test_validate_all_tools_present(self):
         """Test validate() succeeds when all stage tools are on PATH."""
         stages = [
-            ValidationStage(name="format", command=(
-                "ruff", "format", "--check")),
+            ValidationStage(name="format", command=("ruff", "format", "--check")),
             ValidationStage(name="lint", command=("mypy", "src")),
         ]
 
@@ -191,8 +189,7 @@ class TestValidationRunnerValidate:
     async def test_validate_missing_tool_error(self):
         """Test validate() reports error when a tool is missing from PATH."""
         stages = [
-            ValidationStage(name="format", command=(
-                "ruff", "format", "--check")),
+            ValidationStage(name="format", command=("ruff", "format", "--check")),
             ValidationStage(name="lint", command=("mypy", "src")),
         ]
 

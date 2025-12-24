@@ -213,8 +213,7 @@ class TestCheckout:
         result = await git_runner.checkout("main")
 
         assert result.success is True
-        mock_command_runner.run.assert_called_once_with(
-            ["git", "checkout", "main"])
+        mock_command_runner.run.assert_called_once_with(["git", "checkout", "main"])
 
     @pytest.mark.asyncio
     async def test_checkout_nonexistent(
@@ -311,8 +310,7 @@ class TestPush:
         result = await git_runner.push()
 
         assert result.success is True
-        mock_command_runner.run.assert_called_once_with(
-            ["git", "push", "origin"])
+        mock_command_runner.run.assert_called_once_with(["git", "push", "origin"])
 
     @pytest.mark.asyncio
     async def test_push_with_upstream(
@@ -389,8 +387,7 @@ class TestDiff:
         result = await git_runner.diff()
 
         assert result == diff_output
-        mock_command_runner.run.assert_called_once_with(
-            ["git", "diff", "--cached"])
+        mock_command_runner.run.assert_called_once_with(["git", "diff", "--cached"])
 
     @pytest.mark.asyncio
     async def test_diff_unstaged(
@@ -406,8 +403,7 @@ class TestDiff:
 
         await git_runner.diff(staged=False)
 
-        mock_command_runner.run.assert_called_once_with(
-            ["git", "diff", "HEAD"])
+        mock_command_runner.run.assert_called_once_with(["git", "diff", "HEAD"])
 
     @pytest.mark.asyncio
     async def test_diff_with_base_ref(
@@ -423,8 +419,7 @@ class TestDiff:
 
         await git_runner.diff(base="main", staged=False)
 
-        mock_command_runner.run.assert_called_once_with(
-            ["git", "diff", "main"])
+        mock_command_runner.run.assert_called_once_with(["git", "diff", "main"])
 
 
 class TestAdd:
@@ -565,10 +560,8 @@ class TestGitRunnerValidate:
         # Mock git config user.email (success)
         mock_command_runner.run = AsyncMock(
             side_effect=[
-                CommandResult(returncode=0, stdout="true",
-                              stderr="", duration_ms=10),
-                CommandResult(returncode=0, stdout=".git",
-                              stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
                 CommandResult(
                     returncode=0, stdout="Test User", stderr="", duration_ms=10
                 ),
@@ -633,8 +626,7 @@ class TestGitRunnerValidate:
         result = await runner.validate()
 
         assert result.success is False
-        assert any(
-            "Not inside a git repository" in error for error in result.errors)
+        assert any("Not inside a git repository" in error for error in result.errors)
 
     @pytest.mark.asyncio
     @patch("maverick.runners.git.shutil.which")
@@ -647,10 +639,8 @@ class TestGitRunnerValidate:
         # Mock successful git commands
         mock_command_runner.run = AsyncMock(
             side_effect=[
-                CommandResult(returncode=0, stdout="true",
-                              stderr="", duration_ms=10),
-                CommandResult(returncode=0, stdout=".git",
-                              stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
                 CommandResult(
                     returncode=0, stdout="Test User", stderr="", duration_ms=10
                 ),
@@ -684,10 +674,8 @@ class TestGitRunnerValidate:
 
         mock_command_runner.run = AsyncMock(
             side_effect=[
-                CommandResult(returncode=0, stdout="true",
-                              stderr="", duration_ms=10),
-                CommandResult(returncode=0, stdout=".git",
-                              stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
                 CommandResult(
                     returncode=1, stdout="", stderr="", duration_ms=10
                 ),  # user.name fails
@@ -705,8 +693,7 @@ class TestGitRunnerValidate:
             result = await runner.validate()
 
         assert result.success is False
-        assert any(
-            "user.name is not configured" in error for error in result.errors)
+        assert any("user.name is not configured" in error for error in result.errors)
 
     @pytest.mark.asyncio
     @patch("maverick.runners.git.shutil.which")
@@ -718,10 +705,8 @@ class TestGitRunnerValidate:
 
         mock_command_runner.run = AsyncMock(
             side_effect=[
-                CommandResult(returncode=0, stdout="true",
-                              stderr="", duration_ms=10),
-                CommandResult(returncode=0, stdout=".git",
-                              stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
                 CommandResult(
                     returncode=0, stdout="Test User", stderr="", duration_ms=10
                 ),
@@ -739,8 +724,7 @@ class TestGitRunnerValidate:
             result = await runner.validate()
 
         assert result.success is False
-        assert any(
-            "user.email is not configured" in error for error in result.errors)
+        assert any("user.email is not configured" in error for error in result.errors)
 
     @pytest.mark.asyncio
     @patch("maverick.runners.git.shutil.which")
@@ -752,10 +736,8 @@ class TestGitRunnerValidate:
 
         mock_command_runner.run = AsyncMock(
             side_effect=[
-                CommandResult(returncode=0, stdout="true",
-                              stderr="", duration_ms=10),
-                CommandResult(returncode=0, stdout=".git",
-                              stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
                 CommandResult(
                     returncode=0, stdout="Test User", stderr="", duration_ms=10
                 ),
