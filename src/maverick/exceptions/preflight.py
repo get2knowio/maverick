@@ -44,8 +44,9 @@ class PreflightValidationError(MaverickError):
         Returns:
             A formatted string describing all failures and warnings.
         """
+        failed_count = len(self.result.failed_components)
         lines = [
-            f"Preflight validation failed ({len(self.result.failed_components)} components):",
+            f"Preflight validation failed ({failed_count} components):",
             "",
         ]
         for error in self.result.all_errors:

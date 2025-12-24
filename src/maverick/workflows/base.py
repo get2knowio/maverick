@@ -6,11 +6,13 @@ for loading workflows, translating events, and building results from DSL executi
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from maverick.library.builtins import create_builtin_library
 
 if TYPE_CHECKING:
+    from maverick.config import PreflightValidationConfig
     from maverick.runners.preflight import PreflightResult
     from maverick.runners.protocols import ValidatableRunner
 
@@ -176,7 +178,7 @@ class WorkflowDSLMixin:
 
         # Start with validation results from discovered runners
         all_results: list[ValidationResult] = []
-        start_time = __import__("time").monotonic()
+        start_time = time.monotonic()
 
         # Validate discovered runners
         if runners:
@@ -194,7 +196,7 @@ class WorkflowDSLMixin:
 
         # Build final result
         total_duration_ms = int(
-            (__import__("time").monotonic() - start_time) * 1000)
+            (time.monotonic() - start_time) * 1000)
         result = PreflightResult.from_results(all_results, total_duration_ms)
 
         # Raise if any validation failed
@@ -203,7 +205,7 @@ class WorkflowDSLMixin:
 
         return result
 
-    def _load_preflight_config(self) -> Any:
+    def _load_preflight_config(self) -> PreflightValidationConfig:
         """Load preflight configuration from maverick config.
 
         Returns:

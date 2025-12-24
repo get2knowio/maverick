@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import shutil
 import time
 from typing import TYPE_CHECKING
@@ -250,9 +252,6 @@ class GitHubCLIRunner:
             RuntimeError: If gh command fails.
             GitHubAuthError: If authentication is required (exit code 4).
         """
-        import asyncio
-        import logging
-
         logger = logging.getLogger(__name__)
         max_retries = 3
         last_error = None
@@ -281,8 +280,7 @@ class GitHubCLIRunner:
             if error_type == "auth":
                 raise GitHubAuthError()
             if not is_retryable:
-                raise RuntimeError(
-                    f"gh command failed ({error_type}): {result.stderr}")
+                raise RuntimeError(f"gh command failed ({error_type}): {result.stderr}")
 
             # Only retry for retryable errors
             if attempt < max_retries - 1:
@@ -372,7 +370,7 @@ class GitHubCLIRunner:
             for response in responses
         ]
 
-    async def validate(self) -> "ValidationResult":
+    async def validate(self) -> ValidationResult:
         """Validate GitHub CLI runner prerequisites.
 
         Checks:
@@ -413,8 +411,7 @@ class GitHubCLIRunner:
                 # Check for specific error conditions
                 stderr_lower = auth_result.stderr.lower()
                 if "not logged" in stderr_lower or auth_result.returncode == 4:
-                    errors.append(
-                        "gh CLI is not authenticated. Run 'gh auth login'.")
+                    errors.append("gh CLI is not authenticated. Run 'gh auth login'.")
                 elif "token" in stderr_lower and "expired" in stderr_lower:
                     errors.append(
                         "GitHub token has expired. Run 'gh auth refresh' to renew."
@@ -463,9 +460,10 @@ class GitHubCLIRunner:
                     missing_scopes.append(scope)
 
             if missing_scopes:
-                warnings.append(
-                    f"Missing recommended scopes: {', '.join(missing_scopes)}. "
-                    "Some features may not work. Run 'gh auth refresh -s repo,read:org'."
+                scope_list = ", ".join(missing_scopes)
+                errors.append(
+                    f"Missing required scopes: {scope_list}. "
+                    "Run 'gh auth refresh -s repo,read:org'."
                 )
 
             # Check for token expiration warnings in output
@@ -497,8 +495,7 @@ class GitHubCLIRunner:
     ) -> PullRequest:
         """Create a new pull request."""
         await self._ensure_authenticated()
-        args = ["pr", "create", "--title", title,
-                "--body", body, "--base", base]
+        args = ["pr", "create", "--title", title, "--body", body, "--base", base]
         if head:
             args.extend(["--head", head])
         if draft:
@@ -564,8 +561,7 @@ class GitHubCLIRunner:
         """
         await self._ensure_authenticated()
         json_output = await self._run_gh_command(
-            "pr", "checks", str(
-                pr_number), "--json", "name,state,conclusion,detailsUrl"
+            "pr", "checks", str(pr_number), "--json", "name,state,conclusion,detailsUrl"
         )
         # Parse response list using Pydantic TypeAdapter
         adapter = TypeAdapter(list[GitHubCheckResponse])

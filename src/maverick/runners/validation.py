@@ -19,6 +19,28 @@ __all__ = ["ValidationRunner"]
 
 logger = logging.getLogger(__name__)
 
+# Remediation hints for common validation tools
+TOOL_INSTALLATION_HINTS: dict[str, str] = {
+    "ruff": "Install: pip install ruff",
+    "mypy": "Install: pip install mypy",
+    "pytest": "Install: pip install pytest",
+    "black": "Install: pip install black",
+    "isort": "Install: pip install isort",
+    "flake8": "Install: pip install flake8",
+    "pylint": "Install: pip install pylint",
+    "bandit": "Install: pip install bandit",
+    "pyright": "Install: pip install pyright or npm install -g pyright",
+    "prettier": "Install: npm install -g prettier",
+    "eslint": "Install: npm install -g eslint",
+    "tsc": "Install: npm install -g typescript",
+    "npm": "Install Node.js from https://nodejs.org/",
+    "node": "Install Node.js from https://nodejs.org/",
+    "cargo": "Install Rust from https://rustup.rs/",
+    "rustc": "Install Rust from https://rustup.rs/",
+    "go": "Install Go from https://go.dev/dl/",
+    "docker": "Install Docker from https://docker.com/",
+}
+
 
 class ValidationRunner:
     """Execute validation stages sequentially with fix attempts."""
@@ -33,28 +55,6 @@ class ValidationRunner:
         self._cwd = cwd
         self._continue_on_failure = continue_on_failure
         self._command_runner = CommandRunner(cwd=cwd)
-
-    # Remediation hints for common validation tools
-    _TOOL_HINTS: dict[str, str] = {
-        "ruff": "Install: pip install ruff",
-        "mypy": "Install: pip install mypy",
-        "pytest": "Install: pip install pytest",
-        "black": "Install: pip install black",
-        "isort": "Install: pip install isort",
-        "flake8": "Install: pip install flake8",
-        "pylint": "Install: pip install pylint",
-        "bandit": "Install: pip install bandit",
-        "pyright": "Install: pip install pyright or npm install -g pyright",
-        "prettier": "Install: npm install -g prettier",
-        "eslint": "Install: npm install -g eslint",
-        "tsc": "Install: npm install -g typescript",
-        "npm": "Install Node.js from https://nodejs.org/",
-        "node": "Install Node.js from https://nodejs.org/",
-        "cargo": "Install Rust from https://rustup.rs/",
-        "rustc": "Install Rust from https://rustup.rs/",
-        "go": "Install Go from https://go.dev/dl/",
-        "docker": "Install Docker from https://docker.com/",
-    }
 
     async def validate(self) -> ValidationResult:
         """Validate that all required tools are available on PATH.
@@ -83,15 +83,16 @@ class ValidationRunner:
             try:
                 tool_path = shutil.which(tool_name)
                 if tool_path is None:
-                    hint = self._TOOL_HINTS.get(tool_name, "")
+                    hint = TOOL_INSTALLATION_HINTS.get(tool_name, "")
                     if hint:
                         errors.append(
-                            f"Tool '{tool_name}' (stage '{stage.name}') not found on PATH. "
-                            f"{hint}"
+                            f"Tool '{tool_name}' (stage '{stage.name}') "
+                            f"not found on PATH. {hint}"
                         )
                     else:
                         errors.append(
-                            f"Tool '{tool_name}' (stage '{stage.name}') not found on PATH"
+                            f"Tool '{tool_name}' (stage '{stage.name}') "
+                            "not found on PATH"
                         )
                 else:
                     logger.debug(
@@ -178,8 +179,7 @@ class ValidationRunner:
                 timeout=stage.timeout_seconds,
             )
             # Re-run the check
-            logger.debug(
-                "Re-running validation after fix attempt: %s", stage.name)
+            logger.debug("Re-running validation after fix attempt: %s", stage.name)
             result = await self._command_runner.run(
                 list(stage.command),
                 timeout=stage.timeout_seconds,

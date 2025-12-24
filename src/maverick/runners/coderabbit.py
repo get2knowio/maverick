@@ -96,8 +96,7 @@ class CodeRabbitRunner:
             return []
         except Exception as e:
             # Catch any other unexpected parsing errors
-            logger.warning(
-                "Unexpected error parsing CodeRabbit findings: %s", e)
+            logger.warning("Unexpected error parsing CodeRabbit findings: %s", e)
             return []
 
         return findings

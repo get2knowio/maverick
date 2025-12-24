@@ -11,18 +11,42 @@ This file provides guidance to GitHub Copilot when working with code in this rep
 - **Architecture:** Layered (CLI/TUI → Workflows → Agents → Tools)
 - **License:** MIT
 
+## Environment & Setup
+
+### Prerequisites
+
+- **Python 3.10+**
+- **[uv](https://docs.astral.sh/uv/)** (Recommended): For fast dependency management and reproducible builds.
+- **GitHub CLI (`gh`)**: Required for PR/Issue management.
+- **Claude API Key**: `ANTHROPIC_API_KEY` environment variable.
+
+### Installation
+
+```bash
+# Using uv (recommended) - uses uv.lock for reproducibility
+uv sync
+
+# Run maverick
+uv run maverick --help
+
+# OR using pip
+pip install -e ".[dev]"
+```
+
 ## Technology Stack
 
-| Category      | Technology              | Notes                                    |
-| ------------- | ----------------------- | ---------------------------------------- |
-| Language      | Python 3.10+            | Use `from __future__ import annotations` |
-| AI/Agents     | Claude Agent SDK        | `claude-agent-sdk` package               |
-| TUI           | Textual                 | `textual` package                        |
-| CLI           | Click                   | `click` package                          |
-| Validation    | Pydantic                | For configuration and data models        |
-| Testing       | pytest + pytest-asyncio | All tests async-compatible               |
-| Linting       | Ruff                    | Fast, comprehensive Python linter        |
-| Type Checking | MyPy                    | Strict mode recommended                  |
+| Category        | Technology              | Notes                                    |
+| --------------- | ----------------------- | ---------------------------------------- |
+| Language        | Python 3.10+            | Use `from __future__ import annotations` |
+| Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
+| Build System    | Make                    | AI-friendly commands with minimal output |
+| AI/Agents       | Claude Agent SDK        | `claude-agent-sdk` package               |
+| TUI             | Textual                 | `textual` package                        |
+| CLI             | Click                   | `click` package                          |
+| Validation      | Pydantic                | For configuration and data models        |
+| Testing         | pytest + pytest-asyncio | All tests async-compatible               |
+| Linting         | Ruff                    | Fast, comprehensive Python linter        |
+| Type Checking   | MyPy                    | Strict mode recommended                  |
 
 ## Architecture
 
@@ -47,6 +71,69 @@ src/maverick/
 - **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing). Own git/validation execution, retries, checkpointing.
 - **TUI**: Presents state and captures input. **Display-only—no business logic, no subprocesses.**
 - **Tools**: Wrap external systems (GitHub CLI, git, notifications). Delegate execution to runners.
+
+## Workflow Architecture: Two Workflow Types
+
+Maverick supports two distinct workflow representations, each serving different use cases:
+
+### WorkflowFile (YAML/JSON Serialization)
+
+**Location**: `maverick.dsl.serialization.schema`
+
+Used for file-based workflows defined in YAML/JSON. Best for:
+
+- Declarative workflow definitions shared across projects
+- User-editable workflows without Python knowledge
+- Built-in workflow library (discovery, CI integration)
+
+```python
+from maverick.dsl.serialization.schema import WorkflowFile
+
+# Load from YAML
+workflow = WorkflowFile.from_yaml(yaml_content)
+
+# Convert to YAML
+yaml_str = workflow.to_yaml()
+```
+
+**Key methods**: `to_dict()`, `to_yaml()`, `from_dict()`, `from_yaml()`
+
+### WorkflowDefinition (Python Decorator)
+
+**Location**: `maverick.dsl.decorator`
+
+Used for code-based workflows defined with the `@workflow` decorator. Best for:
+
+- Complex logic requiring Python control flow
+- Workflows needing dynamic step generation
+- Integration tests and programmatic workflows
+
+```python
+from maverick.dsl import workflow, step, WorkflowEngine
+
+@workflow(name="my-workflow", description="A code-based workflow")
+def my_workflow(input_data: str):
+    result = yield step("process").python(action=transform, args=(input_data,))
+    return {"result": result}
+
+# Execute with engine
+engine = WorkflowEngine()
+async for event in engine.execute(my_workflow, input_data="test"):
+    print(event)
+```
+
+**Note**: `WorkflowDefinition` does NOT support serialization to YAML. This is by design—Python generator workflows with arbitrary lambdas cannot be reliably serialized.
+
+### When to Use Which
+
+| Use Case                     | Recommended Type              |
+| ---------------------------- | ----------------------------- |
+| Shareable workflow templates | `WorkflowFile` (YAML)         |
+| CI/CD pipeline definitions   | `WorkflowFile` (YAML)         |
+| Complex conditional logic    | `WorkflowDefinition` (Python) |
+| Dynamic step generation      | `WorkflowDefinition` (Python) |
+| Built-in workflow library    | `WorkflowFile` (YAML)         |
+| Unit/integration tests       | `WorkflowDefinition` (Python) |
 
 ## Core Principles (Non-Negotiable)
 
@@ -115,6 +202,15 @@ Avoid over-engineering. Zero tolerance for duplication.
 - **No `print()`**: Use logging or TUI updates
 - **No `shell=True`**: In subprocess calls without explicit security justification
 
+## Claude Agent SDK Patterns
+
+- Always specify `allowed_tools` explicitly (principle of least privilege)
+- Use `ClaudeSDKClient` for stateful/multi-turn interactions
+- Use `query()` for one-shot, stateless interactions
+- Custom tools use the `@tool` decorator and `create_sdk_mcp_server()`
+- Hooks are async functions matching the SDK's hook signature
+- Extract and structure agent outputs; do not return raw text
+
 ## Architectural Guardrails
 
 These rules are required to maintain layer boundaries. If a change would violate any item, stop and refactor.
@@ -131,6 +227,8 @@ These rules are required to maintain layer boundaries. If a change would violate
 
 6. **Tool server factories must be async-safe**: No `asyncio.run()` inside factories. Use lazy verification.
 
+7. **Resilience features must be real**: Retry/fix loops must actually invoke fixers and re-run validation (no "simulated" recovery).
+
 ## Modularization Guidelines
 
 Treat file growth as a design smell.
@@ -143,9 +241,10 @@ Treat file growth as a design smell.
 ### Preferred Split Patterns
 
 - **CLI**: Keep `main.py` thin; commands in `src/maverick/cli/commands/`
-- **Workflows**: Package-per-workflow with `models.py`, `events.py`, `workflow.py`
-- **TUI models**: Split into `src/maverick/tui/models/` by domain
-- **Tools**: Split into `runner.py`, `errors.py`, `responses.py`, `server.py`
+- **Workflows**: Package-per-workflow with `models.py`, `events.py`, `dsl.py`/`constants.py`, `workflow.py`
+- **TUI models**: Split into `src/maverick/tui/models/` by domain (enums, dialogs, state models, theme)
+- **Tools (MCP servers)**: Split into `runner.py`, `errors.py`, `responses.py`, `prereqs.py`, `server.py`
+- **DSL execution**: Step-type handlers in separate modules; keep executor/coordinator small
 - **Tests**: Split by unit-under-test; shared fixtures in local `conftest.py`
 
 ## Hardening Requirements

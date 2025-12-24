@@ -222,8 +222,7 @@ class PreflightValidator:
         start_time = time.monotonic()
 
         # Run all validations in parallel, capturing exceptions
-        tasks = [self._validate_with_timeout(
-            runner) for runner in self._runners]
+        tasks = [self._validate_with_timeout(runner) for runner in self._runners]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert any uncaught exceptions to ValidationResult

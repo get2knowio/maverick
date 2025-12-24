@@ -76,13 +76,10 @@ class ValidationConfig(BaseModel):
         project_root: Project root directory for running commands (default: cwd)
     """
 
-    format_cmd: list[str] = Field(
-        default_factory=lambda: ["ruff", "format", "."])
-    lint_cmd: list[str] = Field(default_factory=lambda: [
-                                "ruff", "check", "--fix", "."])
+    format_cmd: list[str] = Field(default_factory=lambda: ["ruff", "format", "."])
+    lint_cmd: list[str] = Field(default_factory=lambda: ["ruff", "check", "--fix", "."])
     typecheck_cmd: list[str] = Field(default_factory=lambda: ["mypy", "."])
-    test_cmd: list[str] = Field(default_factory=lambda: [
-                                "pytest", "-x", "--tb=short"])
+    test_cmd: list[str] = Field(default_factory=lambda: ["pytest", "-x", "--tb=short"])
     timeout_seconds: int = Field(default=300, ge=30, le=600)
     max_errors: int = Field(default=50, ge=1, le=500)
     project_root: Path | None = None
@@ -229,8 +226,7 @@ class MaverickConfig(BaseSettings):
     )
 
     github: GitHubConfig = Field(default_factory=GitHubConfig)
-    notifications: NotificationConfig = Field(
-        default_factory=NotificationConfig)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     preflight: PreflightValidationConfig = Field(
         default_factory=PreflightValidationConfig

@@ -796,13 +796,12 @@ class TestGitHubCLIRunnerValidate:
         result = await runner.validate()
 
         assert isinstance(result, ValidationResult)
-        assert result.success is True  # Missing scopes is a warning, not an error
+        assert result.success is False  # Missing scopes is an error per FR-004
         assert result.component == "GitHubCLIRunner"
-        assert len(result.errors) == 0
-        assert len(result.warnings) > 0
+        assert len(result.errors) > 0
         assert any(
-            "missing" in warning.lower() and "scope" in warning.lower()
-            for warning in result.warnings
+            "missing" in error.lower() and "scope" in error.lower()
+            for error in result.errors
         )
 
     @pytest.mark.asyncio

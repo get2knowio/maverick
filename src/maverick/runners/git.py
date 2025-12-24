@@ -153,8 +153,7 @@ class GitRunner:
         """
         self._cwd = cwd
         self._timeout = timeout
-        self._runner = command_runner or CommandRunner(
-            cwd=cwd, timeout=timeout)
+        self._runner = command_runner or CommandRunner(cwd=cwd, timeout=timeout)
 
     @property
     def cwd(self) -> Path | None:
@@ -982,9 +981,10 @@ class GitRunner:
                     for marker in conflict_markers:
                         marker_path = git_dir / marker
                         if marker_path.exists():
+                            state = marker.replace("_", " ").replace("-", " ").lower()
                             errors.append(
-                                f"Repository is in {marker.replace('_', ' ').replace('-', ' ').lower()} state. "
-                                f"Please resolve or abort the operation before continuing."
+                                f"Repository is in {state} state. "
+                                "Please resolve or abort before continuing."
                             )
                             break  # One conflict state error is enough
             except Exception as e:
@@ -1031,9 +1031,7 @@ class GitRunner:
             git_dir = Path(result.stdout.strip())
             # If relative path, resolve against cwd
             if not git_dir.is_absolute():
-                if self._cwd:
-                    git_dir = self._cwd / git_dir
-                else:
-                    git_dir = Path.cwd() / git_dir
+                base = self._cwd if self._cwd else Path.cwd()
+                git_dir = base / git_dir
             return git_dir
         return None
