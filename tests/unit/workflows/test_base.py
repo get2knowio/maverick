@@ -5,14 +5,11 @@ Tests the common DSL integration utilities used by workflow implementations.
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from maverick.runners.preflight import (
-    PreflightConfig,
-    PreflightResult,
     ValidationResult,
 )
 from maverick.runners.protocols import ValidatableRunner
@@ -162,8 +159,7 @@ class TestWorkflowDSLMixinDiscoverRunners:
             def __init__(self) -> None:
                 super().__init__()
                 self._git_runner = self._create_mock_runner("git_runner")
-                self._validation_runner = self._create_mock_runner(
-                    "validation_runner")
+                self._validation_runner = self._create_mock_runner("validation_runner")
 
             def _create_mock_runner(self, name: str) -> MagicMock:
                 runner = MagicMock(spec=ValidatableRunner)

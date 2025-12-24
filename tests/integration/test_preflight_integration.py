@@ -16,7 +16,6 @@ from maverick.config import CustomToolConfig
 from maverick.runners.preflight import (
     CustomToolValidator,
     PreflightConfig,
-    PreflightResult,
     PreflightValidator,
     ValidationResult,
 )
@@ -66,7 +65,6 @@ class MockRunner:
         if self._delay > 0:
             await asyncio.sleep(self._delay)
 
-        start_time = time.monotonic()
         duration_ms = int(self._delay * 1000) if self._delay > 0 else 10
 
         return ValidationResult(
@@ -110,8 +108,7 @@ class TestPreflightIntegration:
 
         # Verify each result maps to expected component
         component_names = {r.component for r in result.results}
-        assert component_names == {"GitRunner",
-                                   "GitHubRunner", "ValidationRunner"}
+        assert component_names == {"GitRunner", "GitHubRunner", "ValidationRunner"}
 
     @pytest.mark.asyncio
     async def test_preflight_with_one_failing_runner(self) -> None:
@@ -344,18 +341,18 @@ class TestPreflightIntegration:
         max_expected_time = delay * 1.5  # 0.3s with margin
         min_sequential_time = delay * num_runners * 0.8  # 0.48s minimum if sequential
 
-        assert (
-            elapsed < min_sequential_time
-        ), f"Execution took {elapsed:.3f}s, appears sequential (expected parallel < {max_expected_time:.3f}s)"
+        assert elapsed < min_sequential_time, (
+            f"Execution took {elapsed:.3f}s, appears sequential "
+            f"(expected parallel < {max_expected_time:.3f}s)"
+        )
 
         # Verify runners started at approximately the same time
-        call_times = [
-            r.validate_call_time for r in runners if r.validate_call_time]
+        call_times = [r.validate_call_time for r in runners if r.validate_call_time]
         if len(call_times) == num_runners:
             time_spread = max(call_times) - min(call_times)
-            assert (
-                time_spread < 0.1
-            ), f"Runners started {time_spread:.3f}s apart, expected parallel start"
+            assert time_spread < 0.1, (
+                f"Runners started {time_spread:.3f}s apart, expected parallel start"
+            )
 
     @pytest.mark.asyncio
     async def test_preflight_with_mixed_runners_and_custom_tools(self) -> None:

@@ -18,7 +18,6 @@ from maverick.workflows.refuel import (
     RefuelWorkflow,
 )
 
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -42,8 +41,7 @@ def create_mock_git_runner() -> MagicMock:
         )
     )
     mock_git.add = AsyncMock(return_value=None)
-    mock_git.diff = AsyncMock(
-        return_value="diff --git a/file.py b/file.py\n+new line")
+    mock_git.diff = AsyncMock(return_value="diff --git a/file.py b/file.py\n+new line")
     mock_git.commit = AsyncMock(
         return_value=GitResult(
             success=True,
@@ -177,17 +175,14 @@ class TestRefuelWorkflowPreflightFailure:
         )
 
         # Patch _discover_runners to return our failing runner
-        with patch.object(
-            workflow, "_discover_runners", return_value=[failing_runner]
-        ):
+        with patch.object(workflow, "_discover_runners", return_value=[failing_runner]):
             # Execute and collect events
             events = []
             async for event in workflow.execute(inputs):
                 events.append(event)
 
             # Verify: Workflow emitted a RefuelCompleted event with failure
-            completed_events = [
-                e for e in events if isinstance(e, RefuelCompleted)]
+            completed_events = [e for e in events if isinstance(e, RefuelCompleted)]
             assert len(completed_events) == 1
 
             result = completed_events[0].result
@@ -195,8 +190,7 @@ class TestRefuelWorkflowPreflightFailure:
             assert result.issues_failed >= 1
 
             # Verify: No RefuelStarted event (preflight failed before workflow started)
-            started_events = [
-                e for e in events if isinstance(e, RefuelStarted)]
+            started_events = [e for e in events if isinstance(e, RefuelStarted)]
             assert len(started_events) == 0
 
             # Verify: Git runner was never called (no state changes)
@@ -329,8 +323,7 @@ class TestRefuelWorkflowPreflightFailure:
             assert preflight_called, "Preflight validation should run in dry_run mode"
 
             # Verify: Workflow completed (preflight passed)
-            completed_events = [
-                e for e in events if isinstance(e, RefuelCompleted)]
+            completed_events = [e for e in events if isinstance(e, RefuelCompleted)]
             assert len(completed_events) == 1
 
     @pytest.mark.asyncio
@@ -373,17 +366,14 @@ class TestRefuelWorkflowPreflightFailure:
         )
 
         # Patch _discover_runners to return our failing runner
-        with patch.object(
-            workflow, "_discover_runners", return_value=[failing_runner]
-        ):
+        with patch.object(workflow, "_discover_runners", return_value=[failing_runner]):
             # Execute and collect events
             events = []
             async for event in workflow.execute(inputs):
                 events.append(event)
 
             # Verify: Workflow emitted a RefuelCompleted event with failure
-            completed_events = [
-                e for e in events if isinstance(e, RefuelCompleted)]
+            completed_events = [e for e in events if isinstance(e, RefuelCompleted)]
             assert len(completed_events) == 1
 
             result = completed_events[0].result
