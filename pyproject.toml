@@ -42,9 +42,9 @@ maverick = "maverick.main:cli"
 
 [dependency-groups]
 test = [
-    "pytest>=7.0.0,<8",
-    "pytest-asyncio>=0.21.0,<1",
-    "pytest-cov>=4.0.0,<5",
+    "pytest>=8.2.0,<9",
+    "pytest-asyncio>=0.24.0,<1",
+    "pytest-cov>=4.0.0,<6",
     "pytest-timeout>=2.0.0,<3",
 ]
 lint = [
