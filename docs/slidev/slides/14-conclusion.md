@@ -166,10 +166,14 @@ Join other Maverick users building better development workflows
 ### Start Your Journey
 
 ```bash
-pip install maverick-cli
+# Install with uv (recommended)
+git clone https://github.com/get2knowio/maverick.git && cd maverick
+uv sync && uv run maverick --help
+
+# Or install as a tool
+uv tool install .
 maverick fly        # Run spec-based workflow
 maverick refuel     # Fix tech-debt
-maverick run custom.yaml  # Custom workflows
 ```
 
 </div>

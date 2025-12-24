@@ -11,6 +11,7 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 | Category | Technology | Notes |
 |----------|------------|-------|
 | Language | Python 3.10+ | Use `from __future__ import annotations` |
+| Package Manager | uv | Fast, reproducible builds via `uv.lock` |
 | AI/Agents | Claude Agent SDK | `claude-agent-sdk` package |
 | TUI | Textual | `textual` package |
 | CLI | Click | `click` package |
@@ -272,6 +273,7 @@ Tech-debt resolution workflow:
 
 ## Dependencies
 
+- [uv](https://docs.astral.sh/uv/) for dependency management (`uv sync`, `uv run`)
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
 - Optional: [ntfy](https://ntfy.sh) for push notifications

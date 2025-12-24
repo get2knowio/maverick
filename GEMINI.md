@@ -13,15 +13,19 @@
 
 ### Prerequisites
 *   **Python 3.10+**
+*   **[uv](https://docs.astral.sh/uv/)** (Recommended): For fast dependency management and reproducible builds.
 *   **GitHub CLI (`gh`)**: Required for PR/Issue management.
 *   **Claude API Key**: `ANTHROPIC_API_KEY` environment variable.
-*   **uv** (Recommended): For fast dependency management.
 
 ### Installation
 ```bash
-# Clone and install in editable mode with dev dependencies
-uv pip install -e ".[dev]"
-# OR
+# Using uv (recommended) - uses uv.lock for reproducibility
+uv sync --group dev
+
+# Run maverick
+uv run maverick --help
+
+# OR using pip
 pip install -e ".[dev]"
 ```
 
@@ -29,22 +33,22 @@ pip install -e ".[dev]"
 
 ### Building & Running
 *   **CLI Entry Point**: `maverick` (via `src/maverick/main.py`)
-*   **Run Development Version**: `python -m maverick` or `maverick` (after install).
+*   **Run Development Version**: `uv run maverick` or `uv run python -m maverick`
 *   **Configuration**: `maverick.yaml` (project) or `~/.config/maverick/config.yaml` (user).
 
 ### Testing & Validation
-The project adheres to strict quality standards.
+The project adheres to strict quality standards. All commands below use `uv run` for consistency.
 
 *   **Test Runner**: `pytest`
-    *   Run all tests: `pytest`
-    *   Run with coverage: `pytest --cov=maverick`
+    *   Run all tests: `uv run pytest`
+    *   Run with coverage: `uv run pytest --cov=maverick`
 *   **Linting**: `ruff`
-    *   Check: `ruff check .`
-    *   Fix: `ruff check --fix .`
+    *   Check: `uv run ruff check .`
+    *   Fix: `uv run ruff check --fix .`
 *   **Formatting**: `ruff format`
-    *   Format all: `ruff format .`
+    *   Format all: `uv run ruff format .`
 *   **Type Checking**: `mypy`
-    *   Strict check: `mypy src/maverick`
+    *   Strict check: `uv run mypy src/maverick`
 
 ### Architecture & Key Directories
 

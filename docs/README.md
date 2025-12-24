@@ -28,24 +28,27 @@ Maverick is a Python CLI/TUI application that orchestrates complex AI-powered de
 
 ## Getting Started
 
-**Prerequisites:** Python 3.10+, [GitHub CLI](https://cli.github.com/), [Speckit](https://speckit.org)
+**Prerequisites:** Python 3.10+, [uv](https://docs.astral.sh/uv/), [GitHub CLI](https://cli.github.com/), [Speckit](https://speckit.org)
 
 ```bash
+# Install uv (if needed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Clone the repository
 git clone https://github.com/get2knowio/maverick.git
 cd maverick
 
-# Install with pip
-pip install -e .
+# Install with uv (recommended - uses uv.lock for reproducibility)
+uv sync
 
 # Initialize configuration
-maverick config init
+uv run maverick config init
 
 # Generate tasks.md using speckit (in Claude Code)
 /speckit.tasks
 
 # Run a workflow
-maverick fly feature-branch-name
+uv run maverick fly feature-branch-name
 ```
 
 ## Architecture

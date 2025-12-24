@@ -19,7 +19,43 @@ Unlike traditional automation tools, Maverick uses autonomous AI agents that can
 
 ## Quick Start
 
+### Prerequisites
+
+- Python 3.10 or higher
+- [uv](https://docs.astral.sh/uv/) - Fast Python package manager (recommended)
+- [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
+- Claude API access (set `ANTHROPIC_API_KEY` environment variable)
+- Git repository with remote origin
+- [Speckit](https://speckit.org) for task generation (tasks.md files must be generated via `/speckit.tasks`)
+- Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
+- Optional: [ntfy](https://ntfy.sh) for push notifications
+
 ### Installation
+
+#### Using uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) provides significantly faster dependency installation and reproducible environments.
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/get2knowio/maverick.git
+cd maverick
+
+# Install with uv (uses uv.lock for reproducible builds)
+uv sync
+
+# Run maverick
+uv run maverick --help
+
+# Or install globally as a tool
+uv tool install .
+maverick --help
+```
+
+#### Using pip
 
 ```bash
 # Clone the repository
@@ -28,20 +64,7 @@ cd maverick
 
 # Install with pip (development mode)
 pip install -e .
-
-# Or install with uv (recommended)
-uv pip install -e .
 ```
-
-### Prerequisites
-
-- Python 3.10 or higher
-- [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
-- Claude API access (set `ANTHROPIC_API_KEY` environment variable)
-- Git repository with remote origin
-- [Speckit](https://speckit.org) for task generation (tasks.md files must be generated via `/speckit.tasks`)
-- Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
-- Optional: [ntfy](https://ntfy.sh) for push notifications
 
 ### Basic Usage
 

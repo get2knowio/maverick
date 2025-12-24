@@ -22,33 +22,49 @@ Thank you for contributing to Maverick! This guide explains the project architec
 - Git
 - GitHub CLI (`gh`)
 - Claude API key (set `ANTHROPIC_API_KEY` environment variable)
-- Optional: `uv` for faster dependency management
+- [uv](https://docs.astral.sh/uv/) - Fast Python package and project manager (recommended)
 
 ### Quick Setup
+
+We use [uv](https://docs.astral.sh/uv/) for dependency management, providing faster installs and reproducible environments via `uv.lock`.
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/get2knowio/maverick.git
+cd maverick
+
+# Install all dependencies (uses uv.lock for reproducibility)
+uv sync --group dev
+
+# Verify installation
+uv run maverick --version
+
+# Run tests
+uv run pytest
+
+# Run linting
+uv run ruff check .
+uv run ruff format --check .
+
+# Run type checking
+uv run mypy src/maverick
+```
+
+#### Using pip (Alternative)
 
 ```bash
 # Clone the repository
 git clone https://github.com/get2knowio/maverick.git
 cd maverick
 
-# Install dependencies (using uv - recommended)
-uv pip install -e ".[dev]"
-
-# Or using pip
+# Install with pip
 pip install -e ".[dev]"
 
 # Verify installation
 maverick --version
-
-# Run tests
-pytest
-
-# Run linting
-ruff check .
-ruff format --check .
-
-# Run type checking
-mypy src/maverick
 ```
 
 ## Development Setup
@@ -75,18 +91,18 @@ mypy src/maverick
 ### Running Locally
 
 ```bash
-# Run in development mode
-python -m maverick --help
+# Run in development mode (using uv)
+uv run maverick --help
 
 # Run specific commands
-python -m maverick fly my-branch --dry-run
-python -m maverick status
+uv run maverick fly my-branch --dry-run
+uv run maverick status
 
 # Run with verbose logging
-python -m maverick -vv fly my-branch
+uv run maverick -vv fly my-branch
 
 # Run TUI in development
-python -m maverick.tui.app  # if TUI entry point exists
+uv run python -m maverick.tui.app  # if TUI entry point exists
 ```
 
 ### Development Workflow
@@ -606,22 +622,22 @@ Maverick follows a test-first approach with comprehensive test coverage.
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run specific test file
-pytest tests/agents/test_code_reviewer.py
+uv run pytest tests/agents/test_code_reviewer.py
 
 # Run with coverage
-pytest --cov=maverick --cov-report=html
+uv run pytest --cov=maverick --cov-report=html
 
 # Run only async tests
-pytest -m asyncio
+uv run pytest -m asyncio
 
 # Run with verbose output
-pytest -vv
+uv run pytest -vv
 
 # Run fast tests only (skip slow integration tests)
-pytest -m "not slow"
+uv run pytest -m "not slow"
 ```
 
 ### Writing Tests
@@ -892,19 +908,19 @@ Run these before committing:
 
 ```bash
 # Format code
-ruff format .
+uv run ruff format .
 
 # Check linting
-ruff check .
+uv run ruff check .
 
 # Auto-fix linting issues
-ruff check --fix .
+uv run ruff check --fix .
 
 # Type checking
-mypy src/maverick
+uv run mypy src/maverick
 
 # Run all checks
-ruff format . && ruff check --fix . && mypy src/maverick && pytest
+uv run ruff format . && uv run ruff check --fix . && uv run mypy src/maverick && uv run pytest
 ```
 
 ### Pre-commit Hook (Optional)
@@ -919,19 +935,19 @@ echo "Running pre-commit checks..."
 
 # Format
 echo "→ Formatting code..."
-ruff format .
+uv run ruff format .
 
 # Lint
 echo "→ Linting..."
-ruff check --fix .
+uv run ruff check --fix .
 
 # Type check
 echo "→ Type checking..."
-mypy src/maverick
+uv run mypy src/maverick
 
 # Test
 echo "→ Running tests..."
-pytest -x --tb=short
+uv run pytest -x --tb=short
 
 echo "✓ All checks passed!"
 ```
@@ -956,7 +972,7 @@ chmod +x .git/hooks/pre-commit
 
 4. **Run all checks**:
    ```bash
-   ruff format . && ruff check --fix . && mypy src/maverick && pytest
+   uv run ruff format . && uv run ruff check --fix . && uv run mypy src/maverick && uv run pytest
    ```
 
 5. **Update documentation**: If adding features, update README.md and CONTRIBUTING.md
