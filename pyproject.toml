@@ -54,6 +54,8 @@ lint = [
 dev = [
     { include-group = "test" },
     { include-group = "lint" },
+    "types-aiofiles>=25.1.0.20251011",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [tool.hatchling.build.targets.wheel]
