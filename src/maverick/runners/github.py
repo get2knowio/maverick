@@ -14,6 +14,28 @@ __all__ = ["GitHubCLIRunner"]
 
 
 # =============================================================================
+# GitHub CLI Exit Codes
+# =============================================================================
+# Based on gh CLI documentation: https://cli.github.com/manual/gh_help_exit-codes
+# Standard exit codes:
+#   0: Success
+#   1: General error (network, API, command-specific errors)
+#   2: Command canceled (e.g., user canceled interactive prompt)
+#   4: Authentication required (not logged in or token expired)
+# Command-specific exit codes:
+#   8: Checks pending (gh pr checks)
+# =============================================================================
+
+GH_EXIT_CODES = {
+    0: "success",
+    1: "general_error",
+    2: "canceled",
+    4: "auth_required",
+    8: "checks_pending",
+}
+
+
+# =============================================================================
 # Response Models (Internal - for parsing GitHub CLI JSON output)
 # =============================================================================
 
@@ -99,6 +121,110 @@ class GitHubCLIRunner:
         if not result.success:
             raise GitHubAuthError()
 
+    def _classify_error(self, exit_code: int, stderr: str) -> tuple[str, str, bool]:
+        """Classify gh CLI error using exit codes and stderr content.
+
+        Uses exit codes as the primary classification method, falling back to
+        stderr string matching only when the exit code is ambiguous (exit code 1).
+
+        Args:
+            exit_code: The gh CLI process exit code.
+            stderr: The stderr output from the gh CLI command.
+
+        Returns:
+            A tuple of (error_type, error_message, is_retryable):
+                - error_type: One of "auth", "not_found", "network", "rate_limit",
+                              "validation", "canceled", or "unknown"
+                - error_message: Human-readable error description
+                - is_retryable: True if the error might succeed on retry
+
+        Examples:
+            >>> _classify_error(4, "Not authenticated")
+            ('auth', 'Authentication required', False)
+
+            >>> _classify_error(1, "Could not resolve host: github.com")
+            ('network', 'Network error', True)
+
+            >>> _classify_error(2, "Operation canceled")
+            ('canceled', 'Command canceled', False)
+        """
+        # Primary classification: use exit code
+        error_type = GH_EXIT_CODES.get(exit_code, "general_error")
+
+        # Handle specific exit codes
+        if error_type == "auth_required":
+            return ("auth", "Authentication required", False)
+
+        if error_type == "canceled":
+            return ("canceled", "Command canceled by user", False)
+
+        if error_type == "checks_pending":
+            return ("pending", "Checks are still pending", True)
+
+        # Exit code 1 is ambiguous - use stderr pattern matching as fallback
+        if error_type == "general_error":
+            stderr_lower = stderr.lower()
+
+            # Authentication errors (should be exit code 4, but check anyway)
+            if any(
+                phrase in stderr_lower
+                for phrase in [
+                    "not authenticated",
+                    "authentication required",
+                    "token",
+                    "unauthorized",
+                ]
+            ):
+                return ("auth", "Authentication required", False)
+
+            # Network errors (transient)
+            if any(
+                phrase in stderr_lower
+                for phrase in [
+                    "could not resolve",
+                    "connection",
+                    "network",
+                    "timeout",
+                    "timed out",
+                    "dial tcp",
+                ]
+            ):
+                return ("network", "Network error", True)
+
+            # Rate limiting (transient)
+            if any(
+                phrase in stderr_lower
+                for phrase in ["rate limit", "api rate limit", "too many requests"]
+            ):
+                return ("rate_limit", "API rate limit exceeded", True)
+
+            # Resource not found (non-retryable)
+            if any(
+                phrase in stderr_lower
+                for phrase in [
+                    "not found",
+                    "could not find",
+                    "does not exist",
+                    "no such",
+                ]
+            ):
+                return ("not_found", "Resource not found", False)
+
+            # Validation errors (non-retryable)
+            if any(
+                phrase in stderr_lower
+                for phrase in [
+                    "invalid",
+                    "validation failed",
+                    "required field",
+                    "must be",
+                ]
+            ):
+                return ("validation", "Validation error", False)
+
+        # Unknown error type
+        return ("unknown", f"Unknown error (exit code {exit_code})", False)
+
     async def _ensure_authenticated(self) -> None:
         """Check authentication status on first use (fail-fast).
 
@@ -117,6 +243,7 @@ class GitHubCLIRunner:
 
         Raises:
             RuntimeError: If gh command fails.
+            GitHubAuthError: If authentication is required (exit code 4).
         """
         import asyncio
         import logging
@@ -124,24 +251,40 @@ class GitHubCLIRunner:
         logger = logging.getLogger(__name__)
         max_retries = 3
         last_error = None
+        last_exit_code = None
 
         for attempt in range(max_retries):
             result = await self._command_runner.run(["gh", *args])
             if result.success:
                 return result.stdout.strip() if result.stdout.strip() else "{}"
 
-            # Check if it's a network/transient error (generic check)
-            # We retry on any failure for now as gh cli often fails on network
-            last_error = result.stderr
-            logger.warning(
-                f"gh command failed (attempt {attempt + 1}/{max_retries}): {last_error}"
+            # Classify the error using exit code (primary) and stderr (fallback)
+            error_type, error_message, is_retryable = self._classify_error(
+                result.returncode, result.stderr
             )
 
+            last_error = result.stderr
+            last_exit_code = result.returncode
+
+            # Log error with classification
+            logger.warning(
+                f"gh command failed (attempt {attempt + 1}/{max_retries}): "
+                f"[{error_type}] {error_message} - {result.stderr}"
+            )
+
+            # Raise immediately for non-retryable errors
+            if error_type == "auth":
+                raise GitHubAuthError()
+            if not is_retryable:
+                raise RuntimeError(f"gh command failed ({error_type}): {result.stderr}")
+
+            # Only retry for retryable errors
             if attempt < max_retries - 1:
                 await asyncio.sleep(2**attempt)
 
         raise RuntimeError(
-            f"gh command failed after {max_retries} attempts: {last_error}"
+            f"gh command failed after {max_retries} attempts "
+            f"(exit code {last_exit_code}): {last_error}"
         )
 
     async def get_issue(self, number: int) -> GitHubIssue:

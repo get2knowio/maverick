@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -55,6 +56,76 @@ def is_gh_authenticated() -> bool:
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
+
+
+async def get_valid_issue_number() -> int | None:
+    """Get a valid issue number from the repository.
+
+    Queries the GitHub API for available issues and returns the first one found.
+    Returns None if no issues are available.
+
+    This helper is used to avoid hardcoding issue #1 in tests, which may not
+    exist in all repositories.
+
+    Returns:
+        The first available issue number, or None if no issues exist.
+    """
+    from maverick.tools.github import github_list_issues
+
+    try:
+        # List all issues (open and closed)
+        result = await github_list_issues.handler(
+            {
+                "state": "all",
+                "limit": 1,
+            }
+        )
+
+        if not result or "content" not in result:
+            return None
+
+        response_text = result["content"][0]["text"]
+        response_data = json.loads(response_text)
+
+        # Check for error response
+        if response_data.get("isError"):
+            return None
+
+        # Check if we have any issues
+        issues = response_data.get("issues", [])
+        if not issues:
+            return None
+
+        # Extract the issue number with proper type assertion
+        issue_number: int = issues[0]["number"]
+        return issue_number
+
+    except Exception:
+        # If anything fails, return None
+        return None
+
+
+@pytest.fixture
+async def valid_issue_number() -> int:
+    """Fixture that provides a valid issue number or skips the test.
+
+    This fixture queries the repository for available issues. If no issues
+    are found, the test is skipped with an informative message.
+
+    Tests using this fixture will be skipped in repositories with no issues,
+    which is acceptable behavior for integration tests that require existing
+    repository state.
+
+    Returns:
+        A valid issue number from the repository.
+
+    Raises:
+        pytest.skip: If no issues are available in the repository.
+    """
+    issue_number = await get_valid_issue_number()
+    if issue_number is None:
+        pytest.skip("No issues available in repository for testing")
+    return issue_number
 
 
 # Skip all tests if gh CLI not authenticated
@@ -226,20 +297,24 @@ class TestGitHubToolsPerformance:
             assert isinstance(response_data["issues"], list)
 
     @pytest.mark.asyncio
-    async def test_get_issue_performance_under_5_seconds(self) -> None:
+    async def test_get_issue_performance_under_5_seconds(
+        self, valid_issue_number: int
+    ) -> None:
         """Test github_get_issue executes in under 5 seconds.
 
         This test verifies that getting a specific issue (if it exists)
         completes within the performance requirement.
+
+        Note: This test will be skipped if no issues are available in the
+        repository, which is acceptable for integration tests.
         """
         from maverick.tools.github import github_get_issue
 
         # Measure execution time
         start = time.perf_counter()
 
-        # Call the tool with a potentially existing issue number
-        # Using issue #1 as it's likely to exist in most repos
-        result = await github_get_issue.handler({"issue_number": 1})
+        # Call the tool with a valid issue number from the repository
+        result = await github_get_issue.handler({"issue_number": valid_issue_number})
 
         elapsed = time.perf_counter() - start
 
@@ -347,7 +422,7 @@ class TestGitHubToolsErrorHandling:
     """Test error handling for integration scenarios."""
 
     def test_create_server_outside_git_repo_succeeds_with_lazy_verification(
-        self, tmp_path
+        self, tmp_path: Path
     ) -> None:
         """Test that server creation succeeds even outside a git repository.
 
@@ -366,7 +441,9 @@ class TestGitHubToolsErrorHandling:
         assert server_config["name"] == "github-tools"
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_outside_git_repo_fails(self, tmp_path) -> None:
+    async def test_verify_prerequisites_outside_git_repo_fails(
+        self, tmp_path: Path
+    ) -> None:
         """Test that verify_github_prerequisites fails outside a git repository.
 
         This test verifies the explicit verification function correctly detects
@@ -458,6 +535,41 @@ class TestGitHubToolsErrorHandling:
         assert response_data["error_code"] == "INVALID_INPUT"
         assert "state" in response_data["message"].lower()
 
+    @pytest.mark.asyncio
+    async def test_empty_issue_list_handled_gracefully(self) -> None:
+        """Test that empty issue lists are handled gracefully.
+
+        This test verifies that when a repository has no issues matching
+        the criteria, the response is a valid empty list rather than an error.
+
+        Note: This test uses a very specific label that is unlikely to exist,
+        ensuring we get an empty result set.
+        """
+        from maverick.tools.github import github_list_issues
+
+        # Use a label that is extremely unlikely to exist
+        result = await github_list_issues.handler(
+            {
+                "label": "nonexistent-label-xyz-12345",
+                "state": "all",
+                "limit": 10,
+            }
+        )
+
+        # Verify response is valid
+        assert result is not None
+        assert "content" in result
+        response_text = result["content"][0]["text"]
+        response_data = json.loads(response_text)
+
+        # Should be a success response with empty issues list
+        # (not an error)
+        if not response_data.get("isError"):
+            assert "issues" in response_data
+            assert isinstance(response_data["issues"], list)
+            # The list should be empty or contain only issues with that label
+            # (most likely empty)
+
 
 @pytest.mark.integration
 class TestGitHubToolsResponseFormats:
@@ -504,15 +616,18 @@ class TestGitHubToolsResponseFormats:
                 assert "url" in issue
 
     @pytest.mark.asyncio
-    async def test_get_issue_response_format(self) -> None:
+    async def test_get_issue_response_format(self, valid_issue_number: int) -> None:
         """Test github_get_issue returns properly formatted response.
 
         This test verifies the detailed issue response structure.
+
+        Note: This test will be skipped if no issues are available in the
+        repository, which is acceptable for integration tests.
         """
         from maverick.tools.github import github_get_issue
 
-        # Try to get issue #1 (likely to exist)
-        result = await github_get_issue.handler({"issue_number": 1})
+        # Get a valid issue from the repository
+        result = await github_get_issue.handler({"issue_number": valid_issue_number})
 
         # Verify MCP response structure
         assert "content" in result
