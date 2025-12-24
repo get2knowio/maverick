@@ -11,6 +11,8 @@ use this class instead of implementing their own git subprocess calls.
 
 from __future__ import annotations
 
+import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +21,7 @@ from typing import TYPE_CHECKING
 from maverick.runners.command import CommandRunner
 
 if TYPE_CHECKING:
-    pass
+    from maverick.runners.preflight import ValidationResult
 
 __all__ = [
     "GitResult",
@@ -151,7 +153,8 @@ class GitRunner:
         """
         self._cwd = cwd
         self._timeout = timeout
-        self._runner = command_runner or CommandRunner(cwd=cwd, timeout=timeout)
+        self._runner = command_runner or CommandRunner(
+            cwd=cwd, timeout=timeout)
 
     @property
     def cwd(self) -> Path | None:
@@ -902,4 +905,135 @@ class GitRunner:
         result = await self._runner.run(["git", "rev-parse", "--show-toplevel"])
         if result.success and result.stdout.strip():
             return Path(result.stdout.strip())
+        return None
+
+    # =========================================================================
+    # Validation
+    # =========================================================================
+
+    async def validate(self) -> ValidationResult:
+        """Validate git environment is ready for operations.
+
+        Performs preflight checks:
+        1. Git executable is on PATH
+        2. Current directory is inside a git repository
+        3. Repository is not in merge/rebase state
+        4. User identity (name and email) is configured
+
+        Returns:
+            ValidationResult with success status, errors, and warnings.
+            Never raises exceptions - all failures are captured in errors.
+
+        Example:
+            ```python
+            runner = GitRunner(cwd=Path("/project"))
+            result = await runner.validate()
+            if not result.success:
+                for error in result.errors:
+                    print(f"Error: {error}")
+            ```
+        """
+        # Import here to avoid circular imports at module level
+        from maverick.runners.preflight import ValidationResult
+
+        start_time = time.monotonic()
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # 1. Check git is on PATH
+        if shutil.which("git") is None:
+            errors.append("Git executable not found on PATH")
+            # Early return - can't do other checks without git
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            return ValidationResult(
+                success=False,
+                component="GitRunner",
+                errors=tuple(errors),
+                warnings=tuple(warnings),
+                duration_ms=duration_ms,
+            )
+
+        # 2. Check we're inside a git repository
+        try:
+            result = await self._runner.run(
+                ["git", "rev-parse", "--is-inside-work-tree"]
+            )
+            if not result.success:
+                errors.append(
+                    "Not inside a git repository"
+                    + (f": {result.stderr}" if result.stderr else "")
+                )
+        except Exception as e:
+            errors.append(f"Failed to check git repository status: {e}")
+
+        # 3. Check for merge/rebase state (only if inside a repo)
+        if not errors:
+            try:
+                git_dir = await self._get_git_dir()
+                if git_dir:
+                    conflict_markers = [
+                        "MERGE_HEAD",
+                        "REBASE_HEAD",
+                        "CHERRY_PICK_HEAD",
+                        "REVERT_HEAD",
+                        "rebase-merge",
+                        "rebase-apply",
+                    ]
+                    for marker in conflict_markers:
+                        marker_path = git_dir / marker
+                        if marker_path.exists():
+                            errors.append(
+                                f"Repository is in {marker.replace('_', ' ').replace('-', ' ').lower()} state. "
+                                f"Please resolve or abort the operation before continuing."
+                            )
+                            break  # One conflict state error is enough
+            except Exception as e:
+                warnings.append(f"Could not check repository state: {e}")
+
+        # 4. Check user identity is configured
+        try:
+            name_result = await self._runner.run(["git", "config", "user.name"])
+            if not name_result.success or not name_result.stdout.strip():
+                errors.append(
+                    "Git user.name is not configured. "
+                    "Run: git config --global user.name 'Your Name'"
+                )
+        except Exception as e:
+            errors.append(f"Failed to check git user.name: {e}")
+
+        try:
+            email_result = await self._runner.run(["git", "config", "user.email"])
+            if not email_result.success or not email_result.stdout.strip():
+                errors.append(
+                    "Git user.email is not configured. "
+                    "Run: git config --global user.email 'you@example.com'"
+                )
+        except Exception as e:
+            errors.append(f"Failed to check git user.email: {e}")
+
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        return ValidationResult(
+            success=len(errors) == 0,
+            component="GitRunner",
+            errors=tuple(errors),
+            warnings=tuple(warnings),
+            duration_ms=duration_ms,
+        )
+
+    async def _get_git_dir(self) -> Path | None:
+        """Get the .git directory path.
+
+        Returns:
+            Path to .git directory, or None if not in a repo.
+        """
+        result = await self._runner.run(["git", "rev-parse", "--git-dir"])
+        if result.success and result.stdout.strip():
+            git_dir = Path(result.stdout.strip())
+            # If relative path, resolve against cwd
+            if not git_dir.is_absolute():
+                if self._cwd:
+                    git_dir = self._cwd / git_dir
+                else:
+                    git_dir = Path.cwd() / git_dir
+            return git_dir
         return None

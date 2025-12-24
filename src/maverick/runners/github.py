@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import shutil
+import time
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, TypeAdapter
+
+if TYPE_CHECKING:
+    from maverick.runners.preflight import ValidationResult
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError
 from maverick.runners.command import CommandRunner
@@ -276,7 +281,8 @@ class GitHubCLIRunner:
             if error_type == "auth":
                 raise GitHubAuthError()
             if not is_retryable:
-                raise RuntimeError(f"gh command failed ({error_type}): {result.stderr}")
+                raise RuntimeError(
+                    f"gh command failed ({error_type}): {result.stderr}")
 
             # Only retry for retryable errors
             if attempt < max_retries - 1:
@@ -366,6 +372,121 @@ class GitHubCLIRunner:
             for response in responses
         ]
 
+    async def validate(self) -> "ValidationResult":
+        """Validate GitHub CLI runner prerequisites.
+
+        Checks:
+            1. gh CLI is on PATH
+            2. gh CLI is authenticated
+            3. Required scopes (repo, read:org) are present
+            4. Token is not expired
+
+        Returns:
+            ValidationResult with success status, errors, and warnings.
+        """
+        from maverick.runners.preflight import ValidationResult
+
+        start_time = time.monotonic()
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # Check 1: gh CLI is on PATH
+        if shutil.which("gh") is None:
+            errors.append(
+                "gh CLI is not installed or not on PATH. "
+                "Install: brew install gh (macOS), apt install gh (Ubuntu), "
+                "or visit https://cli.github.com/"
+            )
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            return ValidationResult(
+                success=False,
+                component="GitHubCLIRunner",
+                errors=tuple(errors),
+                warnings=tuple(warnings),
+                duration_ms=duration_ms,
+            )
+
+        # Check 2: gh CLI is authenticated
+        try:
+            auth_result = await self._command_runner.run(["gh", "auth", "status"])
+            if not auth_result.success:
+                # Check for specific error conditions
+                stderr_lower = auth_result.stderr.lower()
+                if "not logged" in stderr_lower or auth_result.returncode == 4:
+                    errors.append(
+                        "gh CLI is not authenticated. Run 'gh auth login'.")
+                elif "token" in stderr_lower and "expired" in stderr_lower:
+                    errors.append(
+                        "GitHub token has expired. Run 'gh auth refresh' to renew."
+                    )
+                else:
+                    errors.append(
+                        f"gh auth status failed: {auth_result.stderr.strip()}"
+                    )
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+                return ValidationResult(
+                    success=False,
+                    component="GitHubCLIRunner",
+                    errors=tuple(errors),
+                    warnings=tuple(warnings),
+                    duration_ms=duration_ms,
+                )
+        except Exception as e:
+            errors.append(f"Failed to check gh auth status: {e}")
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            return ValidationResult(
+                success=False,
+                component="GitHubCLIRunner",
+                errors=tuple(errors),
+                warnings=tuple(warnings),
+                duration_ms=duration_ms,
+            )
+
+        # Check 3: Required scopes (repo, read:org)
+        # Use 'gh auth status' output which shows token scopes
+        try:
+            # Get detailed auth status with token info
+            scope_result = await self._command_runner.run(
+                ["gh", "auth", "status", "--show-token"]
+            )
+            # Parse output for scopes - gh auth status shows scopes in output
+            output = scope_result.stdout + scope_result.stderr
+            output_lower = output.lower()
+
+            # Required scopes for full functionality
+            required_scopes = ["repo", "read:org"]
+            missing_scopes: list[str] = []
+
+            for scope in required_scopes:
+                # Check if scope appears in output (scopes listed in auth status)
+                if scope not in output_lower:
+                    missing_scopes.append(scope)
+
+            if missing_scopes:
+                warnings.append(
+                    f"Missing recommended scopes: {', '.join(missing_scopes)}. "
+                    "Some features may not work. Run 'gh auth refresh -s repo,read:org'."
+                )
+
+            # Check for token expiration warnings in output
+            if "expir" in output_lower and "soon" in output_lower:
+                warnings.append(
+                    "GitHub token will expire soon. Consider running 'gh auth refresh'."
+                )
+
+        except Exception as e:
+            # Scope check failure is a warning, not an error
+            warnings.append(f"Could not verify token scopes: {e}")
+
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        return ValidationResult(
+            success=len(errors) == 0,
+            component="GitHubCLIRunner",
+            errors=tuple(errors),
+            warnings=tuple(warnings),
+            duration_ms=duration_ms,
+        )
+
     async def create_pr(
         self,
         title: str,
@@ -376,7 +497,8 @@ class GitHubCLIRunner:
     ) -> PullRequest:
         """Create a new pull request."""
         await self._ensure_authenticated()
-        args = ["pr", "create", "--title", title, "--body", body, "--base", base]
+        args = ["pr", "create", "--title", title,
+                "--body", body, "--base", base]
         if head:
             args.extend(["--head", head])
         if draft:
@@ -442,7 +564,8 @@ class GitHubCLIRunner:
         """
         await self._ensure_authenticated()
         json_output = await self._run_gh_command(
-            "pr", "checks", str(pr_number), "--json", "name,state,conclusion,detailsUrl"
+            "pr", "checks", str(
+                pr_number), "--json", "name,state,conclusion,detailsUrl"
         )
         # Parse response list using Pydantic TypeAdapter
         adapter = TypeAdapter(list[GitHubCheckResponse])

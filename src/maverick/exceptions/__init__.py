@@ -56,6 +56,9 @@ from maverick.exceptions.github import (
 # Hook-related exceptions
 from maverick.exceptions.hooks import HookConfigError, HookError, SafetyHookError
 
+# Preflight validation exceptions
+from maverick.exceptions.preflight import PreflightValidationError
+
 # Runner-related exceptions
 from maverick.exceptions.runner import (
     CommandNotFoundError,
@@ -116,6 +119,8 @@ __all__ = [
     "HookConfigError",
     "HookError",
     "SafetyHookError",
+    # Preflight
+    "PreflightValidationError",
     # Runner
     "CommandNotFoundError",
     "CommandTimeoutError",

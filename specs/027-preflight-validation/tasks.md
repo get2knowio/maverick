@@ -19,9 +19,9 @@
 
 **Purpose**: Create new module structure and base types
 
-- [ ] T001 Create protocols module at src/maverick/runners/protocols.py
-- [ ] T002 [P] Create preflight exception module at src/maverick/exceptions/preflight.py
-- [ ] T003 [P] Update src/maverick/runners/**init**.py to export ValidationResult, PreflightResult, ValidatableRunner
+- [x] T001 Create protocols module at src/maverick/runners/protocols.py
+- [x] T002 [P] Create preflight exception module at src/maverick/exceptions/preflight.py
+- [x] T003 [P] Update src/maverick/runners/**init**.py to export ValidationResult, PreflightResult, ValidatableRunner
 
 ---
 
@@ -31,11 +31,11 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement ValidationResult frozen dataclass in src/maverick/runners/preflight.py with success, component, errors, warnings, duration_ms fields and to_dict() method
-- [ ] T005 Implement PreflightResult frozen dataclass in src/maverick/runners/preflight.py with from_results() classmethod and to_dict() method
-- [ ] T006 Implement PreflightConfig frozen dataclass in src/maverick/runners/preflight.py with timeout_per_check and fail_on_warning fields
-- [ ] T007 Implement ValidatableRunner Protocol in src/maverick/runners/protocols.py with async validate() method signature
-- [ ] T008 Implement PreflightValidationError exception in src/maverick/exceptions/preflight.py with result attribute and formatted error message
+- [x] T004 Implement ValidationResult frozen dataclass in src/maverick/runners/preflight.py with success, component, errors, warnings, duration_ms fields and to_dict() method
+- [x] T005 Implement PreflightResult frozen dataclass in src/maverick/runners/preflight.py with from_results() classmethod and to_dict() method
+- [x] T006 Implement PreflightConfig frozen dataclass in src/maverick/runners/preflight.py with timeout_per_check and fail_on_warning fields
+- [x] T007 Implement ValidatableRunner Protocol in src/maverick/runners/protocols.py with async validate() method signature
+- [x] T008 Implement PreflightValidationError exception in src/maverick/exceptions/preflight.py with result attribute and formatted error message
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -49,14 +49,14 @@
 
 ### Implementation for User Story 1
 
-- [ ] T009 [P] [US1] Implement GitRunner.validate() method in src/maverick/runners/git.py: check git on PATH, in repository, not in merge/rebase state, user identity configured; handle corrupted git state gracefully; populate duration_ms timing
-- [ ] T010 [P] [US1] Implement GitHubCLIRunner.validate() method in src/maverick/runners/github.py: check gh on PATH, authenticated via `gh auth status`, required scopes (repo, read:org) via `gh auth status --show-token`; handle expired tokens gracefully; populate duration_ms timing
-- [ ] T011 [P] [US1] Implement ValidationRunner.validate() method in src/maverick/runners/validation.py: check all configured validation tools from config are on PATH using shutil.which(); handle missing or broken tools; populate duration_ms timing
-- [ ] T012 [P] [US1] Implement CodeRabbitRunner.validate() method in src/maverick/runners/coderabbit.py: check coderabbit CLI on PATH (failure is WARNING not error since optional); populate duration_ms timing
-- [ ] T013 [US1] Implement PreflightValidator.run() method in src/maverick/runners/preflight.py with parallel validation using asyncio.gather and per-check timeouts
-- [ ] T014 [US1] Implement run_preflight() method in src/maverick/workflows/base.py (WorkflowDSLMixin) that: (1) dynamically discovers runners from workflow instance attributes matching ValidatableRunner protocol, (2) validates all discovered runners in parallel, (3) raises PreflightValidationError on any critical failure
-- [ ] T015 [US1] Integrate preflight validation into FlyWorkflow execute() in src/maverick/workflows/fly.py before any state-changing operations
-- [ ] T016 [US1] Integrate preflight validation into RefuelWorkflow execute() in src/maverick/workflows/refuel.py before any state-changing operations
+- [x] T009 [P] [US1] Implement GitRunner.validate() method in src/maverick/runners/git.py: check git on PATH, in repository, not in merge/rebase state, user identity configured; handle corrupted git state gracefully; populate duration_ms timing
+- [x] T010 [P] [US1] Implement GitHubCLIRunner.validate() method in src/maverick/runners/github.py: check gh on PATH, authenticated via `gh auth status`, required scopes (repo, read:org) via `gh auth status --show-token`; handle expired tokens gracefully; populate duration_ms timing
+- [x] T011 [P] [US1] Implement ValidationRunner.validate() method in src/maverick/runners/validation.py: check all configured validation tools from config are on PATH using shutil.which(); handle missing or broken tools; populate duration_ms timing
+- [x] T012 [P] [US1] Implement CodeRabbitRunner.validate() method in src/maverick/runners/coderabbit.py: check coderabbit CLI on PATH (failure is WARNING not error since optional); populate duration_ms timing
+- [x] T013 [US1] Implement PreflightValidator.run() method in src/maverick/runners/preflight.py with parallel validation using asyncio.gather and per-check timeouts
+- [x] T014 [US1] Implement run_preflight() method in src/maverick/workflows/base.py (WorkflowDSLMixin) that: (1) dynamically discovers runners from workflow instance attributes matching ValidatableRunner protocol, (2) validates all discovered runners in parallel, (3) raises PreflightValidationError on any critical failure
+- [x] T015 [US1] Integrate preflight validation into FlyWorkflow execute() in src/maverick/workflows/fly.py before any state-changing operations
+- [x] T016 [US1] Integrate preflight validation into RefuelWorkflow execute() in src/maverick/workflows/refuel.py before any state-changing operations
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - workflows fail immediately with clear errors when tools are missing
 
@@ -70,11 +70,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Enhance PreflightValidator.run() in src/maverick/runners/preflight.py to aggregate all validation results before reporting (ensure asyncio.gather with return_exceptions=True)
-- [ ] T018 [US2] Enhance PreflightValidationError.\_format_message() in src/maverick/exceptions/preflight.py to list all failed components with remediation steps using rich formatting
-- [ ] T019 [US2] Add remediation hints to GitRunner.validate() errors in src/maverick/runners/git.py (e.g., "Run: git config --global user.name 'Your Name'")
-- [ ] T020 [P] [US2] Add remediation hints to GitHubCLIRunner.validate() errors in src/maverick/runners/github.py (e.g., "Install: brew install gh", "Run: gh auth login")
-- [ ] T021 [P] [US2] Add remediation hints to ValidationRunner.validate() errors in src/maverick/runners/validation.py (e.g., "Install: pip install ruff")
+- [x] T017 [US2] Enhance PreflightValidator.run() in src/maverick/runners/preflight.py to aggregate all validation results before reporting (ensure asyncio.gather with return_exceptions=True)
+- [x] T018 [US2] Enhance PreflightValidationError.\_format_message() in src/maverick/exceptions/preflight.py to list all failed components with remediation steps using rich formatting
+- [x] T019 [US2] Add remediation hints to GitRunner.validate() errors in src/maverick/runners/git.py (e.g., "Run: git config --global user.name 'Your Name'")
+- [x] T020 [P] [US2] Add remediation hints to GitHubCLIRunner.validate() errors in src/maverick/runners/github.py (e.g., "Install: brew install gh", "Run: gh auth login")
+- [x] T021 [P] [US2] Add remediation hints to ValidationRunner.validate() errors in src/maverick/runners/validation.py (e.g., "Install: pip install ruff")
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - multiple errors reported together with actionable hints
 
@@ -88,9 +88,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T022 [US3] Ensure run_preflight() in src/maverick/workflows/base.py executes regardless of dry_run flag
-- [ ] T023 [US3] Verify FlyWorkflow calls run_preflight() before checking dry_run mode in src/maverick/workflows/fly.py
-- [ ] T024 [US3] Verify RefuelWorkflow calls run_preflight() before checking dry_run mode in src/maverick/workflows/refuel.py
+- [x] T022 [US3] Ensure run_preflight() in src/maverick/workflows/base.py executes regardless of dry_run flag
+- [x] T023 [US3] Verify FlyWorkflow calls run_preflight() before checking dry_run mode in src/maverick/workflows/fly.py
+- [x] T024 [US3] Verify RefuelWorkflow calls run_preflight() before checking dry_run mode in src/maverick/workflows/refuel.py
 
 **Checkpoint**: At this point, User Stories 1, 2, AND 3 should all work - preflight runs in dry-run mode
 
@@ -104,9 +104,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T025 [US4] Implement per-check timeout wrapper in PreflightValidator using asyncio.wait_for() in src/maverick/runners/preflight.py
-- [ ] T026 [US4] Handle asyncio.TimeoutError in PreflightValidator converting to ValidationResult with timeout message in src/maverick/runners/preflight.py
-- [ ] T027 [US4] Add timing instrumentation to PreflightValidator.run() populating total_duration_ms and per-check duration_ms in src/maverick/runners/preflight.py
+- [x] T025 [US4] Implement per-check timeout wrapper in PreflightValidator using asyncio.wait_for() in src/maverick/runners/preflight.py
+- [x] T026 [US4] Handle asyncio.TimeoutError in PreflightValidator converting to ValidationResult with timeout message in src/maverick/runners/preflight.py
+- [x] T027 [US4] Add timing instrumentation to PreflightValidator.run() populating total_duration_ms and per-check duration_ms in src/maverick/runners/preflight.py
 
 **Checkpoint**: Preflight completes in <2 seconds when all tools present, with 5s timeout per check
 
@@ -120,9 +120,9 @@
 
 ### Implementation for User Story 5
 
-- [ ] T028 [US5] Add PreflightConfig schema to MaverickConfig for custom tool validation in src/maverick/config.py
-- [ ] T029 [US5] Implement custom tool validation loading in PreflightValidator based on maverick.toml [preflight.custom_tools] section in src/maverick/runners/preflight.py
-- [ ] T030 [US5] Document custom tool validation configuration in docs/ or README section
+- [x] T028 [US5] Add PreflightConfig schema to MaverickConfig for custom tool validation in src/maverick/config.py
+- [x] T029 [US5] Implement custom tool validation loading in PreflightValidator based on maverick.toml [preflight.custom_tools] section in src/maverick/runners/preflight.py
+- [x] T030 [US5] Document custom tool validation configuration in docs/ or README section
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -132,11 +132,11 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T031 [P] Update src/maverick/runners/**init**.py with all new exports (ValidationResult, PreflightResult, ValidatableRunner, PreflightValidator)
-- [ ] T032 [P] Update src/maverick/exceptions/**init**.py with PreflightValidationError export
-- [ ] T033 Add type hints verification for all new modules using mypy
-- [ ] T034 Run quickstart.md validation scenarios manually to verify end-to-end behavior
-- [ ] T035 Code cleanup: ensure all validate() methods follow consistent error message patterns
+- [x] T031 [P] Update src/maverick/runners/**init**.py with all new exports (ValidationResult, PreflightResult, ValidatableRunner, PreflightValidator)
+- [x] T032 [P] Update src/maverick/exceptions/**init**.py with PreflightValidationError export
+- [x] T033 Add type hints verification for all new modules using mypy
+- [x] T034 Run quickstart.md validation scenarios manually to verify end-to-end behavior
+- [x] T035 Code cleanup: ensure all validate() methods follow consistent error message patterns
 
 ---
 
@@ -146,20 +146,20 @@
 
 ### Unit Tests
 
-- [ ] T036 [P] Create tests/unit/runners/test_preflight.py with tests for ValidationResult, PreflightResult, PreflightConfig dataclasses
-- [ ] T037 [P] Create tests/unit/runners/test_protocols.py with protocol compliance tests for ValidatableRunner
-- [ ] T038 [P] Add validate() tests to tests/unit/runners/test_git.py for GitRunner.validate()
-- [ ] T039 [P] Add validate() tests to tests/unit/runners/test_github.py for GitHubCLIRunner.validate()
-- [ ] T040 [P] Add validate() tests to tests/unit/runners/test_validation.py for ValidationRunner.validate()
-- [ ] T041 [P] Add validate() tests to tests/unit/runners/test_coderabbit.py for CodeRabbitRunner.validate()
-- [ ] T042 Add PreflightValidator.run() tests to tests/unit/runners/test_preflight.py covering parallel execution, timeout handling, and error aggregation
-- [ ] T043 Add run_preflight() tests to tests/unit/workflows/test_base.py for WorkflowDSLMixin.run_preflight()
+- [x] T036 [P] Create tests/unit/runners/test_preflight.py with tests for ValidationResult, PreflightResult, PreflightConfig dataclasses
+- [x] T037 [P] Create tests/unit/runners/test_protocols.py with protocol compliance tests for ValidatableRunner
+- [x] T038 [P] Add validate() tests to tests/unit/runners/test_git.py for GitRunner.validate()
+- [x] T039 [P] Add validate() tests to tests/unit/runners/test_github.py for GitHubCLIRunner.validate()
+- [x] T040 [P] Add validate() tests to tests/unit/runners/test_validation.py for ValidationRunner.validate()
+- [x] T041 [P] Add validate() tests to tests/unit/runners/test_coderabbit.py for CodeRabbitRunner.validate()
+- [x] T042 Add PreflightValidator.run() tests to tests/unit/runners/test_preflight.py covering parallel execution, timeout handling, and error aggregation
+- [x] T043 Add run_preflight() tests to tests/unit/workflows/test_base.py for WorkflowDSLMixin.run_preflight()
 
 ### Integration Tests
 
-- [ ] T044 Create tests/integration/test_preflight_integration.py with end-to-end preflight tests using mock runners
-- [ ] T045 Add preflight failure scenario tests to tests/integration/test_fly_workflow.py
-- [ ] T046 Add preflight failure scenario tests to tests/integration/test_refuel_workflow.py
+- [x] T044 Create tests/integration/test_preflight_integration.py with end-to-end preflight tests using mock runners
+- [x] T045 Add preflight failure scenario tests to tests/integration/test_fly_workflow.py
+- [x] T046 Add preflight failure scenario tests to tests/integration/test_refuel_workflow.py
 
 **Checkpoint**: All new public classes and methods have test coverage per Constitution Principle V
 
