@@ -265,21 +265,57 @@ The default stance is **full ownership** of the repository state.
 - **No artificial scope minimization**: Prefer complete solutions over narrow patches
 - **Only defer when truly blocked**: Document exactly what's blocked and the next concrete step
 
+## Debt Prevention Guidelines
+
+Analysis of past technical debt (#61-#152) reveals recurring patterns. Strict adherence to these rules prevents debt accumulation.
+
+### 1. Testing is Not Optional (Anti-Deferral)
+
+- No PR shall be merged without passing **new** tests covering added functionality
+- Do not comment out or skip failing tests; fix them immediately
+- For async components (Agents/Workflows), test concurrency and error states, not just happy paths
+
+### 2. Zero-Tolerance for Duplication (DRY)
+
+- If logic (Git operations, Validation, GitHub API calls) is needed in a second location, **refactor to a shared utility immediately**—do not wait for "cleanup"
+- Use Mixins or Composition over inheritance for shared agent capabilities
+
+### 3. Hardening by Default (Anti-Assumption)
+
+- All external calls (GitHub API, Git subprocesses) **MUST** have:
+  - Explicit timeouts
+  - Retry logic with exponential backoff for network operations
+  - Specific exception handling (no bare `except Exception`)
+
+### 4. Type Safety & Constants
+
+- No magic numbers or string literals in logic code; extract to named constants or configuration
+- Use `Protocol` (structural typing) to define interfaces between components to avoid circular dependencies
+
+### 5. Documentation Integrity
+
+- Treat documentation examples as code—where possible, add tests that validate code snippets in `README.md` or `docs/quickstart.md`
+
+### 6. Backwards-Compatible Refactors
+
+- Preserve import stability by re-exporting from package `__init__.py`
+- Keep a small shim module that imports/re-exports from new locations during migration
+
 ## Development Commands
 
-```bash
-# Testing
-pytest                          # Run all tests
-pytest --cov=maverick           # With coverage
+**IMPORTANT**: Always use `make` commands instead of `uv run` directly. The Makefile provides AI-agent-friendly output with minimal noise.
 
-# Linting & Formatting
-ruff check .                    # Check linting
-ruff check --fix .              # Auto-fix
-ruff format .                   # Format code
-
-# Type Checking
-mypy src/maverick               # Strict type check
-```
+| Command               | Purpose                                |
+| --------------------- | -------------------------------------- |
+| `make test`           | Run tests (errors only)                |
+| `make lint`           | Run ruff linter (errors only)          |
+| `make typecheck`      | Run mypy (errors only)                 |
+| `make format`         | Check formatting (diff if needed)      |
+| `make format-fix`     | Apply formatting fixes                 |
+| `make check`          | Run all checks (lint, typecheck, test) |
+| `make ci`             | CI mode: fail fast on any error        |
+| `make clean`          | Remove build artifacts and caches      |
+| `make VERBOSE=1 test` | Full output for debugging              |
 
 ## Key Files
 
