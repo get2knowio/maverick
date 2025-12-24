@@ -120,6 +120,7 @@ markers = [
     "slow: marks tests as slow (>5s execution time)",
     "integration: marks tests requiring external services",
     "tui: marks TUI-specific tests requiring Textual pilot",
+    "benchmark: marks performance benchmark tests",
 ]
 timeout = 30  # 30-second default timeout for async tests (FR-026)
 
