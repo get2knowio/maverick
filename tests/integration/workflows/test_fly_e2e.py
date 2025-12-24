@@ -17,6 +17,7 @@ from maverick.models.validation import (
     StageStatus,
 )
 from maverick.runners.git import GitResult
+from maverick.runners.preflight import PreflightResult, ValidationResult
 from maverick.workflows.fly import (
     FlyConfig,
     FlyInputs,
@@ -28,6 +29,39 @@ from maverick.workflows.fly import (
     FlyWorkflowStarted,
     WorkflowStage,
 )
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_preflight():
+    """Fixture to mock preflight validation to pass.
+
+    This fixture patches run_preflight to return a successful result,
+    allowing tests that don't specifically test preflight to run without
+    setting up full async validator mocks.
+    """
+    success_result = PreflightResult(
+        success=True,
+        results=[
+            ValidationResult(
+                success=True,
+                component="MockRunner",
+            )
+        ],
+        total_duration_ms=10,
+    )
+
+    with patch.object(
+        FlyWorkflow,
+        "run_preflight",
+        new_callable=AsyncMock,
+        return_value=success_result,
+    ):
+        yield
 
 # =============================================================================
 # Helper Functions
@@ -67,7 +101,8 @@ def create_mock_git_runner(
         )
     )
     mock_git.add = AsyncMock(return_value=None)
-    mock_git.diff = AsyncMock(return_value="diff --git a/file.py b/file.py\n+new line")
+    mock_git.diff = AsyncMock(
+        return_value="diff --git a/file.py b/file.py\n+new line")
     mock_git.commit = AsyncMock(
         return_value=GitResult(
             success=commit_success,
@@ -186,7 +221,8 @@ def create_mock_implementer_agent(success: bool = True) -> MagicMock:
     else:
         result = AgentResult.failure_result(
             errors=[
-                AgentError("Implementation failed: syntax error in generated code")
+                AgentError(
+                    "Implementation failed: syntax error in generated code")
             ],
             usage=usage,
         )
@@ -259,7 +295,9 @@ def create_mock_pr_generator() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path):
+async def test_complete_workflow_execution_with_all_mocked_dependencies(
+    tmp_path, mock_preflight
+):
     """Test complete FlyWorkflow execution with all dependencies mocked.
 
     Verifies:
@@ -328,7 +366,8 @@ async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path
     assert started_events[0].inputs.branch_name == "feature/user-auth"
 
     # Verify: Stage execution order
-    stage_started_events = [e for e in events if isinstance(e, FlyStageStarted)]
+    stage_started_events = [
+        e for e in events if isinstance(e, FlyStageStarted)]
     expected_stages = [
         WorkflowStage.INIT,
         WorkflowStage.IMPLEMENTATION,
@@ -342,11 +381,13 @@ async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path
         assert stage_started_events[idx].stage == expected_stage
 
     # Verify: Stage completion events
-    stage_completed_events = [e for e in events if isinstance(e, FlyStageCompleted)]
+    stage_completed_events = [
+        e for e in events if isinstance(e, FlyStageCompleted)]
     assert len(stage_completed_events) >= len(expected_stages)
 
     # Verify: Workflow completed successfully
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
 
     result = completed_events[0].result
@@ -377,7 +418,9 @@ async def test_complete_workflow_execution_with_all_mocked_dependencies(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_workflow_handles_git_runner_branch_creation_failure(tmp_path):
+async def test_workflow_handles_git_runner_branch_creation_failure(
+    tmp_path, mock_preflight
+):
     """Test workflow handles GitRunner branch creation failure gracefully.
 
     Verifies:
@@ -423,7 +466,9 @@ async def test_workflow_handles_git_runner_branch_creation_failure(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_handles_github_runner_pr_creation_failure(tmp_path):
+async def test_workflow_handles_github_runner_pr_creation_failure(
+    tmp_path, mock_preflight
+):
     """Test workflow handles GitHub PR creation failure gracefully.
 
     Verifies:
@@ -468,7 +513,8 @@ async def test_workflow_handles_github_runner_pr_creation_failure(tmp_path):
         events.append(event)
 
     # Verify: Workflow completed (not failed - graceful degradation)
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
 
     # Verify: Error recorded in state
@@ -481,7 +527,7 @@ async def test_workflow_handles_github_runner_pr_creation_failure(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_handles_implementer_agent_failure(tmp_path):
+async def test_workflow_handles_implementer_agent_failure(tmp_path, mock_preflight):
     """Test workflow handles ImplementerAgent failure gracefully.
 
     Verifies:
@@ -522,7 +568,8 @@ async def test_workflow_handles_implementer_agent_failure(tmp_path):
         events.append(event)
 
     # Verify: Workflow completed despite implementation failure
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
 
     # Verify: Implementation stage completed (even with failure)
@@ -548,7 +595,9 @@ async def test_workflow_handles_implementer_agent_failure(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_validation_failure_continues_workflow_with_draft_pr(tmp_path):
+async def test_validation_failure_continues_workflow_with_draft_pr(
+    tmp_path, mock_preflight
+):
     """Test ValidationRunner failure results in draft PR but continues workflow.
 
     Verifies:
@@ -596,7 +645,8 @@ async def test_validation_failure_continues_workflow_with_draft_pr(tmp_path):
         events.append(event)
 
     # Verify: Workflow completed
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
     result = completed_events[0].result
 
@@ -621,7 +671,7 @@ async def test_validation_failure_continues_workflow_with_draft_pr(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_validation_failure_captured_in_final_result(tmp_path):
+async def test_validation_failure_captured_in_final_result(tmp_path, mock_preflight):
     """Test validation failure is properly captured in final workflow result.
 
     Verifies:
@@ -659,7 +709,8 @@ async def test_validation_failure_captured_in_final_result(tmp_path):
         events.append(event)
 
     # Verify: Final result
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
     result = completed_events[0].result
 
@@ -682,7 +733,7 @@ async def test_validation_failure_captured_in_final_result(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_with_skip_review_flag(tmp_path):
+async def test_workflow_with_skip_review_flag(tmp_path, mock_preflight):
     """Test workflow correctly skips CODE_REVIEW stage when skip_review=True."""
     # Setup
     task_file = tmp_path / "tasks.md"
@@ -714,7 +765,8 @@ async def test_workflow_with_skip_review_flag(tmp_path):
 
     # Verify: CODE_REVIEW stage never started
     stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
-    review_stages = [e for e in stage_started if e.stage == WorkflowStage.CODE_REVIEW]
+    review_stages = [e for e in stage_started if e.stage ==
+                     WorkflowStage.CODE_REVIEW]
     assert len(review_stages) == 0
 
     # Verify: Reviewer agent never called
@@ -722,7 +774,7 @@ async def test_workflow_with_skip_review_flag(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_with_skip_pr_flag(tmp_path):
+async def test_workflow_with_skip_pr_flag(tmp_path, mock_preflight):
     """Test workflow correctly skips PR_CREATION stage when skip_pr=True."""
     # Setup
     task_file = tmp_path / "tasks.md"
@@ -754,14 +806,16 @@ async def test_workflow_with_skip_pr_flag(tmp_path):
 
     # Verify: PR_CREATION stage never started
     stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
-    pr_stages = [e for e in stage_started if e.stage == WorkflowStage.PR_CREATION]
+    pr_stages = [e for e in stage_started if e.stage ==
+                 WorkflowStage.PR_CREATION]
     assert len(pr_stages) == 0
 
     # Verify: GitHub runner never called
     assert not mock_github.create_pr.called
 
     # Verify: Workflow still completed successfully
-    completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+    completed_events = [
+        e for e in events if isinstance(e, FlyWorkflowCompleted)]
     assert len(completed_events) == 1
 
 
@@ -825,12 +879,14 @@ class TestFlyWorkflowPreflightFailure:
                 events.append(event)
 
             # Verify: Workflow emitted a FlyWorkflowFailed event
-            failed_events = [e for e in events if isinstance(e, FlyWorkflowFailed)]
+            failed_events = [
+                e for e in events if isinstance(e, FlyWorkflowFailed)]
             assert len(failed_events) == 1
             assert "Preflight validation failed" in failed_events[0].error
 
             # Verify: No other stages executed (no FlyStageStarted events)
-            stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
+            stage_started = [
+                e for e in events if isinstance(e, FlyStageStarted)]
             assert len(stage_started) == 0
 
             # Verify: Git runner was never called (no state changes)
@@ -969,5 +1025,6 @@ class TestFlyWorkflowPreflightFailure:
             assert preflight_called, "Preflight validation should run in dry_run mode"
 
             # Verify: Workflow started (preflight passed)
-            started_events = [e for e in events if isinstance(e, FlyWorkflowStarted)]
+            started_events = [
+                e for e in events if isinstance(e, FlyWorkflowStarted)]
             assert len(started_events) == 1

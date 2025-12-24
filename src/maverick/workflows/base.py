@@ -74,9 +74,18 @@ class WorkflowDSLMixin:
         ValidatableRunner protocol (have an async validate() method).
         Checks both public and private attributes ending in '_runner'.
 
+        Note:
+            This method verifies that validate() is an actual coroutine function
+            using inspect.iscoroutinefunction(). This prevents issues during
+            testing where auto-generated MagicMock attributes pass the protocol
+            check but don't provide actual async methods. Test mocks that use
+            AsyncMock for validate() will still be discovered correctly.
+
         Returns:
             List of ValidatableRunner instances found on this workflow.
         """
+        import inspect
+
         from maverick.runners.protocols import ValidatableRunner
 
         runners: list[ValidatableRunner] = []
@@ -97,12 +106,20 @@ class WorkflowDSLMixin:
                 # Skip None attributes
                 if attr is None:
                     continue
+
                 # Check if it implements ValidatableRunner protocol
                 if (
                     hasattr(attr, "validate")
                     and callable(getattr(attr, "validate", None))
                     and isinstance(attr, ValidatableRunner)
                 ):
+                    # Verify validate() is actually async - this catches MagicMock
+                    # objects that have auto-generated validate attributes that
+                    # aren't real coroutine functions
+                    validate_method = getattr(attr, "validate", None)
+                    if not inspect.iscoroutinefunction(validate_method):
+                        continue
+
                     # Avoid duplicates (same object via different names)
                     obj_id = id(attr)
                     if obj_id not in seen_ids:
@@ -189,7 +206,8 @@ class WorkflowDSLMixin:
 
         # Validate custom tools from config
         if include_custom_tools and preflight_config.custom_tools:
-            custom_validator = CustomToolValidator(preflight_config.custom_tools)
+            custom_validator = CustomToolValidator(
+                preflight_config.custom_tools)
             custom_result = await custom_validator.validate()
             all_results.append(custom_result)
 

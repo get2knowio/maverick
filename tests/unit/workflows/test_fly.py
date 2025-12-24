@@ -10,12 +10,14 @@ import time
 from dataclasses import FrozenInstanceError
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 from maverick.agents.result import AgentUsage
 from maverick.config import MaverickConfig
+from maverick.runners.preflight import PreflightResult, ValidationResult
 from maverick.workflows.fly import (
     FlyConfig,
     FlyInputs,
@@ -29,6 +31,42 @@ from maverick.workflows.fly import (
     WorkflowStage,
     WorkflowState,
 )
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_preflight():
+    """Fixture to mock preflight validation to pass.
+
+    Use this fixture for tests that don't specifically test preflight
+    validation behavior to avoid MagicMock async issues.
+    """
+    success_result = PreflightResult(
+        success=True,
+        results=[
+            ValidationResult(
+                success=True,
+                component="MockRunner",
+            )
+        ],
+        total_duration_ms=10,
+    )
+    with patch.object(
+        FlyWorkflow,
+        "run_preflight",
+        new_callable=AsyncMock,
+        return_value=success_result,
+    ):
+        yield
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
 # Helper functions for creating test objects (moved to module level for discoverability)
@@ -294,7 +332,7 @@ class TestFlyWorkflowExecution:
     """Tests for FlyWorkflow.execute() implementation (User Story 1)."""
 
     @pytest.mark.asyncio
-    async def test_init_stage_creates_branch_without_ai(self, tmp_path):
+    async def test_init_stage_creates_branch_without_ai(self, tmp_path, mock_preflight):
         """Test INIT stage creates branch via GitRunner without AI (T014)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -343,7 +381,7 @@ class TestFlyWorkflowExecution:
         assert any(e.stage == WorkflowStage.INIT for e in stage_started)
 
     @pytest.mark.asyncio
-    async def test_implementation_stage_invokes_agent(self, tmp_path):
+    async def test_implementation_stage_invokes_agent(self, tmp_path, mock_preflight):
         """Test IMPLEMENTATION stage invokes ImplementerAgent (T015)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -373,7 +411,8 @@ class TestFlyWorkflowExecution:
         task_file.write_text("- [ ] T001 Implement feature")
 
         # Create workflow
-        workflow = FlyWorkflow(git_runner=mock_git, implementer_agent=mock_agent)
+        workflow = FlyWorkflow(git_runner=mock_git,
+                               implementer_agent=mock_agent)
         inputs = FlyInputs(branch_name="test-branch", task_file=task_file)
 
         # Execute and collect events
@@ -399,7 +438,7 @@ class TestFlyWorkflowExecution:
         assert len(impl_completed) >= 1
 
     @pytest.mark.asyncio
-    async def test_validation_stage_with_retry(self, tmp_path):
+    async def test_validation_stage_with_retry(self, tmp_path, mock_preflight):
         """Test VALIDATION stage runs ValidationRunner with retry (T016)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -473,7 +512,7 @@ class TestFlyWorkflowExecution:
         assert mock_validation.run.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_code_review_stage_optional_coderabbit(self, tmp_path):
+    async def test_code_review_stage_optional_coderabbit(self, tmp_path, mock_preflight):
         """Test CODE_REVIEW stage with optional CodeRabbit (T017)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -538,7 +577,7 @@ class TestFlyWorkflowExecution:
         assert mock_reviewer.execute.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_pr_creation_stage_generates_description(self, tmp_path):
+    async def test_pr_creation_stage_generates_description(self, tmp_path, mock_preflight):
         """Test PR_CREATION stage generates PR body (T018)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -578,7 +617,8 @@ class TestFlyWorkflowExecution:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(output="Review done", usage=usage)
+            return_value=AgentResult.success_result(
+                output="Review done", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -588,7 +628,8 @@ class TestFlyWorkflowExecution:
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest PR")
 
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(
+            return_value="https://github.com/test/pr/1")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test")
@@ -602,7 +643,8 @@ class TestFlyWorkflowExecution:
             pr_generator=mock_pr_gen,
             github_runner=mock_github,
         )
-        inputs = FlyInputs(branch_name="test", task_file=task_file, skip_pr=False)
+        inputs = FlyInputs(branch_name="test",
+                           task_file=task_file, skip_pr=False)
 
         events = []
         async for event in workflow.execute(inputs):
@@ -615,7 +657,7 @@ class TestFlyWorkflowExecution:
         assert mock_github.create_pr.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_progress_events_emitted_at_each_stage(self, tmp_path):
+    async def test_progress_events_emitted_at_each_stage(self, tmp_path, mock_preflight):
         """Test progress events are emitted at each stage (T019)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -654,7 +696,8 @@ class TestFlyWorkflowExecution:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(output="Review", usage=usage)
+            return_value=AgentResult.success_result(
+                output="Review", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -664,7 +707,8 @@ class TestFlyWorkflowExecution:
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
 
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(
+            return_value="https://github.com/test/pr/1")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test task")
@@ -685,12 +729,14 @@ class TestFlyWorkflowExecution:
             events.append(event)
 
         # Verify workflow started event
-        started_events = [e for e in events if isinstance(e, FlyWorkflowStarted)]
+        started_events = [
+            e for e in events if isinstance(e, FlyWorkflowStarted)]
         assert len(started_events) == 1
 
         # Verify each stage has started and completed events
         stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
-        stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
+        stage_completed = [
+            e for e in events if isinstance(e, FlyStageCompleted)]
 
         # Should have at least INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW,
         # PR_CREATION
@@ -698,11 +744,12 @@ class TestFlyWorkflowExecution:
         assert len(stage_completed) >= 5
 
         # Verify workflow completed
-        completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
+        completed_events = [
+            e for e in events if isinstance(e, FlyWorkflowCompleted)]
         assert len(completed_events) == 1
 
     @pytest.mark.asyncio
-    async def test_error_handling_stage_failure_continues(self, tmp_path):
+    async def test_error_handling_stage_failure_continues(self, tmp_path, mock_preflight):
         """Test error handling: stage failure continues workflow (T020)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -760,7 +807,8 @@ class TestFlyWorkflowExecution:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(output="Review", usage=usage)
+            return_value=AgentResult.success_result(
+                output="Review", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -770,7 +818,8 @@ class TestFlyWorkflowExecution:
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
 
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(
+            return_value="https://github.com/test/pr/1")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test")
@@ -1036,7 +1085,8 @@ class TestProgressEvents:
                 event.timestamp = time.time()
 
             # Test slots=True (should have __slots__ attribute)
-            assert hasattr(type(event), "__slots__"), f"{name} should have __slots__"
+            assert hasattr(
+                type(event), "__slots__"), f"{name} should have __slots__"
 
 
 class TestInterfaceIntegration:
@@ -1114,7 +1164,7 @@ class TestProgressEventEmission:
     """Tests for User Story 4: Progress Event Emission."""
 
     @pytest.mark.asyncio
-    async def test_workflow_started_event_emission(self, tmp_path):
+    async def test_workflow_started_event_emission(self, tmp_path, mock_preflight):
         """Test FlyWorkflowStarted event emitted at workflow start (T067)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1160,7 +1210,7 @@ class TestProgressEventEmission:
         assert started_event.timestamp > 0
 
     @pytest.mark.asyncio
-    async def test_stage_started_completed_event_pairs(self, tmp_path):
+    async def test_stage_started_completed_event_pairs(self, tmp_path, mock_preflight):
         """Test FlyStageStarted/Completed event pairs for each stage (T068)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1199,7 +1249,8 @@ class TestProgressEventEmission:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(output="Review", usage=usage)
+            return_value=AgentResult.success_result(
+                output="Review", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -1209,7 +1260,8 @@ class TestProgressEventEmission:
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
 
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(
+            return_value="https://github.com/test/pr/1")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test")
@@ -1232,7 +1284,8 @@ class TestProgressEventEmission:
 
         # Extract stage started and completed events
         stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
-        stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
+        stage_completed = [
+            e for e in events if isinstance(e, FlyStageCompleted)]
 
         # Verify we have matching pairs
         assert (
@@ -1272,7 +1325,7 @@ class TestProgressEventEmission:
             )
 
     @pytest.mark.asyncio
-    async def test_validation_retry_progress_updates(self, tmp_path):
+    async def test_validation_retry_progress_updates(self, tmp_path, mock_preflight):
         """Test validation retry progress updates in events (T069)."""
         from unittest.mock import AsyncMock, MagicMock
 
