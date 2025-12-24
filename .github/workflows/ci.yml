@@ -17,55 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint (Ruff)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install dependencies
-        run: uv sync --group lint
-
-      - name: Run Ruff check
-        run: uv run ruff check src/ tests/
-
-      - name: Run Ruff format check
-        run: uv run ruff format --check src/ tests/
-
-  type-check:
-    name: Type Check (MyPy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install dependencies
-        run: |
-          uv sync --group lint
-          uv pip install types-aiofiles types-PyYAML
-
-      - name: Run MyPy
-        run: uv run mypy src/
-
-  test:
-    name: Test (Python ${{ matrix.python-version }})
+  ci:
+    name: CI (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -84,18 +37,10 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --group test
+        run: uv sync
 
-      - name: Run tests with coverage
-        run: |
-          uv run pytest \
-            --cov=maverick \
-            --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=80 \
-            --junit-xml=results.xml \
-            --timeout=30 \
-            -v
+      - name: Run CI checks (lint, typecheck, test)
+        run: make ci-coverage
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11' && always()
@@ -113,26 +58,3 @@ jobs:
           path: 'results.xml'
           reporter: 'java-junit'
           fail-on-error: false
-
-  # Ensure all quality checks pass before merge
-  quality-gate:
-    name: Quality Gate
-    runs-on: ubuntu-latest
-    needs: [lint, type-check, test]
-    if: always()
-    steps:
-      - name: Check job results
-        run: |
-          if [[ "${{ needs.lint.result }}" != "success" ]]; then
-            echo "Lint job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
-            echo "Type check job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "Test job failed"
-            exit 1
-          fi
-          echo "All quality checks passed!"

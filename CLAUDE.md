@@ -12,6 +12,7 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 |----------|------------|-------|
 | Language | Python 3.10+ | Use `from __future__ import annotations` |
 | Package Manager | uv | Fast, reproducible builds via `uv.lock` |
+| Build System | Make | AI-friendly commands with minimal output |
 | AI/Agents | Claude Agent SDK | `claude-agent-sdk` package |
 | TUI | Textual | `textual` package |
 | CLI | Click | `click` package |
@@ -110,6 +111,22 @@ async for event in engine.execute(my_workflow, input_data="test"):
 | Dynamic step generation | `WorkflowDefinition` (Python) |
 | Built-in workflow library | `WorkflowFile` (YAML) |
 | Unit/integration tests | `WorkflowDefinition` (Python) |
+
+## Development Commands
+
+**IMPORTANT**: Always use `make` commands instead of `uv run` directly. The Makefile provides AI-agent-friendly output with minimal noise.
+
+| Command | Purpose |
+|---------|----------|
+| `make test` | Run tests (errors only) |
+| `make lint` | Run ruff linter (errors only) |
+| `make typecheck` | Run mypy (errors only) |
+| `make format` | Check formatting (diff if needed) |
+| `make format-fix` | Apply formatting fixes |
+| `make check` | Run all checks (lint, typecheck, test) |
+| `make ci` | CI mode: fail fast on any error |
+| `make clean` | Remove build artifacts and caches |
+| `make VERBOSE=1 test` | Full output for debugging |
 
 ## Core Principles
 
@@ -273,7 +290,8 @@ Tech-debt resolution workflow:
 
 ## Dependencies
 
-- [uv](https://docs.astral.sh/uv/) for dependency management (`uv sync`, `uv run`)
+- [uv](https://docs.astral.sh/uv/) for dependency management (`uv sync`)
+- [Make](https://www.gnu.org/software/make/) for development commands (see Development Commands section)
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
 - Optional: [ntfy](https://ntfy.sh) for push notifications

@@ -20,7 +20,7 @@
 ### Installation
 ```bash
 # Using uv (recommended) - uses uv.lock for reproducibility
-uv sync --group dev
+uv sync
 
 # Run maverick
 uv run maverick --help
@@ -37,18 +37,20 @@ pip install -e ".[dev]"
 *   **Configuration**: `maverick.yaml` (project) or `~/.config/maverick/config.yaml` (user).
 
 ### Testing & Validation
-The project adheres to strict quality standards. All commands below use `uv run` for consistency.
 
-*   **Test Runner**: `pytest`
-    *   Run all tests: `uv run pytest`
-    *   Run with coverage: `uv run pytest --cov=maverick`
-*   **Linting**: `ruff`
-    *   Check: `uv run ruff check .`
-    *   Fix: `uv run ruff check --fix .`
-*   **Formatting**: `ruff format`
-    *   Format all: `uv run ruff format .`
-*   **Type Checking**: `mypy`
-    *   Strict check: `uv run mypy src/maverick`
+**IMPORTANT**: Always use `make` commands instead of `uv run` directly. The Makefile provides AI-agent-friendly output with minimal noise.
+
+| Command | Purpose |
+|---------|----------|
+| `make test` | Run tests (errors only) |
+| `make lint` | Run ruff linter (errors only) |
+| `make typecheck` | Run mypy (errors only) |
+| `make format` | Check formatting (diff if needed) |
+| `make format-fix` | Apply formatting fixes |
+| `make check` | Run all checks (lint, typecheck, test) |
+| `make ci` | CI mode: fail fast on any error |
+| `make clean` | Remove build artifacts and caches |
+| `make VERBOSE=1 test` | Full output for debugging |
 
 ### Architecture & Key Directories
 
