@@ -5,6 +5,7 @@ Verifies that the TUI conftest fixtures and utilities work correctly.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterable
 
 import pytest
@@ -19,6 +20,9 @@ from tests.tui.conftest import (
     assert_not_has_class,
     assert_widget_count,
 )
+
+# pytest-asyncio 0.26+ has context variable issues with Textual on Python 3.10
+SKIP_TUI_PILOT_FIXTURE = sys.version_info < (3, 11)
 
 # =============================================================================
 # TUITestApp Tests
@@ -93,6 +97,10 @@ class TestScreenTestApp:
 # =============================================================================
 
 
+@pytest.mark.skipif(
+    SKIP_TUI_PILOT_FIXTURE,
+    reason="pytest-asyncio 0.26+ context variable issues with Textual on 3.10",
+)
 class TestTUIPilotFixture:
     """Tests for tui_pilot fixture."""
 
