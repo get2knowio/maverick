@@ -340,3 +340,287 @@ class TestGitHubCLIRunner:
         assert isinstance(issue.number, int)
         assert issue.number == 42
         assert issue.title == "Test Issue"
+
+
+class TestErrorClassification:
+    """Test suite for _classify_error() method."""
+
+    def test_classify_auth_error_by_exit_code(self, mock_gh_available):
+        """Test authentication error classification using exit code 4."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            4, "Not authenticated"
+        )
+
+        assert error_type == "auth"
+        assert "Authentication required" in error_message
+        assert is_retryable is False
+
+    def test_classify_canceled_by_exit_code(self, mock_gh_available):
+        """Test command canceled classification using exit code 2."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            2, "Operation canceled"
+        )
+
+        assert error_type == "canceled"
+        assert "canceled" in error_message.lower()
+        assert is_retryable is False
+
+    def test_classify_checks_pending_by_exit_code(self, mock_gh_available):
+        """Test checks pending classification using exit code 8."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            8, "Some checks are still pending"
+        )
+
+        assert error_type == "pending"
+        assert "pending" in error_message.lower()
+        assert is_retryable is True
+
+    def test_classify_network_error_by_stderr(self, mock_gh_available):
+        """Test network error classification using stderr (exit code 1)."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "Could not resolve host: github.com"
+        )
+
+        assert error_type == "network"
+        assert "Network error" in error_message
+        assert is_retryable is True
+
+    def test_classify_network_timeout_by_stderr(self, mock_gh_available):
+        """Test network timeout classification using stderr."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "dial tcp: i/o timeout"
+        )
+
+        assert error_type == "network"
+        assert "Network error" in error_message
+        assert is_retryable is True
+
+    def test_classify_rate_limit_by_stderr(self, mock_gh_available):
+        """Test rate limit classification using stderr."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "API rate limit exceeded for user"
+        )
+
+        assert error_type == "rate_limit"
+        assert "rate limit" in error_message.lower()
+        assert is_retryable is True
+
+    def test_classify_not_found_by_stderr(self, mock_gh_available):
+        """Test not found error classification using stderr."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "pull request not found"
+        )
+
+        assert error_type == "not_found"
+        assert "not found" in error_message.lower()
+        assert is_retryable is False
+
+    def test_classify_validation_error_by_stderr(self, mock_gh_available):
+        """Test validation error classification using stderr."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "validation failed: title is required"
+        )
+
+        assert error_type == "validation"
+        assert "Validation error" in error_message
+        assert is_retryable is False
+
+    def test_classify_auth_fallback_to_stderr(self, mock_gh_available):
+        """Test auth classification falls back to stderr when exit code is 1."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "Not authenticated. Run: gh auth login"
+        )
+
+        assert error_type == "auth"
+        assert "Authentication required" in error_message
+        assert is_retryable is False
+
+    def test_classify_unknown_error(self, mock_gh_available):
+        """Test unknown error classification for unrecognized patterns."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            1, "Some random error message"
+        )
+
+        assert error_type == "unknown"
+        assert "exit code 1" in error_message
+        assert is_retryable is False
+
+    def test_classify_unknown_exit_code(self, mock_gh_available):
+        """Test classification for unknown exit codes."""
+        runner = GitHubCLIRunner()
+
+        error_type, error_message, is_retryable = runner._classify_error(
+            99, "Unexpected error"
+        )
+
+        assert error_type == "unknown"
+        assert "exit code 99" in error_message
+        assert is_retryable is False
+
+    def test_exit_code_takes_precedence_over_stderr(self, mock_gh_available):
+        """Test that exit code takes precedence over stderr matching."""
+        runner = GitHubCLIRunner()
+
+        # Even though stderr mentions "not found", exit code 4 should classify as auth
+        error_type, error_message, is_retryable = runner._classify_error(
+            4, "Token not found or expired"
+        )
+
+        assert error_type == "auth"
+        assert "Authentication required" in error_message
+        assert is_retryable is False
+
+
+class TestErrorHandlingInCommands:
+    """Test error classification integration with _run_gh_command."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_raises_immediately(self, mock_gh_available):
+        """Test that auth errors (exit code 4) raise GitHubAuthError immediately."""
+        runner = GitHubCLIRunner()
+        runner._auth_checked = True  # Skip initial auth check
+
+        auth_error_result = CommandResult(
+            returncode=4,
+            stdout="",
+            stderr="Not authenticated",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(return_value=auth_error_result)
+        runner._command_runner = mock_runner
+
+        with pytest.raises(GitHubAuthError):
+            await runner._run_gh_command("pr", "list")
+
+        # Should not retry for auth errors
+        mock_runner.run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_not_found_error_raises_immediately(self, mock_gh_available):
+        """Test that not found errors don't retry."""
+        runner = GitHubCLIRunner()
+        runner._auth_checked = True
+
+        not_found_result = CommandResult(
+            returncode=1,
+            stdout="",
+            stderr="pull request not found",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(return_value=not_found_result)
+        runner._command_runner = mock_runner
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await runner._run_gh_command("pr", "view", "999")
+
+        # Should not retry for not_found errors
+        mock_runner.run.assert_called_once()
+        assert "not_found" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_network_error_retries(self, mock_gh_available):
+        """Test that network errors are retried."""
+        runner = GitHubCLIRunner()
+        runner._auth_checked = True
+
+        network_error_result = CommandResult(
+            returncode=1,
+            stdout="",
+            stderr="Could not resolve host: github.com",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(return_value=network_error_result)
+        runner._command_runner = mock_runner
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await runner._run_gh_command("issue", "list")
+
+        # Should retry 3 times for network errors
+        assert mock_runner.run.call_count == 3
+        assert "exit code 1" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_network_error_succeeds_on_retry(self, mock_gh_available):
+        """Test that network errors succeed after retry."""
+        runner = GitHubCLIRunner()
+        runner._auth_checked = True
+
+        network_error_result = CommandResult(
+            returncode=1,
+            stdout="",
+            stderr="Connection timeout",
+            duration_ms=50,
+            timed_out=False,
+        )
+        success_result = CommandResult(
+            returncode=0,
+            stdout='{"issues": []}',
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
+
+        mock_runner = AsyncMock()
+        # First call fails with network error, second succeeds
+        mock_runner.run = AsyncMock(side_effect=[network_error_result, success_result])
+        runner._command_runner = mock_runner
+
+        result = await runner._run_gh_command("issue", "list")
+
+        # Should retry and succeed
+        assert mock_runner.run.call_count == 2
+        assert result == '{"issues": []}'
+
+    @pytest.mark.asyncio
+    async def test_canceled_error_no_retry(self, mock_gh_available):
+        """Test that canceled errors (exit code 2) don't retry."""
+        runner = GitHubCLIRunner()
+        runner._auth_checked = True
+
+        canceled_result = CommandResult(
+            returncode=2,
+            stdout="",
+            stderr="Operation canceled by user",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner = AsyncMock()
+        mock_runner.run = AsyncMock(return_value=canceled_result)
+        runner._command_runner = mock_runner
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await runner._run_gh_command("pr", "create")
+
+        # Should not retry for canceled errors
+        mock_runner.run.assert_called_once()
+        assert "canceled" in str(exc_info.value)
