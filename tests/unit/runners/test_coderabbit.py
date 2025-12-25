@@ -10,6 +10,7 @@ import pytest
 
 from maverick.runners.coderabbit import CodeRabbitRunner
 from maverick.runners.models import CodeRabbitResult, CommandResult
+from maverick.runners.preflight import ValidationResult
 
 
 class TestCodeRabbitRunner:
@@ -132,3 +133,72 @@ class TestCodeRabbitRunner:
         with patch("shutil.which", return_value="/usr/bin/coderabbit"):
             runner = CodeRabbitRunner()
             assert await runner.is_available() is True
+
+
+class TestCodeRabbitRunnerValidate:
+    """Tests for CodeRabbitRunner.validate() method."""
+
+    @pytest.mark.asyncio
+    async def test_validate_cli_available(self):
+        """Test validate() when CLI is available."""
+        runner = CodeRabbitRunner()
+        with patch.object(runner, "is_available", new_callable=AsyncMock) as mock_avail:
+            mock_avail.return_value = True
+
+            result = await runner.validate()
+
+            assert result.success is True
+            assert result.component == "CodeRabbitRunner"
+            assert len(result.errors) == 0
+            assert len(result.warnings) == 0
+            mock_avail.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_validate_cli_not_available_warning(self):
+        """Test validate() returns warning (not error) when CLI not available."""
+        runner = CodeRabbitRunner()
+        with patch.object(runner, "is_available", new_callable=AsyncMock) as mock_avail:
+            mock_avail.return_value = False
+
+            result = await runner.validate()
+
+            # Should be a warning, not an error
+            assert result.success is True
+            assert len(result.errors) == 0
+            assert len(result.warnings) == 1
+            assert "not installed" in result.warnings[0].lower()
+            mock_avail.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_validate_always_success(self):
+        """Test that validate() always returns success=True (CodeRabbit is optional)."""
+        runner = CodeRabbitRunner()
+
+        # Test with CLI available
+        with patch.object(runner, "is_available", new_callable=AsyncMock) as mock_avail:
+            mock_avail.return_value = True
+            result = await runner.validate()
+            assert result.success is True
+
+        # Test with CLI not available - should still be success
+        with patch.object(runner, "is_available", new_callable=AsyncMock) as mock_avail:
+            mock_avail.return_value = False
+            result = await runner.validate()
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_validate_returns_validation_result(self):
+        """Test that validate() returns correct ValidationResult type."""
+        runner = CodeRabbitRunner()
+        with patch.object(runner, "is_available", new_callable=AsyncMock) as mock_avail:
+            mock_avail.return_value = True
+
+            result = await runner.validate()
+
+            assert isinstance(result, ValidationResult)
+            assert hasattr(result, "success")
+            assert hasattr(result, "component")
+            assert hasattr(result, "errors")
+            assert hasattr(result, "warnings")
+            assert hasattr(result, "duration_ms")
+            assert result.duration_ms >= 0

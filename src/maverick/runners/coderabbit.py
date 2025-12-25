@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from maverick.runners.preflight import ValidationResult
 
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import CodeRabbitFinding, CodeRabbitResult
@@ -25,6 +30,33 @@ class CodeRabbitRunner:
     async def is_available(self) -> bool:
         """Check if CodeRabbit CLI is installed and available."""
         return shutil.which("coderabbit") is not None
+
+    async def validate(self) -> ValidationResult:
+        """Validate that CodeRabbit is available.
+
+        CodeRabbit is optional, so missing CLI is a warning, not an error.
+        This method always returns success=True.
+
+        Returns:
+            ValidationResult with warnings if CLI not installed.
+        """
+        from maverick.runners.preflight import ValidationResult
+
+        start = time.monotonic()
+
+        warnings: tuple[str, ...] = ()
+        if not await self.is_available():
+            warnings = ("CodeRabbit CLI not installed (optional)",)
+
+        duration_ms = int((time.monotonic() - start) * 1000)
+
+        return ValidationResult(
+            success=True,  # Always success - CodeRabbit is optional
+            component="CodeRabbitRunner",
+            errors=(),
+            warnings=warnings,
+            duration_ms=duration_ms,
+        )
 
     def _parse_findings(self, output: str) -> list[CodeRabbitFinding]:
         """Parse CodeRabbit output into structured findings."""

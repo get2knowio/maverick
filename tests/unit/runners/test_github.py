@@ -624,3 +624,227 @@ class TestErrorHandlingInCommands:
         # Should not retry for canceled errors
         mock_runner.run.assert_called_once()
         assert "canceled" in str(exc_info.value)
+
+
+class TestGitHubCLIRunnerValidate:
+    """Tests for GitHubCLIRunner.validate()."""
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_success(self, mock_which):
+        """Test validate success with all checks passing."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = "/usr/bin/gh"
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+
+        # Mock auth status check (success)
+        auth_result = CommandResult(
+            returncode=0,
+            stdout="Logged in to github.com",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+        # Mock auth status with --show-token (includes repo and read:org scopes)
+        scope_result = CommandResult(
+            returncode=0,
+            stdout="Token: ghp_xxx\nScopes: repo, read:org, workflow\n",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner.run = AsyncMock(side_effect=[auth_result, scope_result])
+        runner._command_runner = mock_runner
+
+        result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert result.success is True
+        assert result.component == "GitHubCLIRunner"
+        assert len(result.errors) == 0
+        assert len(result.warnings) == 0
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_gh_not_on_path(self, mock_which):
+        """Test validate failure when gh CLI is not on PATH."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = None
+
+        # Need to bypass __init__ check since it also checks for gh
+        with patch("shutil.which", return_value="/usr/bin/gh"):
+            runner = GitHubCLIRunner()
+
+        # Now mock the validate method's which call
+        mock_which.return_value = None
+
+        result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert result.success is False
+        assert result.component == "GitHubCLIRunner"
+        assert any(
+            "not installed" in error or "not on PATH" in error
+            for error in result.errors
+        )
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_not_authenticated(self, mock_which):
+        """Test validate failure when gh CLI is not authenticated (exit code 4)."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = "/usr/bin/gh"
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+
+        # Mock auth status check failure with exit code 4
+        auth_result = CommandResult(
+            returncode=4,
+            stdout="",
+            stderr=(
+                "You are not logged into any GitHub hosts. "
+                "Run gh auth login to authenticate."
+            ),
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner.run = AsyncMock(return_value=auth_result)
+        runner._command_runner = mock_runner
+
+        result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert result.success is False
+        assert result.component == "GitHubCLIRunner"
+        assert any(
+            "not authenticated" in error.lower() or "gh auth login" in error
+            for error in result.errors
+        )
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_token_expired(self, mock_which):
+        """Test validate failure when GitHub token has expired."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = "/usr/bin/gh"
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+
+        # Mock auth status check failure with token expired message
+        auth_result = CommandResult(
+            returncode=1,
+            stdout="",
+            stderr="Your authentication token has expired. Run gh auth refresh.",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner.run = AsyncMock(return_value=auth_result)
+        runner._command_runner = mock_runner
+
+        result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert result.success is False
+        assert result.component == "GitHubCLIRunner"
+        assert any("expired" in error.lower() for error in result.errors)
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_missing_scopes_warning(self, mock_which):
+        """Test validate succeeds with warning when missing recommended scopes."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = "/usr/bin/gh"
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+
+        # Mock auth status check (success)
+        auth_result = CommandResult(
+            returncode=0,
+            stdout="Logged in to github.com",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+        # Mock auth status with --show-token (missing repo and read:org scopes)
+        scope_result = CommandResult(
+            returncode=0,
+            stdout="Token: ghp_xxx\nScopes: workflow\n",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner.run = AsyncMock(side_effect=[auth_result, scope_result])
+        runner._command_runner = mock_runner
+
+        result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert result.success is False  # Missing scopes is an error per FR-004
+        assert result.component == "GitHubCLIRunner"
+        assert len(result.errors) > 0
+        assert any(
+            "missing" in error.lower() and "scope" in error.lower()
+            for error in result.errors
+        )
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.github.shutil.which")
+    async def test_validate_returns_validation_result(self, mock_which):
+        """Test that validate() returns a proper ValidationResult type."""
+        from maverick.runners.preflight import ValidationResult
+
+        mock_which.return_value = "/usr/bin/gh"
+
+        runner = GitHubCLIRunner()
+        mock_runner = AsyncMock()
+
+        # Mock successful auth and scope checks
+        auth_result = CommandResult(
+            returncode=0,
+            stdout="Logged in to github.com",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+        scope_result = CommandResult(
+            returncode=0,
+            stdout="Token: ghp_xxx\nScopes: repo, read:org\n",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+
+        mock_runner.run = AsyncMock(side_effect=[auth_result, scope_result])
+        runner._command_runner = mock_runner
+
+        result = await runner.validate()
+
+        # Verify it's a proper ValidationResult with all expected attributes
+        assert isinstance(result, ValidationResult)
+        assert hasattr(result, "success")
+        assert hasattr(result, "component")
+        assert hasattr(result, "errors")
+        assert hasattr(result, "warnings")
+        assert hasattr(result, "duration_ms")
+
+        # Verify types
+        assert isinstance(result.success, bool)
+        assert isinstance(result.component, str)
+        assert isinstance(result.errors, tuple)
+        assert isinstance(result.warnings, tuple)
+        assert isinstance(result.duration_ms, int)
+        assert result.duration_ms >= 0

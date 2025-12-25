@@ -7,13 +7,10 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-.venv/
-venv/
-env/
-.env
-dist/
-build/
-*.egg-info/
+
+.coverage.*
+coverage.xml
+results.xml
 *.egg
 .eggs/
 *.so
@@ -40,7 +37,12 @@ Thumbs.db
 .claude/settings.local.json
 .codex/auth.json
 *.jsonl
+<<<<<<< HEAD
 
 .coverage.*
 results.xml
 coverage.xml
+=======
+coverage.xml
+results.xml
+>>>>>>> 82b6ecf (chore: drop generated coverage artifacts)

@@ -23,6 +23,8 @@ __all__ = [
     "GitHubConfig",
     "NotificationConfig",
     "ValidationConfig",
+    "PreflightValidationConfig",
+    "CustomToolConfig",
     "ModelConfig",
     "ParallelConfig",
     "TuiMetricsConfig",
@@ -121,6 +123,50 @@ class TuiMetricsConfig(BaseModel):
     max_entries: int = Field(default=10000, ge=100, le=1000000)
 
 
+class CustomToolConfig(BaseModel):
+    """Configuration for a custom validation tool.
+
+    Attributes:
+        name: Human-readable name for the tool.
+        command: Command or path to check (first item for shutil.which).
+        required: If True, missing tool is an error; if False, a warning.
+        hint: Optional installation hint to show if tool is missing.
+    """
+
+    name: str
+    command: str
+    required: bool = False
+    hint: str | None = None
+
+
+class PreflightValidationConfig(BaseModel):
+    """Settings for preflight validation.
+
+    Attributes:
+        timeout_per_check: Maximum seconds per validation check (default: 5.0).
+        fail_on_warning: Whether warnings should cause preflight to fail
+            (default: False).
+        custom_tools: List of custom tools to validate.
+
+    Example maverick.yaml:
+        preflight:
+          timeout_per_check: 10.0
+          fail_on_warning: false
+          custom_tools:
+            - name: "Docker"
+              command: "docker"
+              required: true
+              hint: "Install Docker from https://docker.com/"
+            - name: "Custom Script"
+              command: "./scripts/setup.sh"
+              required: false
+    """
+
+    timeout_per_check: float = Field(default=5.0, gt=0.0, le=60.0)
+    fail_on_warning: bool = False
+    custom_tools: list[CustomToolConfig] = Field(default_factory=list)
+
+
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
@@ -182,6 +228,9 @@ class MaverickConfig(BaseSettings):
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
+    preflight: PreflightValidationConfig = Field(
+        default_factory=PreflightValidationConfig
+    )
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
@@ -219,8 +268,10 @@ class MaverickConfig(BaseSettings):
         # (earlier sources override later ones)
         return (
             env_settings,  # Environment variables (highest priority)
-            YamlConfigSource(settings_cls, project_config_path),  # Project config
-            YamlConfigSource(settings_cls, user_config_path),  # User config (lowest)
+            # Project config
+            YamlConfigSource(settings_cls, project_config_path),
+            # User config (lowest)
+            YamlConfigSource(settings_cls, user_config_path),
         )
 
 

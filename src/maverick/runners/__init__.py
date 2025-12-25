@@ -19,6 +19,14 @@ from maverick.runners.models import (
     ValidationOutput,
     ValidationStage,
 )
+from maverick.runners.preflight import (
+    CustomToolValidator,
+    PreflightConfig,
+    PreflightResult,
+    PreflightValidator,
+    ValidationResult,
+)
+from maverick.runners.protocols import ValidatableRunner
 from maverick.runners.validation import ValidationRunner
 
 __all__ = [
@@ -36,6 +44,13 @@ __all__ = [
     "CodeRabbitResult",
     "DiffStats",
     "CommitInfo",
+    # Preflight validation
+    "ValidationResult",
+    "PreflightResult",
+    "PreflightConfig",
+    "PreflightValidator",
+    "CustomToolValidator",
+    "ValidatableRunner",
     # Runners
     "CommandRunner",
     "GitRunner",

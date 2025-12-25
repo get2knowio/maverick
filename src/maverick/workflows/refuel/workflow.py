@@ -538,6 +538,35 @@ class RefuelWorkflow(WorkflowDSLMixin):
         """
         workflow_start_time = time.time()
 
+        # Run preflight validation FIRST, before any state changes
+        # This runs even in dry_run mode to validate the environment
+        try:
+            await self.run_preflight()
+        except Exception as e:
+            # Import here to check exception type
+            from maverick.exceptions import PreflightValidationError
+
+            if isinstance(e, PreflightValidationError):
+                error_msg = f"Preflight validation failed: {e}"
+            else:
+                error_msg = f"Unexpected preflight error: {e}"
+            logger.error(error_msg)
+            # Emit empty failed result
+            total_duration_ms = int((time.time() - workflow_start_time) * 1000)
+            failed_result = RefuelResult(
+                success=False,
+                issues_found=0,
+                issues_processed=0,
+                issues_fixed=0,
+                issues_failed=1,  # Count as failed
+                issues_skipped=0,
+                results=[],
+                total_duration_ms=total_duration_ms,
+                total_cost_usd=0.0,
+            )
+            yield RefuelCompleted(result=failed_result)
+            return
+
         # DSL execution path (if enabled)
         if self._use_dsl:
             try:

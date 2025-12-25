@@ -10,8 +10,11 @@ These tests verify that dry-run mode:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
+from maverick.runners.preflight import PreflightResult, ValidationResult
 from maverick.workflows.fly import (
     FlyInputs,
     FlyStageCompleted,
@@ -21,12 +24,47 @@ from maverick.workflows.fly import (
     FlyWorkflowStarted,
 )
 
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_preflight():
+    """Fixture to mock preflight validation to pass.
+
+    Use this fixture for tests that don't specifically test preflight
+    validation behavior to avoid MagicMock async issues.
+    """
+    success_result = PreflightResult(
+        success=True,
+        results=[
+            ValidationResult(
+                success=True,
+                component="MockRunner",
+            )
+        ],
+        total_duration_ms=10,
+    )
+    with patch.object(
+        FlyWorkflow,
+        "run_preflight",
+        new_callable=AsyncMock,
+        return_value=success_result,
+    ):
+        yield
+
+
+# =============================================================================
+# Tests
+# =============================================================================
+
 
 class TestFlyWorkflowDryRun:
     """Tests for FlyWorkflow dry-run mode (T090a, T090c)."""
 
     @pytest.mark.asyncio
-    async def test_dry_run_emits_progress_events(self, tmp_path):
+    async def test_dry_run_emits_progress_events(self, tmp_path, mock_preflight):
         """Test FlyWorkflow dry-run mode emits progress events (T090a)."""
         from unittest.mock import AsyncMock, MagicMock
 

@@ -7,13 +7,14 @@ git operations are executed correctly without real git operations.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from maverick.runners.command import CommandRunner
 from maverick.runners.git import GitResult, GitRunner
 from maverick.runners.models import CommandResult
+from maverick.runners.preflight import ValidationResult
 
 
 @pytest.fixture
@@ -540,3 +541,223 @@ class TestTimeout:
 
         assert result.success is False
         assert result.error == "Command timed out"
+
+
+class TestGitRunnerValidate:
+    """Tests for GitRunner.validate()."""
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_success(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate success with all checks passing."""
+        mock_which.return_value = "/usr/bin/git"
+
+        # Mock git rev-parse --is-inside-work-tree (success)
+        # Mock git rev-parse --git-dir (for conflict check)
+        # Mock git config user.name (success)
+        # Mock git config user.email (success)
+        mock_command_runner.run = AsyncMock(
+            side_effect=[
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
+                CommandResult(
+                    returncode=0, stdout="Test User", stderr="", duration_ms=10
+                ),
+                CommandResult(
+                    returncode=0, stdout="test@example.com", stderr="", duration_ms=10
+                ),
+            ]
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+
+        # Mock Path.exists() for conflict markers to return False
+        with patch.object(Path, "exists", return_value=False):
+            result = await runner.validate()
+
+        assert result.success is True
+        assert result.component == "GitRunner"
+        assert len(result.errors) == 0
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_git_not_on_path(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate failure when git is not on PATH."""
+        mock_which.return_value = None
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+        result = await runner.validate()
+
+        assert result.success is False
+        assert result.component == "GitRunner"
+        assert any("not found on PATH" in error for error in result.errors)
+        # Should not call any git commands since git is not available
+        mock_command_runner.run.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_not_in_repository(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate failure when not inside a git repository."""
+        mock_which.return_value = "/usr/bin/git"
+
+        # Mock git rev-parse --is-inside-work-tree (failure)
+        mock_command_runner.run = AsyncMock(
+            return_value=CommandResult(
+                returncode=128,
+                stdout="",
+                stderr="fatal: not a git repository",
+                duration_ms=10,
+            )
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+        result = await runner.validate()
+
+        assert result.success is False
+        assert any("Not inside a git repository" in error for error in result.errors)
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_merge_conflict_state(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate failure when repository is in merge conflict state."""
+        mock_which.return_value = "/usr/bin/git"
+
+        # Mock successful git commands
+        mock_command_runner.run = AsyncMock(
+            side_effect=[
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
+                CommandResult(
+                    returncode=0, stdout="Test User", stderr="", duration_ms=10
+                ),
+                CommandResult(
+                    returncode=0, stdout="test@example.com", stderr="", duration_ms=10
+                ),
+            ]
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+
+        # Mock Path.exists() to return True for MERGE_HEAD
+        def mock_exists(self: Path) -> bool:
+            return "MERGE_HEAD" in str(self)
+
+        with patch.object(Path, "exists", mock_exists):
+            result = await runner.validate()
+
+        assert result.success is False
+        assert any("merge head" in error.lower() for error in result.errors)
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_user_name_not_configured(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate failure when user.name is not configured."""
+        mock_which.return_value = "/usr/bin/git"
+
+        mock_command_runner.run = AsyncMock(
+            side_effect=[
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
+                CommandResult(
+                    returncode=1, stdout="", stderr="", duration_ms=10
+                ),  # user.name fails
+                CommandResult(
+                    returncode=0, stdout="test@example.com", stderr="", duration_ms=10
+                ),
+            ]
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+
+        with patch.object(Path, "exists", return_value=False):
+            result = await runner.validate()
+
+        assert result.success is False
+        assert any("user.name is not configured" in error for error in result.errors)
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_user_email_not_configured(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test validate failure when user.email is not configured."""
+        mock_which.return_value = "/usr/bin/git"
+
+        mock_command_runner.run = AsyncMock(
+            side_effect=[
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
+                CommandResult(
+                    returncode=0, stdout="Test User", stderr="", duration_ms=10
+                ),
+                CommandResult(
+                    returncode=1, stdout="", stderr="", duration_ms=10
+                ),  # user.email fails
+            ]
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+
+        with patch.object(Path, "exists", return_value=False):
+            result = await runner.validate()
+
+        assert result.success is False
+        assert any("user.email is not configured" in error for error in result.errors)
+
+    @pytest.mark.asyncio
+    @patch("maverick.runners.git.shutil.which")
+    async def test_validate_returns_validation_result(
+        self, mock_which: MagicMock, mock_command_runner: MagicMock
+    ) -> None:
+        """Test that validate() returns correct ValidationResult type."""
+        mock_which.return_value = "/usr/bin/git"
+
+        mock_command_runner.run = AsyncMock(
+            side_effect=[
+                CommandResult(returncode=0, stdout="true", stderr="", duration_ms=10),
+                CommandResult(returncode=0, stdout=".git", stderr="", duration_ms=10),
+                CommandResult(
+                    returncode=0, stdout="Test User", stderr="", duration_ms=10
+                ),
+                CommandResult(
+                    returncode=0, stdout="test@example.com", stderr="", duration_ms=10
+                ),
+            ]
+        )
+
+        runner = GitRunner(
+            cwd=Path("/test/project"), command_runner=mock_command_runner
+        )
+
+        with patch.object(Path, "exists", return_value=False):
+            result = await runner.validate()
+
+        assert isinstance(result, ValidationResult)
+        assert hasattr(result, "success")
+        assert hasattr(result, "component")
+        assert hasattr(result, "errors")
+        assert hasattr(result, "warnings")
+        assert hasattr(result, "duration_ms")
+        assert result.duration_ms >= 0

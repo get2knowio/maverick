@@ -290,6 +290,29 @@ class FlyWorkflow(WorkflowDSLMixin):
         Yields:
             Progress events for TUI consumption.
         """
+        # Run preflight validation FIRST, before any state changes
+        # This runs even in dry_run mode to validate the environment
+        try:
+            await self.run_preflight()
+        except Exception as e:
+            # Import here to check exception type
+            from maverick.exceptions import PreflightValidationError
+
+            if isinstance(e, PreflightValidationError):
+                error_msg = f"Preflight validation failed: {e}"
+            else:
+                error_msg = f"Unexpected preflight error: {e}"
+            logger.error(error_msg)
+            # Create minimal state for error reporting
+            self._state = WorkflowState(
+                branch=inputs.branch_name,
+                task_file=inputs.task_file,
+            )
+            self._state.errors.append(error_msg)
+            self._state.stage = WorkflowStage.FAILED
+            yield FlyWorkflowFailed(error=error_msg, state=self._state)
+            return
+
         # Initialize state
         self._state = WorkflowState(
             branch=inputs.branch_name,
