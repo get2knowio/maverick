@@ -14,16 +14,43 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from maverick.exceptions import WorkingDirectoryError
 from maverick.runners.models import CommandResult, StreamLine
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
-__all__ = ["CommandRunner"]
+__all__ = ["CommandRunner", "RetryableCommandError"]
 
 # Timeout constants
 TERMINATION_GRACE_PERIOD: float = 2.0
+
+
+class RetryableCommandError(Exception):
+    """Exception raised when a command fails with a retryable error.
+
+    This exception is used internally by CommandRunner to signal that a
+    command execution failed but should be retried. It wraps the CommandResult
+    for access after retry exhaustion.
+    """
+
+    def __init__(self, result: CommandResult, message: str = "Command failed") -> None:
+        """Initialize the RetryableCommandError.
+
+        Args:
+            result: The CommandResult from the failed command execution.
+            message: Human-readable error message.
+        """
+        super().__init__(message)
+        self.result = result
+
 
 # Secret scrubbing patterns
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -213,34 +240,61 @@ class CommandRunner:
         # Build environment
         effective_env = self._build_env(env)
 
-        attempt = 0
-        current_delay = retry_delay
+        # Use Tenacity for retry logic with exponential backoff
+        # stop_after_attempt(1) = no retries, (2) = 1 retry, etc.
+        # So we add 1 to max_retries to get the correct number of attempts
+        last_result: CommandResult | None = None
 
-        while True:
-            result = await self._execute_once(
-                command, effective_cwd, effective_timeout, effective_env
-            )
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(max_retries + 1),
+                wait=wait_exponential(multiplier=retry_delay, min=retry_delay, max=60),
+                reraise=True,
+            ):
+                with attempt:
+                    result = await self._execute_once(
+                        command, effective_cwd, effective_timeout, effective_env
+                    )
 
-            # Apply secret scrubbing if enabled
-            if scrub_secrets:
-                result = CommandResult(
-                    returncode=result.returncode,
-                    stdout=result.stdout,
-                    stderr=self._scrub_secrets(result.stderr),
-                    duration_ms=result.duration_ms,
-                    timed_out=result.timed_out,
-                )
+                    # Apply secret scrubbing if enabled
+                    if scrub_secrets:
+                        result = CommandResult(
+                            returncode=result.returncode,
+                            stdout=result.stdout,
+                            stderr=self._scrub_secrets(result.stderr),
+                            duration_ms=result.duration_ms,
+                            timed_out=result.timed_out,
+                        )
 
-            # Check if we should retry
-            is_retryable = self.is_retryable(result)
-            should_stop = result.success or attempt >= max_retries or not is_retryable
-            if should_stop:
-                return result
+                    last_result = result
 
-            # Wait before retrying with exponential backoff
-            await asyncio.sleep(current_delay)
-            attempt += 1
-            current_delay *= 2
+                    # If successful, return immediately
+                    if result.success:
+                        return result
+
+                    # If not retryable, return the result without raising
+                    if not self.is_retryable(result):
+                        return result
+
+                    # Raise to trigger retry (only for retryable failures)
+                    raise RetryableCommandError(result, "Command failed, retrying...")
+
+        except RetryError as e:
+            # All retries exhausted, return the last result
+            if last_result is not None:
+                return last_result
+            # This shouldn't happen, but handle gracefully
+            raise RuntimeError("Retry exhausted with no result") from e
+        except RetryableCommandError:
+            # This can happen when max_retries=0 and command fails with retryable error
+            # In this case, we should return the last result
+            if last_result is not None:
+                return last_result
+            raise
+
+        # Should not reach here, but satisfy type checker
+        assert last_result is not None
+        return last_result
 
     async def _execute_once(
         self,

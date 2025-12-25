@@ -5,9 +5,9 @@ Exports workflow orchestrators for multi-stage development processes.
 
 from __future__ import annotations
 
-import logging
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 __all__: list[str] = []
 

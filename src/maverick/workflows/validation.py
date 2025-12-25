@@ -7,7 +7,6 @@ capabilities and progress updates for TUI consumption.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -25,9 +24,11 @@ from maverick.models.validation import (
 if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
 
+from maverick.logging import get_logger
+
 __all__ = ["ValidationWorkflow", "create_python_workflow"]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

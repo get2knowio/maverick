@@ -1,5 +1,11 @@
 """Git runner for async git operations.
 
+DEPRECATED: This module is deprecated. Use maverick.git instead:
+    - GitRunner -> maverick.git.GitRepository or maverick.git.AsyncGitRepository
+    - GitResult -> Use the return values from GitRepository methods directly
+    - DiffStats -> maverick.git.DiffStats
+    - CommitInfo -> maverick.git.CommitInfo
+
 This module provides the GitRunner class for executing git CLI operations
 asynchronously without AI involvement. It wraps git commands via CommandRunner
 and returns structured GitResult objects.
@@ -13,12 +19,21 @@ from __future__ import annotations
 
 import shutil
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from maverick.runners.command import CommandRunner
+
+# Issue deprecation warning on import
+warnings.warn(
+    "maverick.runners.git is deprecated. "
+    "Use maverick.git.GitRepository and maverick.git.AsyncGitRepository instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 if TYPE_CHECKING:
     from maverick.runners.preflight import ValidationResult

@@ -1,10 +1,23 @@
-"""Subprocess execution module with async command runners."""
+"""Subprocess execution module with async command runners.
+
+Note: maverick.runners.git is deprecated. For new code, use maverick.git instead:
+    - GitRunner -> maverick.git.GitRepository or maverick.git.AsyncGitRepository
+    - DiffStats -> maverick.git.DiffStats
+    - CommitInfo -> maverick.git.CommitInfo
+"""
 
 from __future__ import annotations
 
+import warnings
+
 from maverick.runners.coderabbit import CodeRabbitRunner
 from maverick.runners.command import CommandRunner
-from maverick.runners.git import CommitInfo, DiffStats, GitResult, GitRunner
+
+# Import git module with deprecation warning suppressed for backward compat
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    from maverick.runners.git import CommitInfo, DiffStats, GitResult, GitRunner
+
 from maverick.runners.github import GitHubCLIRunner
 from maverick.runners.models import (
     CheckStatus,

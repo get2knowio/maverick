@@ -1,17 +1,26 @@
 """Synchronous git operations wrapper for Maverick workflows.
 
+DEPRECATED: This module is deprecated. Use maverick.git instead:
+    - GitOperations -> maverick.git.GitRepository
+    - AsyncGitOperations -> maverick.git.AsyncGitRepository
+
 This module provides a type-safe, synchronous wrapper around git CLI commands.
 All operations use explicit argument lists (no shell=True) for security.
 Thread-safe: only stores immutable _cwd.
 
 Example:
     ```python
+    # Old usage (deprecated):
     from maverick.utils.git_operations import GitOperations
 
     ops = GitOperations()
     print(ops.current_branch())  # "main"
-    status = ops.status()
-    print(status.staged)  # ("file.py",)
+
+    # New usage (preferred):
+    from maverick.git import GitRepository
+
+    repo = GitRepository()
+    print(repo.current_branch())  # "main"
     ```
 """
 
@@ -22,6 +31,7 @@ import logging
 import re
 import subprocess
 import threading
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +45,14 @@ from maverick.exceptions import (
     NotARepositoryError,
     NothingToCommitError,
     PushRejectedError,
+)
+
+# Issue deprecation warning on import
+warnings.warn(
+    "maverick.utils.git_operations is deprecated. "
+    "Use maverick.git.GitRepository and maverick.git.AsyncGitRepository instead.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
 logger = logging.getLogger(__name__)

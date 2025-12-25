@@ -317,7 +317,16 @@ class TestTruncateLine:
 
 
 class TestDetectSecrets:
-    """Tests for detect_secrets utility."""
+    """Tests for detect_secrets utility.
+
+    Uses Yelp's detect-secrets library which provides these secret types:
+    - 'AWS Access Key' for AWS access key IDs (AKIA...)
+    - 'GitHub Token' for GitHub PATs (ghp_, ghs_, etc.)
+    - 'Private Key' for PEM private key headers
+    - 'Secret Keyword' for password/secret/api_key assignments
+    - 'JSON Web Token' for JWTs
+    - And many more (Slack, Stripe, Twilio, etc.)
+    """
 
     def test_no_secrets(self) -> None:
         """Content without secrets returns empty list."""
@@ -325,18 +334,18 @@ class TestDetectSecrets:
         assert detect_secrets(content) == []
 
     def test_api_key_pattern(self) -> None:
-        """Detects API key patterns."""
+        """Detects API key patterns via Secret Keyword detector."""
         content = "api_key = 'sk-12345678901234567890123456'"
         findings = detect_secrets(content)
         assert len(findings) == 1
-        assert findings[0] == (1, "api_key")
+        assert findings[0] == (1, "Secret Keyword")
 
     def test_aws_key_pattern(self) -> None:
         """Detects AWS-style keys."""
         content = "AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'"
         findings = detect_secrets(content)
         assert len(findings) == 1
-        assert findings[0] == (1, "aws_key")
+        assert findings[0] == (1, "AWS Access Key")
 
     def test_private_key_pattern(self) -> None:
         """Detects private key headers."""
@@ -345,14 +354,14 @@ class TestDetectSecrets:
         )
         findings = detect_secrets(content)
         assert len(findings) == 1
-        assert findings[0][1] == "private_key"
+        assert findings[0][1] == "Private Key"
 
     def test_password_pattern(self) -> None:
-        """Detects password patterns."""
+        """Detects password patterns via Secret Keyword detector."""
         content = "password = 'supersecret123!'"
         findings = detect_secrets(content)
         assert len(findings) == 1
-        assert findings[0] == (1, "secret_password")
+        assert findings[0] == (1, "Secret Keyword")
 
     def test_multiple_secrets_different_lines(self) -> None:
         """Detects secrets on multiple lines."""
@@ -364,8 +373,30 @@ class TestDetectSecrets:
         )
         findings = detect_secrets(content)
         assert len(findings) == 2
-        assert findings[0] == (2, "api_key")
-        assert findings[1] == (4, "secret_password")
+        assert findings[0] == (2, "Secret Keyword")
+        assert findings[1] == (4, "Secret Keyword")
+
+    def test_github_token_detection(self) -> None:
+        """Detects GitHub tokens (ghp_, ghs_, etc.)."""
+        content = "token = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'"
+        findings = detect_secrets(content)
+        assert len(findings) >= 1
+        secret_types = [f[1] for f in findings]
+        assert "GitHub Token" in secret_types
+
+    def test_jwt_detection(self) -> None:
+        """Detects JSON Web Tokens."""
+        # A valid JWT structure (header.payload.signature)
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        )
+        content = f"token = '{jwt}'"
+        findings = detect_secrets(content)
+        assert len(findings) >= 1
+        secret_types = [f[1] for f in findings]
+        assert "JSON Web Token" in secret_types
 
 
 # =============================================================================

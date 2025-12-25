@@ -8,7 +8,6 @@ validation, convention updates, and PR management.
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
@@ -60,7 +59,9 @@ if TYPE_CHECKING:
     from maverick.runners.github import GitHubCLIRunner
     from maverick.runners.validation import ValidationRunner
 
-logger = logging.getLogger(__name__)
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class FlyWorkflow(WorkflowDSLMixin):

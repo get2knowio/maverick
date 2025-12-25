@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import shutil
 import time
 from pathlib import Path
@@ -12,12 +11,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maverick.runners.preflight import ValidationResult
 
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import CodeRabbitFinding, CodeRabbitResult
 
 __all__ = ["CodeRabbitRunner"]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CodeRabbitRunner:

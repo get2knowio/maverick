@@ -1,5 +1,8 @@
 """Git helper utilities for Maverick agents.
 
+DEPRECATED: This module is deprecated. Use maverick.git instead:
+    - All functions -> maverick.git.GitRepository or maverick.git.AsyncGitRepository
+
 This module provides async functions for common git operations with
 automatic error recovery following Constitution Principle IV.
 
@@ -12,10 +15,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from pathlib import Path
 
 from maverick.exceptions import GitError
 from maverick.runners.git import GitRunner
+
+# Issue deprecation warning on import
+warnings.warn(
+    "maverick.utils.git is deprecated. "
+    "Use maverick.git.GitRepository and maverick.git.AsyncGitRepository instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -2,22 +2,53 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import shutil
 import time
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, TypeAdapter
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 if TYPE_CHECKING:
     from maverick.runners.preflight import ValidationResult
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import CheckStatus, GitHubIssue, PullRequest
 
-__all__ = ["GitHubCLIRunner"]
+__all__ = ["GitHubCLIRunner", "RetryableGitHubError"]
+
+logger = get_logger(__name__)
+
+
+class RetryableGitHubError(Exception):
+    """Exception raised when a GitHub CLI command fails with a retryable error.
+
+    This exception is used internally by GitHubCLIRunner to signal that a
+    gh command execution failed but should be retried (e.g., network errors,
+    rate limits).
+    """
+
+    def __init__(
+        self, exit_code: int, stderr: str, message: str = "GitHub CLI command failed"
+    ) -> None:
+        """Initialize the RetryableGitHubError.
+
+        Args:
+            exit_code: The exit code from the gh CLI command.
+            stderr: The stderr output from the failed command.
+            message: Human-readable error message.
+        """
+        super().__init__(message)
+        self.exit_code = exit_code
+        self.stderr = stderr
 
 
 # =============================================================================
@@ -245,51 +276,71 @@ class GitHubCLIRunner:
     async def _run_gh_command(self, *args: str) -> str:
         """Run gh command and return raw JSON output.
 
+        Uses Tenacity for retry logic with exponential backoff for transient errors
+        (network issues, rate limits). Non-retryable errors (auth, not found) fail
+        immediately.
+
         Returns:
             Raw JSON string from gh CLI stdout.
 
         Raises:
-            RuntimeError: If gh command fails.
+            RuntimeError: If gh command fails after all retries.
             GitHubAuthError: If authentication is required (exit code 4).
         """
-        logger = logging.getLogger(__name__)
         max_retries = 3
-        last_error = None
-        last_exit_code = None
+        last_error: str | None = None
+        last_exit_code: int | None = None
 
-        for attempt in range(max_retries):
-            result = await self._command_runner.run(["gh", *args])
-            if result.success:
-                return result.stdout.strip() if result.stdout.strip() else "{}"
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(max_retries),
+                wait=wait_exponential(multiplier=1, min=1, max=8),
+                retry=retry_if_exception_type(RetryableGitHubError),
+            ):
+                with attempt:
+                    result = await self._command_runner.run(["gh", *args])
+                    if result.success:
+                        return result.stdout.strip() if result.stdout.strip() else "{}"
 
-            # Classify the error using exit code (primary) and stderr (fallback)
-            error_type, error_message, is_retryable = self._classify_error(
-                result.returncode, result.stderr
-            )
+                    # Classify the error using exit code (primary) and stderr (fallback)
+                    error_type, error_message, is_retryable = self._classify_error(
+                        result.returncode, result.stderr
+                    )
 
-            last_error = result.stderr
-            last_exit_code = result.returncode
+                    last_error = result.stderr
+                    last_exit_code = result.returncode
 
-            # Log error with classification
-            logger.warning(
-                f"gh command failed (attempt {attempt + 1}/{max_retries}): "
-                f"[{error_type}] {error_message} - {result.stderr}"
-            )
+                    # Log error with classification
+                    attempt_num = attempt.retry_state.attempt_number
+                    logger.warning(
+                        f"gh command failed (attempt {attempt_num}/{max_retries}): "
+                        f"[{error_type}] {error_message} - {result.stderr}"
+                    )
 
-            # Raise immediately for non-retryable errors
-            if error_type == "auth":
-                raise GitHubAuthError()
-            if not is_retryable:
-                raise RuntimeError(f"gh command failed ({error_type}): {result.stderr}")
+                    # Raise immediately for non-retryable errors
+                    if error_type == "auth":
+                        raise GitHubAuthError()
+                    if not is_retryable:
+                        raise RuntimeError(
+                            f"gh command failed ({error_type}): {result.stderr}"
+                        )
 
-            # Only retry for retryable errors
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2**attempt)
+                    # Raise retryable error to trigger retry
+                    raise RetryableGitHubError(
+                        exit_code=result.returncode,
+                        stderr=result.stderr,
+                        message=f"[{error_type}] {error_message}",
+                    )
 
-        raise RuntimeError(
-            f"gh command failed after {max_retries} attempts "
-            f"(exit code {last_exit_code}): {last_error}"
-        )
+        except RetryError as err:
+            # All retries exhausted
+            raise RuntimeError(
+                f"gh command failed after {max_retries} attempts "
+                f"(exit code {last_exit_code}): {last_error}"
+            ) from err
+
+        # This should not be reached, but satisfies the type checker
+        return "{}"
 
     async def get_issue(self, number: int) -> GitHubIssue:
         """Get a single issue by number.

@@ -7,7 +7,6 @@ resolution workflow.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
@@ -57,7 +56,9 @@ if TYPE_CHECKING:
     from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
     from maverick.runners.validation import ValidationRunner
 
-logger = logging.getLogger(__name__)
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = [
     "RefuelWorkflow",

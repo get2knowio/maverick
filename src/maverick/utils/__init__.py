@@ -1,31 +1,37 @@
 """Utility modules for Maverick workflows and agents.
 
 This package contains shared utilities for:
-- Git operations (git.py)
+- Git operations (git.py) - DEPRECATED, use maverick.git instead
 - GitHub API interactions (github.py)
 - Code validation (validation.py)
 - Task file parsing (task_parser.py)
+
+Note: For git operations, prefer maverick.git.GitRepository and
+maverick.git.AsyncGitRepository over the deprecated utilities in this package.
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
 
 __all__: list[str] = []
 
-# Git utilities
+# Git utilities (deprecated - use maverick.git instead)
 try:
-    from maverick.utils.git import (
-        create_commit,
-        get_current_branch,
-        get_diff_stats,
-        get_head_sha,
-        has_uncommitted_changes,
-        stash_changes,
-        unstash_changes,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        from maverick.utils.git import (
+            create_commit,
+            get_current_branch,
+            get_diff_stats,
+            get_head_sha,
+            has_uncommitted_changes,
+            stash_changes,
+            unstash_changes,
+        )
 
     __all__.extend(
         [
@@ -105,14 +111,16 @@ try:
 except ImportError:
     logger.debug("Task parser utilities not yet available")
 
-# Git operations (synchronous wrapper)
+# Git operations (deprecated - use maverick.git instead)
 try:
-    from maverick.utils.git_operations import (
-        CommitInfo,
-        DiffStats,
-        GitOperations,
-        GitStatus,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        from maverick.utils.git_operations import (
+            CommitInfo,
+            DiffStats,
+            GitOperations,
+            GitStatus,
+        )
 
     __all__.extend(
         [
@@ -169,3 +177,21 @@ try:
     )
 except ImportError:
     logger.debug("Security utilities not yet available")
+
+# GitHub client (PyGithub-based)
+try:
+    from maverick.utils.github_client import (
+        GitHubClient,
+        get_github_client,
+        get_github_token,
+    )
+
+    __all__.extend(
+        [
+            "GitHubClient",
+            "get_github_client",
+            "get_github_token",
+        ]
+    )
+except ImportError:
+    logger.debug("GitHub client utilities not yet available")
