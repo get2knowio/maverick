@@ -457,8 +457,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                 if self._implementer_agent is not None:
                     try:
                         # Agent may be mock or real - handle both cases
-                        # type: ignore[call-arg]
-                        impl_result = await self._implementer_agent.execute()
+                        impl_result = await self._implementer_agent.execute()  # type: ignore[call-arg]
                         if hasattr(impl_result, "usage") and impl_result.usage:
                             self._usage_records.append(impl_result.usage)
                         self._state.implementation_result = impl_result
@@ -502,8 +501,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                             validation_output = await self._validation_runner.run()
                             validation_result = ValidationWorkflowResult(
                                 success=validation_output.success,
-                                # type: ignore[arg-type]
-                                stage_results=list(validation_output.stages),
+                                stage_results=list(validation_output.stages),  # type: ignore[arg-type]
                             )
                             self._state.validation_result = validation_result
                             validation_passed = validation_result.success
@@ -522,8 +520,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                                 if self._implementer_agent is not None:
                                     try:
                                         agent = self._implementer_agent
-                                        # type: ignore[call-arg]
-                                        fix_result = await agent.execute()
+                                        fix_result = await agent.execute()  # type: ignore[call-arg]
                                         has_usage = hasattr(fix_result, "usage")
                                         if has_usage and fix_result.usage:
                                             self._usage_records.append(fix_result.usage)
@@ -571,8 +568,7 @@ class FlyWorkflow(WorkflowDSLMixin):
                     if self._code_reviewer_agent is not None:
                         try:
                             # Agent may be mock or real - handle both cases
-                            # type: ignore[call-arg]
-                            review_result = await self._code_reviewer_agent.execute()
+                            review_result = await self._code_reviewer_agent.execute()  # type: ignore[call-arg]
                             if hasattr(review_result, "usage") and review_result.usage:
                                 self._usage_records.append(review_result.usage)
                             self._state.review_results.append(review_result)

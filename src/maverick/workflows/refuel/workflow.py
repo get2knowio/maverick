@@ -371,8 +371,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         agent_usage = empty_usage
         if self._issue_fixer_agent is not None:
             try:
-                # type: ignore[call-arg]
-                fix_result = await self._issue_fixer_agent.execute()
+                fix_result = await self._issue_fixer_agent.execute()  # type: ignore[call-arg]
                 if hasattr(fix_result, "usage") and fix_result.usage:
                     agent_usage = fix_result.usage
             except Exception as e:
@@ -406,8 +405,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                         # Try to fix again
                         if self._issue_fixer_agent is not None:
                             try:
-                                # type: ignore[call-arg]
-                                await self._issue_fixer_agent.execute()
+                                await self._issue_fixer_agent.execute()  # type: ignore[call-arg]
                             except Exception as e:
                                 logger.warning(f"Fix agent retry failed: {e}")
                 except Exception as e:
