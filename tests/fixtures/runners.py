@@ -4,18 +4,19 @@ This module provides mock implementations of runner components for testing
 workflows without real command execution, git operations, or GitHub API calls.
 
 Provides:
-- mock_git_runner: Mock GitRunner with configurable results
+- mock_git_repo: Mock AsyncGitRepository with configurable results
 - mock_validation_runner: Mock ValidationRunner with configurable validation results
 - mock_github_runner: Mock GitHubCLIRunner with configurable GitHub operations
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from maverick.runners.git import GitResult
+from maverick.git import DiffStats, GitStatus
 from maverick.runners.models import (
     GitHubIssue,
     PullRequest,
@@ -25,94 +26,67 @@ from maverick.runners.models import (
 
 
 @pytest.fixture
-def mock_git_runner() -> MagicMock:
-    """Fixture providing a mock GitRunner instance.
+def mock_git_repo() -> MagicMock:
+    """Fixture providing a mock AsyncGitRepository instance.
 
     Returns:
-        MagicMock configured with AsyncMock methods that return GitResult instances.
+        MagicMock configured with AsyncMock methods matching AsyncGitRepository API.
         All operations default to successful execution.
 
     Example:
         >>> @pytest.mark.asyncio
-        ... async def test_workflow(mock_git_runner):
+        ... async def test_workflow(mock_git_repo):
         ...     # Default: all operations succeed
-        ...     result = await mock_git_runner.create_branch("feature-x")
-        ...     assert result.success
+        ...     await mock_git_repo.create_branch("feature-x")
+        ...     sha = await mock_git_repo.commit("test commit")
+        ...     assert sha == "abc1234def5678"
         ...
         ...     # Configure specific behavior
-        ...     mock_git_runner.commit.return_value = GitResult(
-        ...         success=False, output="", error="Nothing to commit", duration_ms=50
-        ...     )
-        ...     result = await mock_git_runner.commit("test commit")
-        ...     assert not result.success
+        ...     from maverick.exceptions import NothingToCommitError
+        ...     mock_git_repo.commit.side_effect = NothingToCommitError()
     """
-    runner = MagicMock()
+    repo = MagicMock()
+
+    # Configure path property
+    type(repo).path = PropertyMock(return_value=Path.cwd())
 
     # Configure async methods with default successful results
-    runner.create_branch = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="Switched to a new branch 'test-branch'",
-            error=None,
-            duration_ms=100,
+    repo.current_branch = AsyncMock(return_value="test-branch")
+
+    repo.status = AsyncMock(
+        return_value=GitStatus(
+            staged=("src/file.py",),
+            unstaged=(),
+            untracked=("tests/test_file.py",),
+            branch="test-branch",
+            ahead=0,
+            behind=0,
         )
     )
 
-    runner.create_branch_with_fallback = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="Switched to a new branch 'test-branch'",
-            error=None,
-            duration_ms=100,
-        )
-    )
+    repo.is_dirty = AsyncMock(return_value=True)
 
-    runner.checkout = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="Switched to branch 'main'",
-            error=None,
-            duration_ms=50,
-        )
-    )
+    repo.create_branch = AsyncMock(return_value=None)
 
-    runner.commit = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="[main abc1234] test commit",
-            error=None,
-            duration_ms=150,
-        )
-    )
+    repo.create_branch_with_fallback = AsyncMock(return_value="test-branch")
 
-    runner.push = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="To github.com:test/repo.git\n   abc1234..def5678  main -> main",
-            error=None,
-            duration_ms=1000,
-        )
-    )
+    repo.checkout = AsyncMock(return_value=None)
 
-    runner.add = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="",
-            error=None,
-            duration_ms=50,
-        )
-    )
+    repo.get_head_sha = AsyncMock(return_value="abc1234def5678")
 
-    runner.status = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output=" M src/file.py\n?? tests/test_file.py",
-            error=None,
-            duration_ms=50,
-        )
-    )
+    repo.add = AsyncMock(return_value=None)
 
-    runner.diff = AsyncMock(
+    repo.add_all = AsyncMock(return_value=None)
+
+    repo.commit = AsyncMock(return_value="abc1234def5678")
+
+    repo.push = AsyncMock(return_value=None)
+
+    repo.pull = AsyncMock(return_value=None)
+
+    repo.fetch = AsyncMock(return_value=None)
+
+    repo.diff = AsyncMock(
         return_value="diff --git a/src/file.py b/src/file.py\n"
         "index abc1234..def5678 100644\n"
         "--- a/src/file.py\n"
@@ -124,10 +98,39 @@ def mock_git_runner() -> MagicMock:
         "+    pass\n"
     )
 
-    # Set cwd property
-    runner.cwd = None
+    repo.diff_stats = AsyncMock(
+        return_value=DiffStats(
+            files_changed=1,
+            insertions=3,
+            deletions=0,
+            file_list=("src/file.py",),
+            per_file={"src/file.py": (3, 0)},
+        )
+    )
 
-    return runner
+    repo.get_changed_files = AsyncMock(return_value=["src/file.py"])
+
+    repo.stash = AsyncMock(return_value=True)
+
+    repo.stash_pop = AsyncMock(return_value=None)
+
+    repo.stash_list = AsyncMock(return_value=[])
+
+    repo.stash_pop_by_message = AsyncMock(return_value=False)
+
+    repo.get_remote_url = AsyncMock(return_value="https://github.com/test/repo.git")
+
+    repo.get_repo_root = AsyncMock(return_value=Path.cwd())
+
+    repo.commit_messages = AsyncMock(return_value=["Initial commit", "Add feature"])
+
+    repo.commit_messages_since = AsyncMock(return_value=["Add feature"])
+
+    return repo
+
+
+# Alias for backward compatibility
+mock_git_runner = mock_git_repo
 
 
 @pytest.fixture

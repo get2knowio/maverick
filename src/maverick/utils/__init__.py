@@ -1,51 +1,22 @@
 """Utility modules for Maverick workflows and agents.
 
 This package contains shared utilities for:
-- Git operations (git.py) - DEPRECATED, use maverick.git instead
-- GitHub API interactions (github.py)
+- GitHub API interactions (github.py, github_client.py)
 - Code validation (validation.py)
 - Task file parsing (task_parser.py)
+- Security utilities (security.py)
 
-Note: For git operations, prefer maverick.git.GitRepository and
-maverick.git.AsyncGitRepository over the deprecated utilities in this package.
+For git operations, use maverick.git.GitRepository (sync) or
+maverick.git.AsyncGitRepository (async).
 """
 
 from __future__ import annotations
 
 import logging
-import warnings
 
 logger = logging.getLogger(__name__)
 
 __all__: list[str] = []
-
-# Git utilities (deprecated - use maverick.git instead)
-try:
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from maverick.utils.git import (
-            create_commit,
-            get_current_branch,
-            get_diff_stats,
-            get_head_sha,
-            has_uncommitted_changes,
-            stash_changes,
-            unstash_changes,
-        )
-
-    __all__.extend(
-        [
-            "create_commit",
-            "get_current_branch",
-            "get_diff_stats",
-            "get_head_sha",
-            "has_uncommitted_changes",
-            "stash_changes",
-            "unstash_changes",
-        ]
-    )
-except ImportError:
-    logger.debug("Git utilities not yet available")
 
 # GitHub utilities
 try:
@@ -110,28 +81,6 @@ try:
     )
 except ImportError:
     logger.debug("Task parser utilities not yet available")
-
-# Git operations (deprecated - use maverick.git instead)
-try:
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from maverick.utils.git_operations import (
-            CommitInfo,
-            DiffStats,
-            GitOperations,
-            GitStatus,
-        )
-
-    __all__.extend(
-        [
-            "CommitInfo",
-            "DiffStats",
-            "GitOperations",
-            "GitStatus",
-        ]
-    )
-except ImportError:
-    logger.debug("Git operations utilities not yet available")
 
 # Context builder utilities
 try:

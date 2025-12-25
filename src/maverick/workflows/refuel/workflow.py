@@ -37,7 +37,6 @@ from maverick.workflows.refuel.events import (
     RefuelProgressEvent,
     RefuelStarted,
 )
-from maverick.workflows.refuel.helpers import convert_runner_issue_to_workflow_issue
 from maverick.workflows.refuel.models import (
     GitHubIssue,
     IssueProcessingResult,
@@ -51,10 +50,9 @@ if TYPE_CHECKING:
     from maverick.agents.generators.commit_message import CommitMessageGenerator
     from maverick.agents.issue_fixer import IssueFixerAgent
     from maverick.dsl.serialization.executor import WorkflowFileExecutor
-    from maverick.runners.git import GitRunner
-    from maverick.runners.github import GitHubCLIRunner
-    from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
+    from maverick.git import AsyncGitRepository
     from maverick.runners.validation import ValidationRunner
+    from maverick.utils.github_client import GitHubClient
 
 from maverick.logging import get_logger
 
@@ -85,36 +83,44 @@ class RefuelWorkflow(WorkflowDSLMixin):
         self,
         config: RefuelConfig | None = None,
         registry: ComponentRegistry | None = None,
-        git_runner: GitRunner | None = None,
-        github_runner: GitHubCLIRunner | None = None,
+        git_repo: AsyncGitRepository | None = None,
+        github_client: GitHubClient | None = None,
         validation_runner: ValidationRunner | None = None,
         issue_fixer_agent: IssueFixerAgent | None = None,
         commit_generator: CommitMessageGenerator | None = None,
+        # Legacy parameter names for backward compatibility
+        git_runner: AsyncGitRepository | None = None,
+        github_runner: GitHubClient | None = None,
     ) -> None:
         """Initialize the refuel workflow.
 
         Args:
             config: Optional workflow configuration. Uses defaults if None.
             registry: Component registry for DSL execution.
-            git_runner: Git operations runner (injected for testing).
-            github_runner: GitHub CLI runner (injected for testing).
+            git_repo: AsyncGitRepository instance for git operations.
+            github_client: GitHubClient for GitHub API operations.
             validation_runner: Validation runner (injected for testing).
             issue_fixer_agent: Issue fixer agent (injected for testing).
             commit_generator: Commit message generator (injected for testing).
+            git_runner: Deprecated alias for git_repo (backward compatibility).
+            github_runner: Deprecated alias for github_client (backward compatibility).
         """
         # Initialize the mixin first
         super().__init__()
 
         self._config = config or RefuelConfig()
         self._registry = registry or ComponentRegistry()
-        self._git_runner = git_runner
-        self._github_runner = github_runner
+        # Support both new names and legacy names
+        self._git_repo = git_repo or git_runner
+        self._github_client = github_client or github_runner
         self._validation_runner = validation_runner
         self._issue_fixer_agent = issue_fixer_agent
         self._commit_generator = commit_generator
 
         # DSL executor
         self._executor: WorkflowFileExecutor | None = None
+        # Cache for repo name
+        self._repo_name: str | None = None
 
     def _translate_event(self, event: ProgressEvent) -> RefuelProgressEvent | None:
         """Translate DSL progress events to RefuelProgressEvent types.
@@ -246,9 +252,45 @@ class RefuelWorkflow(WorkflowDSLMixin):
             total_cost_usd=total_cost_usd,
         )
 
+    async def _get_repo_name(self) -> str | None:
+        """Extract repository name (owner/repo) from git remote URL.
+
+        Returns:
+            Repository name in 'owner/repo' format, or None if not found.
+        """
+        if self._git_repo is None:
+            return None
+
+        try:
+            remote_url = await self._git_repo.get_remote_url()
+            if remote_url is None:
+                return None
+
+            # Parse git remote URL to extract owner/repo
+            # Handles both SSH and HTTPS formats:
+            # - git@github.com:owner/repo.git
+            # - https://github.com/owner/repo.git
+            import re
+
+            # SSH format: git@github.com:owner/repo.git
+            ssh_match = re.search(r"git@[^:]+:([^/]+/[^/]+?)(?:\.git)?$", remote_url)
+            if ssh_match:
+                return ssh_match.group(1)
+
+            # HTTPS format: https://github.com/owner/repo.git
+            https_pattern = r"https?://[^/]+/([^/]+/[^/]+?)(?:\.git)?$"
+            https_match = re.search(https_pattern, remote_url)
+            if https_match:
+                return https_match.group(1)
+
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get repository name: {e}")
+            return None
+
     async def _discover_issues_with_retry(
         self, inputs: RefuelInputs, max_retries: int = 3
-    ) -> list[RunnerGitHubIssue]:
+    ) -> list[GitHubIssue]:
         """Discover issues with exponential backoff retry on network failures.
 
         Args:
@@ -256,21 +298,44 @@ class RefuelWorkflow(WorkflowDSLMixin):
             max_retries: Maximum retry attempts (default: 3).
 
         Returns:
-            List of discovered issues.
+            List of discovered GitHubIssue workflow models.
 
         Raises:
             Exception: If all retries fail.
         """
-        if self._github_runner is None:
+        if self._github_client is None:
             return []
+
+        # Get repo name if not cached
+        if self._repo_name is None:
+            self._repo_name = await self._get_repo_name()
+            if self._repo_name is None:
+                logger.error("Could not determine repository name from git remote")
+                return []
 
         last_error = None
         for attempt in range(max_retries):
             try:
-                issues = await self._github_runner.list_issues(
-                    label=inputs.label,
+                # GitHubClient returns PyGithub Issue objects
+                labels = [inputs.label] if inputs.label else None
+                py_issues = await self._github_client.list_issues(
+                    repo_name=self._repo_name,
+                    state="open",
+                    labels=labels,
                     limit=inputs.limit,
                 )
+                # Convert PyGithub Issue objects to workflow GitHubIssue models
+                issues: list[GitHubIssue] = []
+                for py_issue in py_issues:
+                    issue = GitHubIssue(
+                        number=py_issue.number,
+                        title=py_issue.title,
+                        body=py_issue.body,
+                        labels=[label.name for label in py_issue.labels],
+                        assignee=py_issue.assignee.login if py_issue.assignee else None,
+                        url=py_issue.html_url,
+                    )
+                    issues.append(issue)
                 return issues
             except Exception as e:
                 last_error = e
@@ -343,27 +408,28 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 agent_usage=empty_usage,
             )
 
-        if self._git_runner is None:
+        if self._git_repo is None:
             duration_ms = int((time.time() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
                 branch=None,
                 pr_url=None,
-                error="Git runner not configured",
+                error="Git repository not configured",
                 duration_ms=duration_ms,
                 agent_usage=empty_usage,
             )
 
-        git_result = await self._git_runner.create_branch(branch_name)
-        if not git_result.success:
+        try:
+            await self._git_repo.create_branch(branch_name, checkout=True)
+        except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
                 branch=branch_name,
                 pr_url=None,
-                error=f"Failed to create branch: {git_result.error}",
+                error=f"Failed to create branch: {e}",
                 duration_ms=duration_ms,
                 agent_usage=empty_usage,
             )
@@ -417,10 +483,10 @@ class RefuelWorkflow(WorkflowDSLMixin):
         commit_message = f"fix: resolve issue #{issue.number}"
         try:
             # Stage changes
-            await self._git_runner.add(add_all=True)
+            await self._git_repo.add_all()
 
             # Get diff for commit message generation
-            diff_output = await self._git_runner.diff(staged=True)
+            diff_output = await self._git_repo.diff(staged=True)
 
             # Generate commit message if generator available
             if self._commit_generator is not None and diff_output:
@@ -440,18 +506,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     logger.warning(f"Commit message generation failed: {e}")
 
             # Create commit
-            commit_result = await self._git_runner.commit(commit_message)
-            if not commit_result.success:
-                duration_ms = int((time.time() - start_time) * 1000)
-                return IssueProcessingResult(
-                    issue=issue,
-                    status=IssueStatus.FAILED,
-                    branch=branch_name,
-                    pr_url=None,
-                    error=f"Commit failed: {commit_result.error}",
-                    duration_ms=duration_ms,
-                    agent_usage=agent_usage,
-                )
+            await self._git_repo.commit(commit_message)
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             return IssueProcessingResult(
@@ -467,34 +522,32 @@ class RefuelWorkflow(WorkflowDSLMixin):
         # Step 2f: Push and PR Creation
         pr_url = None
         try:
-            # Push branch
-            push_result = await self._git_runner.push(branch_name)
-            if not push_result.success:
-                duration_ms = int((time.time() - start_time) * 1000)
-                return IssueProcessingResult(
-                    issue=issue,
-                    status=IssueStatus.FAILED,
-                    branch=branch_name,
-                    pr_url=None,
-                    error=f"Push failed: {push_result.error}",
-                    duration_ms=duration_ms,
-                    agent_usage=agent_usage,
-                )
+            # Push branch with set_upstream for new branches
+            await self._git_repo.push(branch=branch_name, set_upstream=True)
 
             # Create PR
-            if self._github_runner is not None:
+            if self._github_client is not None:
                 pr_body = f"## Summary\n\nFixes #{issue.number}\n\n{issue.title}"
                 if self._config.link_pr_to_issue:
                     pr_body += f"\n\nCloses #{issue.number}"
 
-                pr_result = await self._github_runner.create_pr(
-                    title=f"fix: {issue.title}",
-                    body=pr_body,
-                    base="main",
-                    draft=not validation_passed,  # Draft if validation failed
-                )
-                # Handle mock (string) and real (PullRequest) cases
-                pr_url = pr_result if isinstance(pr_result, str) else pr_result.url
+                # Get repo name (should be cached from discover_issues)
+                if self._repo_name is None:
+                    self._repo_name = await self._get_repo_name()
+
+                if self._repo_name is not None:
+                    pr_result = await self._github_client.create_pr(
+                        repo_name=self._repo_name,
+                        title=f"fix: {issue.title}",
+                        body=pr_body,
+                        head=branch_name,
+                        base="main",
+                        draft=not validation_passed,  # Draft if validation failed
+                    )
+                    # PR result is a PullRequest object with html_url attribute
+                    pr_url = pr_result.html_url
+                else:
+                    logger.error("Could not determine repository name for PR creation")
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             return IssueProcessingResult(
@@ -502,7 +555,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 status=IssueStatus.FAILED,
                 branch=branch_name,
                 pr_url=None,
-                error=f"PR creation failed: {e}",
+                error=f"Push/PR creation failed: {e}",
                 duration_ms=duration_ms,
                 agent_usage=agent_usage,
             )
@@ -644,19 +697,13 @@ class RefuelWorkflow(WorkflowDSLMixin):
             # In dry-run mode, still try to discover issues (read-only operation)
             # This allows previewing what would be processed without making changes
             try:
-                runner_issues = await self._discover_issues_with_retry(inputs)
-                issues = [
-                    convert_runner_issue_to_workflow_issue(ri) for ri in runner_issues
-                ]
+                issues = await self._discover_issues_with_retry(inputs)
             except Exception as e:
                 # If discovery fails in dry-run, continue with empty list
                 logger.warning(f"[DRY-RUN] Issue discovery failed: {e}")
                 issues = []
         else:
-            runner_issues = await self._discover_issues_with_retry(inputs)
-            issues = [
-                convert_runner_issue_to_workflow_issue(ri) for ri in runner_issues
-            ]
+            issues = await self._discover_issues_with_retry(inputs)
 
         # Emit RefuelStarted
         yield RefuelStarted(inputs=inputs, issues_found=len(issues))

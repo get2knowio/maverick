@@ -14,7 +14,7 @@ from maverick.utils.files import _read_conventions, _read_file_safely
 from maverick.utils.secrets import detect_secrets
 
 if TYPE_CHECKING:
-    from maverick.utils.git_operations import GitOperations
+    from maverick.git import GitRepository
 
 __all__ = [
     "build_implementation_context",
@@ -31,7 +31,7 @@ DEFAULT_RECENT_COMMITS = 10
 
 def build_implementation_context(
     task_file: Path,
-    git: GitOperations,
+    git: GitRepository,
     *,
     conventions_path: Path | None = None,
 ) -> ContextDict:
@@ -63,7 +63,7 @@ def build_implementation_context(
         File I/O errors return empty content with appropriate metadata.
 
     Example:
-        >>> git = GitOperations()
+        >>> git = GitRepository()
         >>> ctx = build_implementation_context(Path("tasks.md"), git)
         >>> ctx.keys()
         dict_keys(['tasks', 'conventions', 'branch', 'recent_commits', '_metadata'])
@@ -113,7 +113,7 @@ def build_implementation_context(
         for commit in commits:
             recent_commits.append(
                 {
-                    "hash": commit.short_hash,
+                    "hash": commit.short_sha,
                     "message": commit.message,
                     "author": commit.author,
                     "date": commit.date,

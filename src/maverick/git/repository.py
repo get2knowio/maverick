@@ -863,6 +863,41 @@ class GitRepository:
         """
         return Path(self._repo.working_dir)
 
+    # -------------------------------------------------------------------------
+    # Commit Message Retrieval
+    # -------------------------------------------------------------------------
+
+    def commit_messages(self, limit: int = 10) -> list[str]:
+        """Get recent commit messages (subject lines only).
+
+        Args:
+            limit: Maximum number of commits to retrieve.
+
+        Returns:
+            List of commit subject lines.
+        """
+        output = self._repo.git.log(f"-{limit}", "--pretty=format:%s")
+        if not output:
+            return []
+        return [line.strip() for line in output.split("\n") if line.strip()]
+
+    def commit_messages_since(self, ref: str) -> list[str]:
+        """Get commit messages (subject lines) since a reference.
+
+        Args:
+            ref: Git reference to compare against (e.g., "main").
+
+        Returns:
+            List of commit subject lines on current branch since ref.
+        """
+        try:
+            output = self._repo.git.log(f"{ref}..HEAD", "--pretty=format:%s")
+            if not output:
+                return []
+            return [line.strip() for line in output.split("\n") if line.strip()]
+        except GitCommandError:
+            return []
+
 
 # =============================================================================
 # Async Wrapper
@@ -1027,6 +1062,14 @@ class AsyncGitRepository:
     async def get_repo_root(self) -> Path:
         """Get repository root directory."""
         return await asyncio.to_thread(self._sync.get_repo_root)
+
+    async def commit_messages(self, limit: int = 10) -> list[str]:
+        """Get recent commit messages (subject lines only)."""
+        return await asyncio.to_thread(self._sync.commit_messages, limit)
+
+    async def commit_messages_since(self, ref: str) -> list[str]:
+        """Get commit messages (subject lines) since a reference."""
+        return await asyncio.to_thread(self._sync.commit_messages_since, ref)
 
 
 # =============================================================================

@@ -70,21 +70,12 @@ class TestFlyWorkflowDryRun:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
         # Setup mocks
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test-branch", error=None, duration_ms=50
-            )
-        )
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test-branch")
         mock_git.diff = AsyncMock(return_value="test diff")
-        mock_git.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit", error=None, duration_ms=50
-            )
-        )
+        mock_git.commit = AsyncMock(return_value="abc1234")
         mock_git.add = AsyncMock(return_value=None)
 
         usage = AgentUsage(
@@ -318,21 +309,12 @@ class TestFlyWorkflowDryRun:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
         # Setup mocks for real run
         mock_git_real = MagicMock()
-        mock_git_real.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        mock_git_real.create_branch_with_fallback = AsyncMock(return_value="test")
         mock_git_real.diff = AsyncMock(return_value="diff")
-        mock_git_real.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit", error=None, duration_ms=50
-            )
-        )
+        mock_git_real.commit = AsyncMock(return_value="abc1234")
         mock_git_real.add = AsyncMock()
 
         usage = AgentUsage(

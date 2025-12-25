@@ -16,7 +16,6 @@ from maverick.models.validation import (
     StageResult,
     StageStatus,
 )
-from maverick.runners.git import GitResult
 from maverick.runners.preflight import PreflightResult, ValidationResult
 from maverick.workflows.fly import (
     FlyConfig,
@@ -73,7 +72,10 @@ def create_mock_git_runner(
     commit_success: bool = True,
     push_success: bool = True,
 ) -> MagicMock:
-    """Create a mock GitRunner with configurable behavior.
+    """Create a mock AsyncGitRepository with configurable behavior.
+
+    The mock matches the new AsyncGitRepository API which returns values
+    directly and raises exceptions on failure.
 
     Args:
         create_branch_success: Whether branch creation succeeds.
@@ -81,43 +83,53 @@ def create_mock_git_runner(
         push_success: Whether push succeeds.
 
     Returns:
-        Configured mock GitRunner.
+        Configured mock AsyncGitRepository.
     """
+    from maverick.exceptions import GitError
+
     mock_git = MagicMock()
-    mock_git.create_branch_with_fallback = AsyncMock(
-        return_value=GitResult(
-            success=create_branch_success,
-            output="test-branch" if create_branch_success else "",
-            error=None if create_branch_success else "Failed to create branch",
-            duration_ms=50,
+
+    # AsyncGitRepository.create_branch_with_fallback returns the branch name
+    if create_branch_success:
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test-branch")
+    else:
+        mock_git.create_branch_with_fallback = AsyncMock(
+            side_effect=GitError("Failed to create branch")
         )
-    )
-    mock_git.create_branch = AsyncMock(
-        return_value=GitResult(
-            success=create_branch_success,
-            output="test-branch" if create_branch_success else "",
-            error=None if create_branch_success else "Failed to create branch",
-            duration_ms=50,
+
+    # create_branch doesn't return anything (raises on failure)
+    if create_branch_success:
+        mock_git.create_branch = AsyncMock(return_value=None)
+    else:
+        mock_git.create_branch = AsyncMock(
+            side_effect=GitError("Failed to create branch")
         )
-    )
+
+    # add_all doesn't return anything
+    mock_git.add_all = AsyncMock(return_value=None)
+    # Legacy add method (for backward compatibility)
     mock_git.add = AsyncMock(return_value=None)
+
+    # diff returns string
     mock_git.diff = AsyncMock(return_value="diff --git a/file.py b/file.py\n+new line")
-    mock_git.commit = AsyncMock(
-        return_value=GitResult(
-            success=commit_success,
-            output="abc123" if commit_success else "",
-            error=None if commit_success else "Commit failed",
-            duration_ms=100,
-        )
+
+    # commit returns the commit SHA
+    if commit_success:
+        mock_git.commit = AsyncMock(return_value="abc123")
+    else:
+        mock_git.commit = AsyncMock(side_effect=GitError("Commit failed"))
+
+    # push doesn't return anything (raises on failure)
+    if push_success:
+        mock_git.push = AsyncMock(return_value=None)
+    else:
+        mock_git.push = AsyncMock(side_effect=GitError("Push failed"))
+
+    # get_remote_url for _get_repo_name helper
+    mock_git.get_remote_url = AsyncMock(
+        return_value="https://github.com/owner/repo.git"
     )
-    mock_git.push = AsyncMock(
-        return_value=GitResult(
-            success=push_success,
-            output="pushed" if push_success else "",
-            error=None if push_success else "Push failed",
-            duration_ms=200,
-        )
-    )
+
     return mock_git
 
 
@@ -173,23 +185,30 @@ def create_mock_validation_runner(success: bool = True) -> MagicMock:
 
 
 def create_mock_github_runner(create_pr_success: bool = True) -> MagicMock:
-    """Create a mock GitHubCLIRunner with configurable behavior.
+    """Create a mock GitHubClient with configurable behavior.
+
+    The mock matches the new GitHubClient API which returns PyGithub PullRequest
+    objects and raises GitHubError on failure.
 
     Args:
         create_pr_success: Whether PR creation succeeds.
 
     Returns:
-        Configured mock GitHubCLIRunner.
+        Configured mock GitHubClient.
     """
+    from maverick.exceptions import GitHubError
+
     mock_github = MagicMock()
 
     if create_pr_success:
-        mock_github.create_pr = AsyncMock(
-            return_value="https://github.com/owner/repo/pull/123"
-        )
+        # Create a mock PullRequest object with html_url
+        mock_pr = MagicMock()
+        mock_pr.html_url = "https://github.com/owner/repo/pull/123"
+        mock_pr.number = 123
+        mock_github.create_pr = AsyncMock(return_value=mock_pr)
     else:
         mock_github.create_pr = AsyncMock(
-            side_effect=RuntimeError("Failed to create PR")
+            side_effect=GitHubError("Failed to create PR")
         )
 
     return mock_github

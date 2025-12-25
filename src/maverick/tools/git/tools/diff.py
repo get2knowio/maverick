@@ -11,8 +11,8 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from maverick.runners.git import GitRunner
-from maverick.tools.git.constants import DEFAULT_TIMEOUT
+from maverick.exceptions import NotARepositoryError
+from maverick.git import AsyncGitRepository
 from maverick.tools.git.responses import error_response, success_response
 
 logger = logging.getLogger(__name__)
@@ -29,10 +29,10 @@ def create_git_diff_stats_tool(cwd: Path | None = None) -> Any:
     """
     _cwd = cwd
 
-    def _get_runner() -> GitRunner:
-        """Get GitRunner with current working directory."""
+    def _get_repo() -> AsyncGitRepository:
+        """Get AsyncGitRepository with current working directory."""
         working_dir = _cwd or Path.cwd()
-        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+        return AsyncGitRepository(working_dir)
 
     @tool(
         "git_diff_stats",
@@ -57,15 +57,10 @@ def create_git_diff_stats_tool(cwd: Path | None = None) -> Any:
         logger.info("git_diff_stats: Getting diff statistics")
 
         try:
-            runner = _get_runner()
+            repo = _get_repo()
 
-            # Verify prerequisites using GitRunner
-            if not await runner.is_inside_repo():
-                logger.error("git_diff_stats: Not inside a git repository")
-                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
-
-            # Get diff stats using GitRunner
-            stats = await runner.get_diff_stats()
+            # Get diff stats using AsyncGitRepository
+            stats = await repo.diff_stats()
 
             logger.info(
                 "git_diff_stats: %d files, %d insertions, %d deletions",
@@ -82,6 +77,9 @@ def create_git_diff_stats_tool(cwd: Path | None = None) -> Any:
                 }
             )
 
+        except NotARepositoryError:
+            logger.error("git_diff_stats: Not inside a git repository")
+            return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
         except Exception as e:
             logger.error("git_diff_stats: Unexpected error: %s", e)
             return error_response(str(e), "GIT_ERROR")

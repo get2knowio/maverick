@@ -336,14 +336,25 @@ class TestDetectFileChanges:
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
         """Test returns list of FileChange objects."""
-        with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.return_value = {
+        from maverick.git import DiffStats
+
+        mock_stats = DiffStats(
+            files_changed=2,
+            insertions=30,
+            deletions=2,
+            file_list=("src/file.py", "tests/test_file.py"),
+            per_file={
                 "src/file.py": (10, 2),
                 "tests/test_file.py": (20, 0),
-            }
+            },
+        )
 
+        mock_repo = MagicMock()
+        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
+
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             changes = await agent._detect_file_changes(tmp_path)
 
             assert isinstance(changes, list)
@@ -355,13 +366,22 @@ class TestDetectFileChanges:
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
         """Test correctly parses file stats into FileChange objects."""
-        with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.return_value = {
-                "src/module.py": (15, 3),
-            }
+        from maverick.git import DiffStats
 
+        mock_stats = DiffStats(
+            files_changed=1,
+            insertions=15,
+            deletions=3,
+            file_list=("src/module.py",),
+            per_file={"src/module.py": (15, 3)},
+        )
+
+        mock_repo = MagicMock()
+        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
+
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             changes = await agent._detect_file_changes(tmp_path)
 
             assert len(changes) == 1
@@ -376,10 +396,9 @@ class TestDetectFileChanges:
     ) -> None:
         """Test returns empty list on git errors."""
         with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.side_effect = Exception("Git command failed")
-
+            "maverick.git.AsyncGitRepository",
+            side_effect=Exception("Git command failed"),
+        ):
             changes = await agent._detect_file_changes(tmp_path)
 
             assert changes == []
@@ -439,21 +458,17 @@ class TestCreateCommit:
             cwd=tmp_path,
         )
 
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
-            ) as mock_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_commit,
-        ):
-            mock_changes.return_value = True
-            mock_commit.return_value = "abc123def456"
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123def456")
 
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             sha = await agent._create_commit(sample_task, context)
 
             assert sha == "abc123def456"
-            mock_commit.assert_called_once()
+            mock_repo.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_commit_returns_none_when_no_changes(
@@ -466,11 +481,12 @@ class TestCreateCommit:
             cwd=tmp_path,
         )
 
-        with patch(
-            "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
-        ) as mock_changes:
-            mock_changes.return_value = False
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=False)
 
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             sha = await agent._create_commit(sample_task, context)
 
             assert sha is None
@@ -491,21 +507,17 @@ class TestCreateCommit:
             cwd=tmp_path,
         )
 
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
-            ) as mock_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_commit,
-        ):
-            mock_changes.return_value = True
-            mock_commit.return_value = "abc123"
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123")
 
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             await agent._create_commit(task, context)
 
             # Check the commit message contains conventional format
-            call_args = mock_commit.call_args[0][0]
+            call_args = mock_repo.commit.call_args[0][0]
             assert "feat" in call_args or "chore" in call_args
             assert "t042" in call_args.lower()
 
@@ -521,9 +533,9 @@ class TestCreateCommit:
         )
 
         with patch(
-            "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
-        ) as mock_changes:
-            mock_changes.side_effect = Exception("Git error")
+            "maverick.git.AsyncGitRepository",
+            side_effect=Exception("Git error"),
+        ):
 
             sha = await agent._create_commit(sample_task, context)
 
@@ -1326,21 +1338,17 @@ class TestPhaseLevelExecution:
         # Create minimal task file
         context.task_file.write_text("## Phase 1: Setup\n- [ ] T001 Task")
 
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes", new_callable=AsyncMock
-            ) as mock_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_commit,
-        ):
-            mock_changes.return_value = True
-            mock_commit.return_value = "abc123"
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123")
 
+        with patch(
+            "maverick.git.AsyncGitRepository", return_value=mock_repo
+        ):
             await agent._create_phase_commit(context)
 
             # Check commit message format
-            call_args = mock_commit.call_args[0][0]
+            call_args = mock_repo.commit.call_args[0][0]
             assert "feat(" in call_args
             assert "complete phase tasks" in call_args
 

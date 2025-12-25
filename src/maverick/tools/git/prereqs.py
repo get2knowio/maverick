@@ -5,12 +5,12 @@ This module provides functions to verify that git is installed and available.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
-from maverick.exceptions import GitToolsError
-from maverick.runners.git import GitRunner
-from maverick.tools.git.constants import DEFAULT_TIMEOUT
+from maverick.exceptions import GitNotFoundError, GitToolsError, NotARepositoryError
+from maverick.git import GitRepository
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ async def verify_git_prerequisites(cwd: Path | None = None) -> None:
     using git tools. This is optional - tools will verify prerequisites
     lazily on first use if not called explicitly.
 
-    Uses GitRunner internally for the actual git checks.
+    Uses GitRepository internally for the actual git checks.
 
     Args:
         cwd: Working directory to check. Defaults to current directory.
@@ -46,19 +46,17 @@ async def verify_git_prerequisites(cwd: Path | None = None) -> None:
         server = create_git_tools_server()
         ```
     """
-    runner = GitRunner(cwd=cwd, timeout=DEFAULT_TIMEOUT)
-
     try:
-        # Check if inside a git repo (this also validates git is installed)
-        in_repo = await runner.is_inside_repo()
-    except FileNotFoundError:
+        # Creating GitRepository validates git is installed and we're in a repo
+        # Use asyncio.to_thread since GitRepository constructor is sync
+        await asyncio.to_thread(GitRepository, cwd)
+    except GitNotFoundError:
         raise GitToolsError(
             "git is not installed or not available on PATH",
             check_failed="git_installed",
         ) from None
-
-    if not in_repo:
+    except NotARepositoryError:
         raise GitToolsError(
             "not inside a git repository",
             check_failed="in_git_repo",
-        )
+        ) from None

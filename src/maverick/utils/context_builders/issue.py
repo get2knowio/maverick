@@ -15,8 +15,8 @@ from maverick.utils.paths import extract_file_paths
 from maverick.utils.secrets import detect_secrets
 
 if TYPE_CHECKING:
+    from maverick.git import GitRepository
     from maverick.runners.models import GitHubIssue
-    from maverick.utils.git_operations import GitOperations
 
 __all__ = [
     "build_issue_context",
@@ -33,7 +33,7 @@ DEFAULT_MAX_RELATED_FILES = 10
 
 def build_issue_context(
     issue: GitHubIssue,
-    git: GitOperations,
+    git: GitRepository,
     *,
     max_related_files: int = DEFAULT_MAX_RELATED_FILES,
 ) -> ContextDict:
@@ -122,7 +122,7 @@ def build_issue_context(
         for commit in commits:
             recent_changes.append(
                 {
-                    "hash": commit.short_hash,
+                    "hash": commit.short_sha,
                     "message": commit.message,
                     "author": commit.author,
                     "date": commit.date,

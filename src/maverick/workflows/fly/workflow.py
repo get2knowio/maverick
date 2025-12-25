@@ -54,10 +54,10 @@ if TYPE_CHECKING:
     from maverick.agents.base import MaverickAgent
     from maverick.agents.generators.commit_message import CommitMessageGenerator
     from maverick.agents.generators.pr_description import PRDescriptionGenerator
+    from maverick.git import AsyncGitRepository
     from maverick.runners.coderabbit import CodeRabbitRunner
-    from maverick.runners.git import GitRunner
-    from maverick.runners.github import GitHubCLIRunner
     from maverick.runners.validation import ValidationRunner
+    from maverick.utils.github_client import GitHubClient
 
 from maverick.logging import get_logger
 
@@ -104,37 +104,43 @@ class FlyWorkflow(WorkflowDSLMixin):
         self,
         config: FlyConfig | None = None,
         registry: ComponentRegistry | None = None,
-        git_runner: GitRunner | None = None,
+        git_repo: AsyncGitRepository | None = None,
         validation_runner: ValidationRunner | None = None,
-        github_runner: GitHubCLIRunner | None = None,
+        github_client: GitHubClient | None = None,
         coderabbit_runner: CodeRabbitRunner | None = None,
         implementer_agent: MaverickAgent[Any, Any] | None = None,
         code_reviewer_agent: MaverickAgent[Any, Any] | None = None,
         commit_generator: CommitMessageGenerator | None = None,
         pr_generator: PRDescriptionGenerator | None = None,
+        # Legacy parameter names for backward compatibility
+        git_runner: AsyncGitRepository | None = None,
+        github_runner: GitHubClient | None = None,
     ) -> None:
         """Initialize the fly workflow.
 
         Args:
             config: Optional workflow configuration. Uses defaults if None.
             registry: Component registry for DSL execution.
-            git_runner: GitRunner instance for git operations.
+            git_repo: AsyncGitRepository instance for git operations.
             validation_runner: ValidationRunner for validation stages.
-            github_runner: GitHubCLIRunner for PR creation.
+            github_client: GitHubClient for PR creation.
             coderabbit_runner: CodeRabbitRunner for code review (optional).
             implementer_agent: ImplementerAgent for code implementation.
             code_reviewer_agent: CodeReviewerAgent for review interpretation.
             commit_generator: CommitMessageGenerator for commit messages.
             pr_generator: PRDescriptionGenerator for PR descriptions.
+            git_runner: Deprecated alias for git_repo (backward compatibility).
+            github_runner: Deprecated alias for github_client (backward compatibility).
         """
         # Initialize the mixin first
         super().__init__()
 
         self._config: FlyConfig = config or FlyConfig()
         self._registry = registry or ComponentRegistry()
-        self._git_runner = git_runner
+        # Support both new names and legacy names
+        self._git_repo = git_repo or git_runner
         self._validation_runner = validation_runner
-        self._github_runner = github_runner
+        self._github_client = github_client or github_runner
         self._coderabbit_runner = coderabbit_runner
         self._implementer_agent = implementer_agent
         self._code_reviewer_agent = code_reviewer_agent
@@ -378,36 +384,34 @@ class FlyWorkflow(WorkflowDSLMixin):
             yield FlyStageStarted(stage=WorkflowStage.INIT)
             self._state.stage = WorkflowStage.INIT
 
-            # Create branch via GitRunner
+            # Create branch via AsyncGitRepository
             if inputs.dry_run:
                 logger.info(f"[DRY-RUN] Would create branch: {inputs.branch_name}")
                 actual_branch = inputs.branch_name
                 self._state.branch = actual_branch
             else:
-                # Initialize GitRunner with error handling (FR-001)
-                if self._git_runner is None:
+                # Initialize AsyncGitRepository with error handling (FR-001)
+                if self._git_repo is None:
                     try:
-                        from maverick.runners.git import GitRunner
+                        from maverick.git import AsyncGitRepository
 
-                        self._git_runner = GitRunner()
+                        self._git_repo = AsyncGitRepository()
                     except Exception as e:
-                        error_msg = f"Failed to initialize GitRunner: {e}"
+                        error_msg = f"Failed to initialize AsyncGitRepository: {e}"
                         self._state.errors.append(error_msg)
                         yield FlyWorkflowFailed(error=error_msg, state=self._state)
                         return
 
-                branch_result = await self._git_runner.create_branch_with_fallback(
-                    inputs.branch_name, "HEAD"
-                )
-
-                if not branch_result.success:
-                    error_msg = f"Failed to create branch: {branch_result.error}"
+                try:
+                    actual_branch = await self._git_repo.create_branch_with_fallback(
+                        inputs.branch_name, "HEAD"
+                    )
+                except Exception as e:
+                    error_msg = f"Failed to create branch: {e}"
                     self._state.errors.append(error_msg)
                     yield FlyWorkflowFailed(error=error_msg, state=self._state)
                     return
 
-                # Update actual branch name (in case fallback was used)
-                actual_branch = branch_result.output
                 self._state.branch = actual_branch
 
             # Parse task file (FR-002)
@@ -611,10 +615,10 @@ class FlyWorkflow(WorkflowDSLMixin):
                 logger.info("[DRY-RUN] Would generate commit message")
                 logger.info(f"[DRY-RUN] Would commit: {commit_message}")
             else:
-                if self._git_runner is not None:
+                if self._git_repo is not None:
                     try:
-                        await self._git_runner.add(add_all=True)
-                        diff_output = await self._git_runner.diff(staged=True)
+                        await self._git_repo.add_all()
+                        diff_output = await self._git_repo.diff(staged=True)
                     except Exception as e:
                         logger.warning(f"Failed to get diff: {e}")
 
@@ -635,11 +639,9 @@ class FlyWorkflow(WorkflowDSLMixin):
                         logger.warning(f"Commit message generation failed: {e}")
 
                 # Create commit
-                if self._git_runner is not None:
+                if self._git_repo is not None:
                     try:
-                        commit_result = await self._git_runner.commit(commit_message)
-                        if not commit_result.success:
-                            logger.warning(f"Commit failed: {commit_result.error}")
+                        await self._git_repo.commit(commit_message)
                     except Exception as e:
                         logger.warning(f"Failed to create commit: {e}")
 
@@ -696,21 +698,30 @@ class FlyWorkflow(WorkflowDSLMixin):
                         logger.warning(f"PR description generation failed: {e}")
 
                 # Create PR
-                if self._github_runner is not None:
+                if self._github_client is not None:
                     try:
                         is_draft = inputs.draft_pr or not validation_passed
-                        pr_result = await self._github_runner.create_pr(
-                            title=f"feat: {actual_branch}",
-                            body=pr_body,
-                            base=inputs.base_branch,
-                            draft=is_draft,
-                        )
-                        # Handle mock (string) and real (PullRequest) cases
-                        if isinstance(pr_result, str):
-                            pr_url = pr_result
+
+                        # Get repo name from git remote URL
+                        repo_name = await self._get_repo_name()
+                        if repo_name is None:
+                            error_msg = (
+                                "Could not determine repository name from git remote"
+                            )
+                            self._state.errors.append(error_msg)
+                            logger.error(error_msg)
                         else:
-                            pr_url = pr_result.url
-                        self._state.pr_url = pr_url
+                            pr_result = await self._github_client.create_pr(
+                                repo_name=repo_name,
+                                title=f"feat: {actual_branch}",
+                                body=pr_body,
+                                head=actual_branch,
+                                base=inputs.base_branch,
+                                draft=is_draft,
+                            )
+                            # PR result is a PullRequest object with html_url attribute
+                            pr_url = pr_result.html_url
+                            self._state.pr_url = pr_url
                     except Exception as e:
                         error_msg = f"PR creation failed: {e}"
                         self._state.errors.append(error_msg)
@@ -744,6 +755,42 @@ class FlyWorkflow(WorkflowDSLMixin):
             self._state.completed_at = datetime.now()
             logger.exception(error_msg)
             yield FlyWorkflowFailed(error=error_msg, state=self._state)
+
+    async def _get_repo_name(self) -> str | None:
+        """Extract repository name (owner/repo) from git remote URL.
+
+        Returns:
+            Repository name in 'owner/repo' format, or None if not found.
+        """
+        if self._git_repo is None:
+            return None
+
+        try:
+            remote_url = await self._git_repo.get_remote_url()
+            if remote_url is None:
+                return None
+
+            # Parse git remote URL to extract owner/repo
+            # Handles both SSH and HTTPS formats:
+            # - git@github.com:owner/repo.git
+            # - https://github.com/owner/repo.git
+            import re
+
+            # SSH format: git@github.com:owner/repo.git
+            ssh_match = re.search(r"git@[^:]+:([^/]+/[^/]+?)(?:\.git)?$", remote_url)
+            if ssh_match:
+                return ssh_match.group(1)
+
+            # HTTPS format: https://github.com/owner/repo.git
+            https_pattern = r"https?://[^/]+/([^/]+/[^/]+?)(?:\.git)?$"
+            https_match = re.search(https_pattern, remote_url)
+            if https_match:
+                return https_match.group(1)
+
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get repository name: {e}")
+            return None
 
     def cancel(self) -> None:
         """Request workflow cancellation."""

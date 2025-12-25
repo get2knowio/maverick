@@ -335,18 +335,10 @@ class TestFlyWorkflowExecution:
         """Test INIT stage creates branch via GitRunner without AI (T014)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.git import GitResult
-
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True,
-                output="feature-test",
-                error=None,
-                duration_ms=50,
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="feature-test")
 
         # Create task file
         task_file = tmp_path / "tasks.md"
@@ -385,15 +377,11 @@ class TestFlyWorkflowExecution:
         from unittest.mock import AsyncMock, MagicMock
 
         from maverick.agents.result import AgentResult, AgentUsage
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test-branch", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test-branch")
 
         mock_agent = MagicMock()
         usage = AgentUsage(
@@ -446,15 +434,11 @@ class TestFlyWorkflowExecution:
             StageStatus,
             ValidationWorkflowResult,
         )
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
 
         mock_agent = MagicMock()
         usage = AgentUsage(
@@ -518,15 +502,11 @@ class TestFlyWorkflowExecution:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
 
         usage = AgentUsage(
             input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
@@ -585,20 +565,18 @@ class TestFlyWorkflowExecution:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
         mock_git.diff = AsyncMock(return_value="test diff")
-        mock_git.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit created", error=None, duration_ms=50
-            )
+        mock_git.add_all = AsyncMock(return_value=None)
+        # commit returns the SHA
+        mock_git.commit = AsyncMock(return_value="abc123")
+        # get_remote_url for repo name detection
+        mock_git.get_remote_url = AsyncMock(
+            return_value="https://github.com/test/repo.git"
         )
 
         usage = AgentUsage(
@@ -628,8 +606,12 @@ class TestFlyWorkflowExecution:
         mock_pr_gen = MagicMock()
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest PR")
 
+        # Setup mock GitHubClient (returns PullRequest-like object)
+        mock_pr = MagicMock()
+        mock_pr.html_url = "https://github.com/test/pr/1"
+        mock_pr.number = 1
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(return_value=mock_pr)
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test")
@@ -664,21 +646,14 @@ class TestFlyWorkflowExecution:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
-        # Setup minimal mocks
+        # Setup minimal mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
         mock_git.diff = AsyncMock(return_value="diff")
-        mock_git.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit", error=None, duration_ms=50
-            )
-        )
+        # commit returns the SHA
+        mock_git.commit = AsyncMock(return_value="abc123")
 
         usage = AgentUsage(
             input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
@@ -757,21 +732,14 @@ class TestFlyWorkflowExecution:
             StageStatus,
             ValidationWorkflowResult,
         )
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
         mock_git.diff = AsyncMock(return_value="diff")
-        mock_git.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit", error=None, duration_ms=50
-            )
-        )
+        # commit returns the SHA
+        mock_git.commit = AsyncMock(return_value="abc123")
 
         usage = AgentUsage(
             input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
@@ -1163,15 +1131,10 @@ class TestProgressEventEmission:
         """Test FlyWorkflowStarted event emitted at workflow start (T067)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.git import GitResult
-
-        # Setup minimal mocks
+        # Setup minimal mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test-branch", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test-branch")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test task")
@@ -1211,21 +1174,14 @@ class TestProgressEventEmission:
 
         from maverick.agents.result import AgentResult, AgentUsage
         from maverick.models.validation import ValidationWorkflowResult
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
         mock_git.diff = AsyncMock(return_value="diff")
-        mock_git.commit = AsyncMock(
-            return_value=GitResult(
-                success=True, output="commit", error=None, duration_ms=50
-            )
-        )
+        # commit returns the SHA
+        mock_git.commit = AsyncMock(return_value="abc123")
 
         usage = AgentUsage(
             input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000
@@ -1326,15 +1282,11 @@ class TestProgressEventEmission:
             StageResult,
             StageStatus,
         )
-        from maverick.runners.git import GitResult
 
-        # Setup mocks
+        # Setup mocks (using new AsyncGitRepository API)
         mock_git = MagicMock()
-        mock_git.create_branch_with_fallback = AsyncMock(
-            return_value=GitResult(
-                success=True, output="test", error=None, duration_ms=50
-            )
-        )
+        # create_branch_with_fallback returns the branch name directly
+        mock_git.create_branch_with_fallback = AsyncMock(return_value="test")
 
         usage = AgentUsage(
             input_tokens=100, output_tokens=50, total_cost_usd=0.01, duration_ms=1000

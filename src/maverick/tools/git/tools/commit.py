@@ -11,8 +11,9 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from maverick.runners.git import GitRunner
-from maverick.tools.git.constants import COMMIT_TYPES, DEFAULT_TIMEOUT
+from maverick.exceptions import NotARepositoryError, NothingToCommitError
+from maverick.git import AsyncGitRepository
+from maverick.tools.git.constants import COMMIT_TYPES
 from maverick.tools.git.formatting import format_commit_message
 from maverick.tools.git.responses import error_response, success_response
 
@@ -30,10 +31,10 @@ def create_git_commit_tool(cwd: Path | None = None) -> Any:
     """
     _cwd = cwd
 
-    def _get_runner() -> GitRunner:
-        """Get GitRunner with current working directory."""
+    def _get_repo() -> AsyncGitRepository:
+        """Get AsyncGitRepository with current working directory."""
         working_dir = _cwd or Path.cwd()
-        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+        return AsyncGitRepository(working_dir)
 
     @tool(
         "git_commit",
@@ -89,50 +90,12 @@ def create_git_commit_tool(cwd: Path | None = None) -> Any:
         )
 
         try:
-            runner = _get_runner()
+            repo = _get_repo()
 
-            # Stage all changes first, then commit
-            add_result = await runner.add(add_all=True)
-            if not add_result.success:
-                logger.error(
-                    "git_commit: Failed to stage changes: %s", add_result.error
-                )
-                return error_response(
-                    f"Failed to stage changes: {add_result.error}",
-                    "GIT_ERROR",
-                )
-
-            # Create the commit using GitRunner
-            result = await runner.commit(formatted_message)
-
-            if not result.success:
-                error_msg = (result.error or "").lower()
-                output_msg = result.output.lower()
-
-                # T022: Check for "nothing to commit" in various forms
-                if (
-                    "nothing to commit" in error_msg
-                    or "nothing to commit" in output_msg
-                    or "nothing added to commit" in error_msg
-                    or "nothing added to commit" in output_msg
-                ):
-                    logger.info("git_commit: nothing to commit")
-                    return error_response(
-                        "No changes staged for commit. "
-                        "Use 'git add' to stage files first.",
-                        "NOTHING_TO_COMMIT",
-                    )
-
-                # Other errors
-                error_message = result.error or result.output or "Unknown git error"
-                logger.error("git_commit failed: %s", error_message)
-                return error_response(
-                    f"Git commit failed: {error_message}", "GIT_ERROR"
-                )
-
-            # Get the commit SHA using GitRunner
-            commit_sha = await runner.get_head_sha()
-            logger.info("Commit created successfully: %s", commit_sha)
+            # Create the commit with add_all=True using AsyncGitRepository
+            # This stages all changes and commits in one operation
+            commit_sha = await repo.commit(formatted_message, add_all=True)
+            logger.info("Commit created successfully: %s", commit_sha[:7])
 
             return success_response(
                 {
@@ -142,6 +105,16 @@ def create_git_commit_tool(cwd: Path | None = None) -> Any:
                 }
             )
 
+        except NotARepositoryError:
+            logger.error("git_commit: Not inside a git repository")
+            return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+        except NothingToCommitError:
+            logger.info("git_commit: nothing to commit")
+            return error_response(
+                "No changes staged for commit. "
+                "Use 'git add' to stage files first.",
+                "NOTHING_TO_COMMIT",
+            )
         except Exception as e:
             logger.exception("Unexpected error in git_commit")
             return error_response(f"Unexpected error: {str(e)}", "INTERNAL_ERROR")

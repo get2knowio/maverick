@@ -39,10 +39,13 @@ if TYPE_CHECKING:
 
 @dataclass
 class MockCommitInfo:
-    """Mock commit info for tests (non-frozen for mutability)."""
+    """Mock commit info for tests (non-frozen for mutability).
 
-    hash: str
-    short_hash: str
+    Note: Uses `sha` and `short_sha` to match maverick.git.CommitInfo.
+    """
+
+    sha: str
+    short_sha: str
     message: str
     author: str
     date: str
@@ -60,21 +63,21 @@ class MockDiffStats:
 
 @pytest.fixture
 def mock_git() -> MagicMock:
-    """Create a mock GitOperations instance."""
+    """Create a mock GitRepository instance."""
     git = MagicMock()
     git.current_branch.return_value = "feature/test-branch"
 
     git.log.return_value = [
         MockCommitInfo(
-            hash="abc1234567890",
-            short_hash="abc1234",
+            sha="abc1234567890",
+            short_sha="abc1234",
             message="Add feature X",
             author="Test Author",
             date="2025-12-18T10:00:00Z",
         ),
         MockCommitInfo(
-            hash="def5678901234",
-            short_hash="def5678",
+            sha="def5678901234",
+            short_sha="def5678",
             message="Fix bug Y",
             author="Test Author",
             date="2025-12-17T15:00:00Z",
