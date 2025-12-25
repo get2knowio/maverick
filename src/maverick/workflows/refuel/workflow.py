@@ -224,17 +224,14 @@ class RefuelWorkflow(WorkflowDSLMixin):
         # Compute aggregations
         issues_found = output.get("issues_found", len(results))
         issues_fixed = sum(1 for r in results if r.status == IssueStatus.FIXED)
-        issues_failed = sum(
-            1 for r in results if r.status == IssueStatus.FAILED)
-        issues_skipped = sum(
-            1 for r in results if r.status == IssueStatus.SKIPPED)
+        issues_failed = sum(1 for r in results if r.status == IssueStatus.FAILED)
+        issues_skipped = sum(1 for r in results if r.status == IssueStatus.SKIPPED)
         issues_processed = issues_fixed + issues_failed
 
         total_duration_ms = output.get(
             "total_duration_ms", workflow_result.total_duration_ms
         )
-        total_cost_usd = sum(
-            r.agent_usage.total_cost_usd or 0.0 for r in results)
+        total_cost_usd = sum(r.agent_usage.total_cost_usd or 0.0 for r in results)
 
         return RefuelResult(
             success=workflow_result.success and issues_failed == 0,
@@ -328,8 +325,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         if inputs.dry_run:
             # In dry-run mode, log operations without executing
             logger.info(f"[DRY-RUN] Would create branch: {branch_name}")
-            logger.info(
-                f"[DRY-RUN] Would run IssueFixerAgent for #{issue.number}")
+            logger.info(f"[DRY-RUN] Would run IssueFixerAgent for #{issue.number}")
             logger.info("[DRY-RUN] Would run validation workflow")
             logger.info("[DRY-RUN] Would stage changes and create commit")
             logger.info("[DRY-RUN] Would push branch to remote")
@@ -400,8 +396,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     validation_output = await self._validation_runner.run()
                     validation_passed = validation_output.success
                     if validation_passed:
-                        logger.info(
-                            f"Validation passed for issue #{issue.number}")
+                        logger.info(f"Validation passed for issue #{issue.number}")
                         break
                     if attempt < max_validation_attempts:
                         logger.warning(
@@ -416,8 +411,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                             except Exception as e:
                                 logger.warning(f"Fix agent retry failed: {e}")
                 except Exception as e:
-                    logger.warning(
-                        f"Validation error for issue #{issue.number}: {e}")
+                    logger.warning(f"Validation error for issue #{issue.number}: {e}")
                     validation_passed = False
 
         # Step 2e: Commit
@@ -501,8 +495,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     draft=not validation_passed,  # Draft if validation failed
                 )
                 # Handle mock (string) and real (PullRequest) cases
-                pr_url = pr_result if isinstance(
-                    pr_result, str) else pr_result.url
+                pr_url = pr_result if isinstance(pr_result, str) else pr_result.url
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             return IssueProcessingResult(
@@ -602,8 +595,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 }
 
                 # Execute workflow and translate events
-                execution = self._executor.execute(
-                    workflow, inputs=workflow_inputs)
+                execution = self._executor.execute(workflow, inputs=workflow_inputs)
                 async for event in execution:
                     # Translate DSL events to RefuelProgressEvent
                     refuel_event = self._translate_event(event)
@@ -614,8 +606,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     if isinstance(event, DslWorkflowCompleted):
                         # Build final result
                         workflow_result = self._executor.get_result()
-                        refuel_result = self._build_refuel_result(
-                            workflow_result)
+                        refuel_result = self._build_refuel_result(workflow_result)
                         yield RefuelCompleted(result=refuel_result)
 
                 return
@@ -630,8 +621,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     total_cost_usd=0.0,
                     duration_ms=0,
                 )
-                total_duration_ms = int(
-                    (time.time() - workflow_start_time) * 1000)
+                total_duration_ms = int((time.time() - workflow_start_time) * 1000)
                 refuel_result = RefuelResult(
                     success=False,
                     issues_found=0,
@@ -650,8 +640,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
 
         # Phase 1: Issue Discovery with retry
         if inputs.dry_run:
-            logger.info(
-                f"[DRY-RUN] Would discover issues with label: {inputs.label}")
+            logger.info(f"[DRY-RUN] Would discover issues with label: {inputs.label}")
             logger.info(f"[DRY-RUN] Would limit to {inputs.limit} issues")
             # In dry-run mode, still try to discover issues (read-only operation)
             # This allows previewing what would be processed without making changes
@@ -713,15 +702,12 @@ class RefuelWorkflow(WorkflowDSLMixin):
 
         # Phase 3: Aggregation
         issues_fixed = sum(1 for r in results if r.status == IssueStatus.FIXED)
-        issues_failed = sum(
-            1 for r in results if r.status == IssueStatus.FAILED)
-        issues_skipped = sum(
-            1 for r in results if r.status == IssueStatus.SKIPPED)
+        issues_failed = sum(1 for r in results if r.status == IssueStatus.FAILED)
+        issues_skipped = sum(1 for r in results if r.status == IssueStatus.SKIPPED)
         issues_processed = issues_fixed + issues_failed
 
         total_duration_ms = int((time.time() - workflow_start_time) * 1000)
-        total_cost_usd = sum(
-            r.agent_usage.total_cost_usd or 0.0 for r in results)
+        total_cost_usd = sum(r.agent_usage.total_cost_usd or 0.0 for r in results)
 
         refuel_result = RefuelResult(
             success=(issues_failed == 0),

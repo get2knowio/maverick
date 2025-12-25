@@ -24,7 +24,6 @@ from maverick.workflows.fly import (
     FlyWorkflowStarted,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -105,8 +104,7 @@ class TestFlyWorkflowDryRun:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(
-                output="Review", usage=usage)
+            return_value=AgentResult.success_result(output="Review", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -116,8 +114,7 @@ class TestFlyWorkflowDryRun:
         mock_pr_gen.generate = AsyncMock(return_value="## Summary\nTest")
 
         mock_github = MagicMock()
-        mock_github.create_pr = AsyncMock(
-            return_value="https://github.com/test/pr/1")
+        mock_github.create_pr = AsyncMock(return_value="https://github.com/test/pr/1")
 
         task_file = tmp_path / "tasks.md"
         task_file.write_text("- [ ] T001 Test task")
@@ -131,8 +128,7 @@ class TestFlyWorkflowDryRun:
             pr_generator=mock_pr_gen,
             github_runner=mock_github,
         )
-        inputs = FlyInputs(branch_name="test",
-                           task_file=task_file, dry_run=True)
+        inputs = FlyInputs(branch_name="test", task_file=task_file, dry_run=True)
 
         # Execute and collect events
         events = []
@@ -140,23 +136,20 @@ class TestFlyWorkflowDryRun:
             events.append(event)
 
         # Verify workflow started event
-        started_events = [
-            e for e in events if isinstance(e, FlyWorkflowStarted)]
+        started_events = [e for e in events if isinstance(e, FlyWorkflowStarted)]
         assert len(started_events) == 1
         assert started_events[0].inputs.dry_run is True
 
         # Verify stage events were emitted
         stage_started = [e for e in events if isinstance(e, FlyStageStarted)]
-        stage_completed = [
-            e for e in events if isinstance(e, FlyStageCompleted)]
+        stage_completed = [e for e in events if isinstance(e, FlyStageCompleted)]
 
         # Should have at least INIT, IMPLEMENTATION, VALIDATION, CODE_REVIEW stages
         assert len(stage_started) >= 4
         assert len(stage_completed) >= 4
 
         # Verify workflow completed
-        completed_events = [
-            e for e in events if isinstance(e, FlyWorkflowCompleted)]
+        completed_events = [e for e in events if isinstance(e, FlyWorkflowCompleted)]
         assert len(completed_events) == 1
 
     @pytest.mark.asyncio
@@ -197,8 +190,7 @@ class TestFlyWorkflowDryRun:
             implementer_agent=mock_agent,
             validation_runner=mock_validation,
         )
-        inputs = FlyInputs(branch_name="test",
-                           task_file=task_file, dry_run=True)
+        inputs = FlyInputs(branch_name="test", task_file=task_file, dry_run=True)
 
         # Execute workflow
         events = []
@@ -242,8 +234,7 @@ class TestFlyWorkflowDryRun:
 
         mock_reviewer = MagicMock()
         mock_reviewer.execute = AsyncMock(
-            return_value=AgentResult.success_result(
-                output="Review", usage=usage)
+            return_value=AgentResult.success_result(output="Review", usage=usage)
         )
 
         mock_commit_gen = MagicMock()
@@ -267,8 +258,7 @@ class TestFlyWorkflowDryRun:
             pr_generator=mock_pr_gen,
             github_runner=mock_github,
         )
-        inputs = FlyInputs(branch_name="test",
-                           task_file=task_file, dry_run=True)
+        inputs = FlyInputs(branch_name="test", task_file=task_file, dry_run=True)
 
         # Execute workflow
         events = []
@@ -307,8 +297,7 @@ class TestFlyWorkflowDryRun:
             commit_generator=mock_commit_gen,
             pr_generator=mock_pr_gen,
         )
-        inputs = FlyInputs(branch_name="test",
-                           task_file=task_file, dry_run=True)
+        inputs = FlyInputs(branch_name="test", task_file=task_file, dry_run=True)
 
         # Execute workflow
         events = []
@@ -363,8 +352,7 @@ class TestFlyWorkflowDryRun:
 
         mock_reviewer_real = MagicMock()
         mock_reviewer_real.execute = AsyncMock(
-            return_value=AgentResult.success_result(
-                output="Review", usage=usage)
+            return_value=AgentResult.success_result(output="Review", usage=usage)
         )
 
         mock_commit_gen_real = MagicMock()
@@ -391,8 +379,7 @@ class TestFlyWorkflowDryRun:
             pr_generator=mock_pr_gen_real,
             github_runner=mock_github_real,
         )
-        inputs_real = FlyInputs(
-            branch_name="test", task_file=task_file, dry_run=False)
+        inputs_real = FlyInputs(branch_name="test", task_file=task_file, dry_run=False)
 
         real_events = []
         async for event in workflow_real.execute(inputs_real):
@@ -417,8 +404,7 @@ class TestFlyWorkflowDryRun:
             pr_generator=mock_pr_gen_dry,
             github_runner=mock_github_dry,
         )
-        inputs_dry = FlyInputs(
-            branch_name="test", task_file=task_file, dry_run=True)
+        inputs_dry = FlyInputs(branch_name="test", task_file=task_file, dry_run=True)
 
         dry_events = []
         async for event in workflow_dry.execute(inputs_dry):

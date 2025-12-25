@@ -206,8 +206,7 @@ class WorkflowDSLMixin:
 
         # Validate custom tools from config
         if include_custom_tools and preflight_config.custom_tools:
-            custom_validator = CustomToolValidator(
-                preflight_config.custom_tools)
+            custom_validator = CustomToolValidator(preflight_config.custom_tools)
             custom_result = await custom_validator.validate()
             all_results.append(custom_result)
 

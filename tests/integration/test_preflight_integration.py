@@ -108,8 +108,7 @@ class TestPreflightIntegration:
 
         # Verify each result maps to expected component
         component_names = {r.component for r in result.results}
-        assert component_names == {"GitRunner",
-                                   "GitHubRunner", "ValidationRunner"}
+        assert component_names == {"GitRunner", "GitHubRunner", "ValidationRunner"}
 
     @pytest.mark.asyncio
     async def test_preflight_with_one_failing_runner(self) -> None:
@@ -348,8 +347,7 @@ class TestPreflightIntegration:
         )
 
         # Verify runners started at approximately the same time
-        call_times = [
-            r.validate_call_time for r in runners if r.validate_call_time]
+        call_times = [r.validate_call_time for r in runners if r.validate_call_time]
         if len(call_times) == num_runners:
             time_spread = max(call_times) - min(call_times)
             assert time_spread < 0.1, (
