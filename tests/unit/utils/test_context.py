@@ -212,21 +212,21 @@ class TestEstimateTokens:
 
     def test_short_string(self) -> None:
         """Short strings return correct estimate."""
-        # "Hello" = 5 chars -> 5 // 4 = 1 token
+        # tiktoken cl100k_base: "Hello" = 1 token
         assert estimate_tokens("Hello") == 1
 
     def test_typical_code(self) -> None:
         """Typical code content gives reasonable estimate."""
         code = "def hello_world():\n    print('Hello, World!')\n"
         tokens = estimate_tokens(code)
-        # Code is 46 chars -> 46 // 4 = 11 tokens
-        assert tokens == len(code) // 4
+        # tiktoken cl100k_base: this code = 11 tokens
+        assert tokens == 11
 
     def test_large_content(self) -> None:
         """Large content scales linearly."""
         content = "x" * 10000
-        # 10000 chars -> 2500 tokens
-        assert estimate_tokens(content) == 2500
+        # tiktoken cl100k_base: 10000 'x' characters = 1250 tokens
+        assert estimate_tokens(content) == 1250
 
 
 # =============================================================================

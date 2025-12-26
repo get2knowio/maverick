@@ -256,15 +256,16 @@ class TestEstimateTokens:
 
     def test_estimate_tokens_short_string(self, agent: CodeReviewerAgent) -> None:
         """Test token estimation for short string."""
-        # 12 characters / 4 = 3 tokens
+        # tiktoken cl100k_base: "Hello World!" = 3 tokens
         result = agent._estimate_tokens("Hello World!")
         assert result == 3
 
     def test_estimate_tokens_long_string(self, agent: CodeReviewerAgent) -> None:
         """Test token estimation for longer content."""
-        content = "a" * 400  # 400 characters / 4 = 100 tokens
+        # tiktoken cl100k_base: 400 'a' characters = 50 tokens
+        content = "a" * 400
         result = agent._estimate_tokens(content)
-        assert result == 100
+        assert result == 50
 
 
 class TestShouldTruncate:

@@ -6,6 +6,8 @@ and line truncation for managing large text content.
 
 from __future__ import annotations
 
+import tiktoken
+
 __all__ = [
     "estimate_tokens",
     "truncate_line",
@@ -14,24 +16,31 @@ __all__ = [
 # Default values
 DEFAULT_MAX_LINE_CHARS = 2000
 
+# Create encoder once at module level for efficiency.
+# cl100k_base is used as an approximation - Claude's actual tokenizer differs
+# slightly but this provides sufficient accuracy for budget estimation.
+_ENCODER = tiktoken.get_encoding("cl100k_base")
+
 
 def estimate_tokens(text: str) -> int:
-    """Estimate token count for text.
+    """Estimate token count for text using tiktoken.
 
-    Uses character count / 4 approximation per FR-006.
-    This provides ~20% accuracy for typical source code.
+    Uses cl100k_base encoding which provides accurate token counting
+    compatible with modern LLMs.
 
     Args:
         text: Text to estimate tokens for.
 
     Returns:
-        Approximate token count (integer).
+        Actual token count based on tiktoken encoding.
 
     Example:
         >>> estimate_tokens("Hello world!")
         3
     """
-    return len(text) // 4
+    if not text:
+        return 0
+    return len(_ENCODER.encode(text))
 
 
 def truncate_line(line: str, max_chars: int = DEFAULT_MAX_LINE_CHARS) -> str:

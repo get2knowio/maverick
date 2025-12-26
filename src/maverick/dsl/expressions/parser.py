@@ -10,7 +10,12 @@ Expression syntax:
 - ${{ index }} - Reference to current iteration index (for_each loops)
 - ${{ not inputs.condition }} - Negated expression
 - ${{ steps.x.output.field }} - Nested field access
-- ${{ items[0] }} - Array index access (bracket notation)
+- ${{ item[0] }} - Array index access (bracket notation)
+
+Implementation:
+This module uses a Lark-based parser with a formal EBNF grammar (grammar.lark)
+for robust expression parsing. The public API remains unchanged for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -18,12 +23,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Literal
+
+from lark import Lark, Token, Transformer, UnexpectedCharacters, UnexpectedToken
 
 from maverick.dsl.expressions.errors import ExpressionSyntaxError
 
 __all__ = [
     "ExpressionKind",
     "Expression",
+    "BooleanExpression",
+    "AnyExpression",
     "tokenize",
     "parse_expression",
     "extract_all",
@@ -67,11 +78,203 @@ class Expression:
     negated: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class BooleanExpression:
+    """Compound boolean expression combining multiple expressions with and/or.
+
+    Attributes:
+        raw: Original expression string (including ${{ }} wrapper)
+        operator: Boolean operator ('and' or 'or')
+        operands: Tuple of Expression or BooleanExpression objects
+    """
+
+    raw: str
+    operator: Literal["and", "or"]
+    operands: tuple[Expression | BooleanExpression, ...]
+
+
+# Type alias for any expression
+AnyExpression = Expression | BooleanExpression
+
+
+# Load grammar from file
+_GRAMMAR_PATH = Path(__file__).parent / "grammar.lark"
+_GRAMMAR = _GRAMMAR_PATH.read_text()
+
+# Create Lark parser instance (cached)
+_parser = Lark(
+    _GRAMMAR,
+    parser="lalr",
+    start="start",
+    propagate_positions=True,
+)
+
 # Pattern for extracting ${{ ... }} expressions from text
 _EXPRESSION_PATTERN = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-# Pattern for tokenizing identifiers
-_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+class _ExpressionTransformer(Transformer[Token, object]):
+    """Transform parse tree into Expression or BooleanExpression objects."""
+
+    def __init__(self, raw: str) -> None:
+        super().__init__()
+        self._raw = raw
+
+    def start(self, items: list[AnyExpression]) -> AnyExpression:
+        """Return the top-level expression.
+
+        Grammar: start: bool_expr
+        The bool_expr handles the expression hierarchy.
+        """
+        return items[0]
+
+    def bool_expr(self, items: list[AnyExpression]) -> AnyExpression:
+        """Handle OR boolean expressions.
+
+        Grammar: ?bool_expr: bool_term (OR bool_term)*
+        """
+        if len(items) == 1:
+            return items[0]
+        return BooleanExpression(
+            raw=self._raw,
+            operator="or",
+            operands=tuple(items),
+        )
+
+    def bool_term(self, items: list[AnyExpression]) -> AnyExpression:
+        """Handle AND boolean expressions.
+
+        Grammar: ?bool_term: unary_expr (AND unary_expr)*
+        """
+        if len(items) == 1:
+            return items[0]
+        return BooleanExpression(
+            raw=self._raw,
+            operator="and",
+            operands=tuple(items),
+        )
+
+    def negated_expr(self, items: list[object]) -> Expression:
+        """Handle negated expressions (not X).
+
+        Grammar: ?unary_expr: negation unary_expr -> negated_expr
+        """
+        # The expression to negate is the last item
+        expr = items[-1]
+        if isinstance(expr, Expression):
+            return Expression(
+                raw=self._raw,
+                kind=expr.kind,
+                path=expr.path,
+                negated=True,
+            )
+        # For negated boolean expressions, this is not currently supported
+        raise ExpressionSyntaxError(
+            "Cannot negate compound boolean expressions",
+            expression=self._raw,
+            position=0,
+        )
+
+    def negation(self, items: list[object]) -> str:
+        """Handle negation keyword."""
+        return "not"
+
+    def reference(self, items: list[Expression]) -> Expression:
+        """Pass through reference expression."""
+        return items[0]
+
+    def input_ref(self, items: list[str]) -> Expression:
+        """Handle input reference."""
+        return Expression(
+            raw=self._raw,
+            kind=ExpressionKind.INPUT_REF,
+            path=tuple(["inputs"] + list(items)),
+            negated=False,
+        )
+
+    def step_ref(self, items: list[str]) -> Expression:
+        """Handle step reference.
+
+        Grammar: step_ref: "steps" "." IDENTIFIER "." "output" accessor*
+        items[0] is the step_id (IDENTIFIER), items[1:] are accessors
+        """
+        if items:
+            accessors = [str(x) for x in items[1:]]
+            path = ["steps", str(items[0]), "output"] + accessors
+        else:
+            path = ["steps", "output"]
+        return Expression(
+            raw=self._raw,
+            kind=ExpressionKind.STEP_REF,
+            path=tuple(path),
+            negated=False,
+        )
+
+    def item_ref(self, items: list[str]) -> Expression:
+        """Handle item reference."""
+        return Expression(
+            raw=self._raw,
+            kind=ExpressionKind.ITEM_REF,
+            path=tuple(["item"] + list(items)),
+            negated=False,
+        )
+
+    def index_ref(self, items: list[object]) -> Expression:
+        """Handle index reference."""
+        return Expression(
+            raw=self._raw,
+            kind=ExpressionKind.INDEX_REF,
+            path=("index",),
+            negated=False,
+        )
+
+    def accessor(self, items: list[str]) -> str:
+        """Pass through accessor value."""
+        return items[0]
+
+    def dot_accessor(self, items: list[Token]) -> str:
+        """Extract identifier from dot accessor."""
+        return str(items[0])
+
+    def bracket_accessor(self, items: list[str]) -> str:
+        """Extract content from bracket accessor."""
+        return items[0]
+
+    def bracket_content(self, items: list[Token]) -> str:
+        """Extract bracket content value."""
+        value = str(items[0])
+        # Strip quotes from string values
+        if value.startswith(("'", '"')):
+            return value[1:-1]
+        return value
+
+    def IDENTIFIER(self, token: Token) -> str:  # noqa: N802
+        """Pass through identifier token."""
+        return str(token)
+
+    def INT(self, token: Token) -> str:  # noqa: N802
+        """Pass through integer token as string."""
+        return str(token)
+
+    def STRING(self, token: Token) -> str:  # noqa: N802
+        """Pass through string token."""
+        return str(token)
+
+
+def _strip_wrapper(expression: str) -> tuple[str, bool]:
+    """Strip ${{ }} wrapper from expression.
+
+    Args:
+        expression: Expression string (may or may not have wrapper)
+
+    Returns:
+        Tuple of (inner expression, whether wrapper was present)
+    """
+    stripped = expression.strip()
+    if stripped.startswith("${{") and stripped.endswith("}}"):
+        inner = stripped[3:-2].strip()
+        return inner, True
+    return stripped, False
 
 
 def tokenize(expression: str) -> list[str]:
@@ -235,34 +438,71 @@ def tokenize(expression: str) -> list[str]:
     return tokens
 
 
-def _strip_wrapper(expression: str) -> tuple[str, bool]:
-    """Strip ${{ }} wrapper from expression.
+def _validate_expression(expr: Expression, original: str) -> None:
+    """Validate expression-specific rules after parsing.
 
     Args:
-        expression: Expression string (may or may not have wrapper)
+        expr: Parsed expression to validate
+        original: Original expression string for error messages
 
-    Returns:
-        Tuple of (inner expression, whether wrapper was present)
+    Raises:
+        ExpressionSyntaxError: For validation failures
     """
-    stripped = expression.strip()
-    if stripped.startswith("${{") and stripped.endswith("}}"):
-        inner = stripped[3:-2].strip()
-        return inner, True
-    return stripped, False
+    if expr.kind == ExpressionKind.INPUT_REF:
+        if len(expr.path) < 2:
+            raise ExpressionSyntaxError(
+                "Input reference requires a property name (e.g., inputs.name)",
+                expression=original,
+                position=0,
+            )
+
+    elif expr.kind == ExpressionKind.STEP_REF:
+        if len(expr.path) < 3:
+            raise ExpressionSyntaxError(
+                "Step reference requires step name and 'output' (e.g., steps.x.output)",
+                expression=original,
+                position=0,
+            )
+        # 'output' is guaranteed by grammar at position 2
+
+    elif expr.kind == ExpressionKind.INDEX_REF and len(expr.path) > 1:
+        raise ExpressionSyntaxError(
+            "Index reference must be a single element (e.g., ${{ index }})",
+            expression=original,
+            position=0,
+        )
 
 
-def parse_expression(expression: str) -> Expression:
-    """Parse expression string into Expression AST.
+def _validate_boolean_expression(expr: BooleanExpression, original: str) -> None:
+    """Validate a boolean expression by validating all its operands.
 
-    Converts expression strings into structured Expression objects,
-    determining the expression kind (input or step reference) and
-    extracting the access path.
+    Args:
+        expr: BooleanExpression to validate
+        original: Original expression string for error messages
+
+    Raises:
+        ExpressionSyntaxError: For validation failures
+    """
+    for operand in expr.operands:
+        if isinstance(operand, Expression):
+            _validate_expression(operand, original)
+        elif isinstance(operand, BooleanExpression):
+            _validate_boolean_expression(operand, original)
+
+
+def parse_expression(expression: str) -> AnyExpression:
+    """Parse expression string into Expression or BooleanExpression AST using Lark.
+
+    Converts expression strings into structured Expression or BooleanExpression
+    objects, determining the expression kind (input, step, item, or index reference)
+    and extracting the access path. Compound expressions using 'and'/'or' operators
+    return BooleanExpression objects.
 
     Args:
         expression: Expression string to parse (with or without ${{ }} wrapper)
 
     Returns:
-        Parsed Expression object
+        Parsed Expression or BooleanExpression object
 
     Raises:
         ExpressionSyntaxError: For invalid expression syntax
@@ -277,7 +517,7 @@ def parse_expression(expression: str) -> Expression:
     original = expression
 
     # Strip wrapper if present
-    inner, had_wrapper = _strip_wrapper(expression)
+    inner, _ = _strip_wrapper(expression)
 
     if not inner or inner.isspace():
         raise ExpressionSyntaxError(
@@ -286,142 +526,125 @@ def parse_expression(expression: str) -> Expression:
             position=0,
         )
 
-    # Tokenize
-    tokens = tokenize(inner)
-
-    if not tokens:
-        raise ExpressionSyntaxError(
-            "Empty expression",
-            expression=original,
-            position=0,
-        )
-
-    # Check for negation
-    negated = False
-    idx = 0
-    if tokens[0] == "not":
-        negated = True
-        idx = 1
-        if idx >= len(tokens):
+    # Check for double negation before parsing
+    if inner.startswith("not "):
+        after_not = inner[4:].lstrip()
+        if after_not.startswith("not "):
             raise ExpressionSyntaxError(
-                "'not' operator requires an expression",
-                expression=original,
-                position=len(inner) - 1,
-            )
-
-    # Build path from remaining tokens
-    path: list[str] = []
-
-    while idx < len(tokens):
-        token = tokens[idx]
-
-        if token == ".":
-            # Skip dots in path building
-            idx += 1
-            continue
-
-        if token == "[":
-            # Handle bracket notation - add index to path
-            idx += 1
-            if idx >= len(tokens):
-                raise ExpressionSyntaxError(
-                    "Incomplete bracket notation",
-                    expression=original,
-                    position=len(inner) - 1,
-                )
-            bracket_content = tokens[idx]
-            # Strip quotes from string keys
-            if bracket_content.startswith(("'", '"')):
-                bracket_content = bracket_content[1:-1]
-            path.append(bracket_content)
-            idx += 1
-            # Skip closing bracket
-            if idx < len(tokens) and tokens[idx] == "]":
-                idx += 1
-            continue
-
-        if token == "]":
-            # Skip standalone closing brackets (already handled)
-            idx += 1
-            continue
-
-        # Regular identifier
-        path.append(token)
-        idx += 1
-
-    if not path:
-        raise ExpressionSyntaxError(
-            "Expression has no valid path",
-            expression=original,
-            position=0,
-        )
-
-    # Determine expression kind based on first path element
-    first_element = path[0]
-
-    if first_element == "inputs":
-        if len(path) < 2:
-            raise ExpressionSyntaxError(
-                "Input reference requires a property name (e.g., inputs.name)",
+                "Double negation is not allowed",
                 expression=original,
                 position=0,
             )
-        kind = ExpressionKind.INPUT_REF
-    elif first_element == "steps":
-        if len(path) < 3:
+
+    try:
+        tree = _parser.parse(inner)
+        transformer = _ExpressionTransformer(original)
+        result = transformer.transform(tree)
+
+        if not isinstance(result, (Expression, BooleanExpression)):
+            # Should not happen, but handle gracefully
             raise ExpressionSyntaxError(
-                "Step reference requires step name and 'output' (e.g., steps.x.output)",
+                "Failed to parse expression",
                 expression=original,
                 position=0,
             )
-        # Validate 'output' is in the path (usually at index 2)
-        if "output" not in path[2:]:
-            raise ExpressionSyntaxError(
-                "Step reference must include 'output' (e.g., steps.x.output)",
-                expression=original,
-                position=0,
-            )
-        kind = ExpressionKind.STEP_REF
-    elif first_element == "item":
-        # ${{ item }} or ${{ item.field }} for for_each iteration
-        kind = ExpressionKind.ITEM_REF
-    elif first_element == "index":
-        # ${{ index }} for for_each iteration index (must be single element)
-        if len(path) > 1:
+
+        # Validate expression-specific rules for simple expressions
+        if isinstance(result, Expression):
+            _validate_expression(result, original)
+        else:
+            # Validate each operand in compound expressions
+            _validate_boolean_expression(result, original)
+
+        return result
+
+    except UnexpectedCharacters as e:
+        # Map Lark position to meaningful error
+        pos = e.column - 1 if e.column else 0
+        char = e.char if hasattr(e, "char") else "unknown"
+
+        # Provide specific error messages for common cases
+        # Check if this is index.field (index cannot have accessors)
+        if inner.startswith("index.") or inner.startswith("index["):
             raise ExpressionSyntaxError(
                 "Index reference must be a single element (e.g., ${{ index }})",
                 expression=original,
-                position=0,
-            )
-        kind = ExpressionKind.INDEX_REF
-    else:
+                position=pos,
+            ) from e
+
         raise ExpressionSyntaxError(
-            f"Expression must start with 'inputs', 'steps', 'item', "
-            f"or 'index', got '{first_element}'",
+            f"Invalid character '{char}' in expression",
+            expression=original,
+            position=pos,
+        ) from e
+
+    except UnexpectedToken as e:
+        pos = e.column - 1 if e.column else 0
+
+        # Provide specific error messages for common cases
+        # Check if this is index.field (index cannot have accessors)
+        if inner.startswith("index.") or inner.startswith("index["):
+            raise ExpressionSyntaxError(
+                "Index reference must be a single element (e.g., ${{ index }})",
+                expression=original,
+                position=pos,
+            ) from e
+
+        # Check if the expression starts with an invalid prefix
+        first_parts = inner.split(".")[0].split() if inner else []
+        first_word = first_parts[0] if first_parts else ""
+        if first_word and first_word not in ("inputs", "steps", "item", "index", "not"):
+            raise ExpressionSyntaxError(
+                f"Expression must start with 'inputs', 'steps', 'item', "
+                f"or 'index', got '{first_word}'",
+                expression=original,
+                position=0,
+            ) from e
+
+        # Check if this is a step reference without 'output'
+        if inner.startswith("steps.") and ".output" not in inner:
+            parts = inner.split(".")
+            if len(parts) == 2:
+                raise ExpressionSyntaxError(
+                    "Step reference requires step name and 'output' "
+                    "(e.g., steps.x.output)",
+                    expression=original,
+                    position=pos,
+                ) from e
+            elif len(parts) >= 3 and parts[2] != "output":
+                raise ExpressionSyntaxError(
+                    "Step reference must include 'output' (e.g., steps.x.output)",
+                    expression=original,
+                    position=pos,
+                ) from e
+
+        raise ExpressionSyntaxError(
+            "Unexpected token in expression",
+            expression=original,
+            position=pos,
+        ) from e
+
+    except Exception as e:
+        # Catch any other Lark exceptions
+        raise ExpressionSyntaxError(
+            str(e) if str(e) else "Invalid expression syntax",
             expression=original,
             position=0,
-        )
-
-    return Expression(
-        raw=original,
-        kind=kind,
-        path=tuple(path),
-        negated=negated,
-    )
+        ) from e
 
 
-def extract_all(text: str) -> list[Expression]:
+def extract_all(text: str) -> list[AnyExpression]:
     """Find and parse all expressions in text.
 
     Locates all ${{ ... }} expressions in a text string and parses them
-    into Expression objects. Expressions are returned in the order they
-    appear in the text.
+    into Expression or BooleanExpression objects. Expressions are returned
+    in the order they appear in the text.
 
     Args:
         text: Text containing zero or more expressions
 
     Returns:
-        List of parsed Expression objects (empty if none found)
+        List of parsed Expression/BooleanExpression objects (empty if none found)
 
     Raises:
         ExpressionSyntaxError: For invalid expression syntax in any match
@@ -435,7 +658,7 @@ def extract_all(text: str) -> list[Expression]:
     if not text:
         return []
 
-    expressions: list[Expression] = []
+    expressions: list[AnyExpression] = []
 
     for match in _EXPRESSION_PATTERN.finditer(text):
         full_match = match.group(0)

@@ -236,5 +236,5 @@ steps:
       base_branch: ${{ inputs.base_branch }}
       draft: ${{ inputs.draft }}
       title: ${{ inputs.title }}
-      generated_title: ${{ steps.generate_title.output if steps.generate_title.executed else None }}
+      generated_title: ${{ steps.generate_title.output }}
       generated_body: ${{ steps.generate_body.output }}

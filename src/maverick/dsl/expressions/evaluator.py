@@ -16,7 +16,12 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.dsl.expressions.errors import ExpressionEvaluationError
-from maverick.dsl.expressions.parser import Expression, ExpressionKind, extract_all
+from maverick.dsl.expressions.parser import (
+    AnyExpression,
+    BooleanExpression,
+    ExpressionKind,
+    extract_all,
+)
 
 __all__ = ["ExpressionEvaluator"]
 
@@ -67,15 +72,16 @@ class ExpressionEvaluator:
         self._step_outputs = step_outputs
         self._iteration_context = iteration_context or {}
 
-    def evaluate(self, expr: Expression) -> Any:
+    def evaluate(self, expr: AnyExpression) -> Any:
         """Evaluate a single expression against the context.
 
         Resolves the expression path through the inputs or step_outputs,
         supporting nested field access and array indexing. Applies negation
-        if the expression is negated.
+        if the expression is negated. For BooleanExpression, evaluates all
+        operands and combines them with the operator.
 
         Args:
-            expr: Parsed Expression object to evaluate.
+            expr: Parsed Expression or BooleanExpression object to evaluate.
 
         Returns:
             The value at the expression path (any JSON-serializable type).
@@ -93,6 +99,9 @@ class ExpressionEvaluator:
             >>> evaluator.evaluate(expr)
             'Alice'
         """
+        # Handle compound boolean expressions
+        if isinstance(expr, BooleanExpression):
+            return self._evaluate_boolean(expr)
         # Determine the root context based on expression kind
         if expr.kind == ExpressionKind.INPUT_REF:
             root = self._inputs
@@ -244,6 +253,29 @@ class ExpressionEvaluator:
             return not current
 
         return current
+
+    def _evaluate_boolean(self, expr: BooleanExpression) -> bool:
+        """Evaluate a compound boolean expression.
+
+        Args:
+            expr: BooleanExpression with 'and' or 'or' operator.
+
+        Returns:
+            Boolean result of evaluating all operands with the operator.
+        """
+        if expr.operator == "and":
+            # all() short-circuits: returns False as soon as one operand is falsy
+            return all(self.evaluate(operand) for operand in expr.operands)
+        elif expr.operator == "or":
+            # any() short-circuits: returns True as soon as one operand is truthy
+            return any(self.evaluate(operand) for operand in expr.operands)
+        else:
+            # Should not happen, but handle gracefully
+            raise ExpressionEvaluationError(
+                f"Unknown boolean operator: {expr.operator}",
+                expression=expr.raw,
+                context_vars=(),
+            )
 
     def evaluate_string(self, text: str) -> str:
         """Evaluate all expressions in a text string.
