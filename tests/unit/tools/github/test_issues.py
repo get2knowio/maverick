@@ -52,7 +52,6 @@ class TestGithubListIssues:
         assert response_data["error_code"] == "INVALID_INPUT"
 
 
-
 class TestGitHubAddLabels:
     """Tests for github_add_labels MCP tool."""
 
@@ -71,9 +70,7 @@ class TestGitHubAddLabels:
     @pytest.mark.asyncio
     async def test_github_add_labels_invalid_issue_number(self) -> None:
         """Test github_add_labels rejects invalid issue number (T044)."""
-        result = await github_add_labels.handler(
-            {"issue_number": 0, "labels": ["bug"]}
-        )
+        result = await github_add_labels.handler({"issue_number": 0, "labels": ["bug"]})
 
         # Parse response
         response_data = json.loads(result["content"][0]["text"])
@@ -97,7 +94,6 @@ class TestGithubGetIssue:
         # Verify error response
         assert response_data["isError"] is True
         assert response_data["error_code"] == "INVALID_INPUT"
-
 
 
 class TestGitHubCloseIssue:
