@@ -8,9 +8,8 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
-import aiohttp
 import pytest
 
 from maverick.config import NotificationConfig
@@ -106,7 +105,7 @@ async def test_send_request_non_200_with_json(
         assert len(mock_session.post_calls) == 2
 
 
-@pytest.mark.skip(reason="Notification code doesn't handle JSON parse errors - skipped after tenacity migration")
+@pytest.mark.skip(reason="Notification code doesn't handle JSON parse errors")
 @pytest.mark.asyncio
 async def test_send_request_malformed_json(
     mock_config: NotificationConfig,
