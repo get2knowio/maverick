@@ -613,8 +613,7 @@ def parse_expression(expression: str) -> AnyExpression:
                 ) from e
             elif len(parts) >= 3 and parts[2] != "output":
                 raise ExpressionSyntaxError(
-                    "Step reference must include 'output' "
-                    "(e.g., steps.x.output)",
+                    "Step reference must include 'output' (e.g., steps.x.output)",
                     expression=original,
                     position=pos,
                 ) from e
