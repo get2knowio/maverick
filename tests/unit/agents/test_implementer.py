@@ -328,207 +328,9 @@ class TestBuildTaskPrompt:
         assert "TDD" in prompt or "test" in prompt.lower()
 
 
-class TestDetectFileChanges:
-    """Tests for _detect_file_changes helper method."""
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_returns_list(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test returns list of FileChange objects."""
-        from maverick.git import DiffStats
-
-        mock_stats = DiffStats(
-            files_changed=2,
-            insertions=30,
-            deletions=2,
-            file_list=("src/file.py", "tests/test_file.py"),
-            per_file={
-                "src/file.py": (10, 2),
-                "tests/test_file.py": (20, 0),
-            },
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            changes = await agent._detect_file_changes(tmp_path)
-
-            assert isinstance(changes, list)
-            assert len(changes) == 2
-            assert all(isinstance(c, FileChange) for c in changes)
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_parses_stats_correctly(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test correctly parses file stats into FileChange objects."""
-        from maverick.git import DiffStats
-
-        mock_stats = DiffStats(
-            files_changed=1,
-            insertions=15,
-            deletions=3,
-            file_list=("src/module.py",),
-            per_file={"src/module.py": (15, 3)},
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            changes = await agent._detect_file_changes(tmp_path)
-
-            assert len(changes) == 1
-            assert changes[0].file_path == "src/module.py"
-            assert changes[0].lines_added == 15
-            assert changes[0].lines_removed == 3
-            assert changes[0].change_type == ChangeType.MODIFIED
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_handles_errors_gracefully(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test returns empty list on git errors."""
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            side_effect=Exception("Git command failed"),
-        ):
-            changes = await agent._detect_file_changes(tmp_path)
-
-            assert changes == []
-
-
-class TestRunValidation:
-    """Tests for _run_validation helper method."""
-
-    @pytest.mark.asyncio
-    async def test_run_validation_returns_list(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test returns list of ValidationResult objects."""
-        with patch(
-            "maverick.utils.validation.run_validation_pipeline", new_callable=AsyncMock
-        ) as mock_validation:
-            mock_validation.return_value = [
-                ValidationResult(
-                    step=ValidationStep.FORMAT,
-                    success=True,
-                    duration_ms=500,
-                ),
-            ]
-
-            results = await agent._run_validation(tmp_path)
-
-            assert isinstance(results, list)
-            assert len(results) == 1
-            assert isinstance(results[0], ValidationResult)
-
-    @pytest.mark.asyncio
-    async def test_run_validation_handles_errors_gracefully(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test returns empty list on validation errors."""
-        with patch(
-            "maverick.utils.validation.run_validation_pipeline", new_callable=AsyncMock
-        ) as mock_validation:
-            mock_validation.side_effect = Exception("Validation failed")
-
-            results = await agent._run_validation(tmp_path)
-
-            assert results == []
-
-
-class TestCreateCommit:
-    """Tests for _create_commit helper method."""
-
-    @pytest.mark.asyncio
-    async def test_create_commit_returns_sha(
-        self, agent: ImplementerAgent, sample_task: Task, tmp_path: Path
-    ) -> None:
-        """Test returns commit SHA on success."""
-        context = ImplementerContext(
-            task_description="This is a test task description",
-            branch="feature/test",
-            cwd=tmp_path,
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123def456")
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            sha = await agent._create_commit(sample_task, context)
-
-            assert sha == "abc123def456"
-            mock_repo.commit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_create_commit_returns_none_when_no_changes(
-        self, agent: ImplementerAgent, sample_task: Task, tmp_path: Path
-    ) -> None:
-        """Test returns None when no uncommitted changes."""
-        context = ImplementerContext(
-            task_description="This is a test task description",
-            branch="feature/test",
-            cwd=tmp_path,
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=False)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            sha = await agent._create_commit(sample_task, context)
-
-            assert sha is None
-
-    @pytest.mark.asyncio
-    async def test_create_commit_generates_conventional_message(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test generates conventional commit message format."""
-        task = Task(
-            id="T042",
-            description="Create new authentication service",
-            status=TaskStatus.PENDING,
-        )
-        context = ImplementerContext(
-            task_description="This is a test task description",
-            branch="feature/test",
-            cwd=tmp_path,
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123")
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            await agent._create_commit(task, context)
-
-            # Check the commit message contains conventional format
-            call_args = mock_repo.commit.call_args[0][0]
-            assert "feat" in call_args or "chore" in call_args
-            assert "t042" in call_args.lower()
-
-    @pytest.mark.asyncio
-    async def test_create_commit_handles_errors_gracefully(
-        self, agent: ImplementerAgent, sample_task: Task, tmp_path: Path
-    ) -> None:
-        """Test returns None on commit errors."""
-        context = ImplementerContext(
-            task_description="This is a test task description",
-            branch="feature/test",
-            cwd=tmp_path,
-        )
-
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            side_effect=Exception("Git error"),
-        ):
-            sha = await agent._create_commit(sample_task, context)
-
-            assert sha is None
+# NOTE: Tests for _detect_file_changes, _run_validation, and _create_commit
+# have been moved to tests/unit/agents/test_utils.py as these are now
+# shared utility functions in maverick.agents.utils (issue #147)
 
 
 class TestGetParallelBatch:
@@ -705,11 +507,10 @@ class TestExecuteMethod:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
-            ),
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(single_task_context)
@@ -732,8 +533,10 @@ class TestExecuteMethod:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(single_task_context)
@@ -756,11 +559,10 @@ class TestExecuteMethod:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
-            ),
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(task_file_context)
@@ -812,8 +614,10 @@ class TestExecuteMethod:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
             patch.object(
                 agent, "_execute_parallel_batch", new_callable=AsyncMock
@@ -894,8 +698,10 @@ class TestErrorHandling:
 
         with (
             patch.object(agent, "query", side_effect=failing_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(context)
@@ -929,7 +735,12 @@ class TestErrorHandling:
     async def test_handles_validation_skip(
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
-        """Test skips validation when skip_validation is True."""
+        """Test executes successfully with skip_validation=True.
+
+        Note: Agent no longer calls validation internally (workflow handles it).
+        This test verifies the agent executes without issues when
+        skip_validation is set.
+        """
         context = ImplementerContext(
             task_description="Create module",
             branch="test",
@@ -947,24 +758,25 @@ class TestErrorHandling:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock
-            ) as mock_validation,
         ):
             result = await agent.execute(context)
 
-            # Validation should not be called
-            mock_validation.assert_not_called()
             assert result.success is True
 
     @pytest.mark.asyncio
     async def test_handles_dry_run(
         self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
-        """Test skips commit creation in dry_run mode."""
+        """Test executes successfully in dry_run mode.
+
+        Note: Agent no longer creates commits internally (workflow handles it).
+        This test verifies the agent executes without issues in dry_run mode.
+        """
         context = ImplementerContext(
             task_description="Create module",
             branch="test",
@@ -981,20 +793,14 @@ class TestErrorHandling:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock, return_value=[]
-            ),
-            patch.object(
-                agent, "_create_commit", new_callable=AsyncMock
-            ) as mock_commit,
         ):
             result = await agent.execute(context)
 
-            # Commit should not be called in dry_run
-            mock_commit.assert_not_called()
             assert result.success is True
 
 
@@ -1020,8 +826,10 @@ class TestImplementationResult:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(single_task_context)
@@ -1060,9 +868,8 @@ class TestImplementationResult:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent,
-                "_detect_file_changes",
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
                 new_callable=AsyncMock,
                 return_value=mock_file_changes,
             ),
@@ -1094,8 +901,10 @@ class TestImplementationResult:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(context)
@@ -1211,11 +1020,10 @@ class TestPhaseLevelExecution:
 
         with (
             patch.object(agent, "query", side_effect=async_gen),
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock, return_value=[]
-            ),
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock, return_value=[]
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
             ),
         ):
             result = await agent.execute(phase_context)
@@ -1312,32 +1120,8 @@ class TestPhaseLevelExecution:
         assert "[P]" not in t001_line
         assert "[P]" in t002_line
 
-    @pytest.mark.asyncio
-    async def test_phase_commit_message_format(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test phase commit generates appropriate commit message."""
-        context = ImplementerContext(
-            task_file=tmp_path / "tasks.md",
-            phase_name="Phase 1: Setup",
-            branch="test",
-            cwd=tmp_path,
-            dry_run=False,
-        )
-        # Create minimal task file
-        context.task_file.write_text("## Phase 1: Setup\n- [ ] T001 Task")
-
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123")
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            await agent._create_phase_commit(context)
-
-            # Check commit message format
-            call_args = mock_repo.commit.call_args[0][0]
-            assert "feat(" in call_args
-            assert "complete phase tasks" in call_args
+    # NOTE: test_phase_commit_message_format was removed as _create_phase_commit
+    # was removed from the agent (issue #147). Commits are handled by workflow.
 
 
 # =============================================================================
@@ -1348,9 +1132,8 @@ class TestPhaseLevelExecution:
 class TestSideEffectFree:
     """Tests verifying agents are side-effect free per issue #160.
 
-    ImplementerAgent should NOT:
-    - Call _run_validation (workflow handles validation)
-    - Call _create_commit (workflow handles commits)
+    ImplementerAgent should NOT create commits or run validation internally.
+    These are handled by the workflow layer.
 
     TaskResult should have:
     - Empty validation list
@@ -1358,121 +1141,102 @@ class TestSideEffectFree:
     """
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_call_validation(
-        self, agent: ImplementerAgent, single_task_context: ImplementerContext
+    async def test_agent_has_no_validation_method(
+        self, agent: ImplementerAgent
     ) -> None:
-        """Test that execute does not run validation (workflow handles this)."""
-        with patch.object(
-            agent, "_run_validation", new_callable=AsyncMock
-        ) as mock_validation:
-            with patch.object(agent, "query", new_callable=AsyncMock) as mock_query:
-                # Setup mock to return async generator
-                async def mock_query_gen(*args, **kwargs):
-                    yield {"type": "text", "text": "Done"}
+        """Test that agent does not have _run_validation method.
 
-                mock_query.return_value = mock_query_gen()
-
-                with patch.object(
-                    agent, "_detect_file_changes", new_callable=AsyncMock
-                ) as mock_changes:
-                    mock_changes.return_value = []
-
-                    await agent.execute(single_task_context)
-
-                    # _run_validation should NOT be called
-                    mock_validation.assert_not_called()
+        The method has been removed as part of issue #147 - validation
+        is now handled by the workflow layer.
+        """
+        assert not hasattr(agent, "_run_validation")
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_call_create_commit(
-        self, agent: ImplementerAgent, single_task_context: ImplementerContext
+    async def test_agent_has_no_create_commit_method(
+        self, agent: ImplementerAgent
     ) -> None:
-        """Test that execute does not create commits (workflow handles this)."""
-        with patch.object(
-            agent, "_create_commit", new_callable=AsyncMock
-        ) as mock_commit:
-            with patch.object(agent, "query", new_callable=AsyncMock) as mock_query:
-                # Setup mock to return async generator
-                async def mock_query_gen(*args, **kwargs):
-                    yield {"type": "text", "text": "Done"}
+        """Test that agent does not have _create_commit method.
 
-                mock_query.return_value = mock_query_gen()
-
-                with patch.object(
-                    agent, "_detect_file_changes", new_callable=AsyncMock
-                ) as mock_changes:
-                    mock_changes.return_value = []
-
-                    await agent.execute(single_task_context)
-
-                    # _create_commit should NOT be called
-                    mock_commit.assert_not_called()
+        The method has been removed as part of issue #147 - commits
+        are now handled by the workflow layer.
+        """
+        assert not hasattr(agent, "_create_commit")
 
     @pytest.mark.asyncio
     async def test_task_result_has_empty_validation(
         self, agent: ImplementerAgent, single_task_context: ImplementerContext
     ) -> None:
         """Test that task results have empty validation lists."""
-        with patch.object(agent, "query", new_callable=AsyncMock) as mock_query:
-            # Setup mock to return async generator
-            async def mock_query_gen(*args, **kwargs):
-                yield {"type": "text", "text": "Done"}
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = [MagicMock(type="text", text="Done")]
 
-            mock_query.return_value = mock_query_gen()
+        async def async_gen(*args, **kwargs):
+            yield mock_message
 
-            with patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_changes:
-                mock_changes.return_value = []
+        with (
+            patch.object(agent, "query", side_effect=async_gen),
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            result = await agent.execute(single_task_context)
 
-                result = await agent.execute(single_task_context)
-
-                # Verify task results have empty validation
-                assert len(result.task_results) > 0
-                for task_result in result.task_results:
-                    assert task_result.validation == []
+            # Verify task results have empty validation
+            assert len(result.task_results) > 0
+            for task_result in result.task_results:
+                assert task_result.validation == []
 
     @pytest.mark.asyncio
     async def test_task_result_has_no_commit_sha(
         self, agent: ImplementerAgent, single_task_context: ImplementerContext
     ) -> None:
         """Test that task results have no commit_sha."""
-        with patch.object(agent, "query", new_callable=AsyncMock) as mock_query:
-            # Setup mock to return async generator
-            async def mock_query_gen(*args, **kwargs):
-                yield {"type": "text", "text": "Done"}
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = [MagicMock(type="text", text="Done")]
 
-            mock_query.return_value = mock_query_gen()
+        async def async_gen(*args, **kwargs):
+            yield mock_message
 
-            with patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_changes:
-                mock_changes.return_value = []
+        with (
+            patch.object(agent, "query", side_effect=async_gen),
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            result = await agent.execute(single_task_context)
 
-                result = await agent.execute(single_task_context)
-
-                # Verify task results have no commit_sha
-                assert len(result.task_results) > 0
-                for task_result in result.task_results:
-                    assert task_result.commit_sha is None
+            # Verify task results have no commit_sha
+            assert len(result.task_results) > 0
+            for task_result in result.task_results:
+                assert task_result.commit_sha is None
 
     @pytest.mark.asyncio
     async def test_implementation_result_has_empty_commits_list(
         self, agent: ImplementerAgent, single_task_context: ImplementerContext
     ) -> None:
         """Test that implementation result has empty commits list."""
-        with patch.object(agent, "query", new_callable=AsyncMock) as mock_query:
-            # Setup mock to return async generator
-            async def mock_query_gen(*args, **kwargs):
-                yield {"type": "text", "text": "Done"}
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = [MagicMock(type="text", text="Done")]
 
-            mock_query.return_value = mock_query_gen()
+        async def async_gen(*args, **kwargs):
+            yield mock_message
 
-            with patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_changes:
-                mock_changes.return_value = []
+        with (
+            patch.object(agent, "query", side_effect=async_gen),
+            patch(
+                "maverick.agents.implementer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            result = await agent.execute(single_task_context)
 
-                result = await agent.execute(single_task_context)
-
-                # Verify commits list is empty (no commits created by agent)
-                assert result.commits == []
+            # Verify commits list is empty (no commits created by agent)
+            assert result.commits == []

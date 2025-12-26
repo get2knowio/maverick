@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import IMPLEMENTER_TOOLS
+from maverick.agents.utils import detect_file_changes
 from maverick.exceptions import TaskParseError
 from maverick.logging import get_logger
 from maverick.models.implementation import (
-    ChangeType,
     FileChange,
     ImplementationResult,
     ImplementerContext,
@@ -354,7 +354,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                 messages.append(msg)
 
             # Parse result from output (simplified - full parsing in enhancement phase)
-            files_changed = await self._detect_file_changes(context.cwd)
+            files_changed = await detect_file_changes(context.cwd)
 
             # Validation and commits are handled by the workflow layer
             # Agent returns file changes; orchestration runs validation/commits
@@ -401,68 +401,6 @@ Follow the TDD approach:
 
 After completion, provide a summary of changes made.
 """
-
-    async def _detect_file_changes(self, cwd: Path) -> list[FileChange]:
-        """Detect file changes from git status."""
-        from maverick.git import AsyncGitRepository
-
-        try:
-            repo = AsyncGitRepository(cwd)
-            stats = await repo.diff_stats()
-            return [
-                FileChange(
-                    file_path=path,
-                    change_type=ChangeType.MODIFIED,
-                    lines_added=added,
-                    lines_removed=removed,
-                )
-                for path, (added, removed) in stats.per_file.items()
-            ]
-        except Exception as e:
-            logger.warning("Could not detect file changes: %s", e)
-            return []
-
-    async def _run_validation(self, cwd: Path) -> list[ValidationResult]:
-        """Run validation pipeline.
-
-        .. deprecated::
-            This method is deprecated and will be removed in a future version.
-            Validation is now handled by the workflow layer via utils/validation.py.
-            Agents should be side-effect free and not run validation directly.
-        """
-        from maverick.utils.validation import run_validation_pipeline
-
-        try:
-            return await run_validation_pipeline(cwd)
-        except Exception as e:
-            logger.warning("Validation failed: %s", e)
-            return []
-
-    async def _create_commit(
-        self, task: Task, context: ImplementerContext
-    ) -> str | None:
-        """Create a git commit for the task.
-
-        .. deprecated::
-            This method is deprecated and will be removed in a future version.
-            Git commits are now handled by the workflow layer via maverick.git.
-            Agents should be side-effect free and not create commits directly.
-        """
-        from maverick.git import AsyncGitRepository
-
-        try:
-            repo = AsyncGitRepository(context.cwd)
-            if not await repo.is_dirty():
-                return None
-
-            # Generate conventional commit message
-            commit_type = "feat" if "create" in task.description.lower() else "chore"
-            message = f"{commit_type}({task.id.lower()}): {task.description[:50]}"
-
-            return await repo.commit(message, add_all=True)
-        except Exception as e:
-            logger.warning("Could not create commit: %s", e)
-            return None
 
     def _get_parallel_batch(self, tasks: list[Task]) -> list[Task]:
         """Get consecutive parallelizable tasks from the front of the list.
@@ -604,17 +542,12 @@ After completion, provide a summary of changes made.
                 messages.append(msg)
 
             # Detect file changes after phase execution
-            files_changed = await self._detect_file_changes(context.cwd)
+            files_changed = await detect_file_changes(context.cwd)
 
-            # Run validation if not skipped
+            # Validation and commits are handled by the workflow layer
+            # Agent returns file changes; orchestration runs validation/commits
             validation_results: list[ValidationResult] = []
-            if not context.skip_validation:
-                validation_results = await self._run_validation(context.cwd)
-
-            # Create commit if not dry run
             commit_sha = None
-            if not context.dry_run:
-                commit_sha = await self._create_phase_commit(context)
 
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -704,35 +637,3 @@ After completion, provide a summary of changes made.
             phase_name=phase_name,
             task_list=task_list,
         )
-
-    async def _create_phase_commit(self, context: ImplementerContext) -> str | None:
-        """Create a git commit for the completed phase.
-
-        Args:
-            context: Execution context with phase info.
-
-        Returns:
-            Commit SHA or None if no changes to commit.
-        """
-        from maverick.git import AsyncGitRepository
-
-        try:
-            repo = AsyncGitRepository(context.cwd)
-            if not await repo.is_dirty():
-                return None
-
-            # Generate commit message for phase
-            phase_name = context.phase_name or "unknown"
-            # Clean phase name for commit scope (remove "Phase X:" prefix if present)
-            scope = phase_name.lower().replace(" ", "-").replace(":", "")
-            if scope.startswith("phase-"):
-                # Extract just the descriptive part after "phase-X-"
-                parts = scope.split("-", 2)
-                scope = parts[2] if len(parts) > 2 else scope
-
-            message = f"feat({scope}): complete phase tasks"
-
-            return await repo.commit(message, add_all=True)
-        except Exception as e:
-            logger.warning("Could not create phase commit: %s", e)
-            return None
