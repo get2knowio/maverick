@@ -25,8 +25,6 @@ from maverick.exceptions import AgentError, GitHubError
 from maverick.models.implementation import (
     ChangeType,
     FileChange,
-    ValidationResult,
-    ValidationStep,
 )
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
@@ -249,29 +247,14 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock
-            ) as mock_validate,
-            patch.object(
-                agent, "_create_commit", new_callable=AsyncMock
-            ) as mock_commit,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
-            mock_verify.return_value = True
-            mock_validate.return_value = [
-                ValidationResult(
-                    step=ValidationStep.TEST,
-                    success=True,
-                    output="All tests passed",
-                )
-            ]
-            mock_commit.return_value = "abc123"
 
             result = await agent.execute(issue_context)
 
@@ -293,15 +276,14 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = []
-            mock_verify.return_value = True
 
             result = await agent.execute(issue_context)
 
@@ -321,15 +303,14 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = issue_context_with_data.issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = []
-            mock_verify.return_value = True
 
             result = await agent.execute(issue_context_with_data)
 
@@ -344,7 +325,11 @@ class TestExecuteMethod:
         tmp_path: Path,
         sample_issue_data: dict,
     ) -> None:
-        """Test execute respects dry_run flag and doesn't commit."""
+        """Test execute respects dry_run flag.
+
+        Note: Agent no longer creates commits internally (workflow handles it).
+        This test verifies the agent executes without issues in dry_run mode.
+        """
         context = IssueFixerContext(
             issue_number=42,
             cwd=tmp_path,
@@ -356,30 +341,17 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
-            patch.object(
-                agent, "_create_commit", new_callable=AsyncMock
-            ) as mock_commit,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = [
-                FileChange(
-                    file_path="test.py",
-                    change_type=ChangeType.MODIFIED,
-                    lines_added=1,
-                    lines_removed=1,
-                )
-            ]
-            mock_verify.return_value = True
 
             result = await agent.execute(context)
 
-            # Should NOT create commit in dry_run mode
-            mock_commit.assert_not_called()
             assert result.commit_sha is None
             assert result.metadata["dry_run"] is True
 
@@ -390,7 +362,11 @@ class TestExecuteMethod:
         tmp_path: Path,
         sample_issue_data: dict,
     ) -> None:
-        """Test execute skips validation when skip_validation is True."""
+        """Test execute respects skip_validation flag.
+
+        Note: Agent no longer runs validation internally (workflow handles it).
+        This test verifies the agent executes without issues with skip_validation set.
+        """
         context = IssueFixerContext(
             issue_number=42,
             cwd=tmp_path,
@@ -402,23 +378,17 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock
-            ) as mock_validate,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = []
-            mock_verify.return_value = True
 
             result = await agent.execute(context)
 
-            # Should NOT run validation
-            mock_validate.assert_not_called()
             assert result.validation_passed is True
 
     @pytest.mark.asyncio
@@ -434,15 +404,14 @@ class TestExecuteMethod:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = []
-            mock_verify.return_value = True
 
             result = await agent.execute(issue_context)
 
@@ -609,295 +578,9 @@ class TestAnalyzeAndFix:
         assert "None" in prompt or "Labels" in prompt
 
 
-# =============================================================================
-# Verify Fix Tests
-# =============================================================================
-
-
-class TestVerifyFix:
-    """Tests for _verify_fix helper method."""
-
-    @pytest.mark.asyncio
-    async def test_verify_fix_runs_tests(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test _verify_fix runs validation tests."""
-        with patch(
-            "maverick.utils.validation.run_validation_step", new_callable=AsyncMock
-        ) as mock_run_step:
-            mock_run_step.return_value = ValidationResult(
-                step=ValidationStep.TEST,
-                success=True,
-                output="Tests passed",
-            )
-
-            result = await agent._verify_fix(sample_issue_data, issue_context)
-
-            mock_run_step.assert_called_once_with(
-                ValidationStep.TEST, issue_context.cwd
-            )
-            assert result is True
-
-    @pytest.mark.asyncio
-    async def test_verify_fix_returns_false_on_failure(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test _verify_fix returns False when tests fail."""
-        with patch(
-            "maverick.utils.validation.run_validation_step", new_callable=AsyncMock
-        ) as mock_run_step:
-            mock_run_step.return_value = ValidationResult(
-                step=ValidationStep.TEST,
-                success=False,
-                output="Tests failed",
-            )
-
-            result = await agent._verify_fix(sample_issue_data, issue_context)
-
-            assert result is False
-
-    @pytest.mark.asyncio
-    async def test_verify_fix_handles_exceptions(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test _verify_fix handles exceptions gracefully."""
-        with patch(
-            "maverick.utils.validation.run_validation_step", new_callable=AsyncMock
-        ) as mock_run_step:
-            mock_run_step.side_effect = Exception("Validation error")
-
-            result = await agent._verify_fix(sample_issue_data, issue_context)
-
-            assert result is False
-
-
-# =============================================================================
-# Detect File Changes Tests
-# =============================================================================
-
-
-class TestDetectFileChanges:
-    """Tests for _detect_file_changes helper method."""
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_returns_file_changes(
-        self, agent: IssueFixerAgent, tmp_path: Path
-    ) -> None:
-        """Test _detect_file_changes returns FileChange list."""
-        from maverick.git import DiffStats
-
-        mock_stats = DiffStats(
-            files_changed=2,
-            insertions=15,
-            deletions=5,
-            file_list=("src/file.py", "tests/test_file.py"),
-            per_file={
-                "src/file.py": (10, 5),
-                "tests/test_file.py": (5, 0),
-            },
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            result = await agent._detect_file_changes(tmp_path)
-
-            assert len(result) == 2
-            assert all(isinstance(fc, FileChange) for fc in result)
-            # Check that src/file.py stats are correct (order not guaranteed)
-            src_file = next(fc for fc in result if fc.file_path == "src/file.py")
-            assert src_file.lines_added == 10
-            assert src_file.lines_removed == 5
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_handles_no_changes(
-        self, agent: IssueFixerAgent, tmp_path: Path
-    ) -> None:
-        """Test _detect_file_changes handles empty diff stats."""
-        from maverick.git import DiffStats
-
-        mock_stats = DiffStats(
-            files_changed=0,
-            insertions=0,
-            deletions=0,
-            file_list=(),
-            per_file={},
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            result = await agent._detect_file_changes(tmp_path)
-
-            assert result == []
-
-    @pytest.mark.asyncio
-    async def test_detect_file_changes_handles_exceptions(
-        self, agent: IssueFixerAgent, tmp_path: Path
-    ) -> None:
-        """Test _detect_file_changes handles exceptions gracefully."""
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            side_effect=Exception("Git error"),
-        ):
-            result = await agent._detect_file_changes(tmp_path)
-
-            assert result == []
-
-
-# =============================================================================
-# Validation Tests
-# =============================================================================
-
-
-class TestRunValidation:
-    """Tests for _run_validation helper method."""
-
-    @pytest.mark.asyncio
-    async def test_run_validation_returns_results(
-        self, agent: IssueFixerAgent, tmp_path: Path
-    ) -> None:
-        """Test _run_validation returns list of ValidationResult."""
-        with patch(
-            "maverick.utils.validation.run_validation_pipeline",
-            new_callable=AsyncMock,
-        ) as mock_pipeline:
-            mock_pipeline.return_value = [
-                ValidationResult(
-                    step=ValidationStep.FORMAT,
-                    success=True,
-                    output="Formatted",
-                ),
-                ValidationResult(
-                    step=ValidationStep.LINT,
-                    success=True,
-                    output="Linted",
-                ),
-            ]
-
-            result = await agent._run_validation(tmp_path)
-
-            mock_pipeline.assert_called_once_with(tmp_path)
-            assert len(result) == 2
-            assert all(isinstance(r, ValidationResult) for r in result)
-
-    @pytest.mark.asyncio
-    async def test_run_validation_handles_exceptions(
-        self, agent: IssueFixerAgent, tmp_path: Path
-    ) -> None:
-        """Test _run_validation handles exceptions gracefully."""
-        with patch(
-            "maverick.utils.validation.run_validation_pipeline",
-            new_callable=AsyncMock,
-        ) as mock_pipeline:
-            mock_pipeline.side_effect = Exception("Validation error")
-
-            result = await agent._run_validation(tmp_path)
-
-            assert result == []
-
-
-# =============================================================================
-# Create Commit Tests
-# =============================================================================
-
-
-class TestCreateCommit:
-    """Tests for _create_commit helper method."""
-
-    @pytest.mark.asyncio
-    async def test_create_commit_creates_conventional_commit(
-        self, agent: IssueFixerAgent, issue_context: IssueFixerContext
-    ) -> None:
-        """Test _create_commit creates commit with conventional format."""
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123def456")
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            result = await agent._create_commit(
-                42, "resolve null pointer issue", issue_context
-            )
-
-            assert result == "abc123def456"
-            # Check commit message format
-            call_args = mock_repo.commit.call_args[0]
-            commit_message = call_args[0]
-            assert "fix:" in commit_message
-            assert "Fixes #42" in commit_message
-
-    @pytest.mark.asyncio
-    async def test_create_commit_includes_issue_number(
-        self, agent: IssueFixerAgent, issue_context: IssueFixerContext
-    ) -> None:
-        """Test _create_commit includes 'Fixes #N' in commit body."""
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123")
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            await agent._create_commit(123, "fix description", issue_context)
-
-            call_args = mock_repo.commit.call_args[0]
-            commit_message = call_args[0]
-            assert "Fixes #123" in commit_message
-
-    @pytest.mark.asyncio
-    async def test_create_commit_returns_none_without_changes(
-        self, agent: IssueFixerAgent, issue_context: IssueFixerContext
-    ) -> None:
-        """Test _create_commit returns None when no uncommitted changes."""
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=False)
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            result = await agent._create_commit(42, "fix", issue_context)
-
-            assert result is None
-            mock_repo.commit.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_create_commit_truncates_long_descriptions(
-        self, agent: IssueFixerAgent, issue_context: IssueFixerContext
-    ) -> None:
-        """Test _create_commit truncates long fix descriptions."""
-        mock_repo = MagicMock()
-        mock_repo.is_dirty = AsyncMock(return_value=True)
-        mock_repo.commit = AsyncMock(return_value="abc123")
-        long_description = "a" * 100
-
-        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
-            await agent._create_commit(42, long_description, issue_context)
-
-            call_args = mock_repo.commit.call_args[0]
-            commit_message = call_args[0]
-            # First line should be truncated to 50 chars + "fix: "
-            first_line = commit_message.split("\n")[0]
-            assert len(first_line) <= 60  # "fix: " + 50 chars + some buffer
-
-    @pytest.mark.asyncio
-    async def test_create_commit_handles_exceptions(
-        self, agent: IssueFixerAgent, issue_context: IssueFixerContext
-    ) -> None:
-        """Test _create_commit handles exceptions gracefully."""
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            side_effect=Exception("Git error"),
-        ):
-            result = await agent._create_commit(42, "fix", issue_context)
-
-            assert result is None
+# NOTE: Tests for _verify_fix, _detect_file_changes, _run_validation, and _create_commit
+# have been moved to tests/unit/agents/test_utils.py as these are now
+# shared utility functions in maverick.agents.utils (issue #147)
 
 
 # =============================================================================
@@ -984,13 +667,14 @@ class TestErrorHandling:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=sample_file_changes,
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = sample_file_changes
 
             result = await agent.execute(issue_context)
 
@@ -1013,13 +697,14 @@ class TestErrorHandling:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "cause", "fix")
-            mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
 
@@ -1035,101 +720,46 @@ class TestErrorHandling:
 class TestSideEffectFree:
     """Tests verifying agents are side-effect free per issue #160.
 
-    IssueFixerAgent should NOT:
-    - Call _run_validation (workflow handles validation)
-    - Call _create_commit (workflow handles commits)
-    - Call _verify_fix (workflow handles verification)
+    IssueFixerAgent should NOT create commits, run validation, or verify fixes.
+    These are handled by the workflow layer.
 
     FixResult should have:
-    - Empty validation_results
     - commit_sha=None
     - validation_passed=True (no validation ran, default pass)
     """
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_call_validation(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
+    async def test_agent_has_no_validation_method(
+        self, agent: IssueFixerAgent
     ) -> None:
-        """Test that execute does not run validation (workflow handles this)."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(
-                agent, "_run_validation", new_callable=AsyncMock
-            ) as mock_validate,
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
+        """Test that agent does not have _run_validation method.
 
-            await agent.execute(issue_context)
-
-            # _run_validation should NOT be called
-            mock_validate.assert_not_called()
+        The method has been removed as part of issue #147 - validation
+        is now handled by the workflow layer.
+        """
+        assert not hasattr(agent, "_run_validation")
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_call_create_commit(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
+    async def test_agent_has_no_create_commit_method(
+        self, agent: IssueFixerAgent
     ) -> None:
-        """Test that execute does not create commits (workflow handles this)."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(
-                agent, "_create_commit", new_callable=AsyncMock
-            ) as mock_commit,
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
+        """Test that agent does not have _create_commit method.
 
-            await agent.execute(issue_context)
-
-            # _create_commit should NOT be called
-            mock_commit.assert_not_called()
+        The method has been removed as part of issue #147 - commits
+        are now handled by the workflow layer.
+        """
+        assert not hasattr(agent, "_create_commit")
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_call_verify_fix(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
+    async def test_agent_has_no_verify_fix_method(
+        self, agent: IssueFixerAgent
     ) -> None:
-        """Test that execute does not verify fix (workflow handles this)."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
-            patch.object(agent, "_verify_fix", new_callable=AsyncMock) as mock_verify,
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
+        """Test that agent does not have _verify_fix method.
 
-            await agent.execute(issue_context)
-
-            # _verify_fix should NOT be called
-            mock_verify.assert_not_called()
+        The method has been removed as part of issue #147 - verification
+        is now handled by the workflow layer.
+        """
+        assert not hasattr(agent, "_verify_fix")
 
     @pytest.mark.asyncio
     async def test_fix_result_has_no_commit_sha(
@@ -1144,13 +774,14 @@ class TestSideEffectFree:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
 
@@ -1170,13 +801,14 @@ class TestSideEffectFree:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
 
@@ -1196,13 +828,14 @@ class TestSideEffectFree:
             patch.object(
                 agent, "_analyze_and_fix", new_callable=AsyncMock
             ) as mock_analyze,
-            patch.object(
-                agent, "_detect_file_changes", new_callable=AsyncMock
-            ) as mock_detect,
+            patch(
+                "maverick.agents.issue_fixer.detect_file_changes",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_fetch.return_value = sample_issue_data
             mock_analyze.return_value = ("output", "root cause", "fix description")
-            mock_detect.return_value = []
 
             result = await agent.execute(issue_context)
 

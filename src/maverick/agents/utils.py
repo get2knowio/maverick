@@ -1,13 +1,21 @@
-"""Utility functions for extracting data from Claude SDK message objects.
+"""Utility functions for agents.
 
-This module provides functions to extract text content from AssistantMessage
-objects returned by the Claude Agent SDK, avoiding direct imports of SDK types
-to maintain loose coupling.
+This module provides shared utilities for agent implementations:
+- Text extraction from Claude SDK message objects
+- Git file change detection
+
+Avoiding direct imports of SDK types to maintain loose coupling.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+from maverick.logging import get_logger
+from maverick.models.implementation import ChangeType, FileChange
+
+logger = get_logger(__name__)
 
 
 def extract_text(message: Any) -> str:
@@ -61,3 +69,35 @@ def extract_all_text(messages: list[Any]) -> str:
                 text_parts.append(text)
 
     return "\n\n".join(text_parts)
+
+
+async def detect_file_changes(cwd: Path) -> list[FileChange]:
+    """Detect file changes from git status.
+
+    Uses AsyncGitRepository to get diff statistics and converts them
+    to FileChange objects for agent result reporting.
+
+    Args:
+        cwd: Working directory (repository root).
+
+    Returns:
+        List of FileChange objects for modified files.
+        Returns empty list if changes cannot be detected.
+    """
+    from maverick.git import AsyncGitRepository
+
+    try:
+        repo = AsyncGitRepository(cwd)
+        stats = await repo.diff_stats()
+        return [
+            FileChange(
+                file_path=path,
+                change_type=ChangeType.MODIFIED,
+                lines_added=added,
+                lines_removed=removed,
+            )
+            for path, (added, removed) in stats.per_file.items()
+        ]
+    except Exception as e:
+        logger.warning("Could not detect file changes: %s", e)
+        return []

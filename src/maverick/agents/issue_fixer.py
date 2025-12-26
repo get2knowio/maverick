@@ -7,15 +7,13 @@ with minimal, targeted code changes.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
-from maverick.agents.utils import extract_all_text
+from maverick.agents.utils import detect_file_changes, extract_all_text
 from maverick.exceptions import GitHubError
 from maverick.logging import get_logger
-from maverick.models.implementation import ChangeType, FileChange, ValidationResult
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
 logger = get_logger(__name__)
@@ -166,7 +164,7 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
             )
 
             # Detect file changes (informational - used for result reporting)
-            files_changed = await self._detect_file_changes(context.cwd)
+            files_changed = await detect_file_changes(context.cwd)
 
             # Validation, verification, and commits are handled by the workflow layer
             # Agent returns file changes and fix analysis; orchestration runs
@@ -282,96 +280,3 @@ After fixing, provide:
 - Files changed
 - How you verified the fix
 """
-
-    async def _verify_fix(
-        self,
-        issue_data: dict[str, Any],
-        context: IssueFixerContext,
-    ) -> bool:
-        """Verify the fix works.
-
-        .. deprecated::
-            This method will be removed in a future version.
-            Verification is now handled by the workflow layer.
-
-        Args:
-            issue_data: Issue details.
-            context: Execution context.
-
-        Returns:
-            True if verification passed.
-        """
-        # Run tests to verify fix
-        # (simplified - full verification in enhancement phase)
-        try:
-            from maverick.models.implementation import ValidationStep
-            from maverick.utils.validation import run_validation_step
-
-            result = await run_validation_step(ValidationStep.TEST, context.cwd)
-            return result.success
-        except Exception as e:
-            logger.warning("Verification failed: %s", e)
-            return False
-
-    async def _detect_file_changes(self, cwd: Path) -> list[FileChange]:
-        """Detect file changes from git status."""
-        from maverick.git import AsyncGitRepository
-
-        try:
-            repo = AsyncGitRepository(cwd)
-            stats = await repo.diff_stats()
-            return [
-                FileChange(
-                    file_path=path,
-                    change_type=ChangeType.MODIFIED,
-                    lines_added=added,
-                    lines_removed=removed,
-                )
-                for path, (added, removed) in stats.per_file.items()
-            ]
-        except Exception as e:
-            logger.warning("Could not detect file changes: %s", e)
-            return []
-
-    async def _run_validation(self, cwd: Path) -> list[ValidationResult]:
-        """Run validation pipeline.
-
-        .. deprecated::
-            This method will be removed in a future version.
-            Validation is now handled by the workflow layer via utils/validation.py.
-        """
-        from maverick.utils.validation import run_validation_pipeline
-
-        try:
-            return await run_validation_pipeline(cwd)
-        except Exception as e:
-            logger.warning("Validation failed: %s", e)
-            return []
-
-    async def _create_commit(
-        self,
-        issue_number: int,
-        fix_description: str,
-        context: IssueFixerContext,
-    ) -> str | None:
-        """Create a git commit for the fix.
-
-        .. deprecated::
-            This method will be removed in a future version.
-            Commits are now handled by the workflow layer via maverick.git.
-        """
-        from maverick.git import AsyncGitRepository
-
-        try:
-            repo = AsyncGitRepository(context.cwd)
-            if not await repo.is_dirty():
-                return None
-
-            # Generate conventional commit message
-            short_desc = fix_description[:50] if fix_description else "resolve issue"
-            message = f"fix: {short_desc}\n\nFixes #{issue_number}"
-
-            return await repo.commit(message, add_all=True)
-        except Exception as e:
-            logger.warning("Could not create commit: %s", e)
-            return None
