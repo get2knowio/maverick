@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
 from maverick.utils.github_client import (
+    DEFAULT_GITHUB_RATE_LIMIT,
+    DEFAULT_GITHUB_RATE_PERIOD,
     GitHubClient,
     get_github_client,
     get_github_token,
@@ -332,3 +336,238 @@ class TestGitHubClient:
 
         # Should not raise
         client.close()
+
+
+class TestGitHubClientRateLimiting:
+    """Tests for GitHubClient rate limiting functionality."""
+
+    def test_rate_limit_constants(self):
+        """Test rate limit constants are defined correctly."""
+        assert DEFAULT_GITHUB_RATE_LIMIT == 5000
+        assert DEFAULT_GITHUB_RATE_PERIOD == 3600.0
+
+    def test_init_without_rate_limiting(self):
+        """Test initialization without rate limiting (default behavior)."""
+        mock_github = MagicMock()
+        client = GitHubClient(github=mock_github)
+
+        assert client.rate_limiter is None
+
+    def test_init_with_rate_limiting(self):
+        """Test initialization with rate limiting enabled."""
+        mock_github = MagicMock()
+        client = GitHubClient(
+            github=mock_github,
+            rate_limit=100,
+            rate_period=60.0,
+        )
+
+        assert client.rate_limiter is not None
+        assert client.rate_limiter.max_rate == 100
+        assert client.rate_limiter.time_period == 60.0
+
+    def test_init_with_default_period(self):
+        """Test initialization with rate limit but default period."""
+        mock_github = MagicMock()
+        client = GitHubClient(
+            github=mock_github,
+            rate_limit=5000,
+        )
+
+        assert client.rate_limiter is not None
+        assert client.rate_limiter.max_rate == 5000
+        assert client.rate_limiter.time_period == DEFAULT_GITHUB_RATE_PERIOD
+
+    @pytest.mark.asyncio
+    async def test_list_issues_with_rate_limiting(self):
+        """Test that list_issues respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issues = [MagicMock(), MagicMock()]
+        mock_repo.get_issues.return_value = mock_issues
+        mock_github.get_repo.return_value = mock_repo
+
+        # Create client with strict rate limit (2 per second)
+        client = GitHubClient(github=mock_github, rate_limit=2, rate_period=1.0)
+
+        # First call should be immediate
+        start = time.monotonic()
+        await client.list_issues("owner/repo")
+        await client.list_issues("owner/repo")
+        first_two_duration = time.monotonic() - start
+
+        # First two calls should be fast (within the rate limit)
+        assert first_two_duration < 0.5
+
+        # Third call should be delayed by rate limiter
+        start = time.monotonic()
+        await client.list_issues("owner/repo")
+        third_call_duration = time.monotonic() - start
+
+        # The third call should have waited for the rate limit window
+        # (approximately 1 second for our 2/second limit)
+        assert third_call_duration >= 0.3  # Allow some tolerance
+
+    @pytest.mark.asyncio
+    async def test_get_issue_with_rate_limiting(self):
+        """Test that get_issue respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issue = MagicMock()
+        mock_repo.get_issue.return_value = mock_issue
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        # Should work with rate limiting
+        issue = await client.get_issue("owner/repo", 42)
+        assert issue == mock_issue
+
+    @pytest.mark.asyncio
+    async def test_add_issue_comment_with_rate_limiting(self):
+        """Test that add_issue_comment respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issue = MagicMock()
+        mock_repo.get_issue.return_value = mock_issue
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        # Should work with rate limiting
+        await client.add_issue_comment("owner/repo", 42, "Test comment")
+        mock_issue.create_comment.assert_called_once_with("Test comment")
+
+    @pytest.mark.asyncio
+    async def test_create_pr_with_rate_limiting(self):
+        """Test that create_pr respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_pr = MagicMock()
+        mock_repo.create_pull.return_value = mock_pr
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        pr = await client.create_pr(
+            "owner/repo",
+            title="Test PR",
+            body="Description",
+            head="feature",
+            base="main",
+        )
+        assert pr == mock_pr
+
+    @pytest.mark.asyncio
+    async def test_get_pr_with_rate_limiting(self):
+        """Test that get_pr respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_pr = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        pr = await client.get_pr("owner/repo", 123)
+        assert pr == mock_pr
+
+    @pytest.mark.asyncio
+    async def test_update_pr_with_rate_limiting(self):
+        """Test that update_pr respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_pr = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        pr = await client.update_pr("owner/repo", 123, title="New Title")
+        assert pr == mock_pr
+        mock_pr.edit.assert_called_once_with(title="New Title")
+
+    @pytest.mark.asyncio
+    async def test_get_pr_checks_with_rate_limiting(self):
+        """Test that get_pr_checks respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_pr = MagicMock()
+        mock_commit = MagicMock()
+        mock_check_runs = [MagicMock()]
+
+        mock_commits = MagicMock()
+        mock_commits.totalCount = 1
+        mock_commits.reversed = [mock_commit]
+        mock_pr.get_commits.return_value = mock_commits
+        mock_commit.get_check_runs.return_value = mock_check_runs
+
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        checks = await client.get_pr_checks("owner/repo", 123)
+        assert len(checks) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_repo_info_with_rate_limiting(self):
+        """Test that get_repo_info respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        repo = await client.get_repo_info("owner/repo")
+        assert repo == mock_repo
+
+    @pytest.mark.asyncio
+    async def test_without_rate_limiting_no_delays(self):
+        """Test that calls without rate limiting have no delays."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issues = [MagicMock()]
+        mock_repo.get_issues.return_value = mock_issues
+        mock_github.get_repo.return_value = mock_repo
+
+        # Create client without rate limiting
+        client = GitHubClient(github=mock_github)
+        assert client.rate_limiter is None
+
+        # Make many calls quickly
+        start = time.monotonic()
+        for _ in range(10):
+            await client.list_issues("owner/repo")
+        duration = time.monotonic() - start
+
+        # Without rate limiting, calls should be nearly instant
+        # (only limited by async thread pool overhead)
+        assert duration < 2.0  # Should be much faster in practice
+
+    @pytest.mark.asyncio
+    async def test_concurrent_rate_limited_calls(self):
+        """Test that concurrent calls properly respect rate limits."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issues = [MagicMock()]
+        mock_repo.get_issues.return_value = mock_issues
+        mock_github.get_repo.return_value = mock_repo
+
+        # Create client with 3 requests per second limit
+        client = GitHubClient(github=mock_github, rate_limit=3, rate_period=1.0)
+
+        # Fire 6 concurrent requests (should take at least 1 second)
+        start = time.monotonic()
+        await asyncio.gather(
+            client.list_issues("owner/repo"),
+            client.list_issues("owner/repo"),
+            client.list_issues("owner/repo"),
+            client.list_issues("owner/repo"),
+            client.list_issues("owner/repo"),
+            client.list_issues("owner/repo"),
+        )
+        duration = time.monotonic() - start
+
+        # 6 requests at 3/second should take at least 1 second
+        assert duration >= 0.8  # Allow some tolerance

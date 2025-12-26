@@ -82,13 +82,13 @@ async def test_send_request_non_200_with_json(
     )
     mock_session = MockClientSession(mock_response)
 
-    # Mock asyncio.sleep to avoid delays
+    # Mock tenacity's async sleep to avoid delays
     with (
         patch(
             "maverick.tools.notification.aiohttp.ClientSession",
             return_value=mock_session,
         ),
-        patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
+        patch("tenacity.nap.sleep", new_callable=AsyncMock),
     ):
         success, message, notification_id = await _send_ntfy_request(
             config=mock_config,

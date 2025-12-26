@@ -5,7 +5,7 @@ This module handles execution of CheckpointStepRecord steps.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
@@ -75,7 +75,7 @@ async def execute_checkpoint_step(
         )
 
     # Create checkpoint data
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
     checkpoint_data = CheckpointData(
         checkpoint_id=checkpoint_id,
         workflow_name=workflow_name,

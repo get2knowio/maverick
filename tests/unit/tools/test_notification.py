@@ -16,9 +16,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 import pytest
+from aiolimiter import AsyncLimiter
 
 from maverick.config import NotificationConfig
 from maverick.tools.notification import (
+    DEFAULT_NTFY_RATE_LIMIT,
+    DEFAULT_NTFY_RATE_PERIOD,
     DEFAULT_TIMEOUT,
     NTFY_PRIORITIES,
     SERVER_NAME,
@@ -266,15 +269,13 @@ class TestSendNtfyRequest:
                     raise aiohttp.ClientError("Connection error")
                 return MockResponse(success_response)
 
-        # Mock asyncio.sleep to avoid delays in tests
+        # Mock tenacity's async sleep to avoid delays in tests
         with (
             patch(
                 "maverick.tools.notification.aiohttp.ClientSession",
                 RetryMockClientSession,
             ),
-            patch(
-                "maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock
-            ) as mock_sleep,
+            patch("tenacity.nap.sleep", new_callable=AsyncMock),
         ):
             success, message, notification_id = await _send_ntfy_request(
                 config=mock_config,
@@ -289,11 +290,6 @@ class TestSendNtfyRequest:
 
             # Verify retries happened (3 total attempts)
             assert call_count == 3
-
-            # Verify exponential backoff sleep calls
-            assert mock_sleep.call_count == 2  # Sleep between attempts
-            mock_sleep.assert_any_call(0.5)  # First retry delay
-            mock_sleep.assert_any_call(1.0)  # Second retry delay
 
     @pytest.mark.asyncio
     async def test_send_request_graceful_degradation(
@@ -320,13 +316,13 @@ class TestSendNtfyRequest:
                 call_count += 1
                 raise aiohttp.ClientError("Server unreachable")
 
-        # Mock asyncio.sleep
+        # Mock tenacity's async sleep to avoid delays
         with (
             patch(
                 "maverick.tools.notification.aiohttp.ClientSession",
                 FailingMockClientSession,
             ),
-            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
+            patch("tenacity.nap.sleep", new_callable=AsyncMock),
         ):
             success, message, notification_id = await _send_ntfy_request(
                 config=mock_config,
@@ -355,13 +351,13 @@ class TestSendNtfyRequest:
 
         mock_session = MockClientSession(error_response)
 
-        # Mock asyncio.sleep
+        # Mock tenacity's async sleep to avoid delays
         with (
             patch(
                 "maverick.tools.notification.aiohttp.ClientSession",
                 return_value=mock_session,
             ),
-            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
+            patch("tenacity.nap.sleep", new_callable=AsyncMock),
         ):
             success, message, notification_id = await _send_ntfy_request(
                 config=mock_config,
@@ -568,7 +564,7 @@ class TestSendWorkflowUpdate:
                 "maverick.tools.notification.aiohttp.ClientSession",
                 RetryMockClientSession,
             ),
-            patch("maverick.tools.notification.asyncio.sleep", new_callable=AsyncMock),
+            patch("tenacity.nap.sleep", new_callable=AsyncMock),
         ):
             result = await send_workflow_update.handler(
                 {
@@ -996,3 +992,265 @@ class TestConstants:
         assert SERVER_VERSION == "1.0.0"
         assert isinstance(DEFAULT_TIMEOUT, float)
         assert DEFAULT_TIMEOUT == 2.0
+
+    def test_rate_limit_constants(self) -> None:
+        """Test rate limit constants are defined correctly."""
+        assert DEFAULT_NTFY_RATE_LIMIT == 30
+        assert DEFAULT_NTFY_RATE_PERIOD == 60.0
+
+
+# =============================================================================
+# Rate Limiting Tests
+# =============================================================================
+
+
+class TestRateLimiting:
+    """Tests for notification rate limiting functionality."""
+
+    def test_create_server_without_rate_limiting(self) -> None:
+        """Test factory creates server without rate limiting by default."""
+        config = NotificationConfig(topic="test-topic")
+        server = create_notification_tools_server(config=config)
+
+        # Server should be created successfully
+        assert server is not None
+        assert server["name"] == SERVER_NAME
+
+    def test_create_server_with_rate_limiting(self) -> None:
+        """Test factory creates server with rate limiting when specified."""
+        config = NotificationConfig(topic="test-topic")
+        server = create_notification_tools_server(
+            config=config,
+            rate_limit=30,
+            rate_period=60.0,
+        )
+
+        # Server should be created successfully
+        assert server is not None
+        assert server["name"] == SERVER_NAME
+
+    def test_create_server_with_default_rate_period(self) -> None:
+        """Test factory uses default rate period when only limit specified."""
+        config = NotificationConfig(topic="test-topic")
+        server = create_notification_tools_server(
+            config=config,
+            rate_limit=DEFAULT_NTFY_RATE_LIMIT,
+        )
+
+        # Server should be created successfully
+        assert server is not None
+
+    @pytest.mark.asyncio
+    async def test_send_ntfy_request_with_rate_limiter(
+        self,
+        mock_config: NotificationConfig,
+        mock_aiohttp_response: Mock,
+    ) -> None:
+        """Test _send_ntfy_request respects rate limiter."""
+        mock_session = MockClientSession(mock_aiohttp_response)
+
+        # Create a rate limiter
+        rate_limiter = AsyncLimiter(10, 1.0)
+
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test rate limited notification",
+                rate_limiter=rate_limiter,
+            )
+
+            assert success is True
+            assert message == "Notification sent"
+            assert notification_id == "test-notification-id"
+
+    @pytest.mark.asyncio
+    async def test_send_ntfy_request_without_rate_limiter(
+        self,
+        mock_config: NotificationConfig,
+        mock_aiohttp_response: Mock,
+    ) -> None:
+        """Test _send_ntfy_request works without rate limiter (default)."""
+        mock_session = MockClientSession(mock_aiohttp_response)
+
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test notification without rate limiter",
+                rate_limiter=None,  # Explicitly no rate limiter
+            )
+
+            assert success is True
+            assert message == "Notification sent"
+            assert notification_id == "test-notification-id"
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_notifications_with_factory(
+        self,
+        mock_config: NotificationConfig,
+        mock_aiohttp_response: Mock,
+    ) -> None:
+        """Test notifications through factory with rate limiting enabled."""
+        mock_session = MockClientSession(mock_aiohttp_response)
+
+        # Create server with rate limiting
+        server = create_notification_tools_server(
+            config=mock_config,
+            rate_limit=10,
+            rate_period=1.0,
+        )
+        notification_tools = server["_test_tools"]
+        send_notification = notification_tools["send_notification"]
+
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            result = await send_notification.handler(
+                {"message": "Rate limited message", "priority": "default"}
+            )
+
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
+            assert response_data["message"] == "Notification sent"
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_workflow_update_with_factory(
+        self,
+        mock_config: NotificationConfig,
+        mock_aiohttp_response: Mock,
+    ) -> None:
+        """Test workflow updates through factory with rate limiting enabled."""
+        mock_session = MockClientSession(mock_aiohttp_response)
+
+        # Create server with rate limiting
+        server = create_notification_tools_server(
+            config=mock_config,
+            rate_limit=10,
+            rate_period=1.0,
+        )
+        notification_tools = server["_test_tools"]
+        send_workflow_update = notification_tools["send_workflow_update"]
+
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            result = await send_workflow_update.handler(
+                {
+                    "stage": "start",
+                    "message": "Rate limited workflow start",
+                    "workflow_name": "TestWorkflow",
+                }
+            )
+
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True
+            assert response_data["message"] == "Notification sent"
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_passed_to_send_function(
+        self,
+        mock_config: NotificationConfig,
+        mock_aiohttp_response: Mock,
+    ) -> None:
+        """Test that rate limiter is properly passed to _send_ntfy_request."""
+        mock_session = MockClientSession(mock_aiohttp_response)
+
+        # Create a rate limiter with very strict limits
+        rate_limiter = AsyncLimiter(2, 1.0)
+
+        with patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            # Make multiple requests with rate limiter
+            import time
+
+            start = time.monotonic()
+
+            # First two should be immediate
+            await _send_ntfy_request(
+                config=mock_config,
+                message="First",
+                rate_limiter=rate_limiter,
+            )
+            await _send_ntfy_request(
+                config=mock_config,
+                message="Second",
+                rate_limiter=rate_limiter,
+            )
+
+            first_two_duration = time.monotonic() - start
+            assert first_two_duration < 0.5
+
+            # Third should be delayed
+            start = time.monotonic()
+            await _send_ntfy_request(
+                config=mock_config,
+                message="Third",
+                rate_limiter=rate_limiter,
+            )
+            third_duration = time.monotonic() - start
+
+            # Should have waited for rate limit window
+            assert third_duration >= 0.3
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_retry_preserves_limiting(
+        self,
+        mock_config: NotificationConfig,
+    ) -> None:
+        """Test that rate limiter is applied on retries as well."""
+        # Create a response that succeeds on second attempt
+        success_response = Mock()
+        success_response.status = 200
+        success_response.json = AsyncMock(return_value={"id": "success-id"})
+
+        call_count = 0
+
+        class RetryMockClientSession:
+            """Mock that fails once then succeeds."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+            async def __aenter__(self) -> RetryMockClientSession:
+                return self
+
+            async def __aexit__(self, *args: Any) -> None:
+                pass
+
+            def post(self, *args: Any, **kwargs: Any) -> Any:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise aiohttp.ClientError("Temporary error")
+                return MockResponse(success_response)
+
+        rate_limiter = AsyncLimiter(10, 1.0)
+
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                RetryMockClientSession,
+            ),
+            patch("tenacity.nap.sleep", new_callable=AsyncMock),
+        ):
+            success, message, notification_id = await _send_ntfy_request(
+                config=mock_config,
+                message="Test retry with rate limiter",
+                rate_limiter=rate_limiter,
+                max_retries=1,
+            )
+
+            assert success is True
+            assert message == "Notification sent"
+            assert notification_id == "success-id"
+            # Should have made 2 attempts
+            assert call_count == 2

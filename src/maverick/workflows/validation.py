@@ -113,13 +113,13 @@ class ValidationWorkflow:
                     stdout=stdout_bytes.decode("utf-8", errors="replace"),
                     stderr=stderr_bytes.decode("utf-8", errors="replace"),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 process.kill()
                 try:
                     # Give the process a short window to terminate after kill
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Process didn't terminate in time, log and continue
                     logger.error(
                         f"Process failed to terminate after kill: {command_str}"

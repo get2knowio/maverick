@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
-import tempfile
 from pathlib import Path
 from typing import Protocol
 
 from maverick.dsl.checkpoint.data import CheckpointData
+from maverick.utils.atomic import atomic_write_text
 
 
 class CheckpointStore(Protocol):
@@ -100,27 +99,12 @@ class FileCheckpointStore:
         overhead of async wrappers unnecessary.
         """
         dir_path = self._base_path / workflow_id
-        dir_path.mkdir(parents=True, exist_ok=True)
-
         file_path = dir_path / f"{data.checkpoint_id}.json"
         content = json.dumps(data.to_dict(), indent=2)
 
-        # Atomic write: temp file then rename
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(dir_path),
-            suffix=".json.tmp",
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(content)
-            os.rename(tmp_path, str(file_path))
-        except OSError:
-            try:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-            except OSError:
-                pass  # Ignore cleanup errors
-            raise
+        # Uses atomicwrites library for atomic file operations.
+        # The library handles temp file creation and cleanup on error.
+        atomic_write_text(file_path, content, mkdir=True)
 
     async def load(
         self,

@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from maverick.utils.atomic import atomic_write_json
+
 __all__ = [
     "HISTORY_PATH",
     "MAX_ENTRIES",
@@ -174,26 +176,13 @@ class WorkflowHistoryStore:
         # Apply FIFO eviction: keep only the most recent max_entries
         entries_to_save = entries[-self.max_entries :]
 
-        # Ensure parent directory exists
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
         # Convert to JSON-serializable format
         data = [entry.to_dict() for entry in entries_to_save]
 
-        # Write to file atomically (write to temp file, then rename)
-        temp_path = self.path.with_suffix(".json.tmp")
-        try:
-            with temp_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            # Atomic rename
-            temp_path.replace(self.path)
-
-        except OSError:
-            # Clean up temp file if it exists
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
-            raise
+        # Write atomically using atomicwrites library.
+        # The library handles temp file creation, cleanup on error,
+        # and atomic rename on success.
+        atomic_write_json(self.path, data, indent=2, ensure_ascii=False, mkdir=True)
 
     def add(self, entry: WorkflowHistoryEntry) -> None:
         """Add a new history entry.

@@ -187,7 +187,7 @@ class PreflightValidator:
                 timeout=self._config.timeout_per_check,
             )
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             duration_ms = int((time.monotonic() - start_time) * 1000)
             return ValidationResult(
                 success=False,

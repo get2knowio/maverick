@@ -2,6 +2,9 @@
 
 This module provides a PyGithub client authenticated via `gh auth token`
 and async-friendly wrapper functions for common GitHub operations.
+
+Rate limiting is supported via aiolimiter to respect GitHub API limits.
+GitHub allows 5000 requests per hour for authenticated users.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ import asyncio
 import subprocess
 from typing import TYPE_CHECKING
 
+from aiolimiter import AsyncLimiter
 from github import Auth, Github, GithubException
 from github.Issue import Issue
 from github.PullRequest import PullRequest as GHPullRequest
@@ -23,10 +27,24 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
 
+# =============================================================================
+# Constants
+# =============================================================================
+
+#: Default rate limit for GitHub API (requests per hour)
+#: GitHub allows 5000 requests/hour for authenticated users
+DEFAULT_GITHUB_RATE_LIMIT: int = 5000
+
+#: Time period for rate limiting in seconds (1 hour)
+DEFAULT_GITHUB_RATE_PERIOD: float = 3600.0
+
+
 __all__ = [
     "get_github_token",
     "get_github_client",
     "GitHubClient",
+    "DEFAULT_GITHUB_RATE_LIMIT",
+    "DEFAULT_GITHUB_RATE_PERIOD",
 ]
 
 
@@ -81,23 +99,62 @@ class GitHubClient:
     This class provides async methods that wrap PyGithub's synchronous API,
     running blocking operations in a thread pool to avoid blocking the event loop.
 
+    Rate limiting is optional and uses aiolimiter to respect GitHub API limits.
+    By default, rate limiting is disabled for backward compatibility.
+
     Attributes:
         github: The underlying PyGithub client instance.
+        rate_limiter: Optional AsyncLimiter for rate limiting API calls.
     """
 
-    def __init__(self, github: Github | None = None) -> None:
+    def __init__(
+        self,
+        github: Github | None = None,
+        rate_limit: int | None = None,
+        rate_period: float | None = None,
+    ) -> None:
         """Initialize the GitHubClient.
 
         Args:
             github: Optional PyGithub client. If not provided, one will be
                 created using gh CLI authentication.
+            rate_limit: Optional maximum number of requests per rate_period.
+                If not provided, rate limiting is disabled. Use
+                DEFAULT_GITHUB_RATE_LIMIT (5000) for GitHub's standard limit.
+            rate_period: Time period in seconds for rate limiting.
+                Defaults to DEFAULT_GITHUB_RATE_PERIOD (3600.0 = 1 hour).
+                Only used if rate_limit is provided.
 
         Raises:
             GitHubCLINotFoundError: If gh CLI is not installed.
             GitHubAuthError: If gh CLI is not authenticated.
+
+        Example:
+            # Create client with default GitHub rate limits
+            client = GitHubClient(
+                rate_limit=DEFAULT_GITHUB_RATE_LIMIT,
+                rate_period=DEFAULT_GITHUB_RATE_PERIOD,
+            )
+
+            # Create client without rate limiting (default behavior)
+            client = GitHubClient()
         """
         self._github: Github | None = github
         self._lazy_init = github is None
+
+        # Initialize rate limiter if rate_limit is provided
+        if rate_limit is not None:
+            period = (
+                rate_period if rate_period is not None else DEFAULT_GITHUB_RATE_PERIOD
+            )
+            self._rate_limiter: AsyncLimiter | None = AsyncLimiter(rate_limit, period)
+        else:
+            self._rate_limiter = None
+
+    @property
+    def rate_limiter(self) -> AsyncLimiter | None:
+        """Get the rate limiter, if configured."""
+        return self._rate_limiter
 
     @property
     def github(self) -> Github:
@@ -147,6 +204,9 @@ class GitHubClient:
             except GithubException as e:
                 raise GitHubError(f"Failed to list issues: {e}") from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_list_issues)
         return await asyncio.to_thread(_list_issues)
 
     async def get_issue(self, repo_name: str, issue_number: int) -> Issue:
@@ -178,6 +238,9 @@ class GitHubClient:
                     issue_number=issue_number,
                 ) from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_get_issue)
         return await asyncio.to_thread(_get_issue)
 
     async def add_issue_comment(
@@ -208,6 +271,10 @@ class GitHubClient:
                     issue_number=issue_number,
                 ) from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                await asyncio.to_thread(_add_comment)
+                return
         await asyncio.to_thread(_add_comment)
 
     # =========================================================================
@@ -253,6 +320,9 @@ class GitHubClient:
             except GithubException as e:
                 raise GitHubError(f"Failed to create PR: {e}") from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_create_pr)
         return await asyncio.to_thread(_create_pr)
 
     async def get_pr(self, repo_name: str, pr_number: int) -> GHPullRequest:
@@ -278,6 +348,9 @@ class GitHubClient:
                     raise GitHubError(f"PR #{pr_number} not found") from e
                 raise GitHubError(f"Failed to get PR #{pr_number}: {e}") from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_get_pr)
         return await asyncio.to_thread(_get_pr)
 
     async def update_pr(
@@ -316,6 +389,9 @@ class GitHubClient:
             except GithubException as e:
                 raise GitHubError(f"Failed to update PR #{pr_number}: {e}") from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_update_pr)
         return await asyncio.to_thread(_update_pr)
 
     async def get_pr_checks(
@@ -352,6 +428,9 @@ class GitHubClient:
                     f"Failed to get checks for PR #{pr_number}: {e}"
                 ) from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_get_checks)
         return await asyncio.to_thread(_get_checks)
 
     # =========================================================================
@@ -379,6 +458,9 @@ class GitHubClient:
                     raise GitHubError(f"Repository {repo_name} not found") from e
                 raise GitHubError(f"Failed to get repository: {e}") from e
 
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_get_repo)
         return await asyncio.to_thread(_get_repo)
 
     def close(self) -> None:

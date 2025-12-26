@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -91,7 +90,7 @@ class TestRunValidationStep:
     async def test_run_validation_step_timeout(self) -> None:
         """Test validation step handles timeout."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             result = await run_validation_step(

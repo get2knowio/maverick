@@ -207,7 +207,6 @@ class TestVerifyPrerequisites:
     @pytest.mark.asyncio
     async def testverify_github_prerequisites_gh_timeout(self) -> None:
         """Test gh --version times out."""
-        import asyncio
 
         from maverick.exceptions import GitHubToolsError
         from maverick.tools.github import verify_github_prerequisites
@@ -215,7 +214,7 @@ class TestVerifyPrerequisites:
         async def mock_subprocess_exec(*args, **kwargs):
             """Mock subprocess that times out for gh --version."""
             mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
             return mock_process
 
         with patch(

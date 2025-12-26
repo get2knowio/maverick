@@ -85,7 +85,7 @@ class TestCommandRunner:
         - returncode is set to -1
         """
         # Simulate timeout
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.wait = AsyncMock()
 
         with patch(

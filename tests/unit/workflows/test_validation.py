@@ -11,7 +11,6 @@ auto-fix capabilities:
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1098,7 +1097,7 @@ async def test_command_timeout_fails_stage_immediately():
 
         async def mock_communicate():
             """Simulate timeout."""
-            raise asyncio.TimeoutError("Command timed out")
+            raise TimeoutError("Command timed out")
 
         mock_process.communicate = mock_communicate
         mock_process.kill = MagicMock()

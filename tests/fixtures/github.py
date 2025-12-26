@@ -13,7 +13,7 @@ Provides:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import time_ns
 
 import pytest
@@ -135,7 +135,7 @@ class MockGitHubCLI:
         """
         # Record the call with efficient nanosecond-precision timestamp
         # Converted to datetime for API compatibility
-        timestamp = datetime.fromtimestamp(time_ns() / 1e9, tz=timezone.utc)
+        timestamp = datetime.fromtimestamp(time_ns() / 1e9, tz=UTC)
         call = CommandCall(args=args, timestamp=timestamp)
         self._call_history.append(call)
 
