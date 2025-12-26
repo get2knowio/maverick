@@ -17,3 +17,6 @@ MAX_TOKENS_PER_CHUNK: int = 50_000
 
 #: Default base branch for comparison
 DEFAULT_BASE_BRANCH: str = "main"
+
+#: Default token estimate when file not found in parsed diff
+DEFAULT_FILE_TOKEN_ESTIMATE: int = 1000

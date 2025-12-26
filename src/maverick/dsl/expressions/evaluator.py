@@ -19,7 +19,6 @@ from maverick.dsl.expressions.errors import ExpressionEvaluationError
 from maverick.dsl.expressions.parser import (
     AnyExpression,
     BooleanExpression,
-    Expression,
     ExpressionKind,
     extract_all,
 )
@@ -265,17 +264,11 @@ class ExpressionEvaluator:
             Boolean result of evaluating all operands with the operator.
         """
         if expr.operator == "and":
-            # Short-circuit: return False as soon as one operand is falsy
-            for operand in expr.operands:
-                if not self.evaluate(operand):
-                    return False
-            return True
+            # all() short-circuits: returns False as soon as one operand is falsy
+            return all(self.evaluate(operand) for operand in expr.operands)
         elif expr.operator == "or":
-            # Short-circuit: return True as soon as one operand is truthy
-            for operand in expr.operands:
-                if self.evaluate(operand):
-                    return True
-            return False
+            # any() short-circuits: returns True as soon as one operand is truthy
+            return any(self.evaluate(operand) for operand in expr.operands)
         else:
             # Should not happen, but handle gracefully
             raise ExpressionEvaluationError(

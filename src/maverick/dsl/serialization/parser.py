@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from maverick.dsl.expressions.parser import AnyExpression, Expression, extract_all
+from maverick.dsl.expressions.parser import AnyExpression, extract_all
 from maverick.dsl.serialization.errors import (
     ReferenceResolutionError,
     UnsupportedVersionError,

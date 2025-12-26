@@ -15,6 +15,7 @@ from unidiff import PatchSet
 from unidiff.errors import UnidiffParseError
 
 from maverick.agents.code_reviewer.constants import (
+    DEFAULT_FILE_TOKEN_ESTIMATE,
     MAX_DIFF_FILES,
     MAX_DIFF_LINES,
     MAX_TOKENS_PER_CHUNK,
@@ -135,12 +136,11 @@ def _parse_diff_with_unidiff(diff_content: str) -> dict[str, str]:
     except UnidiffParseError as e:
         logger.warning("unidiff_parse_error", error=str(e))
         return {}
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         # Catch any unexpected errors to ensure graceful fallback
-        logger.warning(
+        logger.error(
             "unidiff_unexpected_error",
-            error=str(e),
-            error_type=type(e).__name__,
+            exc_info=True,
         )
         return {}
 
@@ -226,7 +226,7 @@ def chunk_files(
                 file=file_path,
                 using_fallback_tokens=True,
             )
-            file_tokens = 1000
+            file_tokens = DEFAULT_FILE_TOKEN_ESTIMATE
 
         # Check if adding this file would exceed chunk limit
         if current_tokens + file_tokens > MAX_TOKENS_PER_CHUNK and current_chunk:

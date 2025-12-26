@@ -10,12 +10,12 @@ Expression syntax:
 - ${{ index }} - Reference to current iteration index (for_each loops)
 - ${{ not inputs.condition }} - Negated expression
 - ${{ steps.x.output.field }} - Nested field access
-- ${{ items[0] }} - Array index access (bracket notation)
+- ${{ item[0] }} - Array index access (bracket notation)
 
 Implementation:
-This module uses a Lark-based parser (lark_parser.py) with a formal EBNF grammar
-(grammar.lark) for robust expression parsing. The public API remains unchanged
-for backward compatibility.
+This module uses a Lark-based parser with a formal EBNF grammar (grammar.lark)
+for robust expression parsing. The public API remains unchanged for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from lark import Lark, Token, Transformer, UnexpectedCharacters, UnexpectedToken
 
@@ -88,7 +89,7 @@ class BooleanExpression:
     """
 
     raw: str
-    operator: str  # 'and' or 'or'
+    operator: Literal["and", "or"]
     operands: tuple[Expression | BooleanExpression, ...]
 
 
@@ -516,7 +517,7 @@ def parse_expression(expression: str) -> AnyExpression:
     original = expression
 
     # Strip wrapper if present
-    inner, had_wrapper = _strip_wrapper(expression)
+    inner, _ = _strip_wrapper(expression)
 
     if not inner or inner.isspace():
         raise ExpressionSyntaxError(
