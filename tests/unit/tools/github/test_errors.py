@@ -15,11 +15,9 @@ import pytest
 from maverick.tools.github import (
     github_add_labels,
     github_close_issue,
-    github_create_pr,
     github_get_issue,
     github_get_pr_diff,
     github_list_issues,
-    github_pr_status,
 )
 
 
