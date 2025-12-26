@@ -381,9 +381,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             changes = await detect_file_changes(tmp_path)
 
             assert isinstance(changes, list)
@@ -408,9 +406,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             changes = await detect_file_changes(tmp_path)
 
             assert len(changes) == 1
@@ -433,9 +429,7 @@ class TestDetectFileChanges:
             assert changes == []
 
     @pytest.mark.asyncio
-    async def test_detect_file_changes_handles_empty_diff(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_detect_file_changes_handles_empty_diff(self, tmp_path: Path) -> None:
         """Test handles empty diff stats (no changes)."""
         from maverick.git import DiffStats
 
@@ -450,9 +444,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             changes = await detect_file_changes(tmp_path)
 
             assert changes == []

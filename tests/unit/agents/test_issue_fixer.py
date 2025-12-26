@@ -729,9 +729,7 @@ class TestSideEffectFree:
     """
 
     @pytest.mark.asyncio
-    async def test_agent_has_no_validation_method(
-        self, agent: IssueFixerAgent
-    ) -> None:
+    async def test_agent_has_no_validation_method(self, agent: IssueFixerAgent) -> None:
         """Test that agent does not have _run_validation method.
 
         The method has been removed as part of issue #147 - validation
@@ -751,9 +749,7 @@ class TestSideEffectFree:
         assert not hasattr(agent, "_create_commit")
 
     @pytest.mark.asyncio
-    async def test_agent_has_no_verify_fix_method(
-        self, agent: IssueFixerAgent
-    ) -> None:
+    async def test_agent_has_no_verify_fix_method(self, agent: IssueFixerAgent) -> None:
         """Test that agent does not have _verify_fix method.
 
         The method has been removed as part of issue #147 - verification
