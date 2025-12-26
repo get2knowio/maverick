@@ -738,7 +738,8 @@ class TestErrorHandling:
         """Test executes successfully with skip_validation=True.
 
         Note: Agent no longer calls validation internally (workflow handles it).
-        This test verifies the agent executes without issues when skip_validation is set.
+        This test verifies the agent executes without issues when
+        skip_validation is set.
         """
         context = ImplementerContext(
             task_description="Create module",
@@ -1119,8 +1120,8 @@ class TestPhaseLevelExecution:
         assert "[P]" not in t001_line
         assert "[P]" in t002_line
 
-    # NOTE: test_phase_commit_message_format has been removed as _create_phase_commit
-    # was removed from the agent (issue #147). Commits are now handled by the workflow layer.
+    # NOTE: test_phase_commit_message_format was removed as _create_phase_commit
+    # was removed from the agent (issue #147). Commits are handled by workflow.
 
 
 # =============================================================================
