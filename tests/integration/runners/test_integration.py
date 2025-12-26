@@ -10,7 +10,13 @@ To run these tests locally:
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
+
+# Tool availability detection for conditional skipping
+HAS_GH = shutil.which("gh") is not None
+HAS_RUFF = shutil.which("ruff") is not None
 
 pytestmark = pytest.mark.integration
 
@@ -48,7 +54,7 @@ class TestGitHubCLIRunnerIntegration:
     These tests require GitHub CLI to be installed and authenticated.
     """
 
-    @pytest.mark.skip(reason="Requires gh CLI authentication")
+    @pytest.mark.skipif(not HAS_GH, reason="Requires gh CLI installed")
     @pytest.mark.asyncio
     async def test_list_issues(self) -> None:
         """Test listing issues from the current repository."""
@@ -64,7 +70,7 @@ class TestGitHubCLIRunnerIntegration:
 class TestValidationRunnerIntegration:
     """Integration tests for ValidationRunner with actual validation tools."""
 
-    @pytest.mark.skip(reason="Requires ruff to be installed")
+    @pytest.mark.skipif(not HAS_RUFF, reason="Requires ruff to be installed")
     @pytest.mark.asyncio
     async def test_validation_stages(self) -> None:
         """Test running validation stages with actual ruff."""
