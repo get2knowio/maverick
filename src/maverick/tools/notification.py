@@ -3,6 +3,8 @@
 This module provides MCP tools for sending notifications via ntfy.sh.
 Tools are async functions decorated with @tool that return MCP-formatted responses.
 
+Rate limiting is supported via aiolimiter to prevent overwhelming ntfy.sh servers.
+
 Usage:
     from maverick.tools.notification import create_notification_tools_server
 
@@ -12,11 +14,11 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
 import aiohttp
+from aiolimiter import AsyncLimiter
 from claude_agent_sdk import create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
 from tenacity import (
@@ -51,6 +53,13 @@ RETRY_BASE_DELAY: float = 0.5
 #: MCP Server configuration
 SERVER_NAME: str = "notification-tools"
 SERVER_VERSION: str = "1.0.0"
+
+#: Default rate limit for ntfy.sh (requests per minute)
+#: ntfy.sh doesn't have strict rate limits, but 30/minute is reasonable
+DEFAULT_NTFY_RATE_LIMIT: int = 30
+
+#: Time period for rate limiting in seconds (1 minute)
+DEFAULT_NTFY_RATE_PERIOD: float = 60.0
 
 #: ntfy priority mapping (name -> numeric value)
 NTFY_PRIORITIES: dict[str, int] = {
@@ -121,6 +130,7 @@ async def _send_ntfy_request(
     priority: str = "default",
     tags: list[str] | None = None,
     max_retries: int = 2,
+    rate_limiter: AsyncLimiter | None = None,
 ) -> tuple[bool, str, str | None]:
     """Send a notification request to ntfy.sh with retry logic.
 
@@ -131,6 +141,7 @@ async def _send_ntfy_request(
         priority: Priority level (min, low, default, high, urgent).
         tags: Optional list of emoji tags.
         max_retries: Maximum retry attempts (default 2).
+        rate_limiter: Optional AsyncLimiter for rate limiting requests.
 
     Returns:
         Tuple of (success, message, notification_id).
@@ -153,6 +164,29 @@ async def _send_ntfy_request(
     if tags:
         headers["Tags"] = ",".join(tags)
 
+    # Define the actual request logic
+    async def _make_request() -> tuple[bool, str, str | None]:
+        """Make the HTTP request to ntfy.sh. Returns result tuple or raises."""
+        try:
+            timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(url, data=message, headers=headers) as resp,
+            ):
+                if resp.status == 200:
+                    response_data = await resp.json()
+                    notification_id = response_data.get("id")
+                    logger.info("Notification sent (id: %s)", notification_id)
+                    return (True, "Notification sent", notification_id)
+                else:
+                    resp_text = await resp.text()
+                    error_msg = f"HTTP {resp.status}: {resp_text}"
+                    raise _RetryableNotificationError(error_msg)
+        except TimeoutError:
+            raise _RetryableNotificationError("Request timed out") from None
+        except aiohttp.ClientError as e:
+            raise _RetryableNotificationError(f"Client error: {e}") from e
+
     # Retry with tenacity using exponential backoff
     last_error: str | None = None
     try:
@@ -167,38 +201,19 @@ async def _send_ntfy_request(
             with attempt:
                 attempt_num = attempt.retry_state.attempt_number
                 try:
-                    timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
-                    async with (
-                        aiohttp.ClientSession(timeout=timeout) as session,
-                        session.post(url, data=message, headers=headers) as resp,
-                    ):
-                        if resp.status == 200:
-                            response_data = await resp.json()
-                            notification_id = response_data.get("id")
-                            logger.info("Notification sent (id: %s)", notification_id)
-                            return (True, "Notification sent", notification_id)
-                        else:
-                            resp_text = await resp.text()
-                            last_error = f"HTTP {resp.status}: {resp_text}"
-                            logger.warning(
-                                "Notification attempt %s failed: %s",
-                                attempt_num,
-                                last_error,
-                            )
-                            # Retry on HTTP errors (rate limits, server errors, etc.)
-                            raise _RetryableNotificationError(last_error)
-                except asyncio.TimeoutError:
-                    last_error = "Request timed out"
-                    logger.warning("Notification attempt %s timed out", attempt_num)
-                    raise _RetryableNotificationError(last_error) from None
-                except aiohttp.ClientError as e:
-                    last_error = f"Client error: {e}"
+                    # Apply rate limiting if configured
+                    if rate_limiter is not None:
+                        async with rate_limiter:
+                            return await _make_request()
+                    else:
+                        return await _make_request()
+                except _RetryableNotificationError as e:
+                    last_error = str(e)
                     logger.warning(
-                        "Notification attempt %s failed: %s", attempt_num, last_error
+                        "Notification attempt %s failed: %s",
+                        attempt_num,
+                        last_error,
                     )
-                    raise _RetryableNotificationError(last_error) from e
-                except _RetryableNotificationError:
-                    # Re-raise to trigger tenacity retry
                     raise
     except _RetryableNotificationError:
         # All retries exhausted
@@ -220,6 +235,8 @@ async def _send_ntfy_request(
 
 def create_notification_tools_server(
     config: NotificationConfig | None = None,
+    rate_limit: int | None = None,
+    rate_period: float | None = None,
 ) -> McpSdkServerConfig:
     """Create MCP server with all notification tools registered (T047).
 
@@ -229,6 +246,12 @@ def create_notification_tools_server(
 
     Args:
         config: Notification configuration. Defaults to NotificationConfig().
+        rate_limit: Optional maximum number of requests per rate_period.
+            If not provided, rate limiting is disabled. Use
+            DEFAULT_NTFY_RATE_LIMIT (30) for reasonable limits.
+        rate_period: Time period in seconds for rate limiting.
+            Defaults to DEFAULT_NTFY_RATE_PERIOD (60.0 = 1 minute).
+            Only used if rate_limit is provided.
 
     Returns:
         Configured MCP server instance.
@@ -244,12 +267,34 @@ def create_notification_tools_server(
             mcp_servers={"notification-tools": server},
             allowed_tools=["mcp__notification-tools__send_workflow_update"],
         )
+
+        # With rate limiting
+        server = create_notification_tools_server(
+            config,
+            rate_limit=DEFAULT_NTFY_RATE_LIMIT,
+            rate_period=DEFAULT_NTFY_RATE_PERIOD,
+        )
         ```
     """
     # Capture config in closure scope
     _config = config if config is not None else NotificationConfig()
 
-    logger.info("Creating notification tools MCP server (version %s)", SERVER_VERSION)
+    # Initialize rate limiter if rate_limit is provided
+    if rate_limit is not None:
+        period = rate_period if rate_period is not None else DEFAULT_NTFY_RATE_PERIOD
+        _rate_limiter: AsyncLimiter | None = AsyncLimiter(rate_limit, period)
+        logger.info(
+            "Creating notification tools MCP server (version %s) with rate limiting "
+            "(%d requests per %.1f seconds)",
+            SERVER_VERSION,
+            rate_limit,
+            period,
+        )
+    else:
+        _rate_limiter = None
+        logger.info(
+            "Creating notification tools MCP server (version %s)", SERVER_VERSION
+        )
 
     # =============================================================================
     # MCP Tools (defined within factory to capture config in closure)
@@ -351,6 +396,7 @@ def create_notification_tools_server(
             title=title,
             priority=priority,
             tags=tags,
+            rate_limiter=_rate_limiter,
         )
 
         # Build response
@@ -473,6 +519,7 @@ def create_notification_tools_server(
             title=title,
             priority=priority,
             tags=tags,
+            rate_limiter=_rate_limiter,
         )
 
         # Build response

@@ -144,3 +144,37 @@ try:
     )
 except ImportError:
     logger.debug("GitHub client utilities not yet available")
+
+# Atomic file write utilities
+try:
+    from maverick.utils.atomic import (
+        atomic_write_json,
+        atomic_write_text,
+    )
+
+    __all__.extend(
+        [
+            "atomic_write_json",
+            "atomic_write_text",
+        ]
+    )
+except ImportError:
+    logger.debug("Atomic write utilities not yet available")
+
+# Async utilities (anyio-based)
+try:
+    from maverick.utils.async_utils import (
+        ParallelExecutionError,
+        run_parallel,
+        run_parallel_with_concurrency,
+    )
+
+    __all__.extend(
+        [
+            "ParallelExecutionError",
+            "run_parallel",
+            "run_parallel_with_concurrency",
+        ]
+    )
+except ImportError:
+    logger.debug("Async utilities not yet available")
