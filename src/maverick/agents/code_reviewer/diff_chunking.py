@@ -8,35 +8,47 @@ This module contains helper functions for managing diff size:
 
 from __future__ import annotations
 
-import re
 from typing import Any
+
+import tiktoken
+from unidiff import PatchSet
+from unidiff.errors import UnidiffParseError
 
 from maverick.agents.code_reviewer.constants import (
     MAX_DIFF_FILES,
     MAX_DIFF_LINES,
     MAX_TOKENS_PER_CHUNK,
 )
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Create encoder once at module level for efficiency.
+# cl100k_base is compatible with GPT-4 and reasonably accurate for Claude.
+_ENCODER = tiktoken.get_encoding("cl100k_base")
 
 
 def estimate_tokens(content: str) -> int:
-    """Rough estimate of token count for content (T041, FR-021).
+    """Estimate token count using tiktoken (T041, FR-021).
 
-    Uses rough heuristic: 1 token ≈ 4 characters. This is a conservative
-    estimate for determining when to chunk reviews.
+    Uses cl100k_base encoding which is close to Claude's tokenization.
+    This provides more accurate token counting than character-based heuristics.
 
     Args:
         content: Text content to estimate.
 
     Returns:
-        Estimated token count.
+        Actual token count based on tiktoken encoding.
 
     Examples:
         >>> estimate_tokens("Hello world!")
         3
-        >>> estimate_tokens("A" * 400)
-        100
+        >>> estimate_tokens("")
+        0
     """
-    return len(content) // 4
+    if not content:
+        return 0
+    return len(_ENCODER.encode(content))
 
 
 def should_truncate(diff_stats: dict[str, Any]) -> bool:
@@ -108,6 +120,53 @@ def truncate_files(
     return truncated_files, notice
 
 
+def _parse_diff_with_unidiff(diff_content: str) -> dict[str, str]:
+    """Parse diff content using unidiff and return a mapping of file paths to diff text.
+
+    Args:
+        diff_content: Full git diff content.
+
+    Returns:
+        Dictionary mapping file paths to their individual diff content.
+        Empty dict if parsing fails.
+    """
+    try:
+        patch = PatchSet.from_string(diff_content)
+    except UnidiffParseError as e:
+        logger.warning("unidiff_parse_error", error=str(e))
+        return {}
+    except Exception as e:  # noqa: BLE001
+        # Catch any unexpected errors to ensure graceful fallback
+        logger.warning(
+            "unidiff_unexpected_error",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return {}
+
+    file_diffs: dict[str, str] = {}
+    for patched_file in patch:
+        # Use .path which gives the canonical path without a/ or b/ prefix
+        file_path = patched_file.path
+
+        # Get the string representation of this file's diff
+        # This includes the full diff header and all hunks
+        file_diff_str = str(patched_file)
+        file_diffs[file_path] = file_diff_str
+
+        # Log additional info for special cases
+        if patched_file.is_binary_file:
+            logger.debug("binary_file_in_diff", file=file_path)
+        if patched_file.is_rename:
+            logger.debug(
+                "rename_in_diff",
+                source=patched_file.source_file,
+                target=patched_file.target_file,
+            )
+
+    return file_diffs
+
+
 def chunk_files(
     files: list[str],
     diff_content: str,
@@ -116,6 +175,9 @@ def chunk_files(
 
     Each chunk's combined diff content should be under MAX_TOKENS_PER_CHUNK.
     Files are kept together (not split mid-file).
+
+    Uses the unidiff library for reliable diff parsing, handling edge cases like
+    binary files, renames, and malformed diffs gracefully.
 
     Args:
         files: List of file paths to chunk.
@@ -134,32 +196,36 @@ def chunk_files(
         This is a best-effort chunking strategy. Very large individual files
         may still exceed the token limit.
     """
+    # Parse diff using unidiff for accurate per-file token estimation
+    file_diffs = _parse_diff_with_unidiff(diff_content)
+
     chunks: list[list[str]] = []
     current_chunk: list[str] = []
     current_tokens = 0
 
     for file_path in files:
-        # Extract this file's diff section (heuristic: find the file's diff block)
-        # This is approximate - we estimate based on the full diff content
-        escaped_path = re.escape(file_path)
-        file_pattern = rf"diff --git a/{escaped_path} b/{escaped_path}"
-        file_match = re.search(file_pattern, diff_content)
+        # Look up the file's diff content from parsed data
+        # unidiff normalizes paths, so try a few variations
+        file_diff = file_diffs.get(file_path)
 
-        if file_match:
-            # Find next file or end of diff
-            start_pos = file_match.start()
-            next_file_pattern = r"diff --git a/"
-            next_match = re.search(next_file_pattern, diff_content[start_pos + 1 :])
+        # Try without leading directory if not found
+        if file_diff is None:
+            # Handle case where file_path might have extra prefix/suffix
+            for parsed_path, diff_str in file_diffs.items():
+                if parsed_path == file_path or parsed_path.endswith(f"/{file_path}"):
+                    file_diff = diff_str
+                    break
 
-            if next_match:
-                end_pos = start_pos + 1 + next_match.start()
-                file_diff = diff_content[start_pos:end_pos]
-            else:
-                file_diff = diff_content[start_pos:]
-
+        if file_diff is not None:
             file_tokens = estimate_tokens(file_diff)
         else:
-            # Fallback: assume average token count
+            # Fallback: assume average token count when file not in parsed diff
+            # This can happen with binary files or if the file list doesn't match
+            logger.debug(
+                "file_not_in_parsed_diff",
+                file=file_path,
+                using_fallback_tokens=True,
+            )
             file_tokens = 1000
 
         # Check if adding this file would exceed chunk limit

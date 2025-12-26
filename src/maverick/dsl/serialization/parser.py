@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from maverick.dsl.expressions.parser import Expression, extract_all
+from maverick.dsl.expressions.parser import AnyExpression, Expression, extract_all
 from maverick.dsl.serialization.errors import (
     ReferenceResolutionError,
     UnsupportedVersionError,
@@ -195,7 +195,7 @@ def validate_version(workflow: WorkflowFile) -> None:
 # =============================================================================
 
 
-def _extract_from_value(value: Any, expressions: list[Expression]) -> None:
+def _extract_from_value(value: Any, expressions: list[AnyExpression]) -> None:
     """Recursively extract expressions from any value (str, dict, list, etc.).
 
     Helper function that traverses data structures to find all expression
@@ -220,7 +220,7 @@ def _extract_from_value(value: Any, expressions: list[Expression]) -> None:
     # For other types (int, bool, None, etc.), no expressions possible
 
 
-def _extract_from_step(step: StepRecordUnion, expressions: list[Expression]) -> None:
+def _extract_from_step(step: StepRecordUnion, expressions: list[AnyExpression]) -> None:
     """Extract expressions from a single step (including nested steps).
 
     Handles all step types including nested structures (branch, parallel).
@@ -254,7 +254,7 @@ def _extract_from_step(step: StepRecordUnion, expressions: list[Expression]) -> 
             _extract_from_step(substep, expressions)
 
 
-def extract_expressions(workflow: WorkflowFile) -> list[Expression]:
+def extract_expressions(workflow: WorkflowFile) -> list[AnyExpression]:
     """Extract and statically validate all expressions from workflow.
 
     Traverses the entire workflow structure (inputs, steps, nested steps)
@@ -287,7 +287,7 @@ def extract_expressions(workflow: WorkflowFile) -> list[Expression]:
         >>> expressions[0].raw
         '${{ inputs.dry_run }}'
     """
-    expressions: list[Expression] = []
+    expressions: list[AnyExpression] = []
 
     # Extract from input defaults (rare but possible)
     for input_def in workflow.inputs.values():

@@ -126,7 +126,8 @@ steps:
             message: "Validation failed but fix=false, skipping fix attempts"
 
       # Branch 3: Validation failed and fix is enabled, invoke fix fragment
-      - when: ${{ steps.run_validation.output.failed and inputs.fix }}
+      # (Previous branches handled passed validation and fix=false)
+      - when: ${{ inputs.fix }}
         step:
           name: attempt_fixes
           type: subworkflow
