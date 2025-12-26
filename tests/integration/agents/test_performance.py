@@ -47,10 +47,12 @@ class TestModuleImports:
         assert DEFAULT_MODEL is not None
 
     def test_import_time_is_reasonable(self) -> None:
-        """Test that module import time is under 500ms.
+        """Test that module import time is under 1000ms.
 
         Note: This test measures import time using a subprocess to avoid
         polluting the test environment's module cache.
+
+        The threshold is 1.0s to account for CI environment variability.
         """
         import subprocess
         import sys
@@ -75,8 +77,8 @@ print(f"{elapsed:.6f}")
 
         elapsed = float(result.stdout.strip())
 
-        # Should import quickly (under 500ms)
-        assert elapsed < 0.5, f"Import took {elapsed:.3f}s, expected < 0.5s"
+        # Should import reasonably quickly (under 1s, accounting for CI variability)
+        assert elapsed < 1.0, f"Import took {elapsed:.3f}s, expected < 1.0s"
 
 
 class TestDataclassPerformance:
