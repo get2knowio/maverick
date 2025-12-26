@@ -1,17 +1,99 @@
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import tool
 
-from maverick.tools.github.errors import classify_error
+from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
+from maverick.logging import get_logger
 from maverick.tools.github.responses import error_response, success_response
-from maverick.tools.github.runner import run_gh_command
+from maverick.utils.github_client import GitHubClient
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from github.Issue import Issue
+
+logger = get_logger(__name__)
+
+# Module-level client for lazy initialization
+_github_client: GitHubClient | None = None
+
+
+def _get_client() -> GitHubClient:
+    """Get or create the module-level GitHubClient.
+
+    Returns:
+        GitHubClient instance.
+
+    Raises:
+        GitHubCLINotFoundError: If gh CLI is not installed.
+        GitHubAuthError: If gh CLI is not authenticated.
+    """
+    global _github_client
+    if _github_client is None:
+        _github_client = GitHubClient()
+    return _github_client
+
+
+def _get_repo_name() -> str:
+    """Get the current repository name from git remote.
+
+    Returns:
+        Repository name in 'owner/repo' format.
+
+    Raises:
+        GitHubError: If unable to determine repository name.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        repo_name = result.stdout.strip()
+        if not repo_name:
+            raise GitHubError("Unable to determine repository name")
+        return repo_name
+    except subprocess.CalledProcessError as e:
+        raise GitHubError(f"Failed to get repository name: {e.stderr}") from e
+    except subprocess.TimeoutExpired as e:
+        raise GitHubError("Timed out getting repository name") from e
+
+
+def _issue_to_dict(issue: Issue, include_details: bool = False) -> dict[str, Any]:
+    """Convert a PyGithub Issue to a dictionary.
+
+    Args:
+        issue: PyGithub Issue object.
+        include_details: Include additional details (body, comments, dates).
+
+    Returns:
+        Dictionary representation of the issue.
+    """
+    result: dict[str, Any] = {
+        "number": issue.number,
+        "title": issue.title,
+        "labels": [label.name for label in issue.labels],
+        "state": issue.state,
+        "url": issue.html_url,
+    }
+
+    if include_details:
+        result.update(
+            {
+                "body": issue.body or "",
+                "assignees": [a.login for a in issue.assignees],
+                "author": issue.user.login if issue.user else "",
+                "comments_count": issue.comments,
+                "created_at": issue.created_at.isoformat() if issue.created_at else "",
+                "updated_at": issue.updated_at.isoformat() if issue.updated_at else "",
+            }
+        )
+
+    return result
 
 
 @tool(
@@ -38,53 +120,38 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Listing issues: state=%s, label=%s, limit=%d", state, label, limit)
 
-    cmd_args = [
-        "issue",
-        "list",
-        "--state",
-        state,
-        "--limit",
-        str(limit),
-        "--json",
-        "number,title,labels,state,url",
-    ]
-    if label:
-        cmd_args.extend(["--label", label])
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            logger.warning("Issue list failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        # Convert label to list format for GitHubClient
+        labels = [label] if label else None
 
-        issues_data = json.loads(stdout) if stdout else []
-        # Transform labels from objects to strings
-        issues = []
-        for issue in issues_data:
-            issues.append(
-                {
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "labels": [
-                        lbl["name"] if isinstance(lbl, dict) else lbl
-                        for lbl in issue.get("labels", [])
-                    ],
-                    "state": issue["state"],
-                    "url": issue["url"],
-                }
-            )
+        issues = await client.list_issues(
+            repo_name=repo_name,
+            state=state,
+            labels=labels,
+            limit=limit,
+        )
 
-        logger.info("Found %d issues", len(issues))
-        return success_response({"issues": issues})
+        # Convert to response format
+        issues_list = [_issue_to_dict(issue) for issue in issues]
 
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse issue list: %s", e)
-        return error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
-    except asyncio.TimeoutError:
-        logger.error("Timeout listing issues")
-        return error_response("Operation timed out", "TIMEOUT")
+        logger.info("Found %d issues", len(issues_list))
+        return success_response({"issues": issues_list})
+
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GitHubError as e:
+        logger.warning("Issue list failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error listing issues")
         return error_response(str(e), "INTERNAL_ERROR")
@@ -105,55 +172,34 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Getting issue #%d", issue_number)
 
-    fields = (
-        "number,title,body,url,state,labels,assignees,"
-        "author,comments,createdAt,updatedAt"
-    )
-    cmd_args = ["issue", "view", str(issue_number), "--json", fields]
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            if "not found" in (stderr or stdout).lower():
-                message = f"Issue #{issue_number} not found"
-                error_code = "NOT_FOUND"
-            logger.warning("Get issue failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        issue = await client.get_issue(repo_name=repo_name, issue_number=issue_number)
 
-        data = json.loads(stdout)
-        issue = {
-            "number": data["number"],
-            "title": data["title"],
-            "body": data.get("body", ""),
-            "url": data["url"],
-            "state": data["state"],
-            "labels": [
-                lbl["name"] if isinstance(lbl, dict) else lbl
-                for lbl in data.get("labels", [])
-            ],
-            "assignees": [
-                a["login"] if isinstance(a, dict) else a
-                for a in data.get("assignees", [])
-            ],
-            "author": data.get("author", {}).get("login", "")
-            if isinstance(data.get("author"), dict)
-            else str(data.get("author", "")),
-            "comments_count": len(data.get("comments", [])),
-            "created_at": data.get("createdAt", ""),
-            "updated_at": data.get("updatedAt", ""),
-        }
+        # Convert to detailed response format
+        issue_dict = _issue_to_dict(issue, include_details=True)
 
-        logger.info("Retrieved issue #%d: %s", issue_number, issue["title"])
-        return success_response(issue)
+        logger.info("Retrieved issue #%d: %s", issue_number, issue_dict["title"])
+        return success_response(issue_dict)
 
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse issue: %s", e)
-        return error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
-    except asyncio.TimeoutError:
-        logger.error("Timeout getting issue #%d", issue_number)
-        return error_response("Operation timed out", "TIMEOUT")
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GitHubError as e:
+        # Check if it's a not found error
+        if "not found" in str(e).lower():
+            logger.warning("Issue #%d not found", issue_number)
+            return error_response(f"Issue #{issue_number} not found", "NOT_FOUND")
+        logger.warning("Get issue failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error getting issue")
         return error_response(str(e), "INTERNAL_ERROR")
@@ -166,6 +212,10 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
     """Add labels to issue/PR (T039-T041)."""
+    import asyncio
+
+    from github import GithubException
+
     issue_number = args["issue_number"]
     labels = args["labels"]
 
@@ -177,20 +227,18 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Adding labels to #%d: %s", issue_number, labels)
 
-    cmd_args = ["issue", "edit", str(issue_number)]
-    for label in labels:
-        cmd_args.extend(["--add-label", str(label)])
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            if "not found" in (stderr or stdout).lower():
-                message = f"Issue #{issue_number} not found"
-                error_code = "NOT_FOUND"
-            logger.warning("Add labels failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        def _add_labels() -> None:
+            repo = client.github.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            # Add labels (PyGithub accepts list of label names)
+            for label in labels:
+                issue.add_to_labels(str(label))
+
+        await asyncio.to_thread(_add_labels)
 
         logger.info("Labels added to #%d: %s", issue_number, labels)
         return success_response(
@@ -201,9 +249,24 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    except asyncio.TimeoutError:
-        logger.error("Timeout adding labels to #%d", issue_number)
-        return error_response("Operation timed out", "TIMEOUT")
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GithubException as e:
+        if e.status == 404:
+            logger.warning("Issue #%d not found", issue_number)
+            return error_response(f"Issue #{issue_number} not found", "NOT_FOUND")
+        logger.warning("Add labels failed: %s", e)
+        return error_response(f"Failed to add labels: {e}", "INTERNAL_ERROR")
+    except GitHubError as e:
+        logger.warning("Add labels failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error adding labels")
         return error_response(str(e), "INTERNAL_ERROR")
@@ -216,6 +279,10 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
     """Close issue with optional comment (T045-T047)."""
+    import asyncio
+
+    from github import GithubException
+
     issue_number = args["issue_number"]
     comment = args.get("comment")
 
@@ -225,30 +292,31 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Closing issue #%d (comment=%s)", issue_number, bool(comment))
 
-    cmd_args = ["issue", "close", str(issue_number)]
-    if comment:
-        cmd_args.extend(["--comment", comment])
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            if "not found" in (stderr or stdout).lower():
-                message = f"Issue #{issue_number} not found"
-                error_code = "NOT_FOUND"
-            # Already closed is not an error (idempotent)
-            if "already closed" in (stderr or stdout).lower():
-                logger.info("Issue #%d was already closed", issue_number)
-                return success_response(
-                    {
-                        "success": True,
-                        "issue_number": issue_number,
-                        "state": "closed",
-                    }
-                )
-            logger.warning("Close issue failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        def _close_issue() -> str:
+            """Close the issue and return its state."""
+            repo = client.github.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+
+            # Check if already closed (idempotent behavior)
+            if issue.state == "closed":
+                return "already_closed"
+
+            # Add comment if provided
+            if comment:
+                issue.create_comment(comment)
+
+            # Close the issue
+            issue.edit(state="closed")
+            return "closed"
+
+        result = await asyncio.to_thread(_close_issue)
+
+        if result == "already_closed":
+            logger.info("Issue #%d was already closed", issue_number)
 
         logger.info("Issue #%d closed", issue_number)
         return success_response(
@@ -259,9 +327,24 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    except asyncio.TimeoutError:
-        logger.error("Timeout closing issue #%d", issue_number)
-        return error_response("Operation timed out", "TIMEOUT")
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GithubException as e:
+        if e.status == 404:
+            logger.warning("Issue #%d not found", issue_number)
+            return error_response(f"Issue #{issue_number} not found", "NOT_FOUND")
+        logger.warning("Close issue failed: %s", e)
+        return error_response(f"Failed to close issue: {e}", "INTERNAL_ERROR")
+    except GitHubError as e:
+        logger.warning("Close issue failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error closing issue")
         return error_response(str(e), "INTERNAL_ERROR")

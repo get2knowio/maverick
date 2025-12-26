@@ -7,13 +7,13 @@ typecheck, test) with automatic retry and auto-fix support.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from pathlib import Path
 
+from maverick.logging import get_logger
 from maverick.models.implementation import ValidationResult, ValidationStep
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

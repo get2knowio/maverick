@@ -5,17 +5,17 @@ Provides tools for branch operations: getting current branch and creating branch
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
 
-from maverick.runners.git import GitRunner
-from maverick.tools.git.constants import DEFAULT_TIMEOUT
+from maverick.exceptions import BranchExistsError, GitError, NotARepositoryError
+from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.tools.git.responses import error_response, success_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_git_current_branch_tool(cwd: Path | None = None) -> Any:
@@ -29,10 +29,10 @@ def create_git_current_branch_tool(cwd: Path | None = None) -> Any:
     """
     _cwd = cwd
 
-    def _get_runner() -> GitRunner:
-        """Get GitRunner with current working directory."""
+    def _get_repo() -> AsyncGitRepository:
+        """Get AsyncGitRepository with current working directory."""
         working_dir = _cwd or Path.cwd()
-        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+        return AsyncGitRepository(working_dir)
 
     @tool(
         "git_current_branch",
@@ -47,7 +47,7 @@ def create_git_current_branch_tool(cwd: Path | None = None) -> Any:
 
         Returns:
             MCP response with branch name or error.
-            Returns "(detached)" if in detached HEAD state.
+            Returns the commit SHA if in detached HEAD state.
 
         Raises:
             Never raises - always returns MCP response format with success or error.
@@ -58,19 +58,17 @@ def create_git_current_branch_tool(cwd: Path | None = None) -> Any:
         logger.info("git_current_branch: Getting current branch")
 
         try:
-            runner = _get_runner()
+            repo = _get_repo()
 
-            # Verify prerequisites using GitRunner
-            if not await runner.is_inside_repo():
-                logger.error("git_current_branch: Not inside a git repository")
-                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
-
-            # Get current branch using GitRunner
-            branch_name = await runner.get_current_branch()
+            # Get current branch using AsyncGitRepository
+            branch_name = await repo.current_branch()
             logger.info("git_current_branch: Current branch is '%s'", branch_name)
 
             return success_response({"branch": branch_name})
 
+        except NotARepositoryError:
+            logger.error("git_current_branch: Not inside a git repository")
+            return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
         except Exception as e:
             logger.error("git_current_branch: Unexpected error: %s", e)
             return error_response(str(e), "GIT_ERROR")
@@ -89,10 +87,10 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
     """
     _cwd = cwd
 
-    def _get_runner() -> GitRunner:
-        """Get GitRunner with current working directory."""
+    def _get_repo() -> AsyncGitRepository:
+        """Get AsyncGitRepository with current working directory."""
         working_dir = _cwd or Path.cwd()
-        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+        return AsyncGitRepository(working_dir)
 
     @tool(
         "git_create_branch",
@@ -123,12 +121,7 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
         logger.info("git_create_branch: Creating new branch")
 
         try:
-            runner = _get_runner()
-
-            # Verify prerequisites using GitRunner
-            if not await runner.is_inside_repo():
-                logger.error("git_create_branch: Not inside a git repository")
-                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+            repo = _get_repo()
 
             # Validate required arguments
             branch_name = args.get("name")
@@ -170,44 +163,8 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
 
             base_branch = args.get("base", "HEAD")
 
-            # Create branch using GitRunner
-            result = await runner.create_branch(branch_name, from_ref=base_branch)
-
-            if not result.success:
-                error_msg = (result.error or "").lower()
-
-                # Check for branch already exists
-                if "already exists" in error_msg:
-                    logger.error(
-                        "git_create_branch: Branch '%s' already exists", branch_name
-                    )
-                    return error_response(
-                        f"Branch '{branch_name}' already exists",
-                        "BRANCH_EXISTS",
-                    )
-
-                # Check for base branch not found
-                if (
-                    "not found" in error_msg
-                    or "did not match" in error_msg
-                    or "unknown revision" in error_msg
-                ):
-                    logger.error(
-                        "git_create_branch: Base branch '%s' not found", base_branch
-                    )
-                    return error_response(
-                        f"Base branch '{base_branch}' not found",
-                        "BRANCH_NOT_FOUND",
-                    )
-
-                # Generic git error
-                logger.error(
-                    "git_create_branch: Failed to create branch: %s", result.error
-                )
-                return error_response(
-                    f"Failed to create branch: {result.error}",
-                    "GIT_ERROR",
-                )
+            # Create branch using AsyncGitRepository
+            await repo.create_branch(branch_name, checkout=True, from_ref=base_branch)
 
             # Successfully created branch
             effective_base = base_branch if base_branch != "HEAD" else "(current)"
@@ -225,6 +182,39 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
                 }
             )
 
+        except NotARepositoryError:
+            logger.error("git_create_branch: Not inside a git repository")
+            return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+        except BranchExistsError:
+            logger.error(
+                "git_create_branch: Branch '%s' already exists", args.get("name", "")
+            )
+            return error_response(
+                f"Branch '{args.get('name', '')}' already exists",
+                "BRANCH_EXISTS",
+            )
+        except ValueError as e:
+            # GitRepository raises ValueError for invalid branch names
+            logger.error("git_create_branch: Invalid branch name: %s", e)
+            return error_response(str(e), "INVALID_INPUT")
+        except GitError as e:
+            # Check for base branch not found in error message
+            error_msg = str(e).lower()
+            base_branch = args.get("base", "HEAD")
+            if (
+                "not found" in error_msg
+                or "did not match" in error_msg
+                or "unknown revision" in error_msg
+            ):
+                logger.error(
+                    "git_create_branch: Base branch '%s' not found", base_branch
+                )
+                return error_response(
+                    f"Base branch '{base_branch}' not found",
+                    "BRANCH_NOT_FOUND",
+                )
+            logger.error("git_create_branch: Failed to create branch: %s", e)
+            return error_response(f"Failed to create branch: {e}", "GIT_ERROR")
         except Exception as e:
             logger.error("git_create_branch: Unexpected error: %s", e)
             return error_response(str(e), "GIT_ERROR")

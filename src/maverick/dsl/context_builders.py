@@ -8,23 +8,23 @@ Each context builder receives workflow inputs and prior step results,
 and returns a dictionary containing all the information needed by the
 target agent or generator.
 
-Git operations are delegated to the canonical GitRunner from maverick.runners.git.
+Git operations use AsyncGitRepository from maverick.git (GitPython-based).
 Non-git shell commands (e.g., `tree`) use CommandRunner from maverick.runners.command.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
-from maverick.runners.git import GitRunner
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default timeout for shell commands (tree, etc.)
 DEFAULT_COMMAND_TIMEOUT: float = 30.0
@@ -168,7 +168,7 @@ async def _get_project_structure(max_depth: int = 3) -> str:
         return "\n".join(lines)
 
     except Exception as e:
-        logger.debug(f"Failed to generate project structure: {e}")
+        logger.debug("Failed to generate project structure: %s", e)
         return ""
 
 
@@ -181,9 +181,9 @@ async def _get_spec_artifacts() -> dict[str, str]:
     artifacts: dict[str, str] = {}
     cwd = Path.cwd()
 
-    # Get current branch name using GitRunner
-    git_runner = GitRunner(cwd=cwd)
-    branch_name = await git_runner.get_current_branch()
+    # Get current branch name using AsyncGitRepository
+    repo = AsyncGitRepository(cwd)
+    branch_name = await repo.current_branch()
 
     if branch_name and branch_name != "(detached)":
         # Try to find spec directory matching branch name
@@ -201,7 +201,7 @@ async def _get_spec_artifacts() -> dict[str, str]:
                         try:
                             artifacts[filename] = spec_file.read_text()
                         except Exception as e:
-                            logger.debug(f"Failed to read {spec_file}: {e}")
+                            logger.debug("Failed to read %s: %s", spec_file, e)
 
     return artifacts
 
@@ -216,8 +216,8 @@ async def _get_diff(ref: str = "HEAD", staged: bool = False) -> str:
     Returns:
         Git diff output, or empty string on error.
     """
-    git_runner = GitRunner(cwd=Path.cwd())
-    return await git_runner.get_diff_output(ref=ref, staged=staged)
+    repo = AsyncGitRepository(Path.cwd())
+    return await repo.diff(base=ref, staged=staged)
 
 
 async def _get_changed_files(ref: str = "HEAD") -> list[str]:
@@ -229,8 +229,8 @@ async def _get_changed_files(ref: str = "HEAD") -> list[str]:
     Returns:
         List of changed file paths.
     """
-    git_runner = GitRunner(cwd=Path.cwd())
-    return await git_runner.get_changed_files(ref=ref)
+    repo = AsyncGitRepository(Path.cwd())
+    return await repo.get_changed_files(ref=ref)
 
 
 async def _get_file_stats(ref: str = "HEAD") -> dict[str, dict[str, int]]:
@@ -242,8 +242,8 @@ async def _get_file_stats(ref: str = "HEAD") -> dict[str, dict[str, int]]:
     Returns:
         Dict mapping file paths to stats with 'additions' and 'deletions' keys.
     """
-    git_runner = GitRunner(cwd=Path.cwd())
-    diff_stats = await git_runner.get_diff_stats(ref=ref)
+    repo = AsyncGitRepository(Path.cwd())
+    diff_stats = await repo.diff_stats(base=ref)
 
     # Convert DiffStats per_file format to the legacy dict format
     # DiffStats uses per_file: dict[str, tuple[int, int]] (added, removed)
@@ -263,8 +263,8 @@ async def _get_recent_commits(limit: int = 10) -> list[str]:
     Returns:
         List of commit messages.
     """
-    git_runner = GitRunner(cwd=Path.cwd())
-    return await git_runner.get_commit_messages(limit=limit)
+    repo = AsyncGitRepository(Path.cwd())
+    return await repo.commit_messages(limit=limit)
 
 
 async def _get_commits_on_branch(base_branch: str = "main") -> list[str]:
@@ -276,8 +276,8 @@ async def _get_commits_on_branch(base_branch: str = "main") -> list[str]:
     Returns:
         List of commit messages.
     """
-    git_runner = GitRunner(cwd=Path.cwd())
-    return await git_runner.get_commit_messages_since(ref=base_branch)
+    repo = AsyncGitRepository(Path.cwd())
+    return await repo.commit_messages_since(ref=base_branch)
 
 
 async def _find_related_files(issue_body: str, issue_title: str) -> list[str]:
@@ -584,9 +584,9 @@ async def pr_title_context(
     # Get commits on this branch
     commits = await _get_commits_on_branch(base_branch)
 
-    # Get current branch name using GitRunner
-    git_runner = GitRunner(cwd=Path.cwd())
-    branch_name = await git_runner.get_current_branch()
+    # Get current branch name using AsyncGitRepository
+    repo = AsyncGitRepository(Path.cwd())
+    branch_name = await repo.current_branch()
     if branch_name == "(detached)":
         branch_name = inputs.get("branch_name", "")
 

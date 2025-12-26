@@ -14,16 +14,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from typing import Any
 
 import aiohttp
 from claude_agent_sdk import create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from maverick.config import NotificationConfig
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+class _RetryableNotificationError(Exception):
+    """Internal exception to signal a retryable notification error."""
+
+    pass
 
 
 # =============================================================================
@@ -141,44 +153,56 @@ async def _send_ntfy_request(
     if tags:
         headers["Tags"] = ",".join(tags)
 
-    # Retry loop
+    # Retry with tenacity using exponential backoff
     last_error: str | None = None
-    for attempt in range(max_retries + 1):
-        try:
-            timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
-            async with (
-                aiohttp.ClientSession(timeout=timeout) as session,
-                session.post(url, data=message, headers=headers) as response,
-            ):
-                if response.status == 200:
-                    response_data = await response.json()
-                    notification_id = response_data.get("id")
-                    logger.info(
-                        "Notification sent successfully (id: %s)", notification_id
-                    )
-                    return (True, "Notification sent", notification_id)
-                else:
-                    last_error = f"HTTP {response.status}: {await response.text()}"
+    try:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(max_retries + 1),
+            wait=wait_exponential(
+                multiplier=RETRY_BASE_DELAY, min=RETRY_BASE_DELAY, max=4
+            ),
+            retry=retry_if_exception_type(_RetryableNotificationError),
+            reraise=True,
+        ):
+            with attempt:
+                attempt_num = attempt.retry_state.attempt_number
+                try:
+                    timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+                    async with (
+                        aiohttp.ClientSession(timeout=timeout) as session,
+                        session.post(url, data=message, headers=headers) as resp,
+                    ):
+                        if resp.status == 200:
+                            response_data = await resp.json()
+                            notification_id = response_data.get("id")
+                            logger.info("Notification sent (id: %s)", notification_id)
+                            return (True, "Notification sent", notification_id)
+                        else:
+                            resp_text = await resp.text()
+                            last_error = f"HTTP {resp.status}: {resp_text}"
+                            logger.warning(
+                                "Notification attempt %s failed: %s",
+                                attempt_num,
+                                last_error,
+                            )
+                            # Retry on HTTP errors (rate limits, server errors, etc.)
+                            raise _RetryableNotificationError(last_error)
+                except asyncio.TimeoutError:
+                    last_error = "Request timed out"
+                    logger.warning("Notification attempt %s timed out", attempt_num)
+                    raise _RetryableNotificationError(last_error) from None
+                except aiohttp.ClientError as e:
+                    last_error = f"Client error: {e}"
                     logger.warning(
-                        "Notification attempt %s failed: %s", attempt + 1, last_error
+                        "Notification attempt %s failed: %s", attempt_num, last_error
                     )
-        except asyncio.TimeoutError:
-            last_error = "Request timed out"
-            logger.warning("Notification attempt %s timed out", attempt + 1)
-        except aiohttp.ClientError as e:
-            last_error = f"Client error: {e}"
-            logger.warning(
-                "Notification attempt %s failed: %s", attempt + 1, last_error
-            )
-        except Exception as e:
-            last_error = f"Unexpected error: {e}"
-            logger.warning(
-                "Notification attempt %s failed: %s", attempt + 1, last_error
-            )
-
-        # Wait before retry (except on last attempt)
-        if attempt < max_retries:
-            await asyncio.sleep(RETRY_BASE_DELAY * (attempt + 1))  # Exponential backoff
+                    raise _RetryableNotificationError(last_error) from e
+                except _RetryableNotificationError:
+                    # Re-raise to trigger tenacity retry
+                    raise
+    except _RetryableNotificationError:
+        # All retries exhausted
+        pass
 
     # All retries failed - gracefully degrade
     logger.warning(

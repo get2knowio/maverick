@@ -5,17 +5,66 @@ This module provides the git_push tool for pushing commits to remote repositorie
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
 
-from maverick.runners.git import GitRunner
-from maverick.tools.git.constants import DEFAULT_TIMEOUT
+from maverick.exceptions import GitError, NotARepositoryError, PushRejectedError
+from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.tools.git.responses import error_response, success_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Constants for SHA detection
+SHA_HEX_LENGTH = 40
+SHA_HEX_CHARS = frozenset("0123456789abcdef")
+
+# Error patterns for classification
+_AUTH_PATTERNS = frozenset(
+    [
+        "authentication failed",
+        "could not read",
+        "permission denied",
+        "credentials",
+    ]
+)
+_NETWORK_PATTERNS = frozenset(
+    [
+        "could not resolve host",
+        "connection refused",
+        "network",
+        "timeout",
+    ]
+)
+
+
+def _classify_push_error(error: Exception) -> tuple[str, str]:
+    """Classify push error and return (error_code, message).
+
+    Args:
+        error: The exception to classify.
+
+    Returns:
+        Tuple of (error_code, user_message).
+    """
+    error_msg = str(error).lower()
+
+    # Check for authentication errors
+    if any(pattern in error_msg for pattern in _AUTH_PATTERNS):
+        return (
+            "AUTHENTICATION_REQUIRED",
+            f"Authentication required: {error}. "
+            "Run 'gh auth login' or configure git credentials",
+        )
+
+    # Check for network errors
+    if any(pattern in error_msg for pattern in _NETWORK_PATTERNS):
+        return "NETWORK_ERROR", f"Network error: {error}"
+
+    # Generic git error
+    return "GIT_ERROR", f"Git push failed: {error}"
 
 
 def create_git_push_tool(cwd: Path | None = None) -> Any:
@@ -29,10 +78,10 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
     """
     _cwd = cwd
 
-    def _get_runner() -> GitRunner:
-        """Get GitRunner with current working directory."""
+    def _get_repo() -> AsyncGitRepository:
+        """Get AsyncGitRepository with current working directory."""
         working_dir = _cwd or Path.cwd()
-        return GitRunner(cwd=working_dir, timeout=DEFAULT_TIMEOUT)
+        return AsyncGitRepository(working_dir)
 
     @tool(
         "git_push",
@@ -61,18 +110,19 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
         logger.info("git_push: Starting push operation")
 
         try:
-            runner = _get_runner()
-
-            # Verify prerequisites using GitRunner
-            if not await runner.is_inside_repo():
-                logger.error("git_push: Not inside a git repository")
-                return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+            repo = _get_repo()
 
             set_upstream = args.get("set_upstream", False)
 
-            # Check if we're in detached HEAD state using GitRunner
-            current_branch = await runner.get_current_branch()
-            if current_branch == "(detached)":
+            # Check if we're in detached HEAD state using AsyncGitRepository
+            current_branch = await repo.current_branch()
+            # In GitRepository, detached HEAD returns the commit SHA (40 chars)
+            # We detect detached HEAD by checking if it's a valid branch name
+            # A commit SHA is 40 hex chars, which is not a typical branch name
+            is_detached = len(current_branch) == SHA_HEX_LENGTH and all(
+                c in SHA_HEX_CHARS for c in current_branch
+            )
+            if is_detached:
                 logger.error("git_push: Cannot push from detached HEAD state")
                 return error_response(
                     "Cannot push from detached HEAD state. "
@@ -80,68 +130,17 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
                     "DETACHED_HEAD",
                 )
 
-            # Execute push using GitRunner
-            result = await runner.push(
-                remote="origin",
+            # Execute push using AsyncGitRepository
+            remote = "origin"
+            await repo.push(
+                remote=remote,
                 branch=current_branch if set_upstream else None,
                 set_upstream=set_upstream,
             )
 
-            if not result.success:
-                error_msg = (result.error or "").lower()
-
-                # Check for authentication errors
-                if any(
-                    pattern in error_msg
-                    for pattern in [
-                        "authentication failed",
-                        "could not read",
-                        "permission denied",
-                        "credentials",
-                    ]
-                ):
-                    logger.error("git_push: Authentication failed: %s", result.error)
-                    return error_response(
-                        f"Authentication required: {result.error}. "
-                        "Run 'gh auth login' or configure git credentials",
-                        "AUTHENTICATION_REQUIRED",
-                    )
-
-                # Check for network errors
-                if any(
-                    pattern in error_msg
-                    for pattern in [
-                        "could not resolve host",
-                        "connection refused",
-                        "network",
-                        "timeout",
-                    ]
-                ):
-                    logger.error("git_push: Network error: %s", result.error)
-                    return error_response(
-                        f"Network error: {result.error}",
-                        "NETWORK_ERROR",
-                    )
-
-                # Generic git error
-                logger.error("git_push: Git push failed: %s", result.error)
-                return error_response(f"Git push failed: {result.error}", "GIT_ERROR")
-
-            # Parse output to count commits pushed
-            commits_pushed = 0
-            output_text = result.output
-
-            # Look for patterns like "main -> main" or count commits
-            for line in output_text.split("\n"):
-                if "->" in line and current_branch in line:
-                    commits_pushed = 1  # At least one commit
-                    break
-
-            remote = "origin"
-
+            # Push succeeded
             logger.info(
-                "git_push: Successfully pushed %d commits to %s/%s",
-                commits_pushed,
+                "git_push: Successfully pushed to %s/%s",
                 remote,
                 current_branch,
             )
@@ -149,12 +148,23 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
             return success_response(
                 {
                     "success": True,
-                    "commits_pushed": commits_pushed,
+                    "commits_pushed": 1,  # At least one commit was pushed
                     "remote": remote,
                     "branch": current_branch,
                 }
             )
 
+        except NotARepositoryError:
+            logger.error("git_push: Not inside a git repository")
+            return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
+        except PushRejectedError as e:
+            error_code, message = _classify_push_error(e)
+            logger.error("git_push: %s: %s", error_code, e)
+            return error_response(message, error_code)
+        except GitError as e:
+            error_code, message = _classify_push_error(e)
+            logger.error("git_push: %s: %s", error_code, e)
+            return error_response(message, error_code)
         except Exception as e:
             logger.error("git_push: Unexpected error: %s", e)
             return error_response(str(e), "GIT_ERROR")

@@ -6,14 +6,14 @@ Task objects following the .specify format conventions.
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 
 from maverick.exceptions import TaskParseError
+from maverick.logging import get_logger
 from maverick.models.implementation import Task, TaskStatus
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

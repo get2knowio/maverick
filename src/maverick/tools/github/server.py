@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from claude_agent_sdk import create_sdk_mcp_server
 from claude_agent_sdk.types import McpSdkServerConfig
 
+from maverick.logging import get_logger
 from maverick.tools.github.tools.diffs import github_get_pr_diff
 from maverick.tools.github.tools.issues import (
     github_add_labels,
@@ -15,7 +15,7 @@ from maverick.tools.github.tools.issues import (
 )
 from maverick.tools.github.tools.prs import github_create_pr, github_pr_status
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 #: MCP Server configuration
 SERVER_NAME: str = "github-tools"

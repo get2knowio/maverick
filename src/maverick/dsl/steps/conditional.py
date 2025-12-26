@@ -7,7 +7,6 @@ to add conditional execution via a predicate function.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -15,11 +14,12 @@ from typing import TYPE_CHECKING, Any
 from maverick.dsl.results import SkipMarker, StepResult
 from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.types import Predicate, StepType
+from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.dsl.context import WorkflowContext
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)

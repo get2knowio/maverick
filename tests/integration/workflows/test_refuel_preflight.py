@@ -29,35 +29,12 @@ def create_mock_git_runner() -> MagicMock:
     Returns:
         Configured mock GitRunner.
     """
-    from maverick.runners.git import GitResult
-
     mock_git = MagicMock()
-    mock_git.create_branch = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="test-branch",
-            error=None,
-            duration_ms=50,
-        )
-    )
+    mock_git.create_branch = AsyncMock(return_value="test-branch")
     mock_git.add = AsyncMock(return_value=None)
     mock_git.diff = AsyncMock(return_value="diff --git a/file.py b/file.py\n+new line")
-    mock_git.commit = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="abc123",
-            error=None,
-            duration_ms=100,
-        )
-    )
-    mock_git.push = AsyncMock(
-        return_value=GitResult(
-            success=True,
-            output="pushed",
-            error=None,
-            duration_ms=200,
-        )
-    )
+    mock_git.commit = AsyncMock(return_value="abc123")
+    mock_git.push = AsyncMock(return_value=None)
     return mock_git
 
 

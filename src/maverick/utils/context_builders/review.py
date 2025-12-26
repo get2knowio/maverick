@@ -6,21 +6,21 @@ changed file contents, and project conventions for code review agents.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from maverick.logging import get_logger
 from maverick.utils.files import _read_conventions, _read_file_safely
 from maverick.utils.secrets import detect_secrets
 
 if TYPE_CHECKING:
-    from maverick.utils.git_operations import GitOperations
+    from maverick.git import GitRepository
 
 __all__ = [
     "build_review_context",
 ]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Type alias for context dictionaries
 ContextDict: TypeAlias = dict[str, Any]
@@ -30,7 +30,7 @@ DEFAULT_MAX_FILE_LINES_REVIEW = 500
 
 
 def build_review_context(
-    git: GitOperations,
+    git: GitRepository,
     base_branch: str,
     *,
     conventions_path: Path | None = None,
@@ -63,7 +63,7 @@ def build_review_context(
         Individual file read errors are logged and skipped.
 
     Example:
-        >>> git = GitOperations()
+        >>> git = GitRepository()
         >>> ctx = build_review_context(git, "main")
         >>> ctx['stats']['files_changed']
         5

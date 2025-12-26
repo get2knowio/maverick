@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from maverick.library.actions.types import WorkspaceState
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Shared runner instance for workspace actions
 _runner = CommandRunner(timeout=30.0)

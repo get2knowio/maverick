@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 import click
 
 from maverick.cli.context import ExitCode
@@ -13,6 +11,7 @@ from maverick.cli.helpers import (
     get_git_branch,
     get_workflow_history,
 )
+from maverick.logging import get_logger
 
 
 @click.command()
@@ -35,7 +34,7 @@ def status(ctx: click.Context, fmt: str) -> None:
         maverick status
         maverick status --format json
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         # Get git branch

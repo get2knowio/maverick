@@ -693,32 +693,51 @@ class TestDetectFileChanges:
         self, agent: IssueFixerAgent, tmp_path: Path
     ) -> None:
         """Test _detect_file_changes returns FileChange list."""
-        with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.return_value = {
+        from maverick.git import DiffStats
+
+        mock_stats = DiffStats(
+            files_changed=2,
+            insertions=15,
+            deletions=5,
+            file_list=("src/file.py", "tests/test_file.py"),
+            per_file={
                 "src/file.py": (10, 5),
                 "tests/test_file.py": (5, 0),
-            }
+            },
+        )
 
+        mock_repo = MagicMock()
+        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
+
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._detect_file_changes(tmp_path)
 
             assert len(result) == 2
             assert all(isinstance(fc, FileChange) for fc in result)
-            assert result[0].file_path == "src/file.py"
-            assert result[0].lines_added == 10
-            assert result[0].lines_removed == 5
+            # Check that src/file.py stats are correct (order not guaranteed)
+            src_file = next(fc for fc in result if fc.file_path == "src/file.py")
+            assert src_file.lines_added == 10
+            assert src_file.lines_removed == 5
 
     @pytest.mark.asyncio
     async def test_detect_file_changes_handles_no_changes(
         self, agent: IssueFixerAgent, tmp_path: Path
     ) -> None:
         """Test _detect_file_changes handles empty diff stats."""
-        with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.return_value = {}
+        from maverick.git import DiffStats
 
+        mock_stats = DiffStats(
+            files_changed=0,
+            insertions=0,
+            deletions=0,
+            file_list=(),
+            per_file={},
+        )
+
+        mock_repo = MagicMock()
+        mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
+
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._detect_file_changes(tmp_path)
 
             assert result == []
@@ -729,10 +748,9 @@ class TestDetectFileChanges:
     ) -> None:
         """Test _detect_file_changes handles exceptions gracefully."""
         with patch(
-            "maverick.utils.git.get_diff_stats", new_callable=AsyncMock
-        ) as mock_diff:
-            mock_diff.side_effect = Exception("Git error")
-
+            "maverick.git.AsyncGitRepository",
+            side_effect=Exception("Git error"),
+        ):
             result = await agent._detect_file_changes(tmp_path)
 
             assert result == []
@@ -803,25 +821,18 @@ class TestCreateCommit:
         self, agent: IssueFixerAgent, issue_context: IssueFixerContext
     ) -> None:
         """Test _create_commit creates commit with conventional format."""
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes",
-                new_callable=AsyncMock,
-            ) as mock_has_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_create,
-        ):
-            mock_has_changes.return_value = True
-            mock_create.return_value = "abc123def456"
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123def456")
 
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._create_commit(
                 42, "resolve null pointer issue", issue_context
             )
 
             assert result == "abc123def456"
             # Check commit message format
-            call_args = mock_create.call_args[0]
+            call_args = mock_repo.commit.call_args[0]
             commit_message = call_args[0]
             assert "fix:" in commit_message
             assert "Fixes #42" in commit_message
@@ -831,21 +842,14 @@ class TestCreateCommit:
         self, agent: IssueFixerAgent, issue_context: IssueFixerContext
     ) -> None:
         """Test _create_commit includes 'Fixes #N' in commit body."""
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes",
-                new_callable=AsyncMock,
-            ) as mock_has_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_create,
-        ):
-            mock_has_changes.return_value = True
-            mock_create.return_value = "abc123"
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123")
 
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_commit(123, "fix description", issue_context)
 
-            call_args = mock_create.call_args[0]
+            call_args = mock_repo.commit.call_args[0]
             commit_message = call_args[0]
             assert "Fixes #123" in commit_message
 
@@ -854,43 +858,29 @@ class TestCreateCommit:
         self, agent: IssueFixerAgent, issue_context: IssueFixerContext
     ) -> None:
         """Test _create_commit returns None when no uncommitted changes."""
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes",
-                new_callable=AsyncMock,
-            ) as mock_has_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_create,
-        ):
-            mock_has_changes.return_value = False
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=False)
 
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._create_commit(42, "fix", issue_context)
 
             assert result is None
-            mock_create.assert_not_called()
+            mock_repo.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_create_commit_truncates_long_descriptions(
         self, agent: IssueFixerAgent, issue_context: IssueFixerContext
     ) -> None:
         """Test _create_commit truncates long fix descriptions."""
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes",
-                new_callable=AsyncMock,
-            ) as mock_has_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_create,
-        ):
-            mock_has_changes.return_value = True
-            mock_create.return_value = "abc123"
-            long_description = "a" * 100
+        mock_repo = MagicMock()
+        mock_repo.is_dirty = AsyncMock(return_value=True)
+        mock_repo.commit = AsyncMock(return_value="abc123")
+        long_description = "a" * 100
 
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_commit(42, long_description, issue_context)
 
-            call_args = mock_create.call_args[0]
+            call_args = mock_repo.commit.call_args[0]
             commit_message = call_args[0]
             # First line should be truncated to 50 chars + "fix: "
             first_line = commit_message.split("\n")[0]
@@ -901,18 +891,10 @@ class TestCreateCommit:
         self, agent: IssueFixerAgent, issue_context: IssueFixerContext
     ) -> None:
         """Test _create_commit handles exceptions gracefully."""
-        with (
-            patch(
-                "maverick.utils.git.has_uncommitted_changes",
-                new_callable=AsyncMock,
-            ) as mock_has_changes,
-            patch(
-                "maverick.utils.git.create_commit", new_callable=AsyncMock
-            ) as mock_create,
+        with patch(
+            "maverick.git.AsyncGitRepository",
+            side_effect=Exception("Git error"),
         ):
-            mock_has_changes.return_value = True
-            mock_create.side_effect = Exception("Git error")
-
             result = await agent._create_commit(42, "fix", issue_context)
 
             assert result is None

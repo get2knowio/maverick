@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import click
@@ -9,6 +8,7 @@ from maverick.cli.context import CLIContext, ExitCode
 from maverick.cli.output import format_error
 from maverick.config import load_config
 from maverick.exceptions import ConfigError
+from maverick.logging import get_logger
 
 
 @click.group()
@@ -31,7 +31,7 @@ def config_init(ctx: click.Context, force: bool) -> None:
     """
     import yaml
 
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
     config_file = Path.cwd() / "maverick.yaml"
 
     # Check if file exists and --force not specified
@@ -152,7 +152,7 @@ def config_edit(ctx: click.Context, user: bool, project: bool) -> None:
         maverick config edit
         maverick config edit --user
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     # Determine which config to edit
     if user:
@@ -210,7 +210,7 @@ def config_validate(ctx: click.Context, config_file: Path | None) -> None:
         maverick config validate
         maverick config validate --file custom.yaml
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         # Load and validate config

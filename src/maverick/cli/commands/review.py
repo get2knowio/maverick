@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import click
@@ -14,6 +13,7 @@ from maverick.cli.helpers import (
     validate_pr,
 )
 from maverick.cli.output import OutputFormat, format_json
+from maverick.logging import get_logger
 from maverick.models.review import ReviewContext
 
 
@@ -52,7 +52,7 @@ async def review(
         maverick review 123 --output text
     """
     _cli_ctx: CLIContext = ctx.obj["cli_ctx"]  # Reserved for future use
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     with cli_error_handler():
         # T064: Validate PR exists using gh pr view

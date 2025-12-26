@@ -7,7 +7,6 @@ generation without tools.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -17,12 +16,13 @@ from maverick.agents.result import AgentUsage
 from maverick.agents.tools import GENERATOR_TOOLS
 from maverick.agents.utils import extract_text
 from maverick.exceptions import GeneratorError
+from maverick.logging import get_logger
 
 # =============================================================================
 # Module Logger
 # =============================================================================
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

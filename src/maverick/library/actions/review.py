@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import shutil
 from typing import Any
 
@@ -13,9 +12,10 @@ from maverick.library.actions.types import (
     PRMetadata,
     ReviewContextResult,
 )
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Shared runner instance for review actions
 _runner = CommandRunner(timeout=60.0)

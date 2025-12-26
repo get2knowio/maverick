@@ -778,27 +778,29 @@ class TestSendNotification:
         """Test graceful degradation when server unreachable (T056)."""
         send_notification = notification_tools["send_notification"]
 
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            # All attempts fail
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = aiohttp.ClientError("Server down")
+        # Use MockClientSession which properly supports async context manager
+        error_response = Mock()
+        error_response.status = 500
+        error_response.text = AsyncMock(return_value="Server down")
 
-            mock_session_class.return_value.__aenter__ = AsyncMock(
-                return_value=mock_session
+        mock_session = MockClientSession(error_response)
+
+        with (
+            patch(
+                "maverick.tools.notification.aiohttp.ClientSession",
+                return_value=mock_session,
+            ),
+        ):
+            result = await send_notification.handler(
+                {"message": "This will fail", "priority": "high"}
             )
-            mock_session_class.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                result = await send_notification.handler(
-                    {"message": "This will fail", "priority": "high"}
-                )
-
-                # Verify graceful degradation
-                response_data = json.loads(result["content"][0]["text"])
-                assert response_data["success"] is True  # Still success
-                assert response_data["message"] == "Notification not delivered"
-                assert "warning" in response_data
-                assert "unreachable" in response_data["warning"]
+            # Verify graceful degradation
+            response_data = json.loads(result["content"][0]["text"])
+            assert response_data["success"] is True  # Still success
+            assert response_data["message"] == "Notification not delivered"
+            assert "warning" in response_data
+            assert "unreachable" in response_data["warning"]
 
     @pytest.mark.asyncio
     async def test_send_notification_disabled(

@@ -6,7 +6,6 @@ with minimal, targeted code changes.
 
 from __future__ import annotations
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -15,10 +14,11 @@ from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import GitHubError
+from maverick.logging import get_logger
 from maverick.models.implementation import ChangeType, FileChange, ValidationResult
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants
@@ -315,10 +315,11 @@ After fixing, provide:
 
     async def _detect_file_changes(self, cwd: Path) -> list[FileChange]:
         """Detect file changes from git status."""
-        from maverick.utils.git import get_diff_stats
+        from maverick.git import AsyncGitRepository
 
         try:
-            stats = await get_diff_stats(cwd)
+            repo = AsyncGitRepository(cwd)
+            stats = await repo.diff_stats()
             return [
                 FileChange(
                     file_path=path,
@@ -326,7 +327,7 @@ After fixing, provide:
                     lines_added=added,
                     lines_removed=removed,
                 )
-                for path, (added, removed) in stats.items()
+                for path, (added, removed) in stats.per_file.items()
             ]
         except Exception as e:
             logger.warning("Could not detect file changes: %s", e)
@@ -357,19 +358,20 @@ After fixing, provide:
 
         .. deprecated::
             This method will be removed in a future version.
-            Commits are now handled by the workflow layer via utils/git.py.
+            Commits are now handled by the workflow layer via maverick.git.
         """
-        from maverick.utils.git import create_commit, has_uncommitted_changes
+        from maverick.git import AsyncGitRepository
 
         try:
-            if not await has_uncommitted_changes(context.cwd):
+            repo = AsyncGitRepository(context.cwd)
+            if not await repo.is_dirty():
                 return None
 
             # Generate conventional commit message
             short_desc = fix_description[:50] if fix_description else "resolve issue"
             message = f"fix: {short_desc}\n\nFixes #{issue_number}"
 
-            return await create_commit(message, context.cwd)
+            return await repo.commit(message, add_all=True)
         except Exception as e:
             logger.warning("Could not create commit: %s", e)
             return None

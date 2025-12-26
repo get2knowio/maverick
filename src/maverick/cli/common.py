@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import logging
 from collections.abc import Generator
 from typing import TYPE_CHECKING
 
@@ -15,6 +14,7 @@ from maverick.exceptions import AgentError, GitError, MaverickError
 from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
 from maverick.library.generators import register_all_generators
+from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
@@ -36,7 +36,7 @@ def cli_error_handler() -> Generator[None, None, None]:
         >>>     # Command logic here
         >>>     workflow.execute()
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         yield

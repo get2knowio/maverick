@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import shutil
 import time
 from pathlib import Path
@@ -11,13 +10,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maverick.runners.preflight import ValidationResult
 
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 from maverick.runners.models import StageResult, ValidationOutput, ValidationStage
 from maverick.runners.parsers import get_parsers
 
 __all__ = ["ValidationRunner"]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Remediation hints for common validation tools
 TOOL_INSTALLATION_HINTS: dict[str, str] = {

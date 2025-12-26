@@ -6,9 +6,9 @@ context preservation for managing large file content.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
+from maverick.logging import get_logger
 from maverick.utils.text import truncate_line
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
     "_read_conventions",
 ]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default values
 DEFAULT_MAX_FILE_LINES = 50000

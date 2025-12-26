@@ -6,23 +6,23 @@ issue details with referenced file content and recent repository changes.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from maverick.logging import get_logger
 from maverick.utils.files import _read_file_safely
 from maverick.utils.paths import extract_file_paths
 from maverick.utils.secrets import detect_secrets
 
 if TYPE_CHECKING:
+    from maverick.git import GitRepository
     from maverick.runners.models import GitHubIssue
-    from maverick.utils.git_operations import GitOperations
 
 __all__ = [
     "build_issue_context",
 ]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Type alias for context dictionaries
 ContextDict: TypeAlias = dict[str, Any]
@@ -33,7 +33,7 @@ DEFAULT_MAX_RELATED_FILES = 10
 
 def build_issue_context(
     issue: GitHubIssue,
-    git: GitOperations,
+    git: GitRepository,
     *,
     max_related_files: int = DEFAULT_MAX_RELATED_FILES,
 ) -> ContextDict:
@@ -122,7 +122,7 @@ def build_issue_context(
         for commit in commits:
             recent_changes.append(
                 {
-                    "hash": commit.short_hash,
+                    "hash": commit.short_sha,
                     "message": commit.message,
                     "author": commit.author,
                     "date": commit.date,

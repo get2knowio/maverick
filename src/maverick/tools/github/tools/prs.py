@@ -1,17 +1,68 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import tool
+from github import GithubException
 
-from maverick.tools.github.errors import classify_error
+from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
+from maverick.logging import get_logger
 from maverick.tools.github.responses import error_response, success_response
-from maverick.tools.github.runner import run_gh_command
+from maverick.utils.github_client import GitHubClient
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    pass
+
+logger = get_logger(__name__)
+
+# Module-level client for lazy initialization
+_github_client: GitHubClient | None = None
+
+
+def _get_client() -> GitHubClient:
+    """Get or create the module-level GitHubClient.
+
+    Returns:
+        GitHubClient instance.
+
+    Raises:
+        GitHubCLINotFoundError: If gh CLI is not installed.
+        GitHubAuthError: If gh CLI is not authenticated.
+    """
+    global _github_client
+    if _github_client is None:
+        _github_client = GitHubClient()
+    return _github_client
+
+
+def _get_repo_name() -> str:
+    """Get the current repository name from git remote.
+
+    Returns:
+        Repository name in 'owner/repo' format.
+
+    Raises:
+        GitHubError: If unable to determine repository name.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        repo_name = result.stdout.strip()
+        if not repo_name:
+            raise GitHubError("Unable to determine repository name")
+        return repo_name
+    except subprocess.CalledProcessError as e:
+        raise GitHubError(f"Failed to get repository name: {e.stderr}") from e
+    except subprocess.TimeoutExpired as e:
+        raise GitHubError("Timed out getting repository name") from e
 
 
 @tool(
@@ -37,53 +88,49 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
         "Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft
     )
 
-    cmd_args = [
-        "pr",
-        "create",
-        "--title",
-        title,
-        "--body",
-        body,
-        "--base",
-        base,
-        "--head",
-        head,
-    ]
-    if draft:
-        cmd_args.append("--draft")
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            # Check for branch-specific errors
-            if "head" in stderr.lower() and "not found" in stderr.lower():
-                message = f"Branch '{head}' not found"
-                error_code = "BRANCH_NOT_FOUND"
-            elif "base" in stderr.lower() and "not found" in stderr.lower():
-                message = f"Branch '{base}' not found"
-                error_code = "BRANCH_NOT_FOUND"
-            logger.warning("PR creation failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        pr = await client.create_pr(
+            repo_name=repo_name,
+            title=title,
+            body=body,
+            head=head,
+            base=base,
+            draft=draft,
+        )
 
-        # Parse PR URL to extract number
-        pr_url = stdout.strip()
-        pr_number = int(pr_url.rstrip("/").split("/")[-1])
-
-        logger.info("PR #%d created: %s", pr_number, pr_url)
+        logger.info("PR #%d created: %s", pr.number, pr.html_url)
         return success_response(
             {
-                "pr_number": pr_number,
-                "url": pr_url,
+                "pr_number": pr.number,
+                "url": pr.html_url,
                 "state": "draft" if draft else "open",
                 "title": title,
             }
         )
 
-    except asyncio.TimeoutError:
-        logger.error("Timeout creating PR")
-        return error_response("Operation timed out", "TIMEOUT")
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GitHubError as e:
+        error_msg = str(e).lower()
+        # Check for branch-specific errors
+        if "head" in error_msg and "not found" in error_msg:
+            logger.warning("PR creation failed: branch '%s' not found", head)
+            return error_response(f"Branch '{head}' not found", "BRANCH_NOT_FOUND")
+        if "base" in error_msg and "not found" in error_msg:
+            logger.warning("PR creation failed: branch '%s' not found", base)
+            return error_response(f"Branch '{base}' not found", "BRANCH_NOT_FOUND")
+        logger.warning("PR creation failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error creating PR")
         return error_response(str(e), "INTERNAL_ERROR")
@@ -104,81 +151,66 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Getting status for PR #%d", pr_number)
 
-    fields = (
-        "number,state,mergeable,mergeStateStatus,reviews,"
-        "statusCheckRollup,headRefName,baseRefName"
-    )
-    cmd_args = ["pr", "view", str(pr_number), "--json", fields]
-
     try:
-        stdout, stderr, return_code = await run_gh_command(*cmd_args)
+        client = _get_client()
+        repo_name = _get_repo_name()
 
-        if return_code != 0:
-            message, error_code, retry_after = classify_error(stderr, stdout)
-            if "not found" in (stderr or stdout).lower():
-                message = f"PR #{pr_number} not found"
-                error_code = "NOT_FOUND"
-            logger.warning("Get PR status failed: %s", message)
-            return error_response(message, error_code, retry_after)
+        # Get the PR
+        pr = await client.get_pr(repo_name=repo_name, pr_number=pr_number)
 
-        data = json.loads(stdout)
-
-        # Parse reviews
-        reviews = []
-        for review in data.get("reviews", []):
-            if isinstance(review, dict):
-                author = review.get("author", {})
-                reviews.append(
-                    {
-                        "author": author.get("login", "")
-                        if isinstance(author, dict)
-                        else str(author),
-                        "state": review.get("state", "PENDING"),
-                    }
-                )
-
-        # Parse checks
-        checks = []
-        rollup = data.get("statusCheckRollup", []) or []
-        for check in rollup:
-            if isinstance(check, dict):
-                checks.append(
-                    {
-                        "name": check.get("name", check.get("context", "unknown")),
-                        "status": check.get("status", "queued").lower(),
-                        "conclusion": check.get("conclusion"),
-                    }
-                )
-
-        # Determine merge state
-        mergeable_raw = data.get("mergeable")
-        merge_state = data.get("mergeStateStatus", "unknown")
-        if isinstance(merge_state, str):
-            merge_state = merge_state.lower()
-
-        # Convert mergeable to boolean
-        # API returns "MERGEABLE", "CONFLICTING", "UNKNOWN", or null
-        if mergeable_raw in (True, "MERGEABLE"):
-            mergeable = True
-        elif mergeable_raw in (False, "CONFLICTING"):
-            mergeable = False
-        else:
-            mergeable = None  # UNKNOWN or null
-
-        # Detect conflicts
-        has_conflicts = (
-            merge_state in ("dirty", "conflicting") or mergeable_raw == "CONFLICTING"
+        # Get checks for the PR
+        check_runs = await client.get_pr_checks(
+            repo_name=repo_name, pr_number=pr_number
         )
 
-        status = {
-            "pr_number": pr_number,
-            "state": data.get("state", "unknown").lower(),
-            "mergeable": mergeable,
-            "merge_state_status": merge_state,
-            "has_conflicts": has_conflicts,
-            "reviews": reviews,
-            "checks": checks,
-        }
+        def _get_pr_details() -> dict[str, Any]:
+            """Get PR details including reviews and merge state."""
+            # Get reviews
+            reviews_list = []
+            for review in pr.get_reviews():
+                reviews_list.append(
+                    {
+                        "author": review.user.login if review.user else "",
+                        "state": review.state,
+                    }
+                )
+
+            # Parse checks
+            checks_list = []
+            for check in check_runs:
+                checks_list.append(
+                    {
+                        "name": check.name,
+                        "status": check.status.lower() if check.status else "queued",
+                        "conclusion": check.conclusion,
+                    }
+                )
+
+            # Determine merge state
+            # PyGithub's mergeable attribute can be True, False, or None (unknown)
+            mergeable = pr.mergeable
+
+            # Get merge state status (PyGithub returns "MERGEABLE", "CONFLICTING", etc.)
+            mergeable_state = pr.mergeable_state or "unknown"
+            if isinstance(mergeable_state, str):
+                mergeable_state = mergeable_state.lower()
+
+            # Detect conflicts
+            has_conflicts = (
+                mergeable_state in ("dirty", "conflicting") or mergeable is False
+            )
+
+            return {
+                "pr_number": pr_number,
+                "state": pr.state.lower() if pr.state else "unknown",
+                "mergeable": mergeable,
+                "merge_state_status": mergeable_state,
+                "has_conflicts": has_conflicts,
+                "reviews": reviews_list,
+                "checks": checks_list,
+            }
+
+        status = await asyncio.to_thread(_get_pr_details)
 
         logger.info(
             "PR #%d status: state=%s, mergeable=%s, conflicts=%s",
@@ -189,12 +221,28 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
         )
         return success_response(status)
 
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse PR status: %s", e)
-        return error_response(f"Failed to parse response: {e}", "INTERNAL_ERROR")
-    except asyncio.TimeoutError:
-        logger.error("Timeout getting PR #%d status", pr_number)
-        return error_response("Operation timed out", "TIMEOUT")
+    except GitHubCLINotFoundError:
+        logger.error("GitHub CLI not found")
+        return error_response(
+            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/",
+            "AUTH_ERROR",
+        )
+    except GitHubAuthError as e:
+        logger.error("GitHub authentication failed: %s", e)
+        return error_response(str(e), "AUTH_ERROR")
+    except GithubException as e:
+        if e.status == 404:
+            logger.warning("PR #%d not found", pr_number)
+            return error_response(f"PR #{pr_number} not found", "NOT_FOUND")
+        logger.warning("Get PR status failed: %s", e)
+        return error_response(f"Failed to get PR status: {e}", "INTERNAL_ERROR")
+    except GitHubError as e:
+        # Check if it's a not found error
+        if "not found" in str(e).lower():
+            logger.warning("PR #%d not found", pr_number)
+            return error_response(f"PR #{pr_number} not found", "NOT_FOUND")
+        logger.warning("Get PR status failed: %s", e)
+        return error_response(str(e), "INTERNAL_ERROR", e.retry_after)
     except Exception as e:
         logger.exception("Unexpected error getting PR status")
         return error_response(str(e), "INTERNAL_ERROR")

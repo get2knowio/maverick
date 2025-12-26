@@ -5,13 +5,13 @@ This module handles execution of ValidateStepRecord steps.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import ValidateStepRecord
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def execute_validate_step(

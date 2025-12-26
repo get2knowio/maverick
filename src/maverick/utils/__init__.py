@@ -1,45 +1,22 @@
 """Utility modules for Maverick workflows and agents.
 
 This package contains shared utilities for:
-- Git operations (git.py)
-- GitHub API interactions (github.py)
+- GitHub API interactions (github.py, github_client.py)
 - Code validation (validation.py)
 - Task file parsing (task_parser.py)
+- Security utilities (security.py)
+
+For git operations, use maverick.git.GitRepository (sync) or
+maverick.git.AsyncGitRepository (async).
 """
 
 from __future__ import annotations
 
-import logging
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 __all__: list[str] = []
-
-# Git utilities
-try:
-    from maverick.utils.git import (
-        create_commit,
-        get_current_branch,
-        get_diff_stats,
-        get_head_sha,
-        has_uncommitted_changes,
-        stash_changes,
-        unstash_changes,
-    )
-
-    __all__.extend(
-        [
-            "create_commit",
-            "get_current_branch",
-            "get_diff_stats",
-            "get_head_sha",
-            "has_uncommitted_changes",
-            "stash_changes",
-            "unstash_changes",
-        ]
-    )
-except ImportError:
-    logger.debug("Git utilities not yet available")
 
 # GitHub utilities
 try:
@@ -105,26 +82,6 @@ try:
 except ImportError:
     logger.debug("Task parser utilities not yet available")
 
-# Git operations (synchronous wrapper)
-try:
-    from maverick.utils.git_operations import (
-        CommitInfo,
-        DiffStats,
-        GitOperations,
-        GitStatus,
-    )
-
-    __all__.extend(
-        [
-            "CommitInfo",
-            "DiffStats",
-            "GitOperations",
-            "GitStatus",
-        ]
-    )
-except ImportError:
-    logger.debug("Git operations utilities not yet available")
-
 # Context builder utilities
 try:
     from maverick.utils.context import (
@@ -169,3 +126,21 @@ try:
     )
 except ImportError:
     logger.debug("Security utilities not yet available")
+
+# GitHub client (PyGithub-based)
+try:
+    from maverick.utils.github_client import (
+        GitHubClient,
+        get_github_client,
+        get_github_token,
+    )
+
+    __all__.extend(
+        [
+            "GitHubClient",
+            "get_github_client",
+            "get_github_token",
+        ]
+    )
+except ImportError:
+    logger.debug("GitHub client utilities not yet available")

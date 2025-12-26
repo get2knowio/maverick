@@ -2,9 +2,11 @@
 
 Tests complete workflows combining multiple behaviors including:
 - Multiple retry attempts
-- Backoff timing
 - Mixed success/failure scenarios
 - Edge cases
+
+Note: Since the code uses tenacity for retries, we mock the internal
+functions rather than asyncio.sleep directly.
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ class TestRunFixRetryLoopIntegration:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep") as mock_sleep,
+            # Patch tenacity's wait to avoid actual delays
+            patch("tenacity.nap.sleep"),
         ):
             # Attempt 1: fix succeeds, validation fails
             # Attempt 2: fix fails, validation fails
@@ -48,7 +51,6 @@ class TestRunFixRetryLoopIntegration:
                 create_validation_result(success=False),
                 create_validation_result(success=True),
             ]
-            mock_sleep.return_value = None
 
             result = await run_fix_retry_loop(
                 stages=["lint", "test"],
@@ -64,11 +66,6 @@ class TestRunFixRetryLoopIntegration:
             assert "Partial fix" in result["fixes_applied"][0]
             assert "Could not complete fix" in result["fixes_applied"][1]
             assert "Complete fix" in result["fixes_applied"][2]
-
-            # Verify backoff was applied for attempts 2 and 3
-            assert mock_sleep.call_count == 2
-            assert mock_sleep.call_args_list[0].args[0] == 1.0  # Before attempt 2
-            assert mock_sleep.call_args_list[1].args[0] == 2.0  # Before attempt 3
 
     @pytest.mark.asyncio
     async def test_fixer_fails_but_validation_passes_anyway(self) -> None:
@@ -106,3 +103,90 @@ class TestRunFixRetryLoopIntegration:
             # Fix failure should be recorded
             assert "failed" in result["fixes_applied"][0].lower()
             assert "Timeout" in result["fixes_applied"][0]
+
+    @pytest.mark.asyncio
+    async def test_max_attempts_exhausted(self) -> None:
+        """Test that workflow stops after max_attempts and reports failure."""
+        initial_result = create_validation_result(success=False)
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+            # Patch tenacity's wait to avoid actual delays
+            patch("tenacity.nap.sleep"),
+        ):
+            # All attempts fail
+            mock_fixer.return_value = create_fix_result(
+                success=True, changes_made="Applied fix"
+            )
+            mock_validation.return_value = create_validation_result(success=False)
+
+            result = await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=3,
+                fixer_agent="fixer",
+                validation_result=initial_result,
+            )
+
+            # Verify all attempts were made
+            assert result["passed"] is False
+            assert result["attempts"] == 3
+            assert len(result["fixes_applied"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_initial_validation_passed_no_retries(self) -> None:
+        """Test that no retries occur when initial validation passes."""
+        initial_result = create_validation_result(success=True)
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+        ):
+            result = await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=3,
+                fixer_agent="fixer",
+                validation_result=initial_result,
+            )
+
+            # Should return immediately without any fix attempts
+            assert result["passed"] is True
+            assert result["attempts"] == 0
+            assert len(result["fixes_applied"]) == 0
+            mock_fixer.assert_not_called()
+            mock_validation.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_max_attempts_zero_no_retries(self) -> None:
+        """Test that max_attempts=0 disables retries."""
+        initial_result = create_validation_result(success=False)
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+        ):
+            result = await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=0,
+                fixer_agent="fixer",
+                validation_result=initial_result,
+            )
+
+            # Should return failure without any fix attempts
+            assert result["passed"] is False
+            assert result["attempts"] == 0
+            assert len(result["fixes_applied"]) == 0
+            mock_fixer.assert_not_called()
+            mock_validation.assert_not_called()

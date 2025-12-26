@@ -7,18 +7,18 @@ task summaries to produce titles in the format: type(scope): description
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from maverick.agents.generators.base import DEFAULT_MODEL, GeneratorAgent
 from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
+from maverick.logging import get_logger
 
 # =============================================================================
 # Module Logger
 # =============================================================================
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # System Prompt

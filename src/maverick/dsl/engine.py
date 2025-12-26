@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from collections.abc import AsyncIterator, Callable, Generator
 from datetime import datetime, timezone
@@ -27,8 +26,9 @@ from maverick.dsl.steps.base import StepDefinition
 from maverick.dsl.steps.checkpoint import CheckpointStep
 from maverick.dsl.types import StepType
 from maverick.exceptions import DuplicateStepNameError
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WorkflowEngine:

@@ -14,7 +14,7 @@ Tests the main retry loop logic including:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -197,12 +197,12 @@ class TestRunFixRetryLoopMaxAttempts:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep") as mock_sleep,
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             # Fixer always succeeds but validation always fails
             mock_fixer.return_value = create_fix_result(success=True)
             mock_validation.return_value = create_validation_result(success=False)
-            mock_sleep.return_value = None
 
             result = await run_fix_retry_loop(
                 stages=["lint"],
@@ -229,7 +229,8 @@ class TestRunFixRetryLoopMaxAttempts:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep"),
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_fixer.return_value = create_fix_result(success=True)
             # Fail first, then succeed
@@ -268,7 +269,8 @@ class TestRunFixRetryLoopErrorHandling:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep"),
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             # First attempt: fixer returns error (but doesn't raise exception)
             # Second attempt: fixer succeeds, validation passes
@@ -308,7 +310,8 @@ class TestRunFixRetryLoopErrorHandling:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep"),
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             # First attempt raises exception, second succeeds
             mock_fixer.side_effect = [
@@ -342,7 +345,8 @@ class TestRunFixRetryLoopErrorHandling:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep"),
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             # All fix attempts fail with exceptions
             mock_fixer.side_effect = [
@@ -384,7 +388,8 @@ class TestRunFixRetryLoopRecordsAttempts:
             patch(
                 "maverick.library.actions.validation._run_validation"
             ) as mock_validation,
-            patch("maverick.library.actions.validation.asyncio.sleep"),
+            # Patch tenacity's sleep to avoid test delays
+            patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_fixer.side_effect = [
                 create_fix_result(success=True, changes_made="Fixed issue A"),

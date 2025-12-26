@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from claude_agent_sdk import tool
 
+from maverick.logging import get_logger
 from maverick.tools.github.errors import classify_error
 from maverick.tools.github.responses import error_response, success_response
 from maverick.tools.github.runner import run_gh_command
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 #: Default max diff size in bytes (100KB)
 DEFAULT_MAX_DIFF_SIZE: int = 102400

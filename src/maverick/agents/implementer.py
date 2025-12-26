@@ -7,14 +7,14 @@ files or direct descriptions using TDD approach and conventional commits.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.exceptions import TaskParseError
+from maverick.logging import get_logger
 from maverick.models.implementation import (
     ChangeType,
     FileChange,
@@ -24,10 +24,12 @@ from maverick.models.implementation import (
     TaskFile,
     TaskResult,
     TaskStatus,
-    ValidationResult,
 )
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from maverick.models.implementation import ValidationResult
+
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants
@@ -402,10 +404,11 @@ After completion, provide a summary of changes made.
 
     async def _detect_file_changes(self, cwd: Path) -> list[FileChange]:
         """Detect file changes from git status."""
-        from maverick.utils.git import get_diff_stats
+        from maverick.git import AsyncGitRepository
 
         try:
-            stats = await get_diff_stats(cwd)
+            repo = AsyncGitRepository(cwd)
+            stats = await repo.diff_stats()
             return [
                 FileChange(
                     file_path=path,
@@ -413,7 +416,7 @@ After completion, provide a summary of changes made.
                     lines_added=added,
                     lines_removed=removed,
                 )
-                for path, (added, removed) in stats.items()
+                for path, (added, removed) in stats.per_file.items()
             ]
         except Exception as e:
             logger.warning("Could not detect file changes: %s", e)
@@ -442,20 +445,21 @@ After completion, provide a summary of changes made.
 
         .. deprecated::
             This method is deprecated and will be removed in a future version.
-            Git commits are now handled by the workflow layer via utils/git.py.
+            Git commits are now handled by the workflow layer via maverick.git.
             Agents should be side-effect free and not create commits directly.
         """
-        from maverick.utils.git import create_commit, has_uncommitted_changes
+        from maverick.git import AsyncGitRepository
 
         try:
-            if not await has_uncommitted_changes(context.cwd):
+            repo = AsyncGitRepository(context.cwd)
+            if not await repo.is_dirty():
                 return None
 
             # Generate conventional commit message
             commit_type = "feat" if "create" in task.description.lower() else "chore"
             message = f"{commit_type}({task.id.lower()}): {task.description[:50]}"
 
-            return await create_commit(message, context.cwd)
+            return await repo.commit(message, add_all=True)
         except Exception as e:
             logger.warning("Could not create commit: %s", e)
             return None
@@ -710,10 +714,11 @@ After completion, provide a summary of changes made.
         Returns:
             Commit SHA or None if no changes to commit.
         """
-        from maverick.utils.git import create_commit, has_uncommitted_changes
+        from maverick.git import AsyncGitRepository
 
         try:
-            if not await has_uncommitted_changes(context.cwd):
+            repo = AsyncGitRepository(context.cwd)
+            if not await repo.is_dirty():
                 return None
 
             # Generate commit message for phase
@@ -727,7 +732,7 @@ After completion, provide a summary of changes made.
 
             message = f"feat({scope}): complete phase tasks"
 
-            return await create_commit(message, context.cwd)
+            return await repo.commit(message, add_all=True)
         except Exception as e:
             logger.warning("Could not create phase commit: %s", e)
             return None

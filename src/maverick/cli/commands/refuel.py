@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
-
 import click
 
 from maverick.cli.common import cli_error_handler
 from maverick.cli.context import ExitCode, async_command
 from maverick.cli.validators import check_git_auth
+from maverick.logging import get_logger
 from maverick.workflows.refuel import (
     IssueProcessingCompleted,
     IssueProcessingStarted,
@@ -61,7 +60,7 @@ async def refuel(
         maverick refuel --sequential
         maverick refuel --dry-run
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     with cli_error_handler():
         # T053: Check GitHub CLI authentication

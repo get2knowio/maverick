@@ -31,37 +31,43 @@ class TestRefuelWorkflowDryRun:
         """Test RefuelWorkflow dry-run mode emits progress events (T090b)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.github import GitHubCLIRunner
-        from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
+        # Create mock PyGithub Issue objects (GitHubClient returns these)
+        def _create_mock_pygithub_issue(
+            number: int, title: str, body: str, label_names: list[str]
+        ) -> MagicMock:
+            mock_issue = MagicMock()
+            mock_issue.number = number
+            mock_issue.title = title
+            mock_issue.body = body
+            mock_issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+            mock_issue.assignee = None
+            # Labels must be objects with .name attribute
+            mock_issue.labels = [MagicMock(name=label) for label in label_names]
+            return mock_issue
 
-        # Mock GitHubCLIRunner
-        mock_github = MagicMock(spec=GitHubCLIRunner)
+        # Mock GitHubClient (returns PyGithub Issue objects)
+        mock_github = MagicMock()
         mock_github.list_issues = AsyncMock(
             return_value=[
-                RunnerGitHubIssue(
-                    number=1,
-                    title="Fix bug 1",
-                    body="Bug description 1",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/1",
+                _create_mock_pygithub_issue(
+                    1, "Fix bug 1", "Bug description 1", ["tech-debt"]
                 ),
-                RunnerGitHubIssue(
-                    number=2,
-                    title="Fix bug 2",
-                    body="Bug description 2",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/2",
+                _create_mock_pygithub_issue(
+                    2, "Fix bug 2", "Bug description 2", ["tech-debt"]
                 ),
             ]
+        )
+
+        # Mock git repo for repo name discovery
+        mock_git = MagicMock()
+        mock_git.get_remote_url = AsyncMock(
+            return_value="https://github.com/owner/repo.git"
         )
 
         workflow = RefuelWorkflow(
             config=RefuelConfig(),
             github_runner=mock_github,
+            git_runner=mock_git,
         )
 
         inputs = RefuelInputs(label="tech-debt", limit=5, dry_run=True)
@@ -97,12 +103,12 @@ class TestRefuelWorkflowDryRun:
         """Test RefuelWorkflow dry-run mode does not execute git operations (T090b)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.git import GitRunner
+        from maverick.git import AsyncGitRepository
         from maverick.runners.github import GitHubCLIRunner
         from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
 
         # Mock runners
-        mock_git = MagicMock(spec=GitRunner)
+        mock_git = MagicMock(spec=AsyncGitRepository)
         mock_git.create_branch = AsyncMock()
         mock_git.add = AsyncMock()
         mock_git.commit = AsyncMock()
@@ -124,7 +130,7 @@ class TestRefuelWorkflowDryRun:
 
         workflow = RefuelWorkflow(
             config=RefuelConfig(),
-            git_runner=mock_git,
+            git_repo=mock_git,
             github_runner=mock_github,
         )
 
@@ -229,15 +235,14 @@ class TestRefuelWorkflowDryRun:
         """Test RefuelWorkflow dry-run emits same event types as real run (T090b)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.git import GitResult, GitRunner
+        from maverick.git import AsyncGitRepository
         from maverick.runners.github import GitHubCLIRunner
         from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
 
         # Setup mocks for real run
-        mock_git_real = MagicMock(spec=GitRunner)
-        mock_git_real.create_branch = AsyncMock(
-            return_value=GitResult(success=True, output="", error=None, duration_ms=100)
-        )
+        mock_git_real = MagicMock(spec=AsyncGitRepository)
+        # AsyncGitRepository.create_branch returns None (raises on error)
+        mock_git_real.create_branch = AsyncMock(return_value=None)
 
         mock_github_real = MagicMock(spec=GitHubCLIRunner)
         mock_github_real.list_issues = AsyncMock(
@@ -257,7 +262,7 @@ class TestRefuelWorkflowDryRun:
         # Execute real run
         workflow_real = RefuelWorkflow(
             config=RefuelConfig(),
-            git_runner=mock_git_real,
+            git_repo=mock_git_real,
             github_runner=mock_github_real,
         )
         inputs_real = RefuelInputs(label="tech-debt", limit=1, dry_run=False)
@@ -267,7 +272,7 @@ class TestRefuelWorkflowDryRun:
             real_events.append(event)
 
         # Setup mocks for dry run
-        mock_git_dry = MagicMock(spec=GitRunner)
+        mock_git_dry = MagicMock(spec=AsyncGitRepository)
         mock_github_dry = MagicMock(spec=GitHubCLIRunner)
         mock_github_dry.list_issues = AsyncMock(
             return_value=[
@@ -286,7 +291,7 @@ class TestRefuelWorkflowDryRun:
         # Execute dry run
         workflow_dry = RefuelWorkflow(
             config=RefuelConfig(),
-            git_runner=mock_git_dry,
+            git_repo=mock_git_dry,
             github_runner=mock_github_dry,
         )
         inputs_dry = RefuelInputs(label="tech-debt", limit=1, dry_run=True)

@@ -5,7 +5,6 @@ This module handles execution of CheckpointStepRecord steps.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,8 +12,9 @@ from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
 from maverick.dsl.checkpoint.store import CheckpointStore
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import CheckpointStepRecord
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def execute_checkpoint_step(
