@@ -228,9 +228,7 @@ class TestGitCommit:
         assert parsed["message"] == "fix(auth)!: breaking change"
 
     @pytest.mark.asyncio
-    async def test_git_commit_nothing_to_commit(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_commit_nothing_to_commit(self, mock_git_repo: MagicMock) -> None:
         """Test git_commit when there are no changes to commit (T066).
 
         Verifies:
@@ -280,9 +278,7 @@ class TestGitCommit:
     @pytest.mark.asyncio
     async def test_git_commit_git_error(self, mock_git_repo: MagicMock) -> None:
         """Test git_commit with generic git error."""
-        mock_git_repo.commit = AsyncMock(
-            side_effect=Exception("fatal: some git error")
-        )
+        mock_git_repo.commit = AsyncMock(side_effect=Exception("fatal: some git error"))
 
         with patch(
             "maverick.tools.git.tools.commit.AsyncGitRepository",
@@ -464,9 +460,7 @@ class TestGitCurrentBranch:
         assert parsed["branch"] == "feature-branch"
 
     @pytest.mark.asyncio
-    async def test_git_current_branch_detached(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_current_branch_detached(self, mock_git_repo: MagicMock) -> None:
         """Test git_current_branch in detached HEAD state (T060).
 
         Verifies:
@@ -665,9 +659,7 @@ class TestGitCreateBranch:
         assert parsed["base"] == "(current)"
 
     @pytest.mark.asyncio
-    async def test_git_create_branch_with_base(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_create_branch_with_base(self, mock_git_repo: MagicMock) -> None:
         """Test git_create_branch with base branch specified."""
         mock_git_repo.create_branch = AsyncMock(return_value=None)
 

@@ -352,9 +352,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             changes = await agent._detect_file_changes(tmp_path)
 
             assert isinstance(changes, list)
@@ -379,9 +377,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             changes = await agent._detect_file_changes(tmp_path)
 
             assert len(changes) == 1
@@ -462,9 +458,7 @@ class TestCreateCommit:
         mock_repo.is_dirty = AsyncMock(return_value=True)
         mock_repo.commit = AsyncMock(return_value="abc123def456")
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             sha = await agent._create_commit(sample_task, context)
 
             assert sha == "abc123def456"
@@ -484,9 +478,7 @@ class TestCreateCommit:
         mock_repo = MagicMock()
         mock_repo.is_dirty = AsyncMock(return_value=False)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             sha = await agent._create_commit(sample_task, context)
 
             assert sha is None
@@ -511,9 +503,7 @@ class TestCreateCommit:
         mock_repo.is_dirty = AsyncMock(return_value=True)
         mock_repo.commit = AsyncMock(return_value="abc123")
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_commit(task, context)
 
             # Check the commit message contains conventional format
@@ -536,7 +526,6 @@ class TestCreateCommit:
             "maverick.git.AsyncGitRepository",
             side_effect=Exception("Git error"),
         ):
-
             sha = await agent._create_commit(sample_task, context)
 
             assert sha is None
@@ -1342,9 +1331,7 @@ class TestPhaseLevelExecution:
         mock_repo.is_dirty = AsyncMock(return_value=True)
         mock_repo.commit = AsyncMock(return_value="abc123")
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_phase_commit(context)
 
             # Check commit message format

@@ -14,17 +14,17 @@ Non-git shell commands (e.g., `tree`) use CommandRunner from maverick.runners.co
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 
 if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default timeout for shell commands (tree, etc.)
 DEFAULT_COMMAND_TIMEOUT: float = 30.0
@@ -168,7 +168,7 @@ async def _get_project_structure(max_depth: int = 3) -> str:
         return "\n".join(lines)
 
     except Exception as e:
-        logger.debug(f"Failed to generate project structure: {e}")
+        logger.debug("Failed to generate project structure: %s", e)
         return ""
 
 
@@ -201,7 +201,7 @@ async def _get_spec_artifacts() -> dict[str, str]:
                         try:
                             artifacts[filename] = spec_file.read_text()
                         except Exception as e:
-                            logger.debug(f"Failed to read {spec_file}: {e}")
+                            logger.debug("Failed to read %s: %s", spec_file, e)
 
     return artifacts
 

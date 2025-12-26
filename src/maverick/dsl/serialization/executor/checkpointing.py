@@ -5,14 +5,14 @@ This module provides utilities for saving and resuming workflow execution state.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
 from maverick.dsl.checkpoint.store import CheckpointStore
 from maverick.dsl.serialization.schema import CheckpointStepRecord, WorkflowFile
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def load_checkpoint_if_resuming(

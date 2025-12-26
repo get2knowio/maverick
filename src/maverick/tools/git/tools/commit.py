@@ -5,7 +5,6 @@ Provides the git_commit tool for creating commits with conventional formatting.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +12,12 @@ from claude_agent_sdk import tool
 
 from maverick.exceptions import NotARepositoryError, NothingToCommitError
 from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.tools.git.constants import COMMIT_TYPES
 from maverick.tools.git.formatting import format_commit_message
 from maverick.tools.git.responses import error_response, success_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_git_commit_tool(cwd: Path | None = None) -> Any:
@@ -111,8 +111,7 @@ def create_git_commit_tool(cwd: Path | None = None) -> Any:
         except NothingToCommitError:
             logger.info("git_commit: nothing to commit")
             return error_response(
-                "No changes staged for commit. "
-                "Use 'git add' to stage files first.",
+                "No changes staged for commit. Use 'git add' to stage files first.",
                 "NOTHING_TO_COMMIT",
             )
         except Exception as e:

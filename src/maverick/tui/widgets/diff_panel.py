@@ -9,7 +9,6 @@ Date: 2025-12-22
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from rich.syntax import Syntax
@@ -18,7 +17,9 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
-logger = logging.getLogger(__name__)
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = ["DiffPanel"]
 

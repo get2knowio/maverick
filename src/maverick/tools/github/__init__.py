@@ -3,6 +3,8 @@ from maverick.tools.github.runner import (
     DEFAULT_TIMEOUT,
     MAX_RETRIES,
     RETRY_DELAY,
+    get_github_client,
+    reset_github_client,
 )
 from maverick.tools.github.server import (
     SERVER_NAME,
@@ -28,6 +30,8 @@ __all__ = [
     "github_pr_status",
     "github_add_labels",
     "github_close_issue",
+    "get_github_client",
+    "reset_github_client",
     "DEFAULT_TIMEOUT",
     "MAX_RETRIES",
     "RETRY_DELAY",

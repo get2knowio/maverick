@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import deque
 from time import time
 from typing import Any
 
 from maverick.hooks.config import MetricsConfig
 from maverick.hooks.types import ToolMetricEntry, ToolMetrics
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MetricsCollector:

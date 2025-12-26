@@ -18,12 +18,13 @@ Example:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
+
+from maverick.logging import get_logger
 
 __all__ = ["WorkflowLocator"]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WorkflowLocator:

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from maverick.exceptions import GitHubToolsError
+from maverick.logging import get_logger
 from maverick.tools.github.runner import get_runner
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def verify_github_prerequisites(cwd: Path | None = None) -> None:

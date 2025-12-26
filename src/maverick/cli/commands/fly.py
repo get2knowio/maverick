@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import click
@@ -8,6 +7,7 @@ import click
 from maverick.cli.common import cli_error_handler
 from maverick.cli.context import ExitCode, async_command
 from maverick.cli.helpers import detect_task_file, validate_branch
+from maverick.logging import get_logger
 from maverick.workflows.fly import FlyInputs, FlyWorkflow, FlyWorkflowCompleted
 
 
@@ -59,7 +59,7 @@ async def fly(
         maverick fly feature-123 --skip-review --skip-pr
         maverick fly feature-123 --dry-run
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     with cli_error_handler():
         # T039: Validate branch exists

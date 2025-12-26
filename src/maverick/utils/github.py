@@ -7,15 +7,15 @@ a simpler interface for utilities that only need basic GitHub operations.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
+from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 from maverick.runners.github import GitHubCLIRunner
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

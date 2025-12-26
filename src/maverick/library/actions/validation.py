@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class _ValidationStillFailingError(Exception):
+    """Internal exception to signal validation is still failing and retry is needed."""
+
+    pass
 
 
 # =============================================================================
@@ -78,80 +91,101 @@ async def run_fix_retry_loop(
     # Resolve working directory
     working_dir = Path(cwd) if cwd else Path.cwd()
 
-    # Attempt fixes up to max_attempts
+    # Track state across retry attempts
     attempts = 0
     fixes_applied: list[str] = []
     current_result = validation_result
-    base_backoff_seconds = 1.0  # Exponential backoff: 1s, 2s, 4s, ...
 
-    while attempts < max_attempts and not current_result.get("success", False):
-        attempts += 1
-        logger.info(
-            "Fix attempt %d/%d using fixer agent '%s'",
-            attempts,
-            max_attempts,
-            fixer_agent,
-        )
-
-        # Apply exponential backoff between attempts (skip on first attempt)
-        if attempts > 1:
-            backoff_time = base_backoff_seconds * (2 ** (attempts - 2))
-            logger.debug("Waiting %.1f seconds before retry attempt", backoff_time)
-            await asyncio.sleep(backoff_time)
-
-        try:
-            # Build fix context from validation errors
-            fix_prompt = _build_fix_prompt(current_result, stages, attempts)
-
-            # Invoke the fixer agent
-            fix_result = await _invoke_fixer_agent(
-                fix_prompt=fix_prompt,
-                cwd=working_dir,
-            )
-
-            if fix_result.get("success", False):
-                fix_description = fix_result.get(
-                    "changes_made",
-                    f"Applied fix for {_summarize_errors(current_result)}",
-                )
-                fixes_applied.append(fix_description)
-                logger.info("Fix attempt %d succeeded: %s", attempts, fix_description)
-            else:
-                error_msg = fix_result.get("error", "Unknown error")
-                fixes_applied.append(f"Fix attempt {attempts} failed: {error_msg}")
-                logger.warning("Fix attempt %d failed: %s", attempts, error_msg)
-                # Continue to re-run validation anyway - the fix may have been partial
-
-            # Re-run validation to check if fixed
-            current_result = await _run_validation(
-                stages=stages,
-                cwd=working_dir,
-            )
-
-            if current_result.get("success", False):
+    # Execute fix-retry loop with tenacity
+    try:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            retry=retry_if_exception_type(_ValidationStillFailingError),
+            reraise=True,
+        ):
+            with attempt:
+                attempts = attempt.retry_state.attempt_number
                 logger.info(
-                    "Validation passed after fix attempt %d",
+                    "Fix attempt %d/%d using fixer agent '%s'",
                     attempts,
+                    max_attempts,
+                    fixer_agent,
                 )
-                break
 
-            logger.debug(
-                "Validation still failing after fix attempt %d, "
-                "%d attempt(s) remaining",
-                attempts,
-                max_attempts - attempts,
-            )
+                try:
+                    # Build fix context from validation errors
+                    fix_prompt = _build_fix_prompt(current_result, stages, attempts)
 
-        except Exception as e:
-            # Graceful failure: log error but don't crash the workflow
-            logger.warning(
-                "Fix attempt %d failed with error: %s",
-                attempts,
-                str(e),
-                exc_info=True,
-            )
-            fixes_applied.append(f"Fix attempt {attempts} failed: {str(e)}")
-            # Don't break - continue to next attempt
+                    # Invoke the fixer agent
+                    fix_result = await _invoke_fixer_agent(
+                        fix_prompt=fix_prompt,
+                        cwd=working_dir,
+                    )
+
+                    if fix_result.get("success", False):
+                        fix_description = fix_result.get(
+                            "changes_made",
+                            f"Applied fix for {_summarize_errors(current_result)}",
+                        )
+                        fixes_applied.append(fix_description)
+                        logger.info(
+                            "Fix attempt %d succeeded: %s", attempts, fix_description
+                        )
+                    else:
+                        error_msg = fix_result.get("error", "Unknown error")
+                        fixes_applied.append(
+                            f"Fix attempt {attempts} failed: {error_msg}"
+                        )
+                        logger.warning("Fix attempt %d failed: %s", attempts, error_msg)
+                        # Continue to re-run validation - fix may have been partial
+
+                    # Re-run validation to check if fixed
+                    current_result = await _run_validation(
+                        stages=stages,
+                        cwd=working_dir,
+                    )
+
+                    if current_result.get("success", False):
+                        logger.info(
+                            "Validation passed after fix attempt %d",
+                            attempts,
+                        )
+                        # Success - exit the retry loop
+                        return {
+                            "passed": True,
+                            "attempts": attempts,
+                            "fixes_applied": fixes_applied,
+                            "final_result": current_result,
+                        }
+
+                    # Validation still failing - signal retry needed
+                    logger.debug(
+                        "Validation still failing after fix attempt %d, "
+                        "%d attempt(s) remaining",
+                        attempts,
+                        max_attempts - attempts,
+                    )
+                    raise _ValidationStillFailingError()
+
+                except _ValidationStillFailingError:
+                    # Re-raise to trigger tenacity retry
+                    raise
+                except Exception as e:
+                    # Graceful failure: log error but don't crash the workflow
+                    logger.warning(
+                        "Fix attempt %d failed with error: %s",
+                        attempts,
+                        str(e),
+                        exc_info=True,
+                    )
+                    fixes_applied.append(f"Fix attempt {attempts} failed: {str(e)}")
+                    # Signal retry needed despite the error
+                    raise _ValidationStillFailingError() from e
+
+    except _ValidationStillFailingError:
+        # All retries exhausted, validation still failing
+        pass
 
     # Return the fix loop results
     # Note: The 'passed' status reflects whether validation succeeded after fixes

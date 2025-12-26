@@ -5,12 +5,12 @@ Provides the factory function to create an MCP server with all git tools.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from claude_agent_sdk import create_sdk_mcp_server
 from claude_agent_sdk.types import McpSdkServerConfig
 
+from maverick.logging import get_logger
 from maverick.tools.git.constants import SERVER_NAME, SERVER_VERSION
 from maverick.tools.git.tools.branch import (
     create_git_create_branch_tool,
@@ -20,7 +20,7 @@ from maverick.tools.git.tools.commit import create_git_commit_tool
 from maverick.tools.git.tools.diff import create_git_diff_stats_tool
 from maverick.tools.git.tools.push import create_git_push_tool
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_git_tools_server(

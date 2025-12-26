@@ -7,7 +7,6 @@ components. It yields progress events compatible with the TUI/CLI interfaces.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -44,8 +43,9 @@ from maverick.dsl.serialization.schema import (
     ValidateStepRecord,
     WorkflowFile,
 )
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Type alias for step records
 StepRecordType = (

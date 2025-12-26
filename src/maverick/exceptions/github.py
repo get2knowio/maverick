@@ -76,8 +76,15 @@ class GitHubAuthError(MaverickError):
     """GitHub CLI is not authenticated.
 
     Provides authentication instructions in the message.
+
+    Attributes:
+        message: Custom error message (optional, default provides auth instructions).
     """
 
-    def __init__(self) -> None:
-        """Initialize the GitHubAuthError."""
-        super().__init__("GitHub CLI not authenticated. Run: gh auth login")
+    def __init__(self, message: str | None = None) -> None:
+        """Initialize the GitHubAuthError.
+
+        Args:
+            message: Custom error message. Defaults to auth instruction.
+        """
+        super().__init__(message or "GitHub CLI not authenticated. Run: gh auth login")

@@ -632,8 +632,11 @@ class FlyWorkflow(WorkflowDSLMixin):
                             },
                             return_usage=False,
                         )
-                        # When return_usage=False, result is always str
-                        assert isinstance(result, str)
+                        if not isinstance(result, str):
+                            raise TypeError(
+                                f"Expected str from commit message generation, "
+                                f"got {type(result).__name__}"
+                            )
                         commit_message = result
                     except Exception as e:
                         logger.warning(f"Commit message generation failed: {e}")

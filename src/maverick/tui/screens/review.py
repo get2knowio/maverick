@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,6 +10,7 @@ from textual.reactive import reactive
 from textual.widgets import Static
 
 from maverick.agents.issue_fixer import IssueFixerAgent
+from maverick.logging import get_logger
 from maverick.models.issue_fix import IssueFixerContext
 from maverick.tui.models import FixResult, ReviewAction, ReviewScreenActionState
 from maverick.tui.screens.base import MaverickScreen
@@ -19,7 +19,7 @@ from maverick.tui.widgets import DiffPanel
 if TYPE_CHECKING:
     from textual.timer import Timer
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 __all__ = ["ReviewScreen"]
 

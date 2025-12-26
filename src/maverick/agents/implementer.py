@@ -7,14 +7,14 @@ files or direct descriptions using TDD approach and conventional commits.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.exceptions import TaskParseError
+from maverick.logging import get_logger
 from maverick.models.implementation import (
     ChangeType,
     FileChange,
@@ -24,10 +24,12 @@ from maverick.models.implementation import (
     TaskFile,
     TaskResult,
     TaskStatus,
-    ValidationResult,
 )
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from maverick.models.implementation import ValidationResult
+
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

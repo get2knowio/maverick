@@ -5,7 +5,6 @@ Provides tools for branch operations: getting current branch and creating branch
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +12,10 @@ from claude_agent_sdk import tool
 
 from maverick.exceptions import BranchExistsError, GitError, NotARepositoryError
 from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.tools.git.responses import error_response, success_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_git_current_branch_tool(cwd: Path | None = None) -> Any:

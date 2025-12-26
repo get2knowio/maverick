@@ -364,7 +364,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         Returns:
             IssueProcessingResult with outcome.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
         empty_usage = AgentUsage(
             input_tokens=0,
             output_tokens=0,
@@ -374,7 +374,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
 
         # Check if issue is assigned and should be skipped
         if self._config.skip_if_assigned and issue.assignee is not None:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.SKIPPED,
@@ -397,7 +397,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
             logger.info("[DRY-RUN] Would push branch to remote")
             logger.info(f"[DRY-RUN] Would create PR for issue #{issue.number}")
 
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FIXED,
@@ -409,7 +409,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
             )
 
         if self._git_repo is None:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
@@ -423,7 +423,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         try:
             await self._git_repo.create_branch(branch_name, checkout=True)
         except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
@@ -442,7 +442,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 if hasattr(fix_result, "usage") and fix_result.usage:
                     agent_usage = fix_result.usage
             except Exception as e:
-                duration_ms = int((time.time() - start_time) * 1000)
+                duration_ms = int((time.monotonic() - start_time) * 1000)
                 return IssueProcessingResult(
                     issue=issue,
                     status=IssueStatus.FAILED,
@@ -508,7 +508,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
             # Create commit
             await self._git_repo.commit(commit_message)
         except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
@@ -549,7 +549,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 else:
                     logger.error("Could not determine repository name for PR creation")
         except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             return IssueProcessingResult(
                 issue=issue,
                 status=IssueStatus.FAILED,
@@ -560,7 +560,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 agent_usage=agent_usage,
             )
 
-        duration_ms = int((time.time() - start_time) * 1000)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
         return IssueProcessingResult(
             issue=issue,
             status=IssueStatus.FIXED,
@@ -590,7 +590,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         Yields:
             Progress events (RefuelStarted, IssueProcessing*, RefuelCompleted)
         """
-        workflow_start_time = time.time()
+        workflow_start_time = time.monotonic()
 
         # Run preflight validation FIRST, before any state changes
         # This runs even in dry_run mode to validate the environment
@@ -606,7 +606,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                 error_msg = f"Unexpected preflight error: {e}"
             logger.error(error_msg)
             # Emit empty failed result
-            total_duration_ms = int((time.time() - workflow_start_time) * 1000)
+            total_duration_ms = int((time.monotonic() - workflow_start_time) * 1000)
             failed_result = RefuelResult(
                 success=False,
                 issues_found=0,
@@ -673,7 +673,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
                     total_cost_usd=0.0,
                     duration_ms=0,
                 )
-                total_duration_ms = int((time.time() - workflow_start_time) * 1000)
+                total_duration_ms = int((time.monotonic() - workflow_start_time) * 1000)
                 refuel_result = RefuelResult(
                     success=False,
                     issues_found=0,
@@ -752,7 +752,7 @@ class RefuelWorkflow(WorkflowDSLMixin):
         issues_skipped = sum(1 for r in results if r.status == IssueStatus.SKIPPED)
         issues_processed = issues_fixed + issues_failed
 
-        total_duration_ms = int((time.time() - workflow_start_time) * 1000)
+        total_duration_ms = int((time.monotonic() - workflow_start_time) * 1000)
         total_cost_usd = sum(r.agent_usage.total_cost_usd or 0.0 for r in results)
 
         refuel_result = RefuelResult(

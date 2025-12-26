@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import time
 from pathlib import Path
@@ -26,8 +25,9 @@ from claude_agent_sdk.types import McpSdkServerConfig
 
 from maverick.config import ValidationConfig
 from maverick.exceptions import ValidationToolsError
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

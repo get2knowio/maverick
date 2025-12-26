@@ -6,13 +6,13 @@ This module provides functions to verify that git is installed and available.
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 
 from maverick.exceptions import GitNotFoundError, GitToolsError, NotARepositoryError
 from maverick.git import GitRepository
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def verify_git_prerequisites(cwd: Path | None = None) -> None:

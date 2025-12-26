@@ -57,7 +57,7 @@ def get_github_token() -> str:
     except subprocess.CalledProcessError as e:
         raise GitHubAuthError() from e
     except subprocess.TimeoutExpired as e:
-        raise GitHubAuthError() from e
+        raise GitHubAuthError("gh auth token command timed out after 10 seconds") from e
 
 
 def get_github_client() -> Github:

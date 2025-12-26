@@ -6,10 +6,10 @@ issue details with referenced file content and recent repository changes.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from maverick.logging import get_logger
 from maverick.utils.files import _read_file_safely
 from maverick.utils.paths import extract_file_paths
 from maverick.utils.secrets import detect_secrets
@@ -22,7 +22,7 @@ __all__ = [
     "build_issue_context",
 ]
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Type alias for context dictionaries
 ContextDict: TypeAlias = dict[str, Any]

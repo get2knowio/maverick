@@ -6,7 +6,6 @@ output into actionable guidance with structured explanations.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Literal
 
 from maverick.agents.generators.base import (
@@ -16,12 +15,13 @@ from maverick.agents.generators.base import (
 )
 from maverick.agents.result import AgentUsage
 from maverick.exceptions import GeneratorError
+from maverick.logging import get_logger
 
 # =============================================================================
 # Module Logger
 # =============================================================================
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Type Definitions

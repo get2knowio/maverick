@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from collections.abc import Generator, Iterator
@@ -19,6 +20,22 @@ pytest_plugins = [
     "tests.fixtures.responses",
     "tests.fixtures.runners",
 ]
+
+
+@pytest.fixture(autouse=True)
+def configure_test_logging() -> Generator[None, None, None]:
+    """Configure structlog for test environment.
+
+    This fixture runs automatically for all tests to ensure logging
+    is properly configured to output to stderr (not stdout) and
+    suppress verbose log output during tests.
+    """
+    from maverick.logging import configure_logging
+
+    # Configure logging to use stderr at WARNING level to reduce noise
+    # and prevent log output from mixing with test stdout
+    configure_logging(level=logging.WARNING)
+    yield
 
 
 @pytest.fixture

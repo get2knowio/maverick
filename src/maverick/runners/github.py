@@ -544,7 +544,22 @@ class GitHubCLIRunner:
         head: str | None = None,
         draft: bool = False,
     ) -> PullRequest:
-        """Create a new pull request."""
+        """Create a new pull request.
+
+        Args:
+            title: PR title.
+            body: PR body/description.
+            base: Target branch name.
+            head: Source branch name (default: current branch).
+            draft: Whether to create as draft PR.
+
+        Returns:
+            PullRequest instance with parsed PR data.
+
+        Raises:
+            RuntimeError: If gh command fails.
+            GitHubAuthError: If authentication is required.
+        """
         await self._ensure_authenticated()
         args = ["pr", "create", "--title", title, "--body", body, "--base", base]
         if head:

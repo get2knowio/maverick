@@ -32,9 +32,9 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -59,8 +59,9 @@ from maverick.exceptions import (
     NothingToCommitError,
     PushRejectedError,
 )
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 __all__ = [
     "AsyncGitRepository",
@@ -161,7 +162,7 @@ class DiffStats:
     insertions: int
     deletions: int
     file_list: tuple[str, ...]
-    per_file: dict[str, tuple[int, int]] = field(default_factory=dict)
+    per_file: Mapping[str, tuple[int, int]] = field(default_factory=dict)
 
 
 # =============================================================================

@@ -6,7 +6,6 @@ with minimal, targeted code changes.
 
 from __future__ import annotations
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -15,10 +14,11 @@ from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import GitHubError
+from maverick.logging import get_logger
 from maverick.models.implementation import ChangeType, FileChange, ValidationResult
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =============================================================================
 # Constants

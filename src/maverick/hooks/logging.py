@@ -8,8 +8,9 @@ from typing import Any
 
 from maverick.hooks.config import LoggingConfig
 from maverick.hooks.types import ToolExecutionLog
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Debug output preview length for truncation
 DEBUG_OUTPUT_PREVIEW_LENGTH = 100

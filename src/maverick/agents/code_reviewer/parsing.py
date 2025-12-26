@@ -9,14 +9,15 @@ This module contains functions for parsing and normalizing Claude's response:
 from __future__ import annotations
 
 import json
-import logging
 import re
 from typing import TYPE_CHECKING
+
+from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.models.review import ReviewFinding
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def extract_json(text: str) -> str | None:

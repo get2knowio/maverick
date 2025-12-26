@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +26,7 @@ from maverick.agents.code_reviewer.prompts import SYSTEM_PROMPT
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.agents.utils import extract_all_text
 from maverick.exceptions import AgentError
+from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.agents.result import AgentUsage
@@ -43,7 +43,7 @@ except ImportError:
 
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):

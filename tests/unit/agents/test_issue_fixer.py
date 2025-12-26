@@ -709,9 +709,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._detect_file_changes(tmp_path)
 
             assert len(result) == 2
@@ -739,9 +737,7 @@ class TestDetectFileChanges:
         mock_repo = MagicMock()
         mock_repo.diff_stats = AsyncMock(return_value=mock_stats)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._detect_file_changes(tmp_path)
 
             assert result == []
@@ -829,9 +825,7 @@ class TestCreateCommit:
         mock_repo.is_dirty = AsyncMock(return_value=True)
         mock_repo.commit = AsyncMock(return_value="abc123def456")
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._create_commit(
                 42, "resolve null pointer issue", issue_context
             )
@@ -852,9 +846,7 @@ class TestCreateCommit:
         mock_repo.is_dirty = AsyncMock(return_value=True)
         mock_repo.commit = AsyncMock(return_value="abc123")
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_commit(123, "fix description", issue_context)
 
             call_args = mock_repo.commit.call_args[0]
@@ -869,9 +861,7 @@ class TestCreateCommit:
         mock_repo = MagicMock()
         mock_repo.is_dirty = AsyncMock(return_value=False)
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             result = await agent._create_commit(42, "fix", issue_context)
 
             assert result is None
@@ -887,9 +877,7 @@ class TestCreateCommit:
         mock_repo.commit = AsyncMock(return_value="abc123")
         long_description = "a" * 100
 
-        with patch(
-            "maverick.git.AsyncGitRepository", return_value=mock_repo
-        ):
+        with patch("maverick.git.AsyncGitRepository", return_value=mock_repo):
             await agent._create_commit(42, long_description, issue_context)
 
             call_args = mock_repo.commit.call_args[0]

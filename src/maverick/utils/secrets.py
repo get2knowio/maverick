@@ -11,10 +11,15 @@ JWT tokens, and various other API keys.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from detect_secrets.core.plugins.util import get_mapping_from_secret_type_to_class
+
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from detect_secrets.plugins.base import BasePlugin
@@ -48,26 +53,20 @@ DEFAULT_DETECTORS: tuple[str, ...] = (
 )
 
 
-# Module-level cache for detector instances
-_detector_cache: dict[str, BasePlugin] | None = None
-
-
+@lru_cache(maxsize=1)
 def _get_detectors() -> dict[str, BasePlugin]:
     """Get or initialize the detector instances.
 
     Returns:
         Dictionary mapping secret type names to detector instances.
     """
-    global _detector_cache
-    if _detector_cache is None:
-        type_to_class = get_mapping_from_secret_type_to_class()
-        _detector_cache = {}
-        for detector_name in DEFAULT_DETECTORS:
-            if detector_name in type_to_class:
-                detector_cls = type_to_class[detector_name]
-                # type_to_class returns type[BasePlugin], instantiate it
-                _detector_cache[detector_name] = detector_cls()  # type: ignore[misc]
-    return _detector_cache
+    type_to_class = get_mapping_from_secret_type_to_class()
+    # type_to_class returns type[BasePlugin] values, instantiate them
+    return {
+        name: type_to_class[name]()  # type: ignore[misc]
+        for name in DEFAULT_DETECTORS
+        if name in type_to_class
+    }
 
 
 def load_baseline(baseline_path: Path | str | None = None) -> set[str]:
@@ -111,10 +110,7 @@ def load_baseline(baseline_path: Path | str | None = None) -> set[str]:
         return set()
 
 
-def detect_secrets(
-    content: str,
-    baseline_path: Path | str | None = None,
-) -> list[tuple[int, str]]:
+def detect_secrets(content: str) -> list[tuple[int, str]]:
     """Detect potential secrets in content.
 
     Scans content for common secret patterns like API keys, tokens,
@@ -123,12 +119,14 @@ def detect_secrets(
 
     Args:
         content: Text content to scan for secrets.
-        baseline_path: Optional path to a .secrets.baseline file for
-            ignoring known false positives.
 
     Returns:
         List of (line_number, secret_type) tuples for each detected secret.
         Line numbers are 1-indexed.
+
+    Note:
+        Baseline filtering for known false positives is planned for a future
+        release. Use load_baseline() to prepare baseline data.
 
     Example:
         >>> detect_secrets("AKIAIOSFODNN7EXAMPLE")
@@ -143,23 +141,17 @@ def detect_secrets(
     lines = content.splitlines()
     detectors = _get_detectors()
 
-    # Load baseline for false positive filtering if provided
-    # Note: Baseline filtering is available but not yet implemented
-    # ignored_hashes = load_baseline(baseline_path) if baseline_path else set()
-    _ = baseline_path  # Reserved for future baseline filtering support
-
     for line_num, line in enumerate(lines, start=1):
         line_findings: set[str] = set()
 
         for secret_type, detector in detectors.items():
             try:
                 for _secret_value in detector.analyze_string(line):
-                    # If we have a baseline, we could filter by hash here
-                    # For now, just record the finding
+                    # Record the finding
                     line_findings.add(secret_type)
                     break  # One match per detector per line is enough
-            except Exception:
-                # Some detectors may fail on certain input; skip gracefully
+            except Exception as e:
+                logger.debug("Detector %s failed on input: %s", secret_type, e)
                 continue
 
         # Add all unique findings for this line

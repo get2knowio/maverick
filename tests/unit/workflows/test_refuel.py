@@ -7,8 +7,12 @@ configuration validation, data structures, and progress events.
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from unittest.mock import MagicMock
 from pydantic import ValidationError
 
 from maverick.agents.result import AgentUsage
@@ -678,7 +682,7 @@ def _create_mock_py_issue(
     return mock_issue
 
 
-def _create_mock_github_client(issues: list) -> "MagicMock":
+def _create_mock_github_client(issues: list) -> MagicMock:
     """Create a mock GitHubClient with list_issues returning mock PyGithub issues."""
     from unittest.mock import AsyncMock, MagicMock
 
@@ -690,7 +694,7 @@ def _create_mock_github_client(issues: list) -> "MagicMock":
 def _create_mock_git_repo(
     create_branch_success: bool = True,
     create_branch_side_effect: list | None = None,
-) -> "MagicMock":
+) -> MagicMock:
     """Create a mock AsyncGitRepository.
 
     The new AsyncGitRepository API returns values directly and raises on failure.
@@ -1089,46 +1093,40 @@ class TestRefuelProgressEventEmission:
         """Test RefuelStarted event emission with issues_found field (T070)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.github import GitHubCLIRunner
-        from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
+        # Create mock PyGithub Issue objects (not RunnerGitHubIssue)
+        def _create_mock_pygithub_issue(
+            number: int, title: str, body: str, label_names: list[str]
+        ) -> MagicMock:
+            mock_issue = MagicMock()
+            mock_issue.number = number
+            mock_issue.title = title
+            mock_issue.body = body
+            mock_issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+            mock_issue.assignee = None
+            # Labels must be objects with .name attribute
+            mock_issue.labels = [MagicMock(name=label) for label in label_names]
+            return mock_issue
 
-        # Mock GitHubCLIRunner with 3 issues
-        mock_github = MagicMock(spec=GitHubCLIRunner)
+        # Mock GitHubClient with 3 issues (returns PyGithub Issue objects)
+        mock_github = MagicMock()
         mock_github.list_issues = AsyncMock(
             return_value=[
-                RunnerGitHubIssue(
-                    number=1,
-                    title="Issue 1",
-                    body="Body 1",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/1",
-                ),
-                RunnerGitHubIssue(
-                    number=2,
-                    title="Issue 2",
-                    body="Body 2",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/2",
-                ),
-                RunnerGitHubIssue(
-                    number=3,
-                    title="Issue 3",
-                    body="Body 3",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/3",
-                ),
+                _create_mock_pygithub_issue(1, "Issue 1", "Body 1", ["tech-debt"]),
+                _create_mock_pygithub_issue(2, "Issue 2", "Body 2", ["tech-debt"]),
+                _create_mock_pygithub_issue(3, "Issue 3", "Body 3", ["tech-debt"]),
             ]
+        )
+
+        # Mock git repo for repo name discovery
+        mock_git = MagicMock()
+        mock_git.get_remote_url = AsyncMock(
+            return_value="https://github.com/owner/repo.git"
         )
 
         workflow = RefuelWorkflow(
             config=RefuelConfig(),
             github_runner=mock_github,
+            git_runner=mock_git,
         )
 
         inputs = RefuelInputs(label="tech-debt", limit=5)
@@ -1155,37 +1153,39 @@ class TestRefuelProgressEventEmission:
         """Test IssueProcessingStarted/Completed event pairs for each issue (T071)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from maverick.runners.github import GitHubCLIRunner
-        from maverick.runners.models import GitHubIssue as RunnerGitHubIssue
+        # Create mock PyGithub Issue objects (not RunnerGitHubIssue)
+        def _create_mock_pygithub_issue(
+            number: int, title: str, body: str, label_names: list[str]
+        ) -> MagicMock:
+            mock_issue = MagicMock()
+            mock_issue.number = number
+            mock_issue.title = title
+            mock_issue.body = body
+            mock_issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+            mock_issue.assignee = None
+            # Labels must be objects with .name attribute
+            mock_issue.labels = [MagicMock(name=label) for label in label_names]
+            return mock_issue
 
-        # Mock GitHubCLIRunner with 3 issues
-        mock_github = MagicMock(spec=GitHubCLIRunner)
+        # Mock GitHubClient with 2 issues (returns PyGithub Issue objects)
+        mock_github = MagicMock()
         mock_github.list_issues = AsyncMock(
             return_value=[
-                RunnerGitHubIssue(
-                    number=1,
-                    title="Issue 1",
-                    body="Body 1",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/1",
-                ),
-                RunnerGitHubIssue(
-                    number=2,
-                    title="Issue 2",
-                    body="Body 2",
-                    labels=("tech-debt",),
-                    state="open",
-                    assignees=(),
-                    url="https://github.com/owner/repo/issues/2",
-                ),
+                _create_mock_pygithub_issue(1, "Issue 1", "Body 1", ["tech-debt"]),
+                _create_mock_pygithub_issue(2, "Issue 2", "Body 2", ["tech-debt"]),
             ]
+        )
+
+        # Mock git repo for repo name discovery
+        mock_git = MagicMock()
+        mock_git.get_remote_url = AsyncMock(
+            return_value="https://github.com/owner/repo.git"
         )
 
         workflow = RefuelWorkflow(
             config=RefuelConfig(),
             github_runner=mock_github,
+            git_runner=mock_git,
         )
 
         inputs = RefuelInputs(label="tech-debt", limit=2)

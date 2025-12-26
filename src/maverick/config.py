@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,6 +14,7 @@ from pydantic_settings import (
 from typing_extensions import Self
 
 from maverick.exceptions import ConfigError
+from maverick.logging import get_logger
 from maverick.workflows.fly import FlyConfig
 from maverick.workflows.refuel import RefuelConfig
 
@@ -35,7 +35,7 @@ __all__ = [
     "get_user_config_path",
 ]
 
-logger: logging.Logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class GitHubConfig(BaseModel):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 import unicodedata
@@ -9,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from maverick.hooks.config import SafetyConfig
+from maverick.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default dangerous bash patterns (FR-006)
 DANGEROUS_BASH_PATTERNS: list[tuple[str, str]] = [

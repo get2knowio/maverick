@@ -20,6 +20,89 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 | Testing         | pytest + pytest-asyncio | All tests async-compatible               |
 | Linting         | Ruff                    | Fast, comprehensive Python linter        |
 | Type Checking   | MyPy                    | Strict mode recommended                  |
+| Git Operations  | GitPython               | `maverick.git` wraps GitPython           |
+| GitHub API      | PyGithub                | `maverick.utils.github_client`           |
+| Logging         | structlog               | `maverick.logging.get_logger()`          |
+| Retry Logic     | tenacity                | `@retry` decorator or `AsyncRetrying`    |
+| Secret Detection| detect-secrets          | `maverick.utils.secrets`                 |
+
+## Third-Party Library Standards
+
+These libraries are the canonical choices for their domains. Do NOT introduce alternatives or custom implementations.
+
+### GitPython (`maverick.git`)
+
+**Use for**: All git operations (commits, branches, diffs, status, push/pull)
+
+```python
+from maverick.git import AsyncGitRepository
+
+repo = AsyncGitRepository(path)
+await repo.create_branch("feature/new")
+await repo.commit("feat: add feature")
+await repo.push()
+```
+
+**Do NOT**: Use `subprocess.run("git ...")` or create new git wrappers
+
+### PyGithub (`maverick.utils.github_client`)
+
+**Use for**: All GitHub API operations (issues, PRs, labels, comments)
+
+```python
+from maverick.utils.github_client import GitHubClient
+
+client = GitHubClient()
+issues = await client.list_issues(repo_name, labels=["bug"])
+await client.create_pr(repo_name, title, body, head, base)
+```
+
+**Do NOT**: Use `subprocess.run("gh ...")` for operations that PyGithub supports
+
+### structlog (`maverick.logging`)
+
+**Use for**: All logging throughout the codebase
+
+```python
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("processing_started", item_id=item_id, count=10)
+logger.error("operation_failed", error=str(e), context="validation")
+```
+
+**Do NOT**: Use `import logging; logging.getLogger(__name__)`
+
+### tenacity
+
+**Use for**: All retry logic with exponential backoff
+
+```python
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
+
+async for attempt in AsyncRetrying(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+):
+    with attempt:
+        return await risky_operation()
+```
+
+**Do NOT**: Write manual `for attempt in range(retries):` loops
+
+### detect-secrets (`maverick.utils.secrets`)
+
+**Use for**: Detecting secrets/credentials in content before commits
+
+```python
+from maverick.utils.secrets import detect_secrets
+
+findings = detect_secrets(file_content)
+if findings:
+    raise SecurityError(f"Potential secrets found: {findings}")
+```
+
+**Do NOT**: Write custom regex patterns for secret detection
 
 ## Architecture
 

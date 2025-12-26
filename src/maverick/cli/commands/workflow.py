@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import click
@@ -14,6 +13,7 @@ from maverick.cli.context import ExitCode, async_command
 from maverick.cli.output import format_error, format_json, format_table
 from maverick.dsl.serialization.parser import parse_workflow
 from maverick.dsl.visualization import to_ascii, to_mermaid
+from maverick.logging import get_logger
 
 
 @click.group()
@@ -69,7 +69,7 @@ def workflow_list(ctx: click.Context, fmt: str, source: str) -> None:
     """
     import yaml
 
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         # Run discovery (FR-014: call discover() when CLI initializes)
@@ -159,7 +159,7 @@ def workflow_show(ctx: click.Context, name: str) -> None:
         maverick workflow show my-workflow
         maverick workflow show ./workflows/my-workflow.yaml
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         # Determine if name is a file path or workflow name
@@ -285,7 +285,7 @@ def workflow_validate(ctx: click.Context, file: Path, strict: bool) -> None:
         maverick workflow validate my-workflow.yaml
         maverick workflow validate my-workflow.yaml --no-strict
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         from maverick.dsl.serialization.errors import (
@@ -401,7 +401,7 @@ def workflow_viz(
         maverick workflow viz my-workflow --output diagram.md
         maverick workflow viz my-workflow --format mermaid --direction LR
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         # Determine if name_or_file is a file path or workflow name
@@ -542,7 +542,7 @@ def workflow_new(
         maverick workflow new my-workflow --output-dir ./workflows
         maverick workflow new my-workflow --preview
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     try:
         from maverick.library import (

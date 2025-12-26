@@ -5,7 +5,6 @@ This module provides the git_push tool for pushing commits to remote repositorie
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +12,59 @@ from claude_agent_sdk import tool
 
 from maverick.exceptions import GitError, NotARepositoryError, PushRejectedError
 from maverick.git import AsyncGitRepository
+from maverick.logging import get_logger
 from maverick.tools.git.responses import error_response, success_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Constants for SHA detection
+SHA_HEX_LENGTH = 40
+SHA_HEX_CHARS = frozenset("0123456789abcdef")
+
+# Error patterns for classification
+_AUTH_PATTERNS = frozenset(
+    [
+        "authentication failed",
+        "could not read",
+        "permission denied",
+        "credentials",
+    ]
+)
+_NETWORK_PATTERNS = frozenset(
+    [
+        "could not resolve host",
+        "connection refused",
+        "network",
+        "timeout",
+    ]
+)
+
+
+def _classify_push_error(error: Exception) -> tuple[str, str]:
+    """Classify push error and return (error_code, message).
+
+    Args:
+        error: The exception to classify.
+
+    Returns:
+        Tuple of (error_code, user_message).
+    """
+    error_msg = str(error).lower()
+
+    # Check for authentication errors
+    if any(pattern in error_msg for pattern in _AUTH_PATTERNS):
+        return (
+            "AUTHENTICATION_REQUIRED",
+            f"Authentication required: {error}. "
+            "Run 'gh auth login' or configure git credentials",
+        )
+
+    # Check for network errors
+    if any(pattern in error_msg for pattern in _NETWORK_PATTERNS):
+        return "NETWORK_ERROR", f"Network error: {error}"
+
+    # Generic git error
+    return "GIT_ERROR", f"Git push failed: {error}"
 
 
 def create_git_push_tool(cwd: Path | None = None) -> Any:
@@ -70,8 +119,8 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
             # In GitRepository, detached HEAD returns the commit SHA (40 chars)
             # We detect detached HEAD by checking if it's a valid branch name
             # A commit SHA is 40 hex chars, which is not a typical branch name
-            is_detached = len(current_branch) == 40 and all(
-                c in "0123456789abcdef" for c in current_branch
+            is_detached = len(current_branch) == SHA_HEX_LENGTH and all(
+                c in SHA_HEX_CHARS for c in current_branch
             )
             if is_detached:
                 logger.error("git_push: Cannot push from detached HEAD state")
@@ -109,76 +158,13 @@ def create_git_push_tool(cwd: Path | None = None) -> Any:
             logger.error("git_push: Not inside a git repository")
             return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
         except PushRejectedError as e:
-            error_msg = str(e).lower()
-
-            # Check for authentication errors
-            if any(
-                pattern in error_msg
-                for pattern in [
-                    "authentication failed",
-                    "could not read",
-                    "permission denied",
-                    "credentials",
-                ]
-            ):
-                logger.error("git_push: Authentication failed: %s", e)
-                return error_response(
-                    f"Authentication required: {e}. "
-                    "Run 'gh auth login' or configure git credentials",
-                    "AUTHENTICATION_REQUIRED",
-                )
-
-            # Check for network errors
-            if any(
-                pattern in error_msg
-                for pattern in [
-                    "could not resolve host",
-                    "connection refused",
-                    "network",
-                    "timeout",
-                ]
-            ):
-                logger.error("git_push: Network error: %s", e)
-                return error_response(f"Network error: {e}", "NETWORK_ERROR")
-
-            # Generic push rejection
-            logger.error("git_push: Git push failed: %s", e)
-            return error_response(f"Git push failed: {e}", "GIT_ERROR")
+            error_code, message = _classify_push_error(e)
+            logger.error("git_push: %s: %s", error_code, e)
+            return error_response(message, error_code)
         except GitError as e:
-            error_msg = str(e).lower()
-
-            # Check for authentication errors
-            if any(
-                pattern in error_msg
-                for pattern in [
-                    "authentication failed",
-                    "could not read",
-                    "permission denied",
-                    "credentials",
-                ]
-            ):
-                logger.error("git_push: Authentication failed: %s", e)
-                return error_response(
-                    f"Authentication required: {e}. "
-                    "Run 'gh auth login' or configure git credentials",
-                    "AUTHENTICATION_REQUIRED",
-                )
-
-            # Check for network errors
-            if any(
-                pattern in error_msg
-                for pattern in [
-                    "could not resolve host",
-                    "connection refused",
-                    "network",
-                    "timeout",
-                ]
-            ):
-                logger.error("git_push: Network error: %s", e)
-                return error_response(f"Network error: {e}", "NETWORK_ERROR")
-
-            logger.error("git_push: Git push failed: %s", e)
-            return error_response(f"Git push failed: {e}", "GIT_ERROR")
+            error_code, message = _classify_push_error(e)
+            logger.error("git_push: %s: %s", error_code, e)
+            return error_response(message, error_code)
         except Exception as e:
             logger.error("git_push: Unexpected error: %s", e)
             return error_response(str(e), "GIT_ERROR")
