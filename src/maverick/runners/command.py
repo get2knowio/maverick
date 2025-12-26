@@ -341,7 +341,7 @@ class CommandRunner:
                 stdout_str = stdout_bytes.decode("utf-8", errors="replace")
                 stderr_str = stderr_bytes.decode("utf-8", errors="replace")
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Graceful termination: SIGTERM first
                 timed_out = True
                 process.terminate()
@@ -351,7 +351,7 @@ class CommandRunner:
                     await asyncio.wait_for(
                         process.wait(), timeout=TERMINATION_GRACE_PERIOD
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Force kill if still running
                     process.kill()
                     await process.wait()
@@ -364,7 +364,7 @@ class CommandRunner:
                             process.stdout.read(), timeout=0.1
                         )
                         stdout_str = partial_stdout.decode("utf-8", errors="replace")
-                    except (asyncio.TimeoutError, Exception):
+                    except (TimeoutError, Exception):
                         pass
                 if process.stderr:
                     try:
@@ -372,7 +372,7 @@ class CommandRunner:
                             process.stderr.read(), timeout=0.1
                         )
                         stderr_str = partial_stderr.decode("utf-8", errors="replace")
-                    except (asyncio.TimeoutError, Exception):
+                    except (TimeoutError, Exception):
                         pass
 
         except FileNotFoundError:
@@ -491,7 +491,7 @@ class CommandRunner:
                     await asyncio.wait_for(
                         self._process.wait(), timeout=TERMINATION_GRACE_PERIOD
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self._process.kill()
             except asyncio.CancelledError:
                 # Normal completion before timeout
@@ -522,7 +522,7 @@ class CommandRunner:
                     line = await asyncio.wait_for(queue.get(), timeout=0.1)
                     if line is not None:
                         yield line
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Check if process timed out
                     if timed_out:
                         break

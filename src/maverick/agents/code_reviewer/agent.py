@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -134,7 +134,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
 
         # Track timing and timestamp for metadata (T044)
         start_time = time.time()
-        start_timestamp = datetime.now(timezone.utc).isoformat()
+        start_timestamp = datetime.now(UTC).isoformat()
 
         try:
             # Use the provided ReviewContext directly
@@ -382,7 +382,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
         except AgentError:
             # Re-raise AgentError instances as-is (T023)
             raise
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             # Handle timeout errors (T023)
             raise AgentError(
                 "Code review operation timed out",
@@ -478,7 +478,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                 "total_lines": total_lines,
             }
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise AgentError(
                 "Git diff stats timed out after 30 seconds",
                 agent_name=self.name,
@@ -545,7 +545,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
 
             return stdout.decode()
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise AgentError(
                 "Git diff content timed out after 30 seconds",
                 agent_name=self.name,
@@ -601,7 +601,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
             output = stdout.decode().strip()
             return bool(output)
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise AgentError(
                 "Git merge conflict check timed out after 10 seconds",
                 agent_name=self.name,

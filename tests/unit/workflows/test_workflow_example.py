@@ -11,7 +11,6 @@ Use this as a reference when writing unit tests for workflow components.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -330,7 +329,7 @@ class TestCommandExecution:
 
         # Mock subprocess to simulate timeout
         mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
         mock_process.returncode = None

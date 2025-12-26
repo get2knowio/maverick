@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator, Callable, Generator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
@@ -80,7 +80,7 @@ class WorkflowEngine:
             workflow_name=workflow_name,
             inputs_hash=compute_inputs_hash(inputs),
             step_results=tuple(sr.to_dict() for sr in step_results),
-            saved_at=datetime.now(timezone.utc).isoformat(),
+            saved_at=datetime.now(UTC).isoformat(),
         )
         await self._checkpoint_store.save(workflow_id, checkpoint_data)
 

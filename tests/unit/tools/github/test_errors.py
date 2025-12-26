@@ -343,13 +343,12 @@ class TestTimeoutAndExceptionHandling:
     @pytest.mark.asyncio
     async def test_github_get_pr_diff_timeout(self) -> None:
         """Test github_get_pr_diff handles timeout error."""
-        import asyncio
 
         with patch(
             "maverick.tools.github.tools.diffs.run_gh_command",
             new_callable=AsyncMock,
         ) as mock_run:
-            mock_run.side_effect = asyncio.TimeoutError("Operation timed out")
+            mock_run.side_effect = TimeoutError("Operation timed out")
 
             result = await github_get_pr_diff.handler({"pr_number": 123})
 

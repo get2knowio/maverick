@@ -19,7 +19,6 @@ Test coverage includes:
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -395,7 +394,7 @@ class TestSettingsScreenConnectionTests:
             # Mock timeout during process creation
             with patch(
                 "asyncio.wait_for",
-                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+                new=AsyncMock(side_effect=TimeoutError()),
             ):
                 # Trigger test (returns Worker, don't await)
                 screen.test_github_connection()
@@ -453,7 +452,7 @@ class TestSettingsScreenConnectionTests:
             # Mock timeout during notification send
             with patch(
                 "asyncio.wait_for",
-                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+                new=AsyncMock(side_effect=TimeoutError()),
             ):
                 # Trigger test (returns Worker, don't await)
                 screen.test_notification()

@@ -110,7 +110,7 @@ async def run_validation_step(
             auto_fixed=auto_fixed,
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         return ValidationResult(
             step=step,

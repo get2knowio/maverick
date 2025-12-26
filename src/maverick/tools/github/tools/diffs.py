@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -68,7 +67,7 @@ async def github_get_pr_diff(args: dict[str, Any]) -> dict[str, Any]:
         logger.info("Retrieved diff for PR #%d (%d bytes)", pr_number, original_size)
         return success_response({"diff": diff, "truncated": False})
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Timeout getting PR #%d diff", pr_number)
         return error_response("Operation timed out", "TIMEOUT")
     except Exception as e:

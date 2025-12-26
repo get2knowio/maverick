@@ -138,7 +138,7 @@ async def _run_command_with_timeout(
             logger.debug("Command completed with return code %s", return_code)
             return stdout, stderr, return_code, timed_out
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Command timed out after %ss: %s", timeout, " ".join(cmd))
             # Kill the process
             try:
