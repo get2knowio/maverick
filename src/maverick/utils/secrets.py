@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from detect_secrets.core.plugins.util import get_mapping_from_secret_type_to_class
 
@@ -60,10 +60,11 @@ def _get_detectors() -> dict[str, BasePlugin]:
     Returns:
         Dictionary mapping secret type names to detector instances.
     """
-    type_to_class = get_mapping_from_secret_type_to_class()
-    # type_to_class returns type[BasePlugin] values, instantiate them
+    # get_mapping_from_secret_type_to_class() returns a complex union type
+    # that mypy cannot properly infer. We use Any to work around this.
+    type_to_class: dict[str, Any] = get_mapping_from_secret_type_to_class()
     return {
-        name: type_to_class[name]()  # type: ignore[misc]
+        name: type_to_class[name]()
         for name in DEFAULT_DETECTORS
         if name in type_to_class
     }
