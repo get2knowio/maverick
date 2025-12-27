@@ -22,6 +22,7 @@ from maverick.dsl.expressions.errors import ExpressionSyntaxError
 from maverick.dsl.expressions.parser import (
     Expression,
     ExpressionKind,
+    TernaryExpression,
     parse_expression,
     tokenize,
 )
@@ -1037,3 +1038,233 @@ class TestParseExpressionIterationVariables:
         assert result.kind == ExpressionKind.INDEX_REF
         assert result.path == ("index",)
         assert result.negated is False
+
+
+# ============================================================================
+# Ternary Expression Parser Tests (Issue #194)
+# ============================================================================
+
+
+class TestParseTernaryExpressionBasic:
+    """Test parsing basic ternary expressions."""
+
+    def test_parse_simple_ternary(self) -> None:
+        """Test parsing simple ternary: a if b else c."""
+        result = parse_expression("inputs.a if inputs.b else inputs.c")
+
+        assert isinstance(result, TernaryExpression)
+        assert result.raw == "inputs.a if inputs.b else inputs.c"
+
+        # Check condition
+        assert isinstance(result.condition, Expression)
+        assert result.condition.kind == ExpressionKind.INPUT_REF
+        assert result.condition.path == ("inputs", "b")
+
+        # Check value_if_true
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.kind == ExpressionKind.INPUT_REF
+        assert result.value_if_true.path == ("inputs", "a")
+
+        # Check value_if_false
+        assert isinstance(result.value_if_false, Expression)
+        assert result.value_if_false.kind == ExpressionKind.INPUT_REF
+        assert result.value_if_false.path == ("inputs", "c")
+
+    def test_parse_ternary_with_wrapper(self) -> None:
+        """Test parsing ternary with ${{ }} wrapper."""
+        result = parse_expression("${{ inputs.x if inputs.y else inputs.z }}")
+
+        assert isinstance(result, TernaryExpression)
+        assert result.raw == "${{ inputs.x if inputs.y else inputs.z }}"
+
+    def test_parse_ternary_with_step_refs(self) -> None:
+        """Test parsing ternary with step references."""
+        result = parse_expression(
+            "steps.a.output if steps.b.output else steps.c.output"
+        )
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.condition, Expression)
+        assert result.condition.kind == ExpressionKind.STEP_REF
+        assert result.condition.path == ("steps", "b", "output")
+
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.kind == ExpressionKind.STEP_REF
+        assert result.value_if_true.path == ("steps", "a", "output")
+
+        assert isinstance(result.value_if_false, Expression)
+        assert result.value_if_false.kind == ExpressionKind.STEP_REF
+        assert result.value_if_false.path == ("steps", "c", "output")
+
+    def test_parse_ternary_mixed_refs(self) -> None:
+        """Test parsing ternary with mixed reference types."""
+        result = parse_expression(
+            "inputs.title if inputs.title else steps.generate_title.output"
+        )
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.kind == ExpressionKind.INPUT_REF
+
+        assert isinstance(result.condition, Expression)
+        assert result.condition.kind == ExpressionKind.INPUT_REF
+
+        assert isinstance(result.value_if_false, Expression)
+        assert result.value_if_false.kind == ExpressionKind.STEP_REF
+
+
+class TestParseTernaryWithNegation:
+    """Test parsing ternary expressions with negation."""
+
+    def test_parse_ternary_with_negated_condition(self) -> None:
+        """Test parsing ternary with negated condition: a if not b else c."""
+        result = parse_expression("inputs.a if not inputs.b else inputs.c")
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.condition, Expression)
+        assert result.condition.negated is True
+        assert result.condition.path == ("inputs", "b")
+
+    def test_parse_ternary_with_negated_true_value(self) -> None:
+        """Test parsing ternary with negated value_if_true."""
+        result = parse_expression("not inputs.a if inputs.b else inputs.c")
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.negated is True
+
+    def test_parse_ternary_with_negated_false_value(self) -> None:
+        """Test parsing ternary with negated value_if_false."""
+        result = parse_expression("inputs.a if inputs.b else not inputs.c")
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.value_if_false, Expression)
+        assert result.value_if_false.negated is True
+
+
+class TestParseTernaryWithBooleanOperators:
+    """Test parsing ternary expressions with boolean operators."""
+
+    def test_parse_ternary_with_and_condition(self) -> None:
+        """Test parsing ternary with 'and' in condition."""
+        result = parse_expression("inputs.a if inputs.b and inputs.c else inputs.d")
+
+        assert isinstance(result, TernaryExpression)
+        # Condition should be a BooleanExpression with 'and'
+        from maverick.dsl.expressions.parser import BooleanExpression
+
+        assert isinstance(result.condition, BooleanExpression)
+        assert result.condition.operator == "and"
+        assert len(result.condition.operands) == 2
+
+    def test_parse_ternary_with_or_condition(self) -> None:
+        """Test parsing ternary with 'or' in condition."""
+        result = parse_expression("inputs.a if inputs.b or inputs.c else inputs.d")
+
+        assert isinstance(result, TernaryExpression)
+        from maverick.dsl.expressions.parser import BooleanExpression
+
+        assert isinstance(result.condition, BooleanExpression)
+        assert result.condition.operator == "or"
+
+
+class TestParseTernaryNested:
+    """Test parsing nested ternary expressions."""
+
+    def test_parse_nested_ternary_right(self) -> None:
+        """Test parsing right-nested ternary: a if b else c if d else e."""
+        result = parse_expression(
+            "inputs.a if inputs.b else inputs.c if inputs.d else inputs.e"
+        )
+
+        assert isinstance(result, TernaryExpression)
+
+        # value_if_true should be inputs.a
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.path == ("inputs", "a")
+
+        # condition should be inputs.b
+        assert isinstance(result.condition, Expression)
+        assert result.condition.path == ("inputs", "b")
+
+        # value_if_false should be another TernaryExpression
+        assert isinstance(result.value_if_false, TernaryExpression)
+        nested = result.value_if_false
+
+        assert isinstance(nested.value_if_true, Expression)
+        assert nested.value_if_true.path == ("inputs", "c")
+
+        assert isinstance(nested.condition, Expression)
+        assert nested.condition.path == ("inputs", "d")
+
+        assert isinstance(nested.value_if_false, Expression)
+        assert nested.value_if_false.path == ("inputs", "e")
+
+
+class TestParseTernaryWithIterationVariables:
+    """Test parsing ternary expressions with item and index."""
+
+    def test_parse_ternary_with_item(self) -> None:
+        """Test parsing ternary with item reference."""
+        result = parse_expression("item.name if item.valid else item.fallback")
+
+        assert isinstance(result, TernaryExpression)
+
+        assert isinstance(result.value_if_true, Expression)
+        assert result.value_if_true.kind == ExpressionKind.ITEM_REF
+
+        assert isinstance(result.condition, Expression)
+        assert result.condition.kind == ExpressionKind.ITEM_REF
+
+        assert isinstance(result.value_if_false, Expression)
+        assert result.value_if_false.kind == ExpressionKind.ITEM_REF
+
+    def test_parse_ternary_with_index(self) -> None:
+        """Test parsing ternary with index reference in condition."""
+        result = parse_expression("inputs.first if not index else item")
+
+        assert isinstance(result, TernaryExpression)
+
+        # Condition should be negated index
+        assert isinstance(result.condition, Expression)
+        assert result.condition.kind == ExpressionKind.INDEX_REF
+        assert result.condition.negated is True
+
+
+class TestParseTernaryEdgeCases:
+    """Test edge cases for ternary expression parsing."""
+
+    def test_parse_ternary_preserves_raw(self) -> None:
+        """Test that raw field preserves original expression."""
+        expr_str = "${{ inputs.a if inputs.b else inputs.c }}"
+        result = parse_expression(expr_str)
+
+        assert isinstance(result, TernaryExpression)
+        assert result.raw == expr_str
+
+    def test_parse_ternary_with_extra_whitespace(self) -> None:
+        """Test parsing ternary with extra whitespace."""
+        result = parse_expression("${{  inputs.a  if  inputs.b  else  inputs.c  }}")
+
+        assert isinstance(result, TernaryExpression)
+
+    def test_parse_ternary_is_frozen(self) -> None:
+        """Test that TernaryExpression is immutable (frozen dataclass)."""
+        result = parse_expression("inputs.a if inputs.b else inputs.c")
+
+        assert isinstance(result, TernaryExpression)
+        with pytest.raises((AttributeError, TypeError)):
+            result.condition = None  # type: ignore[misc]
+
+    def test_parse_non_ternary_still_works(self) -> None:
+        """Test that non-ternary expressions still parse correctly."""
+        result = parse_expression("inputs.name")
+
+        assert isinstance(result, Expression)
+        assert result.kind == ExpressionKind.INPUT_REF
+        assert result.path == ("inputs", "name")

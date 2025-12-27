@@ -801,3 +801,386 @@ class TestIterationContextEvaluation:
             "${{ inputs.prefix }} ${{ item }} (${{ steps.prev.output }})"
         )
         assert result == "Item: apple (processed)"
+
+
+# ============================================================================
+# Ternary Expression Evaluator Tests (Issue #194)
+# ============================================================================
+
+
+class TestTernaryExpressionEvaluation:
+    """Test evaluation of ternary conditional expressions."""
+
+    def test_ternary_condition_true(self) -> None:
+        """Evaluate ternary when condition is truthy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": True, "yes_val": "yes", "no_val": "no"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes_val if inputs.flag else inputs.no_val")
+        result = evaluator.evaluate(expr)
+        assert result == "yes"
+
+    def test_ternary_condition_false(self) -> None:
+        """Evaluate ternary when condition is falsy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": False, "yes_val": "yes", "no_val": "no"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes_val if inputs.flag else inputs.no_val")
+        result = evaluator.evaluate(expr)
+        assert result == "no"
+
+    def test_ternary_with_none_condition(self) -> None:
+        """Evaluate ternary when condition is None (falsy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"cond": None, "a": "alpha", "b": "beta"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.cond else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "beta"
+
+    def test_ternary_with_empty_string_condition(self) -> None:
+        """Evaluate ternary when condition is empty string (falsy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"cond": "", "a": "alpha", "b": "beta"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.cond else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "beta"
+
+    def test_ternary_with_nonempty_string_condition(self) -> None:
+        """Evaluate ternary when condition is non-empty string (truthy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"cond": "something", "a": "alpha", "b": "beta"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.cond else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "alpha"
+
+    def test_ternary_with_zero_condition(self) -> None:
+        """Evaluate ternary when condition is zero (falsy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"cond": 0, "a": "alpha", "b": "beta"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.cond else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "beta"
+
+    def test_ternary_with_nonzero_condition(self) -> None:
+        """Evaluate ternary when condition is nonzero (truthy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"cond": 42, "a": "alpha", "b": "beta"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.cond else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "alpha"
+
+
+class TestTernaryWithStepOutputs:
+    """Test ternary evaluation with step output references."""
+
+    def test_ternary_uses_step_output_condition(self) -> None:
+        """Evaluate ternary using step output as condition."""
+        evaluator = ExpressionEvaluator(
+            inputs={"default": "fallback"},
+            step_outputs={
+                "check": {"output": True},
+                "generate": {"output": "generated value"},
+            },
+        )
+        expr = parse_expression(
+            "steps.generate.output if steps.check.output else inputs.default"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "generated value"
+
+    def test_ternary_fallback_to_input(self) -> None:
+        """Evaluate ternary that falls back to input when step output is falsy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"default": "fallback"},
+            step_outputs={
+                "check": {"output": False},
+                "generate": {"output": "generated value"},
+            },
+        )
+        expr = parse_expression(
+            "steps.generate.output if steps.check.output else inputs.default"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "fallback"
+
+
+class TestTernaryWithNegation:
+    """Test ternary evaluation with negated expressions."""
+
+    def test_ternary_negated_condition_true(self) -> None:
+        """Evaluate ternary with negated condition that becomes true."""
+        evaluator = ExpressionEvaluator(
+            inputs={"skip": False, "a": "run", "b": "skip"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if not inputs.skip else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "run"
+
+    def test_ternary_negated_condition_false(self) -> None:
+        """Evaluate ternary with negated condition that becomes false."""
+        evaluator = ExpressionEvaluator(
+            inputs={"skip": True, "a": "run", "b": "skip"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if not inputs.skip else inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "skip"
+
+
+class TestTernaryWithBooleanOperators:
+    """Test ternary evaluation with compound boolean conditions."""
+
+    def test_ternary_and_condition_both_true(self) -> None:
+        """Evaluate ternary with 'and' condition where both are true."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": True, "b": True, "yes": "both true", "no": "not both"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes if inputs.a and inputs.b else inputs.no")
+        result = evaluator.evaluate(expr)
+        assert result == "both true"
+
+    def test_ternary_and_condition_one_false(self) -> None:
+        """Evaluate ternary with 'and' condition where one is false."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": True, "b": False, "yes": "both true", "no": "not both"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes if inputs.a and inputs.b else inputs.no")
+        result = evaluator.evaluate(expr)
+        assert result == "not both"
+
+    def test_ternary_or_condition_one_true(self) -> None:
+        """Evaluate ternary with 'or' condition where one is true."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": False, "b": True, "yes": "at least one", "no": "none"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes if inputs.a or inputs.b else inputs.no")
+        result = evaluator.evaluate(expr)
+        assert result == "at least one"
+
+    def test_ternary_or_condition_both_false(self) -> None:
+        """Evaluate ternary with 'or' condition where both are false."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": False, "b": False, "yes": "at least one", "no": "none"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.yes if inputs.a or inputs.b else inputs.no")
+        result = evaluator.evaluate(expr)
+        assert result == "none"
+
+
+class TestTernaryNested:
+    """Test evaluation of nested ternary expressions."""
+
+    def test_nested_ternary_first_condition_true(self) -> None:
+        """Evaluate nested ternary where first condition is true."""
+        evaluator = ExpressionEvaluator(
+            inputs={
+                "b": True,
+                "d": False,
+                "a": "first",
+                "c": "second",
+                "e": "third",
+            },
+            step_outputs={},
+        )
+        # a if b else c if d else e
+        expr = parse_expression(
+            "inputs.a if inputs.b else inputs.c if inputs.d else inputs.e"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "first"
+
+    def test_nested_ternary_second_condition_true(self) -> None:
+        """Evaluate nested ternary where first is false, second is true."""
+        evaluator = ExpressionEvaluator(
+            inputs={
+                "b": False,
+                "d": True,
+                "a": "first",
+                "c": "second",
+                "e": "third",
+            },
+            step_outputs={},
+        )
+        expr = parse_expression(
+            "inputs.a if inputs.b else inputs.c if inputs.d else inputs.e"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "second"
+
+    def test_nested_ternary_both_conditions_false(self) -> None:
+        """Evaluate nested ternary where both conditions are false."""
+        evaluator = ExpressionEvaluator(
+            inputs={
+                "b": False,
+                "d": False,
+                "a": "first",
+                "c": "second",
+                "e": "third",
+            },
+            step_outputs={},
+        )
+        expr = parse_expression(
+            "inputs.a if inputs.b else inputs.c if inputs.d else inputs.e"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "third"
+
+
+class TestTernaryWithIterationContext:
+    """Test ternary evaluation with item and index references."""
+
+    def test_ternary_with_item_condition(self) -> None:
+        """Evaluate ternary with item reference as condition."""
+        evaluator = ExpressionEvaluator(
+            inputs={"fallback": "no item"},
+            step_outputs={},
+            iteration_context={"item": "apple"},
+        )
+        expr = parse_expression("item if item else inputs.fallback")
+        result = evaluator.evaluate(expr)
+        assert result == "apple"
+
+    def test_ternary_with_falsy_item(self) -> None:
+        """Evaluate ternary with falsy item (empty string)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"fallback": "no item"},
+            step_outputs={},
+            iteration_context={"item": ""},
+        )
+        expr = parse_expression("item if item else inputs.fallback")
+        result = evaluator.evaluate(expr)
+        assert result == "no item"
+
+    def test_ternary_with_index_condition(self) -> None:
+        """Evaluate ternary with index as condition (0 is falsy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"first": "first item", "other": "other item"},
+            step_outputs={},
+            iteration_context={"item": "x", "index": 0},
+        )
+        expr = parse_expression("inputs.first if not index else inputs.other")
+        result = evaluator.evaluate(expr)
+        assert result == "first item"
+
+    def test_ternary_with_nonzero_index(self) -> None:
+        """Evaluate ternary with nonzero index (truthy)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"first": "first item", "other": "other item"},
+            step_outputs={},
+            iteration_context={"item": "x", "index": 3},
+        )
+        expr = parse_expression("inputs.first if not index else inputs.other")
+        result = evaluator.evaluate(expr)
+        assert result == "other item"
+
+
+class TestTernaryInTemplateStrings:
+    """Test ternary evaluation in template strings."""
+
+    def test_ternary_in_template_string(self) -> None:
+        """Evaluate ternary expression within a template string."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": True, "yes": "enabled", "no": "disabled"},
+            step_outputs={},
+        )
+        result = evaluator.evaluate_string(
+            "Status: ${{ inputs.yes if inputs.flag else inputs.no }}"
+        )
+        assert result == "Status: enabled"
+
+    def test_ternary_in_template_string_condition_false(self) -> None:
+        """Evaluate ternary in template when condition is false."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": False, "yes": "enabled", "no": "disabled"},
+            step_outputs={},
+        )
+        result = evaluator.evaluate_string(
+            "Status: ${{ inputs.yes if inputs.flag else inputs.no }}"
+        )
+        assert result == "Status: disabled"
+
+    def test_multiple_ternaries_in_template(self) -> None:
+        """Evaluate multiple ternary expressions in a template."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": True, "b": False, "v1": "X", "v2": "Y", "v3": "Z", "v4": "W"},
+            step_outputs={},
+        )
+        result = evaluator.evaluate_string(
+            "${{ inputs.v1 if inputs.a else inputs.v2 }} and "
+            "${{ inputs.v3 if inputs.b else inputs.v4 }}"
+        )
+        assert result == "X and W"
+
+
+class TestTernaryShortCircuit:
+    """Test that ternary evaluation uses short-circuit logic."""
+
+    def test_short_circuit_true_branch_not_evaluated_when_false(self) -> None:
+        """When condition is false, true branch errors should not occur."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": False, "exists": "value"},
+            step_outputs={},  # missing_step doesn't exist
+        )
+        # If short-circuit is working, steps.missing.output should not be evaluated
+        expr = parse_expression(
+            "steps.missing.output if inputs.flag else inputs.exists"
+        )
+        # This should NOT raise an error because the true branch is never evaluated
+        result = evaluator.evaluate(expr)
+        assert result == "value"
+
+    def test_short_circuit_false_branch_not_evaluated_when_true(self) -> None:
+        """When condition is true, false branch errors should not occur."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": True, "exists": "value"},
+            step_outputs={},  # missing_step doesn't exist
+        )
+        expr = parse_expression(
+            "inputs.exists if inputs.flag else steps.missing.output"
+        )
+        # This should NOT raise an error because the false branch is never evaluated
+        result = evaluator.evaluate(expr)
+        assert result == "value"
+
+
+class TestTernaryErrorHandling:
+    """Test error handling in ternary evaluation."""
+
+    def test_ternary_condition_error_propagates(self) -> None:
+        """Error in ternary condition should propagate."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "x", "b": "y"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a if inputs.missing else inputs.b")
+        with pytest.raises(ExpressionEvaluationError) as exc_info:
+            evaluator.evaluate(expr)
+        assert "missing" in str(exc_info.value)
+
+    def test_ternary_true_branch_error_when_selected(self) -> None:
+        """Error in true branch should propagate when condition is true."""
+        evaluator = ExpressionEvaluator(
+            inputs={"flag": True, "fallback": "x"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.missing if inputs.flag else inputs.fallback")
+        with pytest.raises(ExpressionEvaluationError) as exc_info:
+            evaluator.evaluate(expr)
+        assert "missing" in str(exc_info.value)
