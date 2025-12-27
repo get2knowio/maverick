@@ -20,6 +20,7 @@ from maverick.dsl.expressions.parser import (
     AnyExpression,
     BooleanExpression,
     ExpressionKind,
+    TernaryExpression,
     extract_all,
 )
 
@@ -102,6 +103,9 @@ class ExpressionEvaluator:
         # Handle compound boolean expressions
         if isinstance(expr, BooleanExpression):
             return self._evaluate_boolean(expr)
+        # Handle ternary conditional expressions
+        if isinstance(expr, TernaryExpression):
+            return self._evaluate_ternary(expr)
         # Determine the root context based on expression kind
         if expr.kind == ExpressionKind.INPUT_REF:
             root = self._inputs
@@ -276,6 +280,25 @@ class ExpressionEvaluator:
                 expression=expr.raw,
                 context_vars=(),
             )
+
+    def _evaluate_ternary(self, expr: TernaryExpression) -> Any:
+        """Evaluate a ternary conditional expression.
+
+        Evaluates the condition first, then returns the evaluated value of
+        either value_if_true or value_if_false based on the condition result.
+        Short-circuit evaluation is used: only the selected branch is evaluated.
+
+        Args:
+            expr: TernaryExpression with condition, value_if_true, value_if_false.
+
+        Returns:
+            The evaluated value of either value_if_true or value_if_false.
+        """
+        condition_result = self.evaluate(expr.condition)
+        if condition_result:
+            return self.evaluate(expr.value_if_true)
+        else:
+            return self.evaluate(expr.value_if_false)
 
     def evaluate_string(self, text: str) -> str:
         """Evaluate all expressions in a text string.

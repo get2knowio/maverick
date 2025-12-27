@@ -34,6 +34,7 @@ __all__ = [
     "ExpressionKind",
     "Expression",
     "BooleanExpression",
+    "TernaryExpression",
     "AnyExpression",
     "tokenize",
     "parse_expression",
@@ -85,16 +86,45 @@ class BooleanExpression:
     Attributes:
         raw: Original expression string (including ${{ }} wrapper)
         operator: Boolean operator ('and' or 'or')
-        operands: Tuple of Expression or BooleanExpression objects
+        operands: Tuple of Expression, BooleanExpression, or TernaryExpression objects
     """
 
     raw: str
     operator: Literal["and", "or"]
-    operands: tuple[Expression | BooleanExpression, ...]
+    operands: tuple[Expression | BooleanExpression | TernaryExpression, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TernaryExpression:
+    """Ternary conditional expression: value_if_true if condition else value_if_false.
+
+    This enables inline value selection based on conditions within DSL expressions.
+
+    Attributes:
+        raw: Original expression string (including ${{ }} wrapper)
+        condition: The condition expression to evaluate
+        value_if_true: Expression to return if condition is truthy
+        value_if_false: Expression to return if condition is falsy
+
+    Examples:
+        >>> # Select between two values based on a condition
+        >>> # ${{ inputs.title if inputs.title else steps.generate_title.output }}
+        >>> expr = TernaryExpression(
+        ...     raw="${{ a if b else c }}",
+        ...     condition=parse_expression("b"),
+        ...     value_if_true=parse_expression("a"),
+        ...     value_if_false=parse_expression("c"),
+        ... )  # doctest: +SKIP
+    """
+
+    raw: str
+    condition: AnyExpression
+    value_if_true: AnyExpression
+    value_if_false: AnyExpression
 
 
 # Type alias for any expression
-AnyExpression = Expression | BooleanExpression
+AnyExpression = Expression | BooleanExpression | TernaryExpression
 
 
 # Load grammar from file
@@ -123,10 +153,25 @@ class _ExpressionTransformer(Transformer[Token, object]):
     def start(self, items: list[AnyExpression]) -> AnyExpression:
         """Return the top-level expression.
 
-        Grammar: start: bool_expr
-        The bool_expr handles the expression hierarchy.
+        Grammar: start: ternary_expr
+        The ternary_expr handles the expression hierarchy.
         """
         return items[0]
+
+    def ternary(self, items: list[AnyExpression]) -> TernaryExpression:
+        """Handle ternary expression: value_if_true if condition else value_if_false.
+
+        Grammar: bool_expr "if" bool_expr "else" ternary_expr -> ternary
+        - items[0] = value_if_true (the expression before 'if')
+        - items[1] = condition (between 'if' and 'else')
+        - items[2] = value_if_false (after 'else')
+        """
+        return TernaryExpression(
+            raw=self._raw,
+            condition=items[1],
+            value_if_true=items[0],
+            value_if_false=items[2],
+        )
 
     def bool_expr(self, items: list[AnyExpression]) -> AnyExpression:
         """Handle OR boolean expressions.
@@ -488,21 +533,42 @@ def _validate_boolean_expression(expr: BooleanExpression, original: str) -> None
             _validate_expression(operand, original)
         elif isinstance(operand, BooleanExpression):
             _validate_boolean_expression(operand, original)
+        elif isinstance(operand, TernaryExpression):
+            _validate_ternary_expression(operand, original)
+
+
+def _validate_ternary_expression(expr: TernaryExpression, original: str) -> None:
+    """Validate a ternary expression by validating all its sub-expressions.
+
+    Args:
+        expr: TernaryExpression to validate
+        original: Original expression string for error messages
+
+    Raises:
+        ExpressionSyntaxError: For validation failures
+    """
+    for sub_expr in (expr.condition, expr.value_if_true, expr.value_if_false):
+        if isinstance(sub_expr, Expression):
+            _validate_expression(sub_expr, original)
+        elif isinstance(sub_expr, BooleanExpression):
+            _validate_boolean_expression(sub_expr, original)
+        elif isinstance(sub_expr, TernaryExpression):
+            _validate_ternary_expression(sub_expr, original)
 
 
 def parse_expression(expression: str) -> AnyExpression:
-    """Parse expression string into Expression or BooleanExpression AST using Lark.
+    """Parse expression string into Expression, BooleanExpression, or TernaryExpression.
 
-    Converts expression strings into structured Expression or BooleanExpression
-    objects, determining the expression kind (input, step, item, or index reference)
-    and extracting the access path. Compound expressions using 'and'/'or' operators
-    return BooleanExpression objects.
+    Converts expression strings into structured AST objects, determining the
+    expression kind (input, step, item, or index reference) and extracting the
+    access path. Compound expressions using 'and'/'or' operators return
+    BooleanExpression objects. Ternary conditionals return TernaryExpression objects.
 
     Args:
         expression: Expression string to parse (with or without ${{ }} wrapper)
 
     Returns:
-        Parsed Expression or BooleanExpression object
+        Parsed Expression, BooleanExpression, or TernaryExpression object
 
     Raises:
         ExpressionSyntaxError: For invalid expression syntax
@@ -512,6 +578,8 @@ def parse_expression(expression: str) -> AnyExpression:
         Expression(raw='${{ inputs.name }}', kind=..., path=..., negated=False)
         >>> parse_expression("not inputs.dry_run")  # doctest: +ELLIPSIS
         Expression(raw='not inputs.dry_run', kind=..., path=..., negated=True)
+        >>> parse_expression("inputs.a if inputs.b else inputs.c")  # doctest: +ELLIPSIS
+        TernaryExpression(raw='inputs.a if inputs.b else inputs.c', ...)
     """
     # Store original for raw field
     original = expression
@@ -541,7 +609,7 @@ def parse_expression(expression: str) -> AnyExpression:
         transformer = _ExpressionTransformer(original)
         result = transformer.transform(tree)
 
-        if not isinstance(result, (Expression, BooleanExpression)):
+        if not isinstance(result, (Expression, BooleanExpression, TernaryExpression)):
             # Should not happen, but handle gracefully
             raise ExpressionSyntaxError(
                 "Failed to parse expression",
@@ -549,12 +617,13 @@ def parse_expression(expression: str) -> AnyExpression:
                 position=0,
             )
 
-        # Validate expression-specific rules for simple expressions
+        # Validate expression-specific rules
         if isinstance(result, Expression):
             _validate_expression(result, original)
-        else:
-            # Validate each operand in compound expressions
+        elif isinstance(result, BooleanExpression):
             _validate_boolean_expression(result, original)
+        elif isinstance(result, TernaryExpression):
+            _validate_ternary_expression(result, original)
 
         return result
 

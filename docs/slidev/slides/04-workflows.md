@@ -285,7 +285,7 @@ Declarative workflow definitions with YAML serialization
     <strong class="text-green-300">.parallel</strong> - Concurrent step groups
   </div>
   <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
-    <strong class="text-yellow-300">Expressions</strong> - Template variables (${{ }})
+    <strong class="text-yellow-300">Expressions</strong> - Template variables, ternary conditionals
   </div>
 </div>
 
@@ -345,4 +345,100 @@ Flow Control gives you powerful orchestration:
 The example shows a simple validation workflow that conditionally runs format and lint stages based on inputs. The lint stage has retry enabled with exponential backoff.
 
 This DSL enables you to define complex workflows without writing Python code, while still having the full power of the SDK available when you need it.
+-->
+
+---
+layout: default
+---
+
+# DSL Expression Syntax
+
+Template expressions for dynamic value resolution
+
+<div class="grid grid-cols-2 gap-6 mt-6">
+
+<div>
+
+## Basic References
+
+<div class="flex flex-col gap-2 mt-3">
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-blue-300">$&#123;&#123; inputs.name &#125;&#125;</code> - Input values
+  </div>
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-indigo-300">$&#123;&#123; steps.x.output &#125;&#125;</code> - Step outputs
+  </div>
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-purple-300">$&#123;&#123; item &#125;&#125;</code> - Current loop item
+  </div>
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-green-300">$&#123;&#123; index &#125;&#125;</code> - Current loop index
+  </div>
+</div>
+
+</div>
+
+<div>
+
+## Operators
+
+<div class="flex flex-col gap-2 mt-3">
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-yellow-300">not</code> - Boolean negation
+  </div>
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-orange-300">and / or</code> - Boolean operators
+  </div>
+  <div v-click class="px-3 py-2 rounded bg-slate-700/50 text-sm">
+    <code class="text-red-300">if ... else</code> - Ternary conditionals
+  </div>
+</div>
+
+</div>
+
+</div>
+
+<div v-click class="mt-6">
+
+## Ternary Expression Example
+
+```yaml
+steps:
+  - name: create_pr
+    type: python
+    action: create_github_pr
+    kwargs:
+      # Use provided title, or fallback to generated title
+      title: ${{ inputs.title if inputs.title else steps.generate_title.output }}
+      # Select branch based on environment
+      base: ${{ 'develop' if inputs.env == 'staging' else 'main' }}
+```
+
+</div>
+
+<div v-click class="mt-4 p-3 bg-green-500/20 border border-green-500 rounded text-sm">
+<strong>Syntax:</strong> <code>value_if_true if condition else value_if_false</code> (Python-style)
+</div>
+
+<!--
+The DSL expression syntax provides powerful templating capabilities within workflow definitions.
+
+Basic References:
+- inputs.name accesses workflow input parameters
+- steps.x.output references the output of a previous step named "x"
+- item and index are available within for_each loops
+
+Operators for complex conditions:
+- not for boolean negation (e.g., not inputs.skip)
+- and/or for combining conditions (e.g., inputs.a and inputs.b)
+- Ternary if/else for inline value selection
+
+The ternary expression follows Python syntax: value_if_true if condition else value_if_false
+
+This is particularly useful for:
+- Providing fallback values when inputs are optional
+- Selecting between different configurations based on conditions
+- Avoiding separate branch steps for simple value selection
+
+The example shows using ternary expressions to select PR title (use provided or fallback to generated) and base branch (develop for staging, main otherwise).
 -->

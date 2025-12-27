@@ -203,7 +203,7 @@ steps:
   #
   # This step runs `gh pr create` with the following options:
   # - --base: Target branch (from inputs.base_branch, default: main)
-  # - --title: PR title (generated or user-provided)
+  # - --title: PR title (selected via ternary: user-provided or generated)
   # - --body: PR description (generated markdown)
   # - --draft: Optional flag when inputs.draft is true
   #
@@ -213,18 +213,22 @@ steps:
   # - Fails if there are conflicts or validation issues
   #
   # The Python action create_github_pr handles:
-  # - Determining which title to use (generated vs provided)
   # - Writing PR body to temporary file for --body-file
   # - Constructing the gh command with appropriate flags
   # - Parsing the gh output to extract PR URL and number
   # - Error handling and retry logic if needed
   #
+  # TERNARY EXPRESSION for title selection:
+  # Uses ${{ inputs.title if inputs.title else steps.generate_title.output }}
+  # This evaluates to:
+  # - inputs.title when user provides a title (truthy string)
+  # - steps.generate_title.output when title is empty/omitted (falsy)
+  #
   # Action: create_github_pr
   # Arguments:
   # - base_branch: Target branch for the PR
   # - draft: Whether to create as draft
-  # - title: User-provided title or None (uses generated)
-  # - generated_title: Title from generate-title step
+  # - title: Final PR title (user-provided or generated via ternary)
   # - generated_body: Body from generate-body step
   #
   # Output: PR metadata including URL and number
@@ -235,6 +239,6 @@ steps:
     kwargs:
       base_branch: ${{ inputs.base_branch }}
       draft: ${{ inputs.draft }}
-      title: ${{ inputs.title }}
-      generated_title: ${{ steps.generate_title.output }}
+      # Ternary expression: use provided title if truthy, otherwise use generated
+      title: ${{ inputs.title if inputs.title else steps.generate_title.output }}
       generated_body: ${{ steps.generate_body.output }}

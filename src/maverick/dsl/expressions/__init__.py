@@ -50,8 +50,10 @@ from maverick.dsl.expressions.errors import (
 )
 from maverick.dsl.expressions.evaluator import ExpressionEvaluator
 from maverick.dsl.expressions.parser import (
+    BooleanExpression,
     Expression,
     ExpressionKind,
+    TernaryExpression,
     extract_all,
     parse_expression,
     tokenize,
@@ -65,6 +67,8 @@ __all__: list[str] = [
     "ExpressionErrorInfo",
     # Parser types
     "Expression",
+    "BooleanExpression",
+    "TernaryExpression",
     "ExpressionKind",
     # Parser functions
     "tokenize",

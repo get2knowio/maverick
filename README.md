@@ -11,7 +11,7 @@ Unlike traditional automation tools, Maverick uses autonomous AI agents that can
 ## Key Features
 
 - 🤖 **Autonomous Agent Execution** - AI agents handle implementation, review, and fixes independently
-- 🔄 **Smart Workflow Orchestration** - DSL-based workflows with parallel execution and conditional logic
+- 🔄 **Smart Workflow Orchestration** - DSL-based workflows with parallel execution, conditional logic, and ternary expressions
 - 🎨 **Interactive TUI** - Real-time visibility into agent operations with Textual-based interface
 - 📊 **Resilient Operation** - Automatic retries, checkpointing, and graceful degradation
 - 🔌 **Extensible Architecture** - Custom workflows, agents, and MCP tools
