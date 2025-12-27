@@ -11,12 +11,31 @@ To run these tests locally:
 from __future__ import annotations
 
 import shutil
+import subprocess
 
 import pytest
 
 # Tool availability detection for conditional skipping
 HAS_GH = shutil.which("gh") is not None
 HAS_RUFF = shutil.which("ruff") is not None
+
+
+def _gh_is_authenticated() -> bool:
+    """Check if GitHub CLI is authenticated."""
+    if not HAS_GH:
+        return False
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+GH_AUTHENTICATED = _gh_is_authenticated()
 
 pytestmark = pytest.mark.integration
 
@@ -54,7 +73,9 @@ class TestGitHubCLIRunnerIntegration:
     These tests require GitHub CLI to be installed and authenticated.
     """
 
-    @pytest.mark.skipif(not HAS_GH, reason="Requires gh CLI installed")
+    @pytest.mark.skipif(
+        not GH_AUTHENTICATED, reason="Requires gh CLI installed and authenticated"
+    )
     @pytest.mark.asyncio
     async def test_list_issues(self) -> None:
         """Test listing issues from the current repository."""
