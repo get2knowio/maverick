@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
 from maverick.exceptions.base import MaverickError
 
@@ -23,12 +23,12 @@ class WorkingDirectoryError(RunnerError):
         path: The path that was not found.
     """
 
-    def __init__(self, message: str, path: Any = None) -> None:
+    def __init__(self, message: str, path: Path | str | None = None) -> None:
         """Initialize the WorkingDirectoryError.
 
         Args:
             message: Human-readable error message.
-            path: The path that was not found (Path object).
+            path: The path that was not found.
         """
         self.path = path
         super().__init__(message)

@@ -6,7 +6,6 @@ to agent execution.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -76,17 +75,14 @@ class AgentContext:
         if not cwd.is_dir():
             raise ValueError(f"cwd must be an existing directory: {cwd}")
 
-        # Detect git branch
+        # Detect git branch using maverick.git wrapper per CLAUDE.md
+        from maverick.exceptions import NotARepositoryError
+        from maverick.git import GitRepository
+
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            branch = result.stdout.strip()
-        except subprocess.CalledProcessError as e:
+            repo = GitRepository(cwd)
+            branch = repo.current_branch()
+        except NotARepositoryError as e:
             raise ValueError(f"Not a git repository: {cwd}") from e
 
         # Import here to avoid circular imports

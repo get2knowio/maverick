@@ -2,6 +2,7 @@
 
 This module provides shared utilities for agent implementations:
 - Text extraction from Claude SDK message objects
+- Usage extraction from Claude SDK messages
 - Git file change detection
 
 Avoiding direct imports of SDK types to maintain loose coupling.
@@ -10,12 +11,70 @@ Avoiding direct imports of SDK types to maintain loose coupling.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.logging import get_logger
 from maverick.models.implementation import ChangeType, FileChange
 
+if TYPE_CHECKING:
+    from maverick.agents.result import AgentUsage
+
 logger = get_logger(__name__)
+
+
+def get_zero_usage() -> AgentUsage:
+    """Create an AgentUsage instance with all zeros.
+
+    Provides a DRY way to create zero-initialized usage statistics
+    for error cases and early returns.
+
+    Returns:
+        AgentUsage with all fields set to zero/None.
+    """
+    from maverick.agents.result import AgentUsage
+
+    return AgentUsage(
+        input_tokens=0,
+        output_tokens=0,
+        total_cost_usd=None,
+        duration_ms=0,
+    )
+
+
+def extract_usage(messages: list[Any]) -> AgentUsage:
+    """Extract usage statistics from SDK messages (FR-014).
+
+    Searches for a ResultMessage in the message list and extracts
+    token usage and timing information.
+
+    Args:
+        messages: List of messages from Claude SDK response.
+
+    Returns:
+        AgentUsage with token counts, cost, and timing.
+        Returns zero usage if no ResultMessage found.
+    """
+    from maverick.agents.result import AgentUsage
+
+    # Find ResultMessage for usage stats
+    result_msg = None
+    for msg in messages:
+        if type(msg).__name__ == "ResultMessage":
+            result_msg = msg
+            break
+
+    if result_msg is None:
+        # No result message, return zeros
+        return get_zero_usage()
+
+    # Extract usage from ResultMessage
+    usage = getattr(result_msg, "usage", None) or {}
+    return AgentUsage(
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+        total_cost_usd=getattr(result_msg, "total_cost_usd", None),
+        duration_ms=getattr(result_msg, "duration_ms", 0),
+    )
 
 
 def extract_text(message: Any) -> str:

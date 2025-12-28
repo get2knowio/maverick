@@ -478,14 +478,14 @@ async def test_open_pr_in_browser(sample_pr: PRInfo):
         def compose(self):
             yield PRSummary()
 
-    with patch("webbrowser.open") as mock_open:
+    with patch("maverick.tui.widgets.pr_summary.webbrowser.open") as mock_open:
         async with TestApp().run_test() as pilot:
             widget = pilot.app.query_one(PRSummary)
             widget.update_pr(sample_pr)
             await pilot.pause()
 
-            # Call open_pr_in_browser
-            widget.open_pr_in_browser()
+            # Call open_pr_in_browser (now async)
+            await widget.open_pr_in_browser()
             await pilot.pause()
 
             # Verify webbrowser.open was called with correct URL
@@ -500,12 +500,12 @@ async def test_open_pr_in_browser_no_pr():
         def compose(self):
             yield PRSummary()
 
-    with patch("webbrowser.open") as mock_open:
+    with patch("maverick.tui.widgets.pr_summary.webbrowser.open") as mock_open:
         async with TestApp().run_test() as pilot:
             widget = pilot.app.query_one(PRSummary)
 
             # No PR data, should not open browser
-            widget.open_pr_in_browser()
+            await widget.open_pr_in_browser()
             await pilot.pause()
 
             mock_open.assert_not_called()
@@ -534,8 +534,8 @@ async def test_emit_open_pr_requested(sample_pr: PRInfo):
         assert widget.state.pr.url == sample_pr.url
 
         # Trigger browser open - this will post the message
-        with patch("webbrowser.open") as mock_open:
-            widget.open_pr_in_browser()
+        with patch("maverick.tui.widgets.pr_summary.webbrowser.open") as mock_open:
+            await widget.open_pr_in_browser()
             # Verify webbrowser.open was called with correct URL
             mock_open.assert_called_once_with(sample_pr.url)
 

@@ -27,8 +27,8 @@ from maverick.workflows.refuel import (
     "-n",
     "--limit",
     default=5,
-    type=int,
-    help="Maximum issues to process.",
+    type=click.IntRange(1, 100),
+    help="Maximum issues to process (1-100).",
 )
 @click.option(
     "--parallel/--sequential",

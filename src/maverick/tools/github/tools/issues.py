@@ -34,8 +34,10 @@ def _get_client() -> GitHubClient:
     return _github_client
 
 
-def _get_repo_name() -> str:
-    """Get the current repository name from git remote.
+async def _get_repo_name_async() -> str:
+    """Get the current repository name from git remote asynchronously.
+
+    Uses shared utility from runner module per CLAUDE.md.
 
     Returns:
         Repository name in 'owner/repo' format.
@@ -43,24 +45,9 @@ def _get_repo_name() -> str:
     Raises:
         GitHubError: If unable to determine repository name.
     """
-    import subprocess
+    from maverick.tools.github.runner import get_repo_name_async
 
-    try:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-        repo_name = result.stdout.strip()
-        if not repo_name:
-            raise GitHubError("Unable to determine repository name")
-        return repo_name
-    except subprocess.CalledProcessError as e:
-        raise GitHubError(f"Failed to get repository name: {e.stderr}") from e
-    except subprocess.TimeoutExpired as e:
-        raise GitHubError("Timed out getting repository name") from e
+    return await get_repo_name_async()
 
 
 def _issue_to_dict(issue: Issue, include_details: bool = False) -> dict[str, Any]:
@@ -122,7 +109,7 @@ async def github_list_issues(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         # Convert label to list format for GitHubClient
         labels = [label] if label else None
@@ -174,7 +161,7 @@ async def github_get_issue(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         issue = await client.get_issue(repo_name=repo_name, issue_number=issue_number)
 
@@ -229,7 +216,7 @@ async def github_add_labels(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         def _add_labels() -> None:
             repo = client.github.get_repo(repo_name)
@@ -294,7 +281,7 @@ async def github_close_issue(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         def _close_issue() -> str:
             """Close the issue and return its state."""

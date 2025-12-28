@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from maverick.exceptions.agent import AgentError
-from maverick.exceptions.base import MaverickError
 
 
 class GitHubError(AgentError):
@@ -59,10 +58,11 @@ class GitHubToolsError(AgentError):
         super().__init__(message)
 
 
-class GitHubCLINotFoundError(MaverickError):
+class GitHubCLINotFoundError(GitHubError):
     """GitHub CLI (gh) is not installed.
 
     Provides installation instructions in the message.
+    Inherits from GitHubError to allow catching all GitHub-related errors.
     """
 
     def __init__(self) -> None:
@@ -72,10 +72,11 @@ class GitHubCLINotFoundError(MaverickError):
         )
 
 
-class GitHubAuthError(MaverickError):
+class GitHubAuthError(GitHubError):
     """GitHub CLI is not authenticated.
 
     Provides authentication instructions in the message.
+    Inherits from GitHubError to allow catching all GitHub-related errors.
 
     Attributes:
         message: Custom error message (optional, default provides auth instructions).

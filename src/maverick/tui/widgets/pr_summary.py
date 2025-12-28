@@ -236,13 +236,19 @@ class PRSummary(Widget):
         )
         self.post_message(self.DescriptionCollapsed())
 
-    def open_pr_in_browser(self) -> None:
-        """Open the PR URL in the default browser."""
+    async def open_pr_in_browser(self) -> None:
+        """Open the PR URL in the default browser.
+
+        Uses asyncio.to_thread to avoid blocking the event loop.
+        """
+        import asyncio
+
         if self.state.pr is None:
             return
 
         url = self.state.pr.url
-        webbrowser.open(url)
+        # Run webbrowser.open in a thread to avoid blocking
+        await asyncio.to_thread(webbrowser.open, url)
         self.post_message(self.OpenPRRequested(url))
 
     def on_click(self) -> None:
@@ -278,6 +284,6 @@ class PRSummary(Widget):
         else:
             self.expand_description()
 
-    def action_open_in_browser(self) -> None:
+    async def action_open_in_browser(self) -> None:
         """Open the PR in the default browser."""
-        self.open_pr_in_browser()
+        await self.open_pr_in_browser()

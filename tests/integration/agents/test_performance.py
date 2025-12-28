@@ -299,22 +299,30 @@ class TestContextIntegration:
 
     def test_context_with_config_defaults(self, tmp_path) -> None:
         """Test AgentContext works with default MaverickConfig."""
-        from unittest.mock import MagicMock, patch
+        import subprocess
 
         from maverick.agents import AgentContext
         from maverick.config import MaverickConfig
 
-        # Create temp dir
+        # Create temp dir with actual git repo
         test_dir = tmp_path / "test_project"
         test_dir.mkdir()
 
-        # Mock git command
-        mock_result = MagicMock()
-        mock_result.stdout = "main\n"
-        mock_result.returncode = 0
+        # Initialize a real git repository
+        subprocess.run(
+            ["git", "init"],
+            cwd=test_dir,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "-b", "main"],
+            cwd=test_dir,
+            capture_output=True,
+            check=True,
+        )
 
-        with patch("subprocess.run", return_value=mock_result):
-            context = AgentContext.from_cwd(test_dir)
+        context = AgentContext.from_cwd(test_dir)
 
         assert context.cwd == test_dir
         assert context.branch == "main"

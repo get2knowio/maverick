@@ -37,6 +37,9 @@ from maverick.tools.validation import (
     create_validation_tools_server,
 )
 
+# Patch path for CommandRunner's create_subprocess_exec
+SUBPROCESS_EXEC_PATCH = "maverick.runners.command.asyncio.create_subprocess_exec"
+
 # =============================================================================
 # Test Fixtures (T073)
 # =============================================================================
@@ -182,7 +185,7 @@ class TestRunCommandWithTimeout:
             return_value=(b"stdout output", b"stderr output")
         )
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
                 ["echo", "test"]
             )
@@ -197,7 +200,7 @@ class TestRunCommandWithTimeout:
         self, mock_subprocess_exec: AsyncMock, tmp_path: Path
     ) -> None:
         """Test command execution with working directory."""
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             await _run_command_with_timeout(["ls"], cwd=tmp_path)
 
         mock_subprocess_exec.assert_called_once()
@@ -205,28 +208,34 @@ class TestRunCommandWithTimeout:
         assert call_kwargs["cwd"] == tmp_path
 
     @pytest.mark.asyncio
-    async def test_command_timeout_kills_process(
+    async def test_command_timeout_terminates_process(
         self, mock_subprocess_exec: AsyncMock, mock_process: Mock
     ) -> None:
-        """Test command timeout kills process (T076)."""
+        """Test command timeout terminates process gracefully (T076)."""
         # Simulate timeout by making communicate() raise TimeoutError
         mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_process.terminate = Mock()
         mock_process.kill = Mock()
+        # wait() returns successfully after terminate (graceful shutdown)
+        mock_process.wait = AsyncMock(return_value=None)
 
-        # After kill, communicate returns empty
-        async def communicate_after_kill() -> tuple[bytes, bytes]:
-            return b"partial output", b"timeout error"
+        # Mock stdout/stderr streams for reading after timeout
+        mock_stdout = AsyncMock()
+        mock_stdout.read = AsyncMock(return_value=b"partial output")
+        mock_stderr = AsyncMock()
+        mock_stderr.read = AsyncMock(return_value=b"timeout error")
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = mock_stderr
 
-        mock_process.communicate = AsyncMock(
-            side_effect=[asyncio.TimeoutError, (b"partial output", b"timeout error")]
-        )
-
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
                 ["sleep", "1000"], timeout=0.1
             )
 
-        mock_process.kill.assert_called_once()
+        # CommandRunner calls terminate (graceful shutdown succeeded)
+        mock_process.terminate.assert_called_once()
+        # kill should NOT be called if terminate succeeded
+        mock_process.kill.assert_not_called()
         assert return_code == -1
         assert timed_out is True
         assert stdout == "partial output"
@@ -239,7 +248,7 @@ class TestRunCommandWithTimeout:
         """Test command execution error raises ValidationToolsError."""
         mock_subprocess_exec.side_effect = OSError("Command not found")
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             with pytest.raises(ValidationToolsError) as exc_info:
                 await _run_command_with_timeout(["nonexistent_command"])
 
@@ -253,7 +262,7 @@ class TestRunCommandWithTimeout:
         mock_process.returncode = 1
         mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
                 ["exit", "1"]
             )
@@ -285,7 +294,7 @@ class TestRunValidation:
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["format", "lint"]})
 
         # Parse response
@@ -314,7 +323,7 @@ class TestRunValidation:
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
@@ -333,16 +342,25 @@ class TestRunValidation:
         validation_config: ValidationConfig,
     ) -> None:
         """Test validation timeout handling (T076)."""
-        # First call to communicate raises TimeoutError, second returns after kill
-        mock_process.communicate = AsyncMock(
-            side_effect=[asyncio.TimeoutError, (b"", b"Process killed due to timeout")]
-        )
+        # communicate raises TimeoutError (simulating command timeout)
+        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_process.terminate = Mock()
         mock_process.kill = Mock()
+        # wait() returns successfully after terminate (graceful shutdown)
+        mock_process.wait = AsyncMock(return_value=None)
+
+        # Mock stdout/stderr streams for reading after timeout
+        mock_stdout = AsyncMock()
+        mock_stdout.read = AsyncMock(return_value=b"")
+        mock_stderr = AsyncMock()
+        mock_stderr.read = AsyncMock(return_value=b"Process killed due to timeout")
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = mock_stderr
 
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["test"]})
 
         response_data = json.loads(response["content"][0]["text"])
@@ -396,7 +414,7 @@ class TestRunValidation:
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler(
                 {"types": ["format", "lint", "typecheck", "test"]}
             )
@@ -459,7 +477,7 @@ class TestRunValidation:
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
@@ -493,7 +511,7 @@ class TestRunValidation:
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["format", "lint"]})
 
         response_data = json.loads(response["content"][0]["text"])
@@ -879,7 +897,7 @@ class TestValidationIntegration:
         server = create_validation_tools_server(config=validation_config)
         run_validation, parse_validation_output = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             run_response = await run_validation.handler({"types": ["lint"]})
 
         run_data = json.loads(run_response["content"][0]["text"])
@@ -905,15 +923,25 @@ class TestValidationIntegration:
             project_root=tmp_path,
         )
 
-        mock_process.communicate = AsyncMock(
-            side_effect=[asyncio.TimeoutError, (b"", b"timeout")]
-        )
+        # communicate raises TimeoutError (simulating command timeout)
+        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_process.terminate = Mock()
         mock_process.kill = Mock()
+        # wait() returns successfully after terminate (graceful shutdown)
+        mock_process.wait = AsyncMock(return_value=None)
+
+        # Mock stdout/stderr streams for reading after timeout
+        mock_stdout = AsyncMock()
+        mock_stdout.read = AsyncMock(return_value=b"")
+        mock_stderr = AsyncMock()
+        mock_stderr.read = AsyncMock(return_value=b"timeout")
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = mock_stderr
 
         server = create_validation_tools_server(config=config)
         run_validation, _ = _get_tools_from_server(server)
 
-        with patch("asyncio.create_subprocess_exec", mock_subprocess_exec):
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             response = await run_validation.handler({"types": ["test"]})
 
         response_data = json.loads(response["content"][0]["text"])

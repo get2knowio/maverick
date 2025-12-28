@@ -286,6 +286,10 @@ def count_tasks(task_file: Path) -> tuple[int, int]:
         >>> pending, completed = count_tasks(Path("tasks.md"))
         >>> print(f"{pending} pending, {completed} completed")
     """
+    from maverick.logging import get_logger
+
+    logger = get_logger(__name__)
+
     try:
         content = task_file.read_text()
         # Count pending tasks: lines with - [ ]
@@ -293,7 +297,8 @@ def count_tasks(task_file: Path) -> tuple[int, int]:
         # Count completed tasks: lines with - [x] or - [X]
         completed = len(re.findall(r"^-\s*\[[xX]\]", content, re.MULTILINE))
         return pending, completed
-    except Exception:
+    except Exception as e:
+        logger.warning("failed_to_count_tasks", file=str(task_file), error=str(e))
         return 0, 0
 
 
@@ -334,7 +339,11 @@ def get_workflow_history(count: int = 5) -> list[dict[str, str]]:
     """
     from datetime import datetime
 
+    from maverick.logging import get_logger
+
+    logger = get_logger(__name__)
     recent_workflows = []
+
     try:
         from maverick.tui.history import WorkflowHistoryStore
 
@@ -368,8 +377,8 @@ def get_workflow_history(count: int = 5) -> list[dict[str, str]]:
                 }
             )
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("failed_to_get_workflow_history", error=str(e))
 
     return recent_workflows
 

@@ -80,9 +80,10 @@ class RetryStep(StepDefinition):
 
         # All attempts exhausted - return final failure
         # last_result is guaranteed to be non-None here since max_attempts >= 1
-        assert last_result is not None, (
-            "last_result should be set after at least one attempt"
-        )
+        if last_result is None:
+            # This should never happen since max_attempts >= 1
+            raise RuntimeError("No result after retry attempts - this is a bug")
+
         total_duration = int((time.perf_counter() - start_time) * 1000)
         return StepResult(
             name=last_result.name,

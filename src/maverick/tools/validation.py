@@ -13,7 +13,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import time
@@ -103,7 +102,9 @@ async def _run_command_with_timeout(
     cwd: Path | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[str, str, int, bool]:
-    """Run a command with timeout.
+    """Run a command with timeout using CommandRunner.
+
+    Uses CommandRunner for proper async subprocess execution per CLAUDE.md.
 
     Args:
         cmd: Command and arguments to execute.
@@ -116,42 +117,21 @@ async def _run_command_with_timeout(
     Raises:
         ValidationToolsError: If command execution fails unexpectedly.
     """
+    from maverick.runners.command import CommandRunner
+
     try:
         logger.debug("Running command: %s", " ".join(cmd))
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
+        runner = CommandRunner(cwd=cwd, timeout=timeout)
+        result = await runner.run(cmd, timeout=timeout)
 
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            return_code = process.returncode or 0
-            timed_out = False
-
-            logger.debug("Command completed with return code %s", return_code)
-            return stdout, stderr, return_code, timed_out
-
-        except TimeoutError:
+        timed_out = result.timed_out
+        if timed_out:
             logger.warning("Command timed out after %ss: %s", timeout, " ".join(cmd))
-            # Kill the process
-            try:
-                process.kill()
-                stdout_bytes, stderr_bytes = await process.communicate()
-                stdout = stdout_bytes.decode("utf-8", errors="replace")
-                stderr = stderr_bytes.decode("utf-8", errors="replace")
-            except Exception as e:
-                logger.error("Error killing timed-out process: %s", e)
-                stdout = ""
-                stderr = f"Process killed due to timeout ({timeout}s)"
+        else:
+            logger.debug("Command completed with return code %s", result.returncode)
 
-            return stdout, stderr, -1, True
+        return result.stdout, result.stderr, result.returncode, timed_out
 
     except Exception as e:
         logger.error("Command execution error: %s", e)

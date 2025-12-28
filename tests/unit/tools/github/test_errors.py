@@ -120,8 +120,8 @@ class TestPyGithubErrorHandling:
                 return_value=mock_client,
             ),
             patch(
-                "maverick.tools.github.tools.issues._get_repo_name",
-                return_value="owner/repo",
+                "maverick.tools.github.tools.issues._get_repo_name_async",
+                new=AsyncMock(return_value="owner/repo"),
             ),
         ):
             mock_client.get_issue = AsyncMock(
@@ -154,8 +154,8 @@ class TestPyGithubErrorHandling:
                 return_value=mock_client,
             ),
             patch(
-                "maverick.tools.github.tools.issues._get_repo_name",
-                return_value="owner/repo",
+                "maverick.tools.github.tools.issues._get_repo_name_async",
+                new=AsyncMock(return_value="owner/repo"),
             ),
         ):
             result = await github_add_labels.handler(
@@ -185,8 +185,8 @@ class TestPyGithubErrorHandling:
                 return_value=mock_client,
             ),
             patch(
-                "maverick.tools.github.tools.issues._get_repo_name",
-                return_value="owner/repo",
+                "maverick.tools.github.tools.issues._get_repo_name_async",
+                new=AsyncMock(return_value="owner/repo"),
             ),
         ):
             result = await github_close_issue.handler({"issue_number": 999})

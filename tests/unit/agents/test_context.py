@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +9,7 @@ import pytest
 
 from maverick.agents.context import AgentContext
 from maverick.config import MaverickConfig
+from maverick.exceptions import NotARepositoryError
 
 
 def test_agent_context_creation_with_valid_values(temp_dir: Path) -> None:
@@ -92,22 +92,12 @@ def test_agent_context_empty_branch_raises_value_error(temp_dir: Path) -> None:
 
 def test_agent_context_from_cwd_success(temp_dir: Path) -> None:
     """Test from_cwd factory method with valid git repository."""
-    # Mock subprocess to simulate git command
-    mock_result = MagicMock()
-    mock_result.stdout = "feature-branch\n"
-    mock_result.returncode = 0
+    # Mock GitRepository to simulate git repository
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "feature-branch"
 
-    with patch("subprocess.run", return_value=mock_result) as mock_run:
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir)
-
-        # Verify subprocess was called correctly
-        mock_run.assert_called_once_with(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=temp_dir,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
 
         # Verify context was created correctly
         assert context.cwd == temp_dir
@@ -117,12 +107,12 @@ def test_agent_context_from_cwd_success(temp_dir: Path) -> None:
 
 
 def test_agent_context_from_cwd_strips_whitespace(temp_dir: Path) -> None:
-    """Test from_cwd strips whitespace from branch name."""
-    mock_result = MagicMock()
-    mock_result.stdout = "  main  \n"
-    mock_result.returncode = 0
+    """Test from_cwd uses branch name from GitRepository."""
+    # GitRepository.current_branch() already returns clean branch names
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "main"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir)
 
         assert context.branch == "main"
@@ -143,18 +133,13 @@ def test_agent_context_from_cwd_without_git_repo_raises_value_error(
     temp_dir: Path,
 ) -> None:
     """Test from_cwd without git repo raises ValueError."""
-    # Mock subprocess to simulate git failure (not a git repo)
+    # Mock GitRepository to raise NotARepositoryError
     with patch(
-        "subprocess.run",
-        side_effect=subprocess.CalledProcessError(
-            128, "git", stderr="fatal: not a git repository"
-        ),
-    ) as mock_run:
+        "maverick.git.GitRepository",
+        side_effect=NotARepositoryError("Not a git repository", path=temp_dir),
+    ):
         with pytest.raises(ValueError) as exc_info:
             AgentContext.from_cwd(temp_dir)
-
-        # Verify subprocess was called
-        mock_run.assert_called_once()
 
         assert "Not a git repository" in str(exc_info.value)
         assert str(temp_dir) in str(exc_info.value)
@@ -162,11 +147,10 @@ def test_agent_context_from_cwd_without_git_repo_raises_value_error(
 
 def test_agent_context_from_cwd_with_default_config(temp_dir: Path) -> None:
     """Test from_cwd creates default config when not provided."""
-    mock_result = MagicMock()
-    mock_result.stdout = "main\n"
-    mock_result.returncode = 0
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "main"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir)
 
         # Should create a default MaverickConfig
@@ -179,11 +163,10 @@ def test_agent_context_from_cwd_with_custom_config(temp_dir: Path) -> None:
     custom_config = MaverickConfig()
     custom_config.verbosity = "debug"
 
-    mock_result = MagicMock()
-    mock_result.stdout = "main\n"
-    mock_result.returncode = 0
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "main"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir, config=custom_config)
 
         # Should use the provided config
@@ -195,11 +178,10 @@ def test_agent_context_from_cwd_with_extra_parameter(temp_dir: Path) -> None:
     """Test from_cwd with extra parameter."""
     extra_data = {"file_path": "src/main.py", "line_number": 42}
 
-    mock_result = MagicMock()
-    mock_result.stdout = "feature-123\n"
-    mock_result.returncode = 0
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "feature-123"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir, extra=extra_data)
 
         assert context.extra == extra_data
@@ -211,11 +193,10 @@ def test_agent_context_from_cwd_with_none_extra_defaults_to_empty_dict(
     temp_dir: Path,
 ) -> None:
     """Test from_cwd with None extra defaults to empty dict."""
-    mock_result = MagicMock()
-    mock_result.stdout = "main\n"
-    mock_result.returncode = 0
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "main"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir, extra=None)
 
         assert context.extra == {}
@@ -301,12 +282,11 @@ def test_agent_context_repr(temp_dir: Path) -> None:
 
 def test_agent_context_from_cwd_with_detached_head(temp_dir: Path) -> None:
     """Test from_cwd works with detached HEAD state."""
-    # Git returns commit SHA when in detached HEAD
-    mock_result = MagicMock()
-    mock_result.stdout = "a1b2c3d4e5f6\n"
-    mock_result.returncode = 0
+    # GitRepository returns commit SHA when in detached HEAD
+    mock_repo = MagicMock()
+    mock_repo.current_branch.return_value = "a1b2c3d4e5f6"
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("maverick.git.GitRepository", return_value=mock_repo):
         context = AgentContext.from_cwd(temp_dir)
 
         # Should work with commit SHA as branch name

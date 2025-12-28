@@ -274,30 +274,9 @@ class GeneratorAgent(ABC):
         Returns:
             AgentUsage with token counts and timing.
         """
-        # Find ResultMessage for usage stats
-        result_msg = None
-        for msg in messages:
-            if type(msg).__name__ == "ResultMessage":
-                result_msg = msg
-                break
+        from maverick.agents.utils import extract_usage
 
-        if result_msg is None:
-            # No result message, return zeros
-            return AgentUsage(
-                input_tokens=0,
-                output_tokens=0,
-                total_cost_usd=None,
-                duration_ms=0,
-            )
-
-        # Extract usage from ResultMessage
-        usage = getattr(result_msg, "usage", None) or {}
-        return AgentUsage(
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
-            total_cost_usd=getattr(result_msg, "total_cost_usd", None),
-            duration_ms=getattr(result_msg, "duration_ms", 0),
-        )
+        return extract_usage(messages)
 
     def _truncate_input(
         self,

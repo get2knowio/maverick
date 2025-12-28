@@ -36,8 +36,10 @@ def _get_client() -> GitHubClient:
     return _github_client
 
 
-def _get_repo_name() -> str:
-    """Get the current repository name from git remote.
+async def _get_repo_name_async() -> str:
+    """Get the current repository name from git remote asynchronously.
+
+    Uses shared utility from runner module per CLAUDE.md.
 
     Returns:
         Repository name in 'owner/repo' format.
@@ -45,24 +47,9 @@ def _get_repo_name() -> str:
     Raises:
         GitHubError: If unable to determine repository name.
     """
-    import subprocess
+    from maverick.tools.github.runner import get_repo_name_async
 
-    try:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-        repo_name = result.stdout.strip()
-        if not repo_name:
-            raise GitHubError("Unable to determine repository name")
-        return repo_name
-    except subprocess.CalledProcessError as e:
-        raise GitHubError(f"Failed to get repository name: {e.stderr}") from e
-    except subprocess.TimeoutExpired as e:
-        raise GitHubError("Timed out getting repository name") from e
+    return await get_repo_name_async()
 
 
 @tool(
@@ -90,7 +77,7 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         pr = await client.create_pr(
             repo_name=repo_name,
@@ -153,7 +140,7 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         client = _get_client()
-        repo_name = _get_repo_name()
+        repo_name = await _get_repo_name_async()
 
         # Get the PR
         pr = await client.get_pr(repo_name=repo_name, pr_number=pr_number)

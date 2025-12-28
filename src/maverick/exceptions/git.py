@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
 from maverick.exceptions.agent import AgentError
 
@@ -61,13 +61,13 @@ class NotARepositoryError(GitError):
     def __init__(
         self,
         message: str,
-        path: Any = None,
+        path: Path | str | None = None,
     ) -> None:
         """Initialize the NotARepositoryError.
 
         Args:
             message: Human-readable error message.
-            path: Directory that is not a repo (Path object).
+            path: Directory that is not a repo.
         """
         self.path = path
         super().__init__(message, operation="repo_check", recoverable=False)

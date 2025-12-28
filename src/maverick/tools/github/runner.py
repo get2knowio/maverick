@@ -101,3 +101,41 @@ async def run_gh_command(
         retry_delay=RETRY_DELAY,
     )
     return result.stdout, result.stderr, result.returncode
+
+
+async def get_repo_name_async(cwd: Path | None = None) -> str:
+    """Get the current repository name from gh CLI asynchronously.
+
+    Uses CommandRunner for proper timeout and retry handling per CLAUDE.md.
+
+    Args:
+        cwd: Working directory for the command.
+
+    Returns:
+        Repository name in 'owner/repo' format.
+
+    Raises:
+        GitHubError: If unable to determine repository name.
+    """
+    from maverick.exceptions import GitHubError
+
+    try:
+        stdout, stderr, returncode = await run_gh_command(
+            "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner",
+            cwd=cwd,
+            timeout=DEFAULT_TIMEOUT,
+        )
+
+        if returncode != 0:
+            raise GitHubError(f"Failed to get repository name: {stderr}")
+
+        repo_name = stdout.strip()
+        if not repo_name:
+            raise GitHubError("Unable to determine repository name")
+
+        return repo_name
+
+    except Exception as e:
+        if isinstance(e, GitHubError):
+            raise
+        raise GitHubError(f"Failed to get repository name: {e}") from e

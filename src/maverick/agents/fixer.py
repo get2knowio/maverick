@@ -12,9 +12,9 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.context import AgentContext
-from maverick.agents.result import AgentResult, AgentUsage
+from maverick.agents.result import AgentResult
 from maverick.agents.tools import FIXER_TOOLS
-from maverick.agents.utils import extract_all_text
+from maverick.agents.utils import extract_all_text, get_zero_usage
 from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
@@ -144,12 +144,7 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
                             agent_name=self.name,
                         )
                     ],
-                    usage=AgentUsage(
-                        input_tokens=0,
-                        output_tokens=0,
-                        total_cost_usd=None,
-                        duration_ms=0,
-                    ),
+                    usage=get_zero_usage(),
                 )
 
             logger.info("Applying fix with FixerAgent")
@@ -204,12 +199,7 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
             logger.error("Agent error during fix: %s", e)
             return AgentResult.failure_result(
                 errors=[e],
-                usage=AgentUsage(
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost_usd=None,
-                    duration_ms=0,
-                ),
+                usage=get_zero_usage(),
             )
         except Exception as e:
             logger.exception("Fix execution failed: %s", e)
@@ -220,10 +210,5 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
                         agent_name=self.name,
                     )
                 ],
-                usage=AgentUsage(
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost_usd=None,
-                    duration_ms=0,
-                ),
+                usage=get_zero_usage(),
             )
