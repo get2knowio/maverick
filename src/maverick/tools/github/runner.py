@@ -121,7 +121,12 @@ async def get_repo_name_async(cwd: Path | None = None) -> str:
 
     try:
         stdout, stderr, returncode = await run_gh_command(
-            "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner",
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
             cwd=cwd,
             timeout=DEFAULT_TIMEOUT,
         )
