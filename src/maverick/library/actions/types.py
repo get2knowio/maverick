@@ -1,0 +1,382 @@
+"""Data model types for action results.
+
+All action result types are frozen dataclasses with slots for memory efficiency
+and immutability. These types are returned by Python actions in workflow steps.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+# =============================================================================
+# Workspace Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceState:
+    """State of the workspace after initialization."""
+
+    branch_name: str
+    base_branch: str
+    is_clean: bool
+    synced_with_base: bool
+    task_file_path: Path | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "branch_name": self.branch_name,
+            "base_branch": self.base_branch,
+            "is_clean": self.is_clean,
+            "synced_with_base": self.synced_with_base,
+            "task_file_path": str(self.task_file_path) if self.task_file_path else None,
+            "error": self.error,
+        }
+
+
+# =============================================================================
+# Git Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class GitCommitResult:
+    """Result of git commit operation."""
+
+    success: bool
+    commit_sha: str | None
+    message: str
+    files_committed: tuple[str, ...]
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "commit_sha": self.commit_sha,
+            "message": self.message,
+            "files_committed": list(self.files_committed),
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class GitPushResult:
+    """Result of git push operation."""
+
+    success: bool
+    remote: str
+    branch: str
+    upstream_set: bool
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "remote": self.remote,
+            "branch": self.branch,
+            "upstream_set": self.upstream_set,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class GitBranchResult:
+    """Result of branch creation."""
+
+    success: bool
+    branch_name: str
+    base_branch: str
+    created: bool  # True if created, False if checked out existing
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "branch_name": self.branch_name,
+            "base_branch": self.base_branch,
+            "created": self.created,
+            "error": self.error,
+        }
+
+
+# =============================================================================
+# GitHub Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class FetchedIssue:
+    """Single GitHub issue fetched from API."""
+
+    number: int
+    title: str
+    body: str | None
+    labels: tuple[str, ...]
+    assignee: str | None
+    url: str
+    state: str  # "open", "closed"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "number": self.number,
+            "title": self.title,
+            "body": self.body,
+            "labels": list(self.labels),
+            "assignee": self.assignee,
+            "url": self.url,
+            "state": self.state,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FetchIssuesResult:
+    """Result of fetching multiple issues."""
+
+    success: bool
+    issues: tuple[FetchedIssue, ...]
+    total_count: int
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "issues": [issue.to_dict() for issue in self.issues],
+            "total_count": self.total_count,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FetchSingleIssueResult:
+    """Result of fetching a single issue."""
+
+    success: bool
+    issue: FetchedIssue | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "issue": self.issue.to_dict() if self.issue else None,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PRCreationResult:
+    """Result of PR creation via GitHub CLI."""
+
+    success: bool
+    pr_number: int | None
+    pr_url: str | None
+    title: str
+    draft: bool
+    base_branch: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "pr_number": self.pr_number,
+            "pr_url": self.pr_url,
+            "title": self.title,
+            "draft": self.draft,
+            "base_branch": self.base_branch,
+            "error": self.error,
+        }
+
+
+# =============================================================================
+# Validation Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class StageResultEntry:
+    """Result of a single validation stage."""
+
+    name: str
+    passed: bool
+    errors: tuple[str, ...]
+    duration_ms: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "name": self.name,
+            "passed": self.passed,
+            "errors": list(self.errors),
+            "duration_ms": self.duration_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationReportResult:
+    """Final validation report from validate_and_fix fragment."""
+
+    passed: bool
+    stages: tuple[StageResultEntry, ...]
+    attempts: int
+    fixes_applied: tuple[str, ...]
+    remaining_errors: tuple[str, ...]
+    suggestions: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "passed": self.passed,
+            "stages": [stage.to_dict() for stage in self.stages],
+            "attempts": self.attempts,
+            "fixes_applied": list(self.fixes_applied),
+            "remaining_errors": list(self.remaining_errors),
+            "suggestions": list(self.suggestions),
+        }
+
+
+# =============================================================================
+# Review Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class PRMetadata:
+    """Pull request metadata."""
+
+    number: int | None
+    title: str | None
+    description: str | None
+    author: str | None
+    labels: tuple[str, ...]
+    base_branch: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "number": self.number,
+            "title": self.title,
+            "description": self.description,
+            "author": self.author,
+            "labels": list(self.labels),
+            "base_branch": self.base_branch,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewContextResult:
+    """Gathered context for code review."""
+
+    pr_metadata: PRMetadata
+    changed_files: tuple[str, ...]
+    diff: str
+    commits: tuple[str, ...]
+    coderabbit_available: bool
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "pr_metadata": self.pr_metadata.to_dict(),
+            "changed_files": list(self.changed_files),
+            "diff": self.diff,
+            "commits": list(self.commits),
+            "coderabbit_available": self.coderabbit_available,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CodeRabbitResult:
+    """Result from CodeRabbit review."""
+
+    available: bool
+    findings: tuple[dict[str, Any], ...]
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "available": self.available,
+            "findings": list(self.findings),
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedReviewResult:
+    """Combined review results from all sources."""
+
+    review_report: str
+    issues: tuple[dict[str, Any], ...]
+    recommendation: str  # "approve", "request_changes", "comment"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "review_report": self.review_report,
+            "issues": list(self.issues),
+            "recommendation": self.recommendation,
+        }
+
+
+# =============================================================================
+# Refuel Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessedIssueEntry:
+    """Result of processing a single issue."""
+
+    issue_number: int
+    issue_title: str
+    status: str  # "fixed", "failed", "skipped"
+    branch_name: str | None
+    pr_url: str | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "issue_number": self.issue_number,
+            "issue_title": self.issue_title,
+            "status": self.status,
+            "branch_name": self.branch_name,
+            "pr_url": self.pr_url,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RefuelSummaryResult:
+    """Summary of refuel workflow execution."""
+
+    total_issues: int
+    processed_count: int
+    success_count: int
+    failure_count: int
+    skipped_count: int
+    issues: tuple[ProcessedIssueEntry, ...]
+    pr_urls: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "total_issues": self.total_issues,
+            "processed_count": self.processed_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "skipped_count": self.skipped_count,
+            "issues": [issue.to_dict() for issue in self.issues],
+            "pr_urls": list(self.pr_urls),
+        }

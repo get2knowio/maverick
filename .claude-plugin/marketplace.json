@@ -1,0 +1,23 @@
+{
+  "name": "maverick-plugins",
+  "owner": {
+    "name": "get2knowio",
+    "email": "plugins@get2know.io"
+  },
+  "metadata": {
+    "description": "AI-powered development workflow automation plugin for Claude Code",
+    "version": "1.0.0",
+    "pluginRoot": "../plugins"
+  },
+  "plugins": [
+    {
+      "name": "maverick",
+      "description": "Orchestrates multi-phase workflows: feature implementation, tech-debt resolution, code review, convention updates, and PR management",
+      "version": "1.0.0",
+      "source": "./plugins/maverick",
+      "category": "Workflow Orchestration",
+      "tags": ["workflow", "automation", "code-review", "pull-request", "subagents", "tech-debt"],
+      "strict": true
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+# =============================================================================
+# Workflow: {{ name }}
+# =============================================================================
+#
+# Generated: {{ date }}
+{% if description %}# Description: {{ description }}{% endif %}
+{% if author %}# Author: {{ author }}{% endif %}
+#
+# PURPOSE:
+#   Basic workflow template with sequential execution of initialization,
+#   main processing, and cleanup steps.
+#
+# WORKFLOW STEPS:
+#   1. Initialize: Set up workflow with input parameters
+#   2. Main Processing: Execute core workflow logic
+#   3. Cleanup: Clean up resources and finalize results
+#
+# INPUTS:
+#   - example_input (string, required): Example input parameter
+#     The input value that will be processed by the workflow.
+#
+# CUSTOMIZATION:
+#   - Modify the action names to reference your custom Python actions
+#   - Add additional steps between init, main, and cleanup as needed
+#   - Adjust input parameters to match your workflow requirements
+#   - Add conditional steps using 'when' clauses for advanced logic
+#
+# EXAMPLE USAGE:
+#   # Basic usage with default behavior
+#   maverick fly {{ name }} -i example_input="test value"
+#
+#   # With custom input
+#   maverick fly {{ name }} -i example_input="your input here"
+#
+# =============================================================================
+
+version: "1.0"
+name: {{ name }}
+description: {{ description if description else 'Basic workflow' }}
+
+# ------------------------------------------------------------------------------
+# Input Declarations
+# ------------------------------------------------------------------------------
+inputs:
+  example_input:
+    type: string
+    required: true
+    description: Example input parameter to be processed by the workflow
+
+# ------------------------------------------------------------------------------
+# Workflow Steps
+# ------------------------------------------------------------------------------
+steps:
+  # ============================================================================
+  # Step 1: Initialize
+  # ============================================================================
+  # Initialize the workflow with the provided input value.
+  #
+  # This step:
+  # - Validates the input value
+  # - Prepares any necessary resources
+  # - Returns initialization result for downstream steps
+  #
+  # Output: Dictionary with initialized=True and input value
+  # ============================================================================
+  - name: init
+    type: python
+    action: example_init_action
+    kwargs:
+      input_value: {% raw %}${{ inputs.example_input }}{% endraw %}
+    metadata:
+      progress:
+        stage: "initialization"
+        weight: 10
+
+  # ============================================================================
+  # Step 2: Main Processing
+  # ============================================================================
+  # Execute main workflow logic using the initialization result.
+  #
+  # This step:
+  # - Processes the initialized data
+  # - Applies core business logic
+  # - Returns processed result
+  #
+  # Output: Processed string result
+  # ============================================================================
+  - name: main
+    type: python
+    action: example_main_action
+    kwargs:
+      init_result: {% raw %}${{ steps.init.output }}{% endraw %}
+    metadata:
+      progress:
+        stage: "processing"
+        weight: 70
+
+  # ============================================================================
+  # Step 3: Cleanup
+  # ============================================================================
+  # Clean up resources and finalize workflow results.
+  #
+  # This step:
+  # - Performs any necessary cleanup operations
+  # - Finalizes the workflow result
+  # - Returns success status with final result
+  #
+  # Output: Dictionary with success=True and final result
+  # ============================================================================
+  - name: cleanup
+    type: python
+    action: example_cleanup_action
+    kwargs:
+      main_result: {% raw %}${{ steps.main.output }}{% endraw %}
+    metadata:
+      progress:
+        stage: "cleanup"
+        weight: 20

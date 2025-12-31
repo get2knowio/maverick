@@ -1,0 +1,39 @@
+{
+  "checkpoint_id": "implementation_complete",
+  "workflow_name": "feature",
+  "inputs_hash": "f1d6826a9d77083c",
+  "step_results": [
+    {
+      "name": "init",
+      "output": {
+        "branch_name": "001-bootstrap-incus-host",
+        "base_branch": "main",
+        "is_clean": false,
+        "synced_with_base": true,
+        "task_file_path": null,
+        "error": null
+      }
+    },
+    {
+      "name": "init_dry_run",
+      "output": null
+    },
+    {
+      "name": "get_phases",
+      "output": null
+    },
+    {
+      "name": "implement_by_phase",
+      "output": null
+    },
+    {
+      "name": "implement_no_phases",
+      "output": null
+    },
+    {
+      "name": "implement_dry_run",
+      "output": null
+    }
+  ],
+  "saved_at": "2025-12-30T01:32:15.814485+00:00"
+}

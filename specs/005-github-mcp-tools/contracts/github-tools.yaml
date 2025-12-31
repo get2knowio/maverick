@@ -1,0 +1,344 @@
+# GitHub MCP Tools - Parameter Schemas
+# Feature: 005-github-mcp-tools
+# Date: 2025-12-14
+#
+# These schemas define the input parameters and output formats for each
+# GitHub MCP tool. They are used to generate @tool decorator parameters
+# and validate tool responses.
+
+server:
+  name: github-tools
+  version: "1.0.0"
+  description: MCP server providing GitHub integration tools via gh CLI
+
+tools:
+  # ============================================================================
+  # github_create_pr
+  # ============================================================================
+  - name: github_create_pr
+    description: Create a pull request on GitHub
+    parameters:
+      title:
+        type: string
+        required: true
+        description: Pull request title
+      body:
+        type: string
+        required: true
+        description: Pull request description (markdown supported)
+      base:
+        type: string
+        required: true
+        description: Base branch name (e.g., "main")
+      head:
+        type: string
+        required: true
+        description: Head branch name with changes
+      draft:
+        type: boolean
+        required: false
+        default: false
+        description: Create as draft PR (not ready for review)
+    response:
+      success:
+        pr_number:
+          type: integer
+          description: Created PR number
+        url:
+          type: string
+          description: Full URL to the PR
+        state:
+          type: string
+          enum: [open, draft]
+          description: PR state after creation
+        title:
+          type: string
+          description: PR title (echo back)
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+          description: Human-readable error message
+        error_code:
+          type: string
+          enum: [BRANCH_NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_list_issues
+  # ============================================================================
+  - name: github_list_issues
+    description: List GitHub issues with optional filtering by label and state
+    parameters:
+      label:
+        type: string
+        required: false
+        default: null
+        description: Filter by label name
+      state:
+        type: string
+        required: false
+        default: open
+        enum: [open, closed, all]
+        description: Filter by issue state
+      limit:
+        type: integer
+        required: false
+        default: 30
+        minimum: 1
+        maximum: 100
+        description: Maximum number of issues to return
+    response:
+      success:
+        issues:
+          type: array
+          items:
+            number:
+              type: integer
+            title:
+              type: string
+            labels:
+              type: array
+              items:
+                type: string
+            state:
+              type: string
+            url:
+              type: string
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_get_issue
+  # ============================================================================
+  - name: github_get_issue
+    description: Get detailed information about a specific GitHub issue
+    parameters:
+      issue_number:
+        type: integer
+        required: true
+        minimum: 1
+        description: Issue number to retrieve
+    response:
+      success:
+        number:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        url:
+          type: string
+        state:
+          type: string
+          enum: [open, closed]
+        labels:
+          type: array
+          items:
+            type: string
+        assignees:
+          type: array
+          items:
+            type: string
+        author:
+          type: string
+        comments_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_get_pr_diff
+  # ============================================================================
+  - name: github_get_pr_diff
+    description: Get the diff content for a pull request
+    parameters:
+      pr_number:
+        type: integer
+        required: true
+        minimum: 1
+        description: Pull request number
+      max_size:
+        type: integer
+        required: false
+        default: 102400
+        minimum: 1024
+        description: Maximum diff size in bytes (truncates if exceeded)
+    response:
+      success:
+        diff:
+          type: string
+          description: Unified diff content
+        truncated:
+          type: boolean
+          description: Whether diff was truncated
+        warning:
+          type: string
+          nullable: true
+          description: Truncation warning message (if truncated)
+        original_size_bytes:
+          type: integer
+          nullable: true
+          description: Original size before truncation (if truncated)
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_pr_status
+  # ============================================================================
+  - name: github_pr_status
+    description: Get PR status including checks, reviews, and merge readiness
+    parameters:
+      pr_number:
+        type: integer
+        required: true
+        minimum: 1
+        description: Pull request number
+    response:
+      success:
+        pr_number:
+          type: integer
+        state:
+          type: string
+          enum: [open, closed, merged]
+        mergeable:
+          type: boolean
+          nullable: true
+          description: Whether PR can be merged (null if unknown)
+        merge_state_status:
+          type: string
+          enum: [clean, blocked, behind, dirty, unknown]
+        has_conflicts:
+          type: boolean
+        reviews:
+          type: array
+          items:
+            author:
+              type: string
+            state:
+              type: string
+              enum: [APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING]
+        checks:
+          type: array
+          items:
+            name:
+              type: string
+            status:
+              type: string
+              enum: [completed, in_progress, queued]
+            conclusion:
+              type: string
+              nullable: true
+              enum: [success, failure, neutral, cancelled, skipped, timed_out]
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_add_labels
+  # ============================================================================
+  - name: github_add_labels
+    description: Add labels to an issue or pull request
+    parameters:
+      issue_number:
+        type: integer
+        required: true
+        minimum: 1
+        description: Issue or PR number
+      labels:
+        type: array
+        items:
+          type: string
+        required: true
+        minItems: 1
+        description: Label names to add
+    response:
+      success:
+        success:
+          type: boolean
+          value: true
+        issue_number:
+          type: integer
+        labels_added:
+          type: array
+          items:
+            type: string
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]
+
+  # ============================================================================
+  # github_close_issue
+  # ============================================================================
+  - name: github_close_issue
+    description: Close a GitHub issue with an optional comment
+    parameters:
+      issue_number:
+        type: integer
+        required: true
+        minimum: 1
+        description: Issue number to close
+      comment:
+        type: string
+        required: false
+        default: null
+        description: Optional closing comment
+    response:
+      success:
+        success:
+          type: boolean
+          value: true
+        issue_number:
+          type: integer
+        state:
+          type: string
+          value: closed
+      error:
+        isError:
+          type: boolean
+          value: true
+        message:
+          type: string
+        error_code:
+          type: string
+          enum: [NOT_FOUND, AUTH_ERROR, RATE_LIMIT, NETWORK_ERROR, INTERNAL_ERROR]

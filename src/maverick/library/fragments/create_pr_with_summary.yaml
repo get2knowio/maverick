@@ -1,0 +1,244 @@
+# ==============================================================================
+# Create PR with Summary Fragment
+# ==============================================================================
+#
+# Reusable workflow fragment that generates a comprehensive PR body and creates
+# the pull request via GitHub CLI. This fragment is used by fly, refuel, and
+# quick_fix workflows to provide consistent PR creation with AI-generated
+# summaries.
+#
+# FRAGMENT PURPOSE:
+#   This fragment orchestrates the PR creation process by:
+#   1. Optionally generating a PR title if not provided
+#   2. Generating a comprehensive PR body using the pr_body_generator
+#   3. Creating the PR via gh CLI with the generated content
+#
+# INPUTS:
+#   - base_branch (string, optional, default: "main"): The target base branch
+#       The branch that this PR will merge into. Typically "main" or "develop".
+#       Example: "main"
+#
+#   - draft (boolean, optional, default: false): Create as draft PR
+#       When true, the PR is created as a draft. Useful for:
+#       - Work-in-progress changes that need review but aren't ready to merge
+#       - PRs that require additional CI checks before marking ready
+#       - Sharing progress with team before final review
+#       Example: true
+#
+#   - title (string, optional): PR title
+#       Custom PR title. If omitted, the workflow will auto-generate a title
+#       based on commit messages and task context using the pr_title_generator.
+#       Auto-generation is recommended as it produces consistent, conventional
+#       titles that align with commit message style.
+#       Example: "feat(library): add built-in workflow library"
+#
+# STEP INTENT:
+#   1. generate-title: Conditionally generate PR title if not provided by user
+#      - Uses pr_title_generator to analyze commits and create conventional title
+#      - Skipped when title input is provided
+#      - Context includes: commit messages, branch name, task summary
+#
+#   2. generate-body: Generate comprehensive PR description
+#      - Uses pr_body_generator to create markdown PR body
+#      - Includes sections: Summary, Changes, Testing
+#      - Context includes: commits, diff stats, validation results, task summary
+#
+#   3. create-pr: Execute GitHub CLI to create the pull request
+#      - Runs gh pr create with generated or provided title and body
+#      - Sets base branch and draft status based on inputs
+#      - Returns PR URL and number for downstream use
+#
+# CUSTOMIZATION POINTS:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/create_pr_with_summary.yaml (project-level, highest precedence)
+#   - ~/.config/maverick/workflows/create_pr_with_summary.yaml (user-level)
+#
+#   Override precedence: project > user > built-in
+#
+#   Common customization scenarios:
+#   - Override pr_title_generator to customize title generation logic
+#   - Override pr_body_generator to customize PR body format and sections
+#   - Extend create-pr step to add labels, reviewers, or other PR metadata
+#   - Add pre-creation validation steps to enforce PR requirements
+#   - Add post-creation notification steps to announce PR creation
+#   - Change default base branch or draft status
+#   - Integrate with custom PR templates or organization policies
+#
+# USED BY:
+#   This fragment is invoked as a sub-workflow by:
+#   - fly: Full spec-based development workflow
+#   - refuel: Tech-debt resolution workflow
+#   - quick_fix: Quick issue fix workflow
+#
+# EXAMPLE USAGE:
+#   # As a sub-workflow step (typical)
+#   - name: create-pr
+#     type: subworkflow
+#     workflow: create-pr-with-summary
+#     inputs:
+#       base_branch: main
+#       draft: false
+#
+#   # With custom title
+#   - name: create-pr
+#     type: subworkflow
+#     workflow: create-pr-with-summary
+#     inputs:
+#       title: "fix(api): handle null user in login"
+#       base_branch: develop
+#
+#   # As draft PR
+#   - name: create-pr
+#     type: subworkflow
+#     workflow: create-pr-with-summary
+#     inputs:
+#       draft: true
+#
+# OUTPUT:
+#   The fragment sets the following context variables for use by parent workflow:
+#   - pr_url: The URL of the created pull request
+#   - pr_number: The PR number (integer)
+#   - pr_title: The title used (generated or provided)
+#   - pr_body: The generated PR body content
+#
+# ==============================================================================
+
+version: "1.0"
+name: create-pr-with-summary
+description: Generate PR body and create pull request
+
+# ------------------------------------------------------------------------------
+# Input Declarations
+# ------------------------------------------------------------------------------
+inputs:
+  base_branch:
+    type: string
+    required: false
+    default: "main"
+    description: PR base branch
+
+  draft:
+    type: boolean
+    required: false
+    default: false
+    description: Create as draft PR
+
+  title:
+    type: string
+    required: false
+    description: PR title (auto-generate if omitted)
+
+# ------------------------------------------------------------------------------
+# Fragment Steps
+# ------------------------------------------------------------------------------
+steps:
+  # ============================================================================
+  # Step 1: Generate PR Title (Conditional)
+  # ============================================================================
+  # Generate a conventional commit-style PR title if the user didn't provide one.
+  #
+  # This step is CONDITIONAL - it only runs when title input is omitted or empty.
+  # The condition ${{ not inputs.title }} evaluates to:
+  # - true when title is not provided or is an empty string
+  # - false when title is explicitly set
+  #
+  # The pr_title_generator analyzes:
+  # - Commit messages from the branch
+  # - Task summary from spec artifacts
+  # - Branch name and context
+  #
+  # And produces a title following conventional commit format:
+  # - type(scope): description
+  # - Example: "feat(library): add built-in workflow library"
+  #
+  # Context builder: pr_title_context
+  # - Includes: commit messages, branch name, task summary, diff overview
+  #
+  # Output: Generated title stored in context.pr_title
+  # ============================================================================
+  - name: generate_title
+    type: branch
+    options:
+      # Only generate title if not provided
+      - when: ${{ not inputs.title }}
+        step:
+          name: generate_title_inner
+          type: generate
+          generator: pr_title_generator
+          context: pr_title_context
+
+  # ============================================================================
+  # Step 2: Generate PR Body
+  # ============================================================================
+  # Generate a comprehensive PR description in markdown format.
+  #
+  # The pr_body_generator creates a structured PR body with these sections:
+  # - Summary: High-level overview of what this PR accomplishes
+  # - Changes: Detailed list of changes, grouped logically
+  # - Testing: Validation status, test coverage, any failures
+  #
+  # The generator uses context including:
+  # - commits: List of commit messages from the branch
+  # - task_summary: Summary from task file or spec
+  # - diff_stats: File change statistics (files changed, insertions, deletions)
+  # - validation_results: Test/lint results from validation stage
+  #
+  # Context builder: pr_body_context
+  # - Includes: commit history, diff stats, validation results, task summary
+  #
+  # The generated body is formatted as markdown and ready to use directly
+  # in the PR description field.
+  #
+  # Output: Generated body stored in context.pr_body
+  # ============================================================================
+  - name: generate_body
+    type: generate
+    generator: pr_body_generator
+    context: pr_body_context
+
+  # ============================================================================
+  # Step 3: Create Pull Request
+  # ============================================================================
+  # Execute GitHub CLI to create the pull request with generated content.
+  #
+  # This step runs `gh pr create` with the following options:
+  # - --base: Target branch (from inputs.base_branch, default: main)
+  # - --title: PR title (selected via ternary: user-provided or generated)
+  # - --body: PR description (generated markdown)
+  # - --draft: Optional flag when inputs.draft is true
+  #
+  # The gh CLI command:
+  # - Creates the PR on the current branch
+  # - Returns the PR URL on success
+  # - Fails if there are conflicts or validation issues
+  #
+  # The Python action create_github_pr handles:
+  # - Writing PR body to temporary file for --body-file
+  # - Constructing the gh command with appropriate flags
+  # - Parsing the gh output to extract PR URL and number
+  # - Error handling and retry logic if needed
+  #
+  # TERNARY EXPRESSION for title selection:
+  # Uses ${{ inputs.title if inputs.title else steps.generate_title.output }}
+  # This evaluates to:
+  # - inputs.title when user provides a title (truthy string)
+  # - steps.generate_title.output when title is empty/omitted (falsy)
+  #
+  # Action: create_github_pr
+  # Arguments:
+  # - base_branch: Target branch for the PR
+  # - draft: Whether to create as draft
+  # - title: Final PR title (user-provided or generated via ternary)
+  # - generated_body: Body from generate-body step
+  #
+  # Output: PR metadata including URL and number
+  # ============================================================================
+  - name: create_pr
+    type: python
+    action: create_github_pr
+    kwargs:
+      base_branch: ${{ inputs.base_branch }}
+      draft: ${{ inputs.draft }}
+      # Ternary expression: use provided title if truthy, otherwise use generated
+      title: ${{ inputs.title if inputs.title else steps.generate_title.output }}
+      generated_body: ${{ steps.generate_body.output }}

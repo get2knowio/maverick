@@ -1,0 +1,793 @@
+/* ==========================================================================
+   get2know.io Slidev Theme
+   Aligned with the blog design system - "Moonlit Workshop" / "Golden Hour"
+   ========================================================================== */
+
+/* Import Righteous for display headlines (matching blog) */
+@import url('https://fonts.googleapis.com/css2?family=Righteous&display=swap');
+
+/* ==========================================================================
+   CSS Custom Properties (Design Tokens)
+   ========================================================================== */
+
+:root {
+  /* ========================================
+     Light Theme (Golden Hour)
+     ======================================== */
+
+  /* Background layers */
+  --g2k-bg-base: 34 33% 96%;
+  --g2k-bg-raised: 0 0% 100%;
+  --g2k-bg-sunken: 34 20% 92%;
+  --g2k-bg-elevated: 0 0% 100%;
+
+  /* Foreground / Text */
+  --g2k-fg-primary: 240 27% 14%;
+  --g2k-fg-secondary: 240 12% 32%;
+  --g2k-fg-muted: 30 6% 45%;
+
+  /* Brand colors */
+  --g2k-brass: 46 70% 47%;
+  --g2k-brass-shine: 49 75% 59%;
+  --g2k-copper: 29 55% 46%;
+  --g2k-teal: 180 49% 33%;
+  --g2k-teal-oxidized: 181 33% 50%;
+  --g2k-coral: 14 67% 63%;
+  --g2k-coral-faded: 14 78% 78%;
+
+  /* Semantic colors */
+  --g2k-success: 153 42% 30%;
+  --g2k-warning: 30 65% 44%;
+  --g2k-error: 358 65% 37%;
+  --g2k-info: 213 64% 33%;
+
+  /* Border */
+  --g2k-border: 34 13% 85%;
+  --g2k-border-hover: 34 13% 75%;
+  --g2k-border-accent: 46 70% 47%;
+
+  /* Shadows */
+  --g2k-shadow-color: 240 27% 14%;
+  --g2k-shadow-sm: 0 1px 2px hsl(var(--g2k-shadow-color) / 0.05);
+  --g2k-shadow-md: 0 4px 12px hsl(var(--g2k-shadow-color) / 0.08);
+  --g2k-shadow-lg: 0 12px 32px hsl(var(--g2k-shadow-color) / 0.12);
+  --g2k-shadow-glow: 0 0 20px hsl(var(--g2k-brass) / 0.15);
+  --g2k-shadow-teal-glow: 0 0 20px hsl(var(--g2k-teal) / 0.15);
+  --g2k-shadow-inset: inset 0 2px 4px hsl(var(--g2k-shadow-color) / 0.04);
+
+  /* Spacing & Radius */
+  --g2k-radius-sm: 0.25rem;
+  --g2k-radius-md: 0.5rem;
+  --g2k-radius-lg: 0.75rem;
+  --g2k-radius-xl: 1rem;
+
+  /* Slidev theme integration */
+  --slidev-theme-primary: hsl(var(--g2k-brass));
+  --slidev-theme-secondary: hsl(var(--g2k-teal));
+  --slidev-theme-accent: hsl(var(--g2k-coral));
+}
+
+/* ========================================
+   Dark Theme (Moonlit Workshop)
+   ======================================== */
+
+html.dark,
+.dark {
+  /* Background layers - true depth */
+  --g2k-bg-base: 220 40% 7%;
+  --g2k-bg-raised: 220 32% 11%;
+  --g2k-bg-sunken: 220 45% 4%;
+  --g2k-bg-elevated: 220 28% 15%;
+
+  /* Foreground / Text - warm, readable */
+  --g2k-fg-primary: 35 25% 92%;
+  --g2k-fg-secondary: 30 12% 68%;
+  --g2k-fg-muted: 220 10% 45%;
+
+  /* Brand colors - rich, not neon */
+  --g2k-brass: 43 55% 50%;
+  --g2k-brass-shine: 45 60% 58%;
+  --g2k-copper: 28 50% 45%;
+  --g2k-teal: 178 35% 38%;
+  --g2k-teal-oxidized: 180 30% 50%;
+  --g2k-coral: 12 65% 60%;
+  --g2k-coral-faded: 12 55% 72%;
+
+  /* Semantic colors - muted for dark */
+  --g2k-success: 150 45% 42%;
+  --g2k-warning: 35 60% 52%;
+  --g2k-error: 355 55% 50%;
+  --g2k-info: 210 55% 50%;
+
+  /* Border - subtle but defined */
+  --g2k-border: 220 25% 18%;
+  --g2k-border-hover: 220 25% 25%;
+  --g2k-border-accent: 43 55% 50%;
+
+  /* Shadows - deep, layered */
+  --g2k-shadow-color: 220 50% 2%;
+  --g2k-shadow-sm: 0 1px 3px hsl(var(--g2k-shadow-color) / 0.4);
+  --g2k-shadow-md: 0 4px 16px hsl(var(--g2k-shadow-color) / 0.5);
+  --g2k-shadow-lg: 0 12px 40px hsl(var(--g2k-shadow-color) / 0.6);
+  --g2k-shadow-glow: 0 0 20px hsl(var(--g2k-brass) / 0.15);
+  --g2k-shadow-teal-glow: 0 0 20px hsl(var(--g2k-teal) / 0.2);
+  --g2k-shadow-inset: inset 0 1px 0 hsl(0 0% 100% / 0.02), inset 0 2px 8px hsl(var(--g2k-shadow-color) / 0.4);
+}
+
+/* ==========================================================================
+   Base Slide Styles
+   ========================================================================== */
+
+.slidev-layout {
+  background-color: hsl(var(--g2k-bg-base));
+  color: hsl(var(--g2k-fg-primary));
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --uno: text-sm;
+}
+
+/* Dark mode background with subtle gradient */
+html.dark .slidev-layout {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(43, 55, 50, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 80% 60%, rgba(29, 35, 45, 0.15) 0%, transparent 50%),
+    hsl(var(--g2k-bg-base));
+}
+
+/* Light mode background */
+html:not(.dark) .slidev-layout {
+  background:
+    radial-gradient(circle at 20% 20%, hsl(var(--g2k-brass) / 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 60%, hsl(var(--g2k-teal) / 0.03) 0%, transparent 50%),
+    hsl(var(--g2k-bg-base));
+}
+
+/* ==========================================================================
+   Typography
+   ========================================================================== */
+
+/* Display headings - Righteous font with brass gradient */
+.slidev-layout h1 {
+  --uno: text-3xl mb-2;
+  font-family: 'Righteous', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg,
+    hsl(var(--g2k-brass)) 0%,
+    hsl(var(--g2k-brass-shine)) 50%,
+    hsl(var(--g2k-brass)) 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: g2k-gradient-shift 4s ease infinite;
+}
+
+/* Light mode - darker brass for better contrast */
+html:not(.dark) .slidev-layout h1 {
+  background: linear-gradient(135deg,
+    hsl(38 70% 35%) 0%,
+    hsl(38 80% 45%) 50%,
+    hsl(38 70% 35%) 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes g2k-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.slidev-layout h2 {
+  --uno: text-xl font-semibold;
+  font-family: 'Lexend', var(--slidev-font-sans, sans-serif);
+  color: hsl(var(--g2k-fg-primary));
+  letter-spacing: -0.01em;
+}
+
+.slidev-layout h3 {
+  --uno: text-base font-semibold;
+  color: hsl(var(--g2k-brass));
+}
+
+/* Card titles - make them stand out */
+.slidev-layout .feature-card h3,
+.slidev-layout .p-6 h3,
+.slidev-layout .p-4 h3 {
+  color: hsl(var(--g2k-fg-primary));
+  font-weight: 600;
+}
+
+/* Body text */
+.slidev-layout p {
+  --uno: text-sm leading-relaxed my-1;
+  color: hsl(var(--g2k-fg-secondary));
+}
+
+/* ==========================================================================
+   Cards & Surfaces (Workshop Tactile Feel)
+   ========================================================================== */
+
+.g2k-surface {
+  background-color: hsl(var(--g2k-bg-raised));
+  border: 1.5px solid hsl(var(--g2k-border));
+  border-radius: var(--g2k-radius-lg);
+  box-shadow: var(--g2k-shadow-md), var(--g2k-shadow-inset);
+  transition: all 0.3s ease;
+}
+
+.g2k-surface:hover {
+  border-color: hsl(var(--g2k-brass) / 0.4);
+  box-shadow: var(--g2k-shadow-lg);
+  transform: translateY(-2px);
+}
+
+/* Feature cards */
+.feature-card {
+  --uno: p-3 rounded-lg transition-all;
+  background-color: hsl(var(--g2k-bg-raised));
+  border: 1.5px solid hsl(var(--g2k-border));
+  box-shadow: var(--g2k-shadow-sm), var(--g2k-shadow-inset);
+}
+
+.feature-card:hover {
+  border-color: hsl(var(--g2k-teal) / 0.5);
+  box-shadow: var(--g2k-shadow-md), var(--g2k-shadow-teal-glow);
+}
+
+/* Architecture boxes */
+.arch-box {
+  --uno: p-2 rounded-lg text-center font-semibold text-xs;
+  border: 2px solid;
+  box-shadow: var(--g2k-shadow-sm);
+}
+
+.arch-box.cli {
+  background-color: hsl(var(--g2k-brass) / 0.15);
+  border-color: hsl(var(--g2k-brass));
+  color: hsl(var(--g2k-brass));
+}
+
+.arch-box.workflow {
+  background-color: hsl(var(--g2k-teal) / 0.15);
+  border-color: hsl(var(--g2k-teal));
+  color: hsl(var(--g2k-teal));
+}
+
+.arch-box.agent {
+  background-color: hsl(var(--g2k-coral) / 0.15);
+  border-color: hsl(var(--g2k-coral));
+  color: hsl(var(--g2k-coral));
+}
+
+.arch-box.tool {
+  background-color: hsl(var(--g2k-success) / 0.15);
+  border-color: hsl(var(--g2k-success));
+  color: hsl(var(--g2k-success));
+}
+
+/* ==========================================================================
+   Badges & Tags
+   ========================================================================== */
+
+/* Agent badges */
+.agent-badge {
+  --uno: px-2 py-0.5 rounded-sm text-xs font-medium;
+  border: 1px solid;
+}
+
+.agent-badge.implementer {
+  background-color: hsl(var(--g2k-teal) / 0.1);
+  border-color: hsl(var(--g2k-teal) / 0.3);
+  color: hsl(var(--g2k-teal));
+}
+
+.agent-badge.reviewer {
+  background-color: hsl(var(--g2k-coral) / 0.1);
+  border-color: hsl(var(--g2k-coral) / 0.3);
+  color: hsl(var(--g2k-coral));
+}
+
+.agent-badge.fixer {
+  background-color: hsl(var(--g2k-brass) / 0.1);
+  border-color: hsl(var(--g2k-brass) / 0.3);
+  color: hsl(var(--g2k-brass));
+}
+
+.agent-badge.generator {
+  background-color: hsl(var(--g2k-success) / 0.1);
+  border-color: hsl(var(--g2k-success) / 0.3);
+  color: hsl(var(--g2k-success));
+}
+
+/* Title slide tagline pill */
+.g2k-tagline-pill {
+  --uno: px-4 py-2 rounded-full text-sm font-medium;
+  background-color: hsl(var(--g2k-teal) / 0.15);
+  border: 1.5px solid hsl(var(--g2k-teal) / 0.4);
+  color: hsl(var(--g2k-teal));
+}
+
+html:not(.dark) .g2k-tagline-pill {
+  background-color: hsl(var(--g2k-teal) / 0.1);
+  color: hsl(180 49% 28%);
+}
+
+/* ==========================================================================
+   Stage Indicators (Workflow Progress)
+   ========================================================================== */
+
+.stage {
+  --uno: flex items-center gap-1 px-2 py-1 rounded-lg text-xs;
+  border: 1px solid transparent;
+}
+
+.stage.pending {
+  background-color: hsl(var(--g2k-bg-sunken));
+  color: hsl(var(--g2k-fg-muted));
+  border-color: hsl(var(--g2k-border));
+}
+
+.stage.active {
+  background-color: hsl(var(--g2k-brass) / 0.15);
+  color: hsl(var(--g2k-brass));
+  border-color: hsl(var(--g2k-brass) / 0.5);
+  animation: g2k-pulse 2s ease-in-out infinite;
+}
+
+.stage.complete {
+  background-color: hsl(var(--g2k-success) / 0.15);
+  color: hsl(var(--g2k-success));
+}
+
+.stage.failed {
+  background-color: hsl(var(--g2k-error) / 0.15);
+  color: hsl(var(--g2k-error));
+}
+
+@keyframes g2k-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--g2k-brass) / 0.3); }
+  50% { box-shadow: 0 0 0 4px hsl(var(--g2k-brass) / 0); }
+}
+
+/* ==========================================================================
+   Status Indicators
+   ========================================================================== */
+
+.status-success { color: hsl(var(--g2k-success)); }
+.status-warning { color: hsl(var(--g2k-warning)); }
+.status-error { color: hsl(var(--g2k-error)); }
+.status-info { color: hsl(var(--g2k-info)); }
+
+/* ==========================================================================
+   Terminal / Code Blocks
+   ========================================================================== */
+
+.terminal {
+  --uno: font-mono text-xs rounded-xl overflow-hidden;
+  background-color: hsl(var(--g2k-bg-sunken));
+  border: 1.5px solid hsl(var(--g2k-border));
+  box-shadow: var(--g2k-shadow-inset);
+}
+
+.terminal-header {
+  --uno: flex items-center gap-2 px-3 py-2;
+  background-color: hsl(var(--g2k-bg-raised));
+  border-bottom: 1px solid hsl(var(--g2k-border));
+}
+
+.terminal-dot {
+  --uno: w-3 h-3 rounded-full;
+}
+.terminal-dot.red { background-color: hsl(var(--g2k-error)); }
+.terminal-dot.yellow { background-color: hsl(var(--g2k-brass)); }
+.terminal-dot.green { background-color: hsl(var(--g2k-success)); }
+
+.terminal-body {
+  --uno: p-3;
+}
+
+.terminal .prompt {
+  color: hsl(var(--g2k-success));
+}
+
+.terminal .command {
+  color: hsl(var(--g2k-fg-primary));
+}
+
+.terminal .output {
+  color: hsl(var(--g2k-fg-muted));
+}
+
+/* Inline code styling */
+.slidev-layout code:not(pre code) {
+  background-color: hsl(var(--g2k-bg-sunken));
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  color: hsl(var(--g2k-coral));
+  border: 1px solid hsl(var(--g2k-border));
+}
+
+html:not(.dark) .slidev-layout code:not(pre code) {
+  background-color: hsl(var(--g2k-bg-sunken));
+  color: hsl(14 70% 45%);
+}
+
+/* Code block styling */
+.slidev-code-wrapper {
+  --uno: rounded-xl overflow-hidden;
+  border: 1.5px solid hsl(var(--g2k-border));
+  box-shadow: var(--g2k-shadow-md), var(--g2k-shadow-inset);
+}
+
+.slidev-code-wrapper pre {
+  --uno: text-xs leading-snug py-3 px-4;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: hsl(var(--g2k-bg-sunken)) !important;
+}
+
+/* Code block header (filename) */
+.slidev-code-wrapper .slidev-code-filename {
+  background-color: hsl(var(--g2k-bg-raised));
+  border-bottom: 1px solid hsl(var(--g2k-border));
+  color: hsl(var(--g2k-fg-muted));
+  font-size: 0.75rem;
+  padding: 0.5rem 1rem;
+}
+
+/* Highlighted lines in code */
+.slidev-code-wrapper .line.highlighted {
+  background-color: hsl(var(--g2k-brass) / 0.1);
+  border-left: 2px solid hsl(var(--g2k-brass));
+}
+
+/* ==========================================================================
+   Principle Cards
+   ========================================================================== */
+
+.principle-card {
+  --uno: p-2 rounded-lg text-xs;
+  background: linear-gradient(135deg, hsl(var(--g2k-bg-raised)) 0%, hsl(var(--g2k-bg-elevated)) 100%);
+  border-left: 4px solid hsl(var(--g2k-brass));
+  box-shadow: var(--g2k-shadow-sm);
+}
+
+.principle-card.teal {
+  border-left-color: hsl(var(--g2k-teal));
+}
+
+.principle-card.coral {
+  border-left-color: hsl(var(--g2k-coral));
+}
+
+/* ==========================================================================
+   Lists
+   ========================================================================== */
+
+.slidev-layout ul,
+.slidev-layout ol {
+  --uno: my-2 space-y-2;
+}
+
+.slidev-layout li {
+  --uno: text-sm leading-relaxed;
+  color: hsl(var(--g2k-fg-secondary));
+  padding-left: 0.25rem;
+}
+
+.slidev-layout li::marker {
+  color: hsl(var(--g2k-brass));
+}
+
+/* Nested lists */
+.slidev-layout li ul,
+.slidev-layout li ol {
+  --uno: mt-1 space-y-1;
+}
+
+/* Checkmark lists (✓ items) */
+.slidev-layout li:has(> :first-child:is(:empty))::before {
+  color: hsl(var(--g2k-success));
+}
+
+/* Strong text in lists */
+.slidev-layout li strong {
+  color: hsl(var(--g2k-fg-primary));
+  font-weight: 600;
+}
+
+/* Code in lists */
+.slidev-layout li code {
+  background-color: hsl(var(--g2k-bg-sunken));
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: hsl(var(--g2k-coral));
+}
+
+/* ==========================================================================
+   Layout Overrides
+   ========================================================================== */
+
+/* Content overflow fixes */
+.slidev-layout {
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.slidev-layout:not(.cover) {
+  overflow: hidden;
+}
+
+.slidev-layout.cover {
+  overflow: visible !important;
+}
+
+/* Compact spacing */
+.slidev-layout .mt-8 { --uno: mt-3; }
+.slidev-layout .mt-6 { --uno: mt-2; }
+.slidev-layout .mt-4 { --uno: mt-1; }
+.slidev-layout .mb-6 { --uno: mb-2; }
+.slidev-layout .mb-4 { --uno: mb-1; }
+.slidev-layout .gap-6 { --uno: gap-3; }
+.slidev-layout .gap-4 { --uno: gap-2; }
+.slidev-layout .space-y-4 { --uno: space-y-2; }
+.slidev-layout .p-6 { --uno: p-3; }
+.slidev-layout .p-4 { --uno: p-2; }
+
+/* Grid layouts */
+.grid.grid-cols-2 { --uno: gap-3; }
+.grid.grid-cols-3 { --uno: gap-2; }
+.grid.grid-cols-4 { --uno: gap-2; }
+
+/* ==========================================================================
+   Cover Slide Styling
+   ========================================================================== */
+
+.slidev-layout.cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.slidev-layout.cover h1 {
+  --uno: text-6xl mb-6;
+  font-family: 'Righteous', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-shadow: 0 4px 32px hsl(var(--g2k-brass) / 0.3);
+}
+
+.slidev-layout.cover h2 {
+  --uno: text-2xl font-normal mb-8;
+  font-family: 'Lexend', var(--slidev-font-sans, sans-serif);
+  color: hsl(var(--g2k-fg-secondary));
+  letter-spacing: -0.01em;
+}
+
+/* Cover slide decorative accent line */
+.slidev-layout.cover::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -250%);
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    hsl(var(--g2k-brass)) 20%,
+    hsl(var(--g2k-teal)) 80%,
+    transparent 100%);
+  border-radius: 2px;
+  opacity: 0.6;
+}
+
+/* ==========================================================================
+   Mermaid Diagrams
+   ========================================================================== */
+
+.mermaid {
+  --uno: scale-75 origin-top;
+  margin-bottom: -1rem;
+}
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+
+.slide-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* Floating animation for decorative elements */
+@keyframes g2k-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.g2k-float {
+  animation: g2k-float 3s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   Utility Classes
+   ========================================================================== */
+
+/* Brass accent */
+.text-brass { color: hsl(var(--g2k-brass)); }
+.bg-brass { background-color: hsl(var(--g2k-brass)); }
+.border-brass { border-color: hsl(var(--g2k-brass)); }
+
+/* Teal accent */
+.text-teal { color: hsl(var(--g2k-teal)); }
+.bg-teal { background-color: hsl(var(--g2k-teal)); }
+.border-teal { border-color: hsl(var(--g2k-teal)); }
+
+/* Coral accent */
+.text-coral { color: hsl(var(--g2k-coral)); }
+.bg-coral { background-color: hsl(var(--g2k-coral)); }
+.border-coral { border-color: hsl(var(--g2k-coral)); }
+
+/* Surface utilities */
+.bg-base { background-color: hsl(var(--g2k-bg-base)); }
+.bg-raised { background-color: hsl(var(--g2k-bg-raised)); }
+.bg-sunken { background-color: hsl(var(--g2k-bg-sunken)); }
+
+/* Text utilities */
+.text-primary { color: hsl(var(--g2k-fg-primary)); }
+.text-secondary { color: hsl(var(--g2k-fg-secondary)); }
+.text-muted { color: hsl(var(--g2k-fg-muted)); }
+
+/* ==========================================================================
+   Enhanced Card & Callout Styling
+   ========================================================================== */
+
+/* Callout boxes - convert purple/indigo to g2k palette */
+.slidev-layout .bg-indigo-900\/20,
+.slidev-layout [class*="bg-indigo"] {
+  background-color: hsl(var(--g2k-teal) / 0.12) !important;
+}
+
+.slidev-layout .border-indigo-500,
+.slidev-layout [class*="border-indigo"] {
+  border-color: hsl(var(--g2k-teal) / 0.5) !important;
+}
+
+.slidev-layout .text-indigo-300,
+.slidev-layout [class*="text-indigo"] {
+  color: hsl(var(--g2k-teal)) !important;
+}
+
+/* Purple variants to coral */
+.slidev-layout .bg-purple-900\/20,
+.slidev-layout .bg-purple-500\/20 {
+  background-color: hsl(var(--g2k-coral) / 0.12) !important;
+}
+
+.slidev-layout .border-purple-500,
+.slidev-layout .border-purple-700 {
+  border-color: hsl(var(--g2k-coral) / 0.5) !important;
+}
+
+.slidev-layout .text-purple-300,
+.slidev-layout .text-purple-400 {
+  color: hsl(var(--g2k-coral)) !important;
+}
+
+/* Cyan variants to teal */
+.slidev-layout .bg-cyan-500\/20 {
+  background-color: hsl(var(--g2k-teal) / 0.15) !important;
+}
+
+.slidev-layout .border-cyan-500 {
+  border-color: hsl(var(--g2k-teal)) !important;
+}
+
+.slidev-layout .text-cyan-300,
+.slidev-layout .text-cyan-400 {
+  color: hsl(var(--g2k-teal-oxidized)) !important;
+}
+
+/* Amber/Yellow variants to brass */
+.slidev-layout .bg-amber-500\/20,
+.slidev-layout .bg-yellow-900\/20 {
+  background-color: hsl(var(--g2k-brass) / 0.12) !important;
+}
+
+.slidev-layout .border-amber-500,
+.slidev-layout .border-yellow-700 {
+  border-color: hsl(var(--g2k-brass) / 0.5) !important;
+}
+
+.slidev-layout .text-amber-300,
+.slidev-layout .text-yellow-400 {
+  color: hsl(var(--g2k-brass)) !important;
+}
+
+/* Enhanced card hover effects */
+.slidev-layout .rounded-lg[class*="border"]:hover,
+.slidev-layout .rounded-xl[class*="border"]:hover {
+  border-color: hsl(var(--g2k-brass) / 0.4);
+  box-shadow: 0 8px 24px hsl(var(--g2k-shadow-color) / 0.15),
+              0 0 0 1px hsl(var(--g2k-brass) / 0.1);
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+/* Border-l cards (principle cards style) */
+.slidev-layout [class*="border-l-4"],
+.slidev-layout [class*="border-l-2"] {
+  border-left-color: hsl(var(--g2k-brass)) !important;
+  background: linear-gradient(135deg,
+    hsl(var(--g2k-bg-raised)) 0%,
+    hsl(var(--g2k-bg-elevated)) 100%);
+  box-shadow: var(--g2k-shadow-sm);
+}
+
+/* ==========================================================================
+   Theme-Aware Slate Overrides
+   Handle inline slate-800 classes from slide markdown
+   ========================================================================== */
+
+/* In light mode, override dark slate backgrounds */
+html:not(.dark) .bg-slate-800\/50,
+html:not(.dark) .bg-slate-800 {
+  background-color: hsl(var(--g2k-bg-raised)) !important;
+}
+
+html:not(.dark) .border-slate-700 {
+  border-color: hsl(var(--g2k-border)) !important;
+}
+
+html:not(.dark) .text-slate-300,
+html:not(.dark) .text-slate-400 {
+  color: hsl(var(--g2k-fg-secondary)) !important;
+}
+
+html:not(.dark) .text-white {
+  color: hsl(var(--g2k-fg-primary)) !important;
+}
+
+/* Dark mode keeps slate colors but aligns with g2k */
+html.dark .bg-slate-800\/50 {
+  background-color: hsl(var(--g2k-bg-raised) / 0.7) !important;
+}
+
+html.dark .border-slate-700 {
+  border-color: hsl(var(--g2k-border)) !important;
+}
+
+/* ==========================================================================
+   Navigation Controls Theme
+   ========================================================================== */
+
+/* Style Slidev's built-in controls to match g2k theme */
+.slidev-nav button {
+  color: hsl(var(--g2k-fg-secondary)) !important;
+  transition: color 0.2s ease;
+}
+
+.slidev-nav button:hover {
+  color: hsl(var(--g2k-brass)) !important;
+}
+
+/* Progress bar */
+.slidev-progress {
+  background-color: hsl(var(--g2k-border)) !important;
+}
+
+.slidev-progress > div {
+  background: linear-gradient(90deg, hsl(var(--g2k-brass)), hsl(var(--g2k-teal))) !important;
+}

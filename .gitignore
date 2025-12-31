@@ -1,0 +1,39 @@
+# Node.js
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+.coverage.*
+coverage.xml
+results.xml
+*.egg
+.eggs/
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project-specific
+*.log
+*.tmp
+.claude/settings.local.json
+.codex/auth.json
+*.jsonl

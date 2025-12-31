@@ -1,0 +1,32 @@
+{
+  "name": "maverick",
+  "description": "AI-powered development workflow automation - orchestrates multi-phase workflows including feature implementation, code review, convention updates, and PR management",
+  "version": "1.0.0",
+  "author": {
+    "name": "g2k"
+  },
+  "repository": "https://github.com/get2knowio/maverick",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "automation",
+    "code-review",
+    "pull-request",
+    "ci-cd",
+    "subagents",
+    "speckit"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/maverick/plugins/maverick/scripts/auto-approve-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

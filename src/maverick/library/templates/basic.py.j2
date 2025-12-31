@@ -1,0 +1,52 @@
+"""Workflow: {{ name }}
+
+Generated: {{ date }}
+{% if description %}Description: {{ description }}{% endif %}
+{% if author %}Author: {{ author }}{% endif %}
+"""
+from __future__ import annotations
+
+from maverick.dsl import step, workflow
+
+
+@workflow(name="{{ name }}")
+def {{ name.replace('-', '_') }}_workflow(example_input: str):
+    """{{ description if description else 'Basic workflow' }}.
+
+    Args:
+        example_input: Example input parameter.
+    """
+    # Step 1: Initialize
+    init_result = yield step("init").python(
+        action=example_init_action,
+        kwargs={"input_value": example_input},
+    )
+
+    # Step 2: Main processing
+    main_result = yield step("main").python(
+        action=example_main_action,
+        kwargs={"init_result": init_result},
+    )
+
+    # Step 3: Cleanup
+    cleanup_result = yield step("cleanup").python(
+        action=example_cleanup_action,
+        kwargs={"main_result": main_result},
+    )
+
+    return cleanup_result
+
+
+def example_init_action(input_value: str):
+    """Initialize workflow."""
+    return {"initialized": True, "input": input_value}
+
+
+def example_main_action(init_result: dict):
+    """Execute main logic."""
+    return f"Processed: {init_result['input']}"
+
+
+def example_cleanup_action(main_result: str):
+    """Clean up resources."""
+    return {"success": True, "result": main_result}

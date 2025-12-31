@@ -1,0 +1,171 @@
+"""Action registry for Python callables (T025-T031).
+
+This module provides the ActionRegistry for managing Python callables (actions)
+that can be referenced by name in workflow definitions.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from maverick.dsl.errors import (
+    DuplicateComponentError,
+    ReferenceResolutionError,
+)
+from maverick.dsl.serialization.registry.protocol import ActionType
+from maverick.dsl.serialization.registry.validation import validate_callable
+
+
+class ActionRegistry:
+    """Registry for Python callables (actions).
+
+    Actions are Python functions or callables that can be referenced by name
+    in workflow definitions. They are used in PythonStep definitions.
+
+    Attributes:
+        _actions: Internal dictionary mapping action names to callables.
+
+    Example:
+        ```python
+        # Using decorator registration
+        @action_registry.register("validate_files")
+        def validate_files(path: str) -> bool:
+            return Path(path).exists()
+
+        # Using explicit registration
+        action_registry.register("cleanup", cleanup_function)
+
+        # Looking up an action
+        action = action_registry.get("validate_files")
+
+        # Listing all registered actions
+        names = action_registry.list_names()
+        ```
+    """
+
+    def __init__(self) -> None:
+        """Initialize an empty registry."""
+        self._actions: dict[str, ActionType] = {}
+
+    def register(
+        self,
+        name: str,
+        component: ActionType | None = None,
+    ) -> ActionType | Callable[[ActionType], ActionType]:
+        """Register an action callable.
+
+        Can be used as a decorator or called directly. When used as a decorator,
+        the name is passed and the callable is provided later. When called directly,
+        both name and callable must be provided.
+
+        Args:
+            name: Unique name for the action.
+            component: Action callable to register (None when used as decorator).
+
+        Returns:
+            The registered callable when called directly, or a decorator function
+            when used as a decorator.
+
+        Raises:
+            ReferenceResolutionError: If an action with this name is already registered.
+
+        Example:
+            ```python
+            # As a decorator
+            @registry.register("my_action")
+            def my_action(x: int) -> int:
+                return x * 2
+
+            # Direct registration
+            registry.register("my_action", my_action_func)
+            ```
+        """
+        if component is None:
+            # Used as a decorator: @registry.register("name")
+            def decorator(action: ActionType) -> ActionType:
+                self._register_impl(name, action)
+                return action
+
+            return decorator
+        else:
+            # Direct call: registry.register("name", callable)
+            self._register_impl(name, component)
+            return component
+
+    def _register_impl(self, name: str, component: ActionType) -> None:
+        """Internal implementation of registration logic.
+
+        Args:
+            name: Unique name for the action.
+            component: Action callable to register.
+
+        Raises:
+            DuplicateComponentError: If an action with this name is already registered.
+            TypeError: If component is not callable.
+        """
+        # Validate that action is callable
+        validate_callable(component, name)
+
+        if name in self._actions:
+            raise DuplicateComponentError(
+                component_type="action",
+                component_name=name,
+            )
+        self._actions[name] = component
+
+    def get(self, name: str) -> ActionType:
+        """Look up an action by name.
+
+        Args:
+            name: Name of the action to look up.
+
+        Returns:
+            The action callable associated with the name.
+
+        Raises:
+            ReferenceResolutionError: If no action is registered with this name.
+
+        Example:
+            ```python
+            action = registry.get("validate_files")
+            result = action("/path/to/file")
+            ```
+        """
+        if name not in self._actions:
+            raise ReferenceResolutionError(
+                reference_type="action",
+                reference_name=name,
+                available_names=list(self._actions.keys()),
+            )
+        return self._actions[name]
+
+    def list_names(self) -> list[str]:
+        """List all registered action names.
+
+        Returns:
+            Sorted list of registered action names.
+
+        Example:
+            ```python
+            names = registry.list_names()
+            # ['cleanup', 'validate_files', ...]
+            ```
+        """
+        return sorted(self._actions.keys())
+
+    def has(self, name: str) -> bool:
+        """Check if an action is registered.
+
+        Args:
+            name: Name of the action to check.
+
+        Returns:
+            True if the action is registered, False otherwise.
+
+        Example:
+            ```python
+            if registry.has("validate_files"):
+                action = registry.get("validate_files")
+            ```
+        """
+        return name in self._actions

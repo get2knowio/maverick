@@ -1,0 +1,17 @@
+{
+  "name": "maverick-plugins",
+  "description": "AI-powered development workflow automation plugin for Claude Code",
+  "version": "1.0.0",
+  "author": {
+    "name": "g2k"
+  },
+  "repository": "https://github.com/get2knowio/maverick",
+  "license": "MIT",
+  "keywords": [
+    "marketplace",
+    "workflow",
+    "automation",
+    "code-review",
+    "tech-debt"
+  ]
+}

@@ -1,0 +1,166 @@
+"""CLI entry point for Maverick.
+
+This module defines the Click-based command-line interface for Maverick.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import click
+
+from maverick import __version__
+from maverick.cli.commands.config import config
+from maverick.cli.commands.fly import fly
+from maverick.cli.commands.init import init
+from maverick.cli.commands.review import review
+from maverick.cli.commands.status import status
+from maverick.cli.commands.uninstall import uninstall
+from maverick.cli.commands.workflow import workflow
+from maverick.cli.context import CLIContext, ExitCode
+from maverick.cli.output import format_error
+from maverick.cli.validators import check_dependencies
+from maverick.config import load_config
+from maverick.exceptions import ConfigError
+
+
+@click.group(invoke_without_command=True)
+@click.version_option(version=__version__, prog_name="maverick")
+@click.option(
+    "-c",
+    "--config",
+    "config_file",
+    type=click.Path(exists=False, path_type=str),
+    default=None,
+    help="Path to config file (overrides project/user config).",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity (-v for INFO, -vv for DEBUG, -vvv for DEBUG+trace).",
+)
+@click.option(
+    "-q",
+    "--quiet",
+    is_flag=True,
+    default=False,
+    help="Suppress non-essential output (ERROR level only).",
+)
+@click.option(
+    "--no-tui",
+    is_flag=True,
+    default=False,
+    help="Disable TUI mode (headless operation).",
+)
+@click.pass_context
+def cli(
+    ctx: click.Context,
+    config_file: str | None,
+    verbose: int,
+    quiet: bool,
+    no_tui: bool,
+) -> None:
+    """Maverick - AI-powered development workflow orchestration."""
+    # Ensure ctx.obj exists for subcommands
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+    ctx.obj["quiet"] = quiet
+    ctx.obj["no_tui"] = no_tui
+
+    # Load configuration first (before logging setup)
+    try:
+        # If --config specified, load from that path
+        config_path = Path(config_file) if config_file else None
+        config = load_config(config_path)
+        ctx.obj["config"] = config
+    except ConfigError as e:
+        # Can't use logging yet, just output error
+        error_parts = [f"Error: {e.message}"]
+        if e.field:
+            error_parts.append(f"  Field: {e.field}")
+        if e.value is not None:
+            error_parts.append(f"  Value: {e.value}")
+        error_msg = "\n".join(error_parts)
+        click.echo(error_msg, err=True)
+        ctx.exit(1)
+
+    # Create CLIContext and store in Click context
+    cli_ctx = CLIContext(
+        config=config,
+        config_path=Path(config_file) if config_file else None,
+        verbosity=verbose,
+        quiet=quiet,
+        no_tui=no_tui,
+    )
+    ctx.obj["cli_ctx"] = cli_ctx
+
+    # Determine logging level with precedence rules
+    # Priority: quiet > verbose > config
+    verbosity_map = {
+        "error": logging.ERROR,
+        "warning": logging.WARNING,
+        "info": logging.INFO,
+        "debug": logging.DEBUG,
+    }
+
+    if quiet:
+        # Quiet takes precedence - ERROR level only (40)
+        level = logging.ERROR
+    elif verbose > 0:
+        # CLI verbose flag takes precedence over config
+        # 0: WARNING (30) - default
+        # 1 (-v): INFO (20)
+        # 2+ (-vv, -vvv): DEBUG (10)
+        level = logging.INFO if verbose == 1 else logging.DEBUG
+    else:
+        # Use config file setting
+        level = verbosity_map.get(config.verbosity, logging.WARNING)
+
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s: %(message)s",
+        force=True,  # Reconfigure if already configured
+    )
+
+    # FR-013: Validate required dependencies at startup
+    # Only validate when a command is being invoked (not for --help/--version)
+    if ctx.invoked_subcommand is not None:
+        # Define which commands need which dependencies
+        commands_needing_git_gh = {"fly", "review", "status"}
+
+        if ctx.invoked_subcommand in commands_needing_git_gh:
+            # Check for git and gh CLI tools
+            dep_statuses = check_dependencies(["git", "gh"])
+
+            # Report any missing dependencies
+            missing_deps = [dep for dep in dep_statuses if not dep.available]
+            if missing_deps:
+                for dep in missing_deps:
+                    suggestion = (
+                        f"Install from {dep.install_url}" if dep.install_url else None
+                    )
+                    error_msg = format_error(
+                        dep.error or f"{dep.name} is not available",
+                        suggestion=suggestion,
+                    )
+                    click.echo(error_msg, err=True)
+                ctx.exit(ExitCode.FAILURE)
+
+    # If no command is given, show help
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+# Register commands
+cli.add_command(fly)
+cli.add_command(review)
+cli.add_command(config)
+cli.add_command(workflow)
+cli.add_command(status)
+cli.add_command(init)
+cli.add_command(uninstall)
+
+if __name__ == "__main__":
+    cli()

@@ -1,0 +1,319 @@
+# =============================================================================
+# Workflow: {{ name }}
+# =============================================================================
+#
+# Generated: {{ date }}
+{% if description %}# Description: {{ description }}{% endif %}
+{% if author %}# Author: {{ author }}{% endif %}
+#
+# PURPOSE:
+#   Complete workflow template demonstrating setup, agent-based implementation,
+#   validation with automatic fixes, code review, and pull request creation.
+#
+# WORKFLOW STEPS:
+#   1. Setup: Initialize workspace and prepare for implementation
+#   2. Implement: Use agent to implement changes
+#   3. Validate: Run validation stages with automatic fix retry loop
+#   4. Review: Perform automated code review
+#   5. Create PR: Generate PR body and create pull request
+#
+# INPUTS:
+#   - task_file (string, optional, default: "tasks.md")
+#     Path to the task file containing implementation instructions.
+#     Example: "specs/025-feature/tasks.md"
+#
+#   - skip_review (boolean, optional, default: false)
+#     Skip the code review stage. Set to true for small changes or
+#     documentation updates where review is not needed.
+#
+#   - dry_run (boolean, optional, default: false)
+#     Preview workflow actions without executing them. Logs all planned
+#     operations instead of making actual changes.
+#
+# CUSTOMIZATION:
+#   - Replace agent names with your custom agents
+#   - Modify validation stages in the validate step
+#   - Add additional workflow steps as needed
+#   - Customize subworkflow references to match your setup
+#   - Override fragments for common patterns
+#
+# EXAMPLE USAGE:
+#   # Basic usage with default task file
+#   maverick fly {{ name }} -i task_file="tasks.md"
+#
+#   # Skip code review for documentation changes
+#   maverick fly {{ name }} -i task_file="docs/tasks.md" -i skip_review=true
+#
+#   # Dry run to preview actions
+#   maverick fly {{ name }} -i task_file="tasks.md" -i dry_run=true
+#
+# =============================================================================
+
+version: "1.0"
+name: {{ name }}
+description: {{ description if description else 'Complete workflow with validation, review, and PR creation' }}
+
+# ------------------------------------------------------------------------------
+# Input Declarations
+# ------------------------------------------------------------------------------
+inputs:
+  task_file:
+    type: string
+    required: false
+    default: "tasks.md"
+    description: |
+      Path to task file containing implementation instructions.
+      Can be relative to project root or absolute path.
+
+  skip_review:
+    type: boolean
+    required: false
+    default: false
+    description: Skip code review stage
+
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: |
+      When true, log planned operations without executing them.
+      Useful for previewing workflow actions before running.
+
+      In dry-run mode:
+      - Setup is logged but not executed
+      - Implementation is skipped
+      - Validation is skipped
+      - No code review is performed
+      - No PR is created
+
+      Use this to preview what the workflow would do without making changes.
+
+# ------------------------------------------------------------------------------
+# Workflow Steps
+# ------------------------------------------------------------------------------
+steps:
+  # ============================================================================
+  # Stage 1: Setup Workflow
+  # ============================================================================
+  # Initialize the workflow and prepare the workspace.
+  #
+  # This step:
+  # - Validates the task file exists
+  # - Checks out or creates the feature branch
+  # - Syncs with base branch
+  # - Prepares any necessary resources
+  #
+  # Output: Setup result with task_file path and workspace state
+  # ============================================================================
+  - name: setup
+    type: python
+    action: setup_workflow
+    when: {% raw %}${{ not inputs.dry_run }}{% endraw %}
+    kwargs:
+      task_file: {% raw %}${{ inputs.task_file }}{% endraw %}
+    metadata:
+      progress:
+        stage: "setup"
+        weight: 5
+
+  - name: setup_dry_run
+    type: python
+    action: log_dry_run
+    when: {% raw %}${{ inputs.dry_run }}{% endraw %}
+    kwargs:
+      operation: "setup_workflow"
+      details: "Would initialize workspace with task file {% raw %}${{ inputs.task_file }}{% endraw %}"
+    metadata:
+      progress:
+        stage: "setup"
+        weight: 5
+
+  # ============================================================================
+  # Stage 2: Implementation
+  # ============================================================================
+  # Execute implementation using the implementer agent.
+  #
+  # The implementer agent:
+  # - Reads tasks from the task file
+  # - Implements each task according to specifications
+  # - Has access to file read/write operations
+  # - Can execute git operations
+  #
+  # Context includes:
+  # - Task file contents
+  # - Project context from spec directory
+  # - Current branch information
+  #
+  # Output: Implementation results with completed tasks
+  # ============================================================================
+  - name: implement
+    type: agent
+    agent: implementer
+    when: {% raw %}${{ not inputs.dry_run }}{% endraw %}
+    context:
+      task_file: {% raw %}${{ inputs.task_file }}{% endraw %}
+    metadata:
+      progress:
+        stage: "implementation"
+        weight: 40
+
+  - name: implement_dry_run
+    type: python
+    action: log_dry_run
+    when: {% raw %}${{ inputs.dry_run }}{% endraw %}
+    kwargs:
+      operation: "implement_tasks"
+      details: "Would execute implementation tasks from {% raw %}${{ inputs.task_file }}{% endraw %}"
+    metadata:
+      progress:
+        stage: "implementation"
+        weight: 40
+
+  # ============================================================================
+  # Stage 3: Validation with Automatic Fixes
+  # ============================================================================
+  # Run validation stages with automatic fix retry loop.
+  #
+  # This invokes the validate-and-fix subworkflow, which:
+  # - Runs format, lint, typecheck, and test stages
+  # - If validation fails, invokes fixer agent to resolve issues
+  # - Retries validation after fixes
+  # - Repeats up to max_attempts times or until validation passes
+  #
+  # The validation stages ensure:
+  # - Code is properly formatted
+  # - No linting errors exist
+  # - Type checking passes
+  # - All tests pass
+  #
+  # Output: Validation result with pass/fail status and fix attempts
+  # ============================================================================
+  - name: validate
+    type: subworkflow
+    workflow: validate-and-fix
+    when: {% raw %}${{ not inputs.dry_run }}{% endraw %}
+    inputs:
+      stages:
+        - format
+        - lint
+        - typecheck
+        - test
+      max_attempts: 3
+      fixer_agent: validation_fixer
+    metadata:
+      progress:
+        stage: "validation"
+        weight: 25
+
+  - name: validate_dry_run
+    type: python
+    action: log_dry_run
+    when: {% raw %}${{ inputs.dry_run }}{% endraw %}
+    kwargs:
+      operation: "validate_and_fix"
+      details: "Would run validation stages: format, lint, typecheck, test (max 3 fix attempts)"
+    metadata:
+      progress:
+        stage: "validation"
+        weight: 25
+
+  # ============================================================================
+  # Checkpoint: After Validation
+  # ============================================================================
+  # Save workflow state after successful validation to enable resumption from
+  # this point if the workflow is interrupted during review or PR creation.
+  # ============================================================================
+  - name: checkpoint_after_validation
+    type: checkpoint
+    when: {% raw %}${{ not inputs.dry_run }}{% endraw %}
+    checkpoint_id: validation_complete
+    metadata:
+      progress:
+        stage: "checkpoint"
+        weight: 1
+
+  # ============================================================================
+  # Stage 4: Code Review (Optional)
+  # ============================================================================
+  # Perform automated code review using the code reviewer agent.
+  #
+  # This step is CONDITIONAL - it only runs when skip_review is false AND
+  # dry_run is false.
+  #
+  # The code reviewer agent:
+  # - Analyzes the diff between current branch and base branch
+  # - Checks for architecture consistency
+  # - Validates adherence to project conventions
+  # - Identifies potential issues or improvements
+  #
+  # Context includes:
+  # - Git diff
+  # - Changed files
+  # - Project conventions (CLAUDE.md)
+  # - Architecture documentation
+  #
+  # Output: Review findings and recommendations
+  # ============================================================================
+  - name: review
+    type: agent
+    agent: code_reviewer
+    when: {% raw %}${{ not inputs.skip_review and not inputs.dry_run }}{% endraw %}
+    context: review_context
+    metadata:
+      progress:
+        stage: "review"
+        weight: 10
+
+  - name: review_dry_run
+    type: python
+    action: log_dry_run
+    when: {% raw %}${{ inputs.dry_run and not inputs.skip_review }}{% endraw %}
+    kwargs:
+      operation: "code_review"
+      details: "Would perform automated code review and architecture analysis"
+    metadata:
+      progress:
+        stage: "review"
+        weight: 10
+
+  # ============================================================================
+  # Stage 5: Create Pull Request
+  # ============================================================================
+  # Generate PR body and create the pull request.
+  #
+  # This invokes the create-pr-with-summary subworkflow, which:
+  # - Generates a comprehensive PR description summarizing changes
+  # - Includes links to related issues and specs
+  # - Creates the PR via GitHub CLI
+  # - Applies appropriate labels and reviewers (if configured)
+  #
+  # The PR body generation considers:
+  # - Commit history since branch divergence from base
+  # - Task list and spec artifacts
+  # - Review findings (if review was run)
+  #
+  # Output: PR number and URL
+  # ============================================================================
+  - name: create_pr
+    type: subworkflow
+    workflow: create-pr-with-summary
+    when: {% raw %}${{ not inputs.dry_run }}{% endraw %}
+    inputs:
+      base_branch: main
+      draft: false
+    metadata:
+      progress:
+        stage: "pr_creation"
+        weight: 19
+
+  - name: create_pr_dry_run
+    type: python
+    action: log_dry_run
+    when: {% raw %}${{ inputs.dry_run }}{% endraw %}
+    kwargs:
+      operation: "create_pr"
+      details: "Would generate PR body and create pull request against main"
+    metadata:
+      progress:
+        stage: "pr_creation"
+        weight: 19
