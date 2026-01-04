@@ -9,7 +9,9 @@ Registration Functions:
 
 Registered Agents:
     implementer: ImplementerAgent - Executes tasks from task files
-    code_reviewer: CodeReviewerAgent - Performs code review
+    code_reviewer: CodeReviewerAgent - Performs general code review
+    spec_reviewer: SpecReviewerAgent - Reviews for spec compliance
+    technical_reviewer: TechnicalReviewerAgent - Reviews for technical quality
     issue_fixer: IssueFixerAgent - Fixes GitHub issues
     validation_fixer: FixerAgent - Applies validation fixes
 """
@@ -26,6 +28,7 @@ from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.fixer import FixerAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.issue_fixer import IssueFixerAgent
+from maverick.agents.reviewers import SpecReviewerAgent, TechnicalReviewerAgent
 
 __all__ = [
     "register_all_agents",
@@ -40,11 +43,11 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     Registered agents:
     - implementer: ImplementerAgent (executes tasks from task files)
-    - code_reviewer: CodeReviewerAgent (performs code review)
+    - code_reviewer: CodeReviewerAgent (performs general code review)
+    - spec_reviewer: SpecReviewerAgent (reviews for spec compliance)
+    - technical_reviewer: TechnicalReviewerAgent (reviews for technical quality)
     - issue_fixer: IssueFixerAgent (fixes GitHub issues)
     - validation_fixer: FixerAgent (applies validation fixes)
-
-    Note: issue_analyzer is not yet implemented and is not registered.
 
     Args:
         registry: Component registry to register agents with.
@@ -60,17 +63,18 @@ def register_all_agents(registry: ComponentRegistry) -> None:
         implementer_class = component_registry.agents.get("implementer")
         ```
     """
-    # Register implementer agent (used in fly.yaml)
+    # Register implementer agent (used in feature.yaml)
     registry.agents.register("implementer", ImplementerAgent)
 
-    # Register code reviewer agent (used in fly.yaml, review.yaml)
+    # Register code reviewer agent (legacy, still available)
     registry.agents.register("code_reviewer", CodeReviewerAgent)
 
-    # Register issue fixer agent (used in quick_fix.yaml, process_single_issue.yaml)
+    # Register specialized review agents (used in review.yaml)
+    registry.agents.register("spec_reviewer", SpecReviewerAgent)
+    registry.agents.register("technical_reviewer", TechnicalReviewerAgent)
+
+    # Register issue fixer agent (used in quick_fix.yaml, cleanup.yaml)
     registry.agents.register("issue_fixer", IssueFixerAgent)
 
     # Register validation fixer agent (used in validate-and-fix fragment)
     registry.agents.register("validation_fixer", FixerAgent)
-
-    # Note: issue_analyzer is referenced in refuel.yaml but not yet implemented
-    # TODO: Implement IssueAnalyzerAgent and register it here

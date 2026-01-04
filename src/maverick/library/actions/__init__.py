@@ -42,7 +42,6 @@ from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.review import (
     combine_review_results,
     gather_pr_context,
-    run_coderabbit_review,
 )
 from maverick.library.actions.tasks import get_phase_names
 from maverick.library.actions.validation import (
@@ -70,7 +69,6 @@ __all__ = [
     "fetch_github_issue",
     # Review actions
     "gather_pr_context",
-    "run_coderabbit_review",
     "combine_review_results",
     # Cleanup actions
     "process_selected_issues",
@@ -114,10 +112,8 @@ def register_all_actions(registry: ComponentRegistry) -> None:
 
     # Review actions (with both prefixed and unprefixed names for compatibility)
     registry.actions.register("gather_pr_context", gather_pr_context)
-    registry.actions.register("run_coderabbit_review", run_coderabbit_review)
     registry.actions.register("combine_review_results", combine_review_results)
     registry.actions.register("review.gather_pr_context", gather_pr_context)
-    registry.actions.register("review.run_coderabbit_review", run_coderabbit_review)
     registry.actions.register("review.combine_review_results", combine_review_results)
 
     # Cleanup actions

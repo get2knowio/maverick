@@ -1,73 +1,45 @@
 # ============================================================================
-# Review Workflow - Code Review Orchestration
+# Review Workflow - Dual-Agent Code Review
 # ============================================================================
 #
 # Purpose:
-#   Orchestrates comprehensive code review for a pull request by combining
-#   automated CodeRabbit analysis with AI-powered agent review.
+#   Orchestrates comprehensive code review using two specialized Claude agents:
+#   1. Spec Reviewer - Reviews for spec compliance and completeness
+#   2. Technical Reviewer - Reviews for technical quality and best practices
 #
 # Usage:
-#   maverick workflow run review --pr_number 123 --base_branch main
-#   maverick workflow run review  # Auto-detects PR from current branch
+#   maverick fly review --pr_number 123 --base_branch main
+#   maverick fly review  # Auto-detects PR from current branch
 #
 # Inputs:
 #   pr_number (integer, optional):
-#     PR number to review. If omitted, auto-detects PR from current branch
-#     by querying GitHub CLI for PRs associated with the current branch.
-#     Default: null (auto-detect)
+#     PR number to review. If omitted, auto-detects PR from current branch.
 #
 #   base_branch (string, optional):
-#     Base branch for comparison when gathering context and reviewing changes.
-#     This determines what the PR changes are compared against.
-#     Default: "main"
+#     Base branch for comparison. Default: "main"
+#
+#   spec_dir (string, optional):
+#     Directory containing spec files for compliance checking.
+#     Default: auto-detect from branch name (specs/<branch-name>/)
 #
 # Steps Overview:
-#   1. gather_context: Collect PR metadata, changed files, and commits
-#   2. run_coderabbit: Execute CodeRabbit CLI for automated review (if available)
-#   3. agent_review: Perform AI-powered review using code_reviewer agent
-#   4. combine_results: Merge and format review findings from both sources
-#
-# Customization Points:
-#   - Modify gather_context to collect additional PR metadata (labels, assignees)
-#   - Add validation step before agent_review to check code quality gates
-#   - Extend combine_results to post review comments directly to PR
-#   - Add notification step to alert team of review completion
-#   - Configure agent_review context to include project-specific review guidelines
-#
-# Fragment Usage:
-#   This workflow does not use fragments but can be extended to use:
-#   - commit_and_push: If review suggests auto-fixable issues
-#   - create_pr_with_summary: If review triggers follow-up PRs
-#
-# Example Override (project-specific):
-#   Copy this file to .maverick/workflows/review.yaml and customize:
-#   - Change default base_branch to "develop"
-#   - Add custom validation stages
-#   - Integrate with project-specific review tools
-#
-# Related Workflows:
-#   - fly: Uses review as part of full development workflow
-#   - validate: Can be used before review to ensure code quality
+#   1. gather_context: Collect PR metadata, changed files, and spec files
+#   2. spec_review: Review for spec compliance and completeness (parallel)
+#   3. technical_review: Review for technical quality (parallel)
+#   4. combine_results: Merge findings from both reviewers
 #
 # ============================================================================
 
 version: "1.0"
 name: review
-description: Code review orchestration workflow
+description: Dual-agent code review (spec compliance + technical quality)
 
-# Input Definitions
 inputs:
   pr_number:
     type: integer
     required: false
     default: null
-    description: |
-      PR number (auto-detect if omitted)
-
-      Auto-detection: If not specified, attempts to detect PR number from:
-      1. Current branch via GitHub CLI (gh pr list --head <branch>)
-      2. Queries GitHub API for PRs associated with the current branch
-      3. Selects the first matching PR if multiple exist
+    description: PR number (auto-detect if omitted)
 
   base_branch:
     type: string
@@ -75,157 +47,67 @@ inputs:
     default: "main"
     description: Base branch for comparison
 
-# Workflow Steps
+  spec_dir:
+    type: string
+    required: false
+    description: |
+      Directory containing spec files (auto-detect if omitted).
+      Auto-detection searches for specs/<branch-name>/ or ./specs/
+
 steps:
   # ============================================================================
   # Stage 1: Gather Context
   # ============================================================================
-  # Collect all relevant PR information including metadata, changed files,
-  # commit history, and diff content. This provides context for both
-  # CodeRabbit and the agent reviewer.
-  #
-  # Outputs:
-  #   - pr_metadata: PR title, description, author, labels
-  #   - changed_files: List of files modified in the PR
-  #   - commits: Commit messages and SHAs
-  #   - diff: Full diff content for review
-  #   - coderabbit_available: Whether CodeRabbit CLI is installed
-  #
-  # Implementation:
-  #   Uses GitHub CLI (gh) to fetch PR details. If pr_number is null,
-  #   queries for PRs on the current branch and selects the first match.
-  #   Also checks if CodeRabbit CLI is available in the system.
-  # ============================================================================
   - name: gather_context
     type: python
-    action: review.gather_pr_context
+    action: gather_pr_context
     kwargs:
       pr_number: ${{ inputs.pr_number }}
       base_branch: ${{ inputs.base_branch }}
+      include_spec_files: true
+      spec_dir: ${{ inputs.spec_dir }}
     metadata:
       progress:
         stage: "gathering_context"
         weight: 10
 
   # ============================================================================
-  # Stage 2: Run CodeRabbit (Conditional)
+  # Stage 2: Parallel Reviews
   # ============================================================================
-  # Execute CodeRabbit CLI for automated code review if available in the
-  # environment. CodeRabbit provides static analysis, security scanning,
-  # and code quality checks.
-  #
-  # This step is CONDITIONAL - it only runs when CodeRabbit CLI is available
-  # on the system (checked in gather_context step).
-  #
-  # Outputs:
-  #   - available: Boolean indicating if CodeRabbit ran successfully
-  #   - findings: List of issues found by CodeRabbit
-  #   - error: Error message if CodeRabbit execution failed
-  #
-  # Implementation:
-  #   Runs CodeRabbit CLI with PR number and context. If CLI is not available
-  #   or PR number is null, this step is skipped via the when condition.
+  # Run both review agents in parallel for efficiency
   # ============================================================================
-  - name: run_coderabbit
-    type: python
-    action: review.run_coderabbit_review
-    when: ${{ steps.gather_context.output.coderabbit_available }}
-    kwargs:
-      pr_number: ${{ steps.gather_context.output.pr_metadata.number }}
-      context: ${{ steps.gather_context.output }}
-    metadata:
-      progress:
-        stage: "coderabbit_review"
-        weight: 20
+  - name: parallel_reviews
+    type: loop
+    for_each: ${{ ['spec', 'technical'] }}
+    max_concurrency: 2
+    steps:
+      - name: run_review
+        type: agent
+        agent: ${{ item }}_reviewer
+        context:
+          pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
+          changed_files: ${{ steps.gather_context.output.changed_files }}
+          diff: ${{ steps.gather_context.output.diff }}
+          commits: ${{ steps.gather_context.output.commits }}
+          spec_files: ${{ steps.gather_context.output.spec_files }}
+          base_branch: ${{ inputs.base_branch }}
+        metadata:
+          progress:
+            stage: "review"
+            reviewer: ${{ item }}
+            weight: 35
 
   # ============================================================================
-  # Stage 3: Agent Review
-  # ============================================================================
-  # Perform AI-powered code review using the code_reviewer agent.
-  # The agent analyzes code for architecture, design patterns, best practices,
-  # maintainability, and adherence to project conventions.
-  #
-  # This step always runs, regardless of whether CodeRabbit was available.
-  # The agent review complements automated tools with semantic understanding
-  # and project-specific context.
-  #
-  # Outputs:
-  #   - review_comments: List of review findings with file/line context
-  #   - summary: High-level review summary
-  #   - recommendation: Approve, request changes, or comment
-  #
-  # Implementation:
-  #   Invokes code_reviewer agent with PR context including changed files,
-  #   diff content, and project conventions from CLAUDE.md. The agent is
-  #   aware of CodeRabbit findings (if available) to avoid duplicates.
-  #
-  # Context builder: review_context
-  # - Includes: git diff, changed files, project conventions (CLAUDE.md),
-  #   architecture docs, PR metadata, CodeRabbit findings (if available)
-  # ============================================================================
-  - name: agent_review
-    type: agent
-    agent: code_reviewer
-    context:
-      pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
-      changed_files: ${{ steps.gather_context.output.changed_files }}
-      diff: ${{ steps.gather_context.output.diff }}
-      commits: ${{ steps.gather_context.output.commits }}
-      base_branch: ${{ inputs.base_branch }}
-      coderabbit_findings: ${{ steps.run_coderabbit.output.findings }}
-    metadata:
-      progress:
-        stage: "agent_review"
-        weight: 40
-
-  # ============================================================================
-  # Checkpoint: After Review
-  # ============================================================================
-  # Save workflow state after successful review to enable resumption from this
-  # point if the workflow is interrupted during result combination.
-  # ============================================================================
-  - name: checkpoint_after_review
-    type: checkpoint
-    checkpoint_id: review_complete
-    metadata:
-      progress:
-        stage: "checkpoint"
-        weight: 1
-
-  # ============================================================================
-  # Stage 4: Combine Results
-  # ============================================================================
-  # Merge review findings from CodeRabbit and agent review into a unified
-  # report. Deduplicates issues, prioritizes findings, and formats the
-  # final review output.
-  #
-  # This step combines results from all available review sources:
-  # - Agent review (always present)
-  # - CodeRabbit review (if available and successful)
-  #
-  # Outputs:
-  #   - review_report: Formatted review report (markdown)
-  #   - issues: Consolidated list of issues with severity and location
-  #   - recommendation: Final review decision (approve/comment/request_changes)
-  #
-  # Implementation:
-  #   Combines findings from both sources, removes duplicates based on
-  #   file/line/message similarity, groups by severity, and generates
-  #   a structured markdown report with overall recommendation.
-  #
-  # Recommendation logic:
-  #   - "request_changes" if critical or error issues found
-  #   - "comment" if warnings found or moderate issues
-  #   - "approve" if no issues found
+  # Stage 3: Combine Results
   # ============================================================================
   - name: combine_results
     type: python
-    action: review.combine_review_results
+    action: combine_review_results
     kwargs:
-      agent_review: ${{ steps.agent_review.output }}
-      coderabbit_review: ${{ steps.run_coderabbit.output }}
+      spec_review: ${{ steps.parallel_reviews.output[0] }}
+      technical_review: ${{ steps.parallel_reviews.output[1] }}
       pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
     metadata:
       progress:
         stage: "combining_results"
-        weight: 30
+        weight: 20

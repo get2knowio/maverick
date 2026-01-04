@@ -280,7 +280,7 @@ class ReviewContextResult:
     changed_files: tuple[str, ...]
     diff: str
     commits: tuple[str, ...]
-    coderabbit_available: bool
+    spec_files: dict[str, str]  # Spec file contents keyed by filename
     error: str | None
 
     def to_dict(self) -> dict[str, Any]:
@@ -290,24 +290,7 @@ class ReviewContextResult:
             "changed_files": list(self.changed_files),
             "diff": self.diff,
             "commits": list(self.commits),
-            "coderabbit_available": self.coderabbit_available,
-            "error": self.error,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class CodeRabbitResult:
-    """Result from CodeRabbit review."""
-
-    available: bool
-    findings: tuple[dict[str, Any], ...]
-    error: str | None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "available": self.available,
-            "findings": list(self.findings),
+            "spec_files": self.spec_files,
             "error": self.error,
         }
 

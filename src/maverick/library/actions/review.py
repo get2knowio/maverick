@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import shutil
+from pathlib import Path
 from typing import Any
 
 from maverick.library.actions.types import (
-    CodeRabbitResult,
     CombinedReviewResult,
     PRMetadata,
     ReviewContextResult,
@@ -19,25 +18,28 @@ logger = get_logger(__name__)
 
 # Shared runner instance for review actions
 _runner = CommandRunner(timeout=60.0)
-# 5 minute timeout for CodeRabbit
-_coderabbit_runner = CommandRunner(timeout=300.0)
 
 
 async def gather_pr_context(
     pr_number: int | None,
     base_branch: str,
+    include_spec_files: bool = False,
+    spec_dir: str | None = None,
 ) -> ReviewContextResult:
     """Gather PR context for code review.
 
     Args:
         pr_number: PR number (optional, auto-detect if None)
         base_branch: Base branch for comparison
+        include_spec_files: Whether to include spec files in context
+        spec_dir: Directory containing spec files (auto-detect if None)
 
     Returns:
-        ReviewContextResult with PR metadata and diff
+        ReviewContextResult with PR metadata, diff, and optionally spec files
     """
     try:
         # Auto-detect PR number if not provided
+        current_branch = None
         if pr_number is None:
             current_branch_result = await _runner.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -142,15 +144,17 @@ async def gather_pr_context(
             c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
         )
 
-        # Check if CodeRabbit CLI is available
-        coderabbit_available = shutil.which("coderabbit") is not None
+        # Gather spec files if requested
+        spec_files: dict[str, str] = {}
+        if include_spec_files:
+            spec_files = await _gather_spec_files(spec_dir, current_branch)
 
         return ReviewContextResult(
             pr_metadata=pr_metadata,
             changed_files=changed_files,
             diff=diff,
             commits=commits,
-            coderabbit_available=coderabbit_available,
+            spec_files=spec_files,
             error=None,
         )
 
@@ -168,167 +172,89 @@ async def gather_pr_context(
             changed_files=(),
             diff="",
             commits=(),
-            coderabbit_available=False,
+            spec_files={},
             error=str(e),
         )
 
 
-async def run_coderabbit_review(
-    pr_number: int | None,
-    context: dict[str, Any],
-) -> CodeRabbitResult:
-    """Execute CodeRabbit review if available.
+async def _gather_spec_files(
+    spec_dir: str | None,
+    current_branch: str | None,
+) -> dict[str, str]:
+    """Gather spec files for review context.
 
     Args:
-        pr_number: PR number to review
-        context: Gathered PR context
+        spec_dir: Explicit spec directory or None for auto-detect
+        current_branch: Current branch name for auto-detection
 
     Returns:
-        CodeRabbitResult with findings
+        Dict mapping spec file names to their contents
     """
-    # Check if CodeRabbit is available
-    if not context.get("coderabbit_available", False):
-        logger.info("CodeRabbit CLI not available, skipping CodeRabbit review")
-        return CodeRabbitResult(
-            available=False,
-            findings=(),
-            error="CodeRabbit CLI not installed",
-        )
+    spec_files: dict[str, str] = {}
 
-    if pr_number is None:
-        logger.warning("No PR number available, skipping CodeRabbit review")
-        return CodeRabbitResult(
-            available=True,
-            findings=(),
-            error="No PR number available",
-        )
+    # Determine spec directory
+    if spec_dir:
+        spec_path = Path(spec_dir)
+    elif current_branch:
+        # Try specs/<branch-name>/ first
+        spec_path = Path(f"specs/{current_branch}")
+        if not spec_path.exists():
+            # Try .specify/<branch-name>/
+            spec_path = Path(f".specify/{current_branch}")
+        if not spec_path.exists():
+            # Fall back to ./specs/
+            spec_path = Path("specs")
+    else:
+        spec_path = Path("specs")
 
-    try:
-        # Run CodeRabbit review
-        result = await _coderabbit_runner.run(
-            [
-                "coderabbit",
-                "review",
-                "--pr",
-                str(pr_number),
-                "--json",
-            ],
-        )
+    if not spec_path.exists():
+        logger.debug(f"Spec directory not found: {spec_path}")
+        return spec_files
 
-        if result.timed_out:
-            logger.error("CodeRabbit review timed out after 5 minutes")
-            return CodeRabbitResult(
-                available=True,
-                findings=(),
-                error="CodeRabbit review timed out",
-            )
-
-        if not result.success:
-            logger.error(f"CodeRabbit review failed: {result.stderr}")
-            return CodeRabbitResult(
-                available=True,
-                findings=(),
-                error=result.stderr or f"Command failed with code {result.returncode}",
-            )
-
-        # Parse CodeRabbit output
-        findings = []
-        if result.stdout.strip():
+    # Read standard spec files
+    spec_file_names = ["spec.md", "plan.md", "tasks.md", "constitution.md"]
+    for filename in spec_file_names:
+        file_path = spec_path / filename
+        if file_path.exists():
             try:
-                coderabbit_data = json.loads(result.stdout)
-                # CodeRabbit may return findings in various formats
-                # Normalize to a list of finding dicts
-                if isinstance(coderabbit_data, dict):
-                    if "findings" in coderabbit_data:
-                        findings = coderabbit_data["findings"]
-                    elif "issues" in coderabbit_data:
-                        findings = coderabbit_data["issues"]
-                    else:
-                        # Treat the whole object as a single finding
-                        findings = [coderabbit_data]
-                elif isinstance(coderabbit_data, list):
-                    findings = coderabbit_data
-            except json.JSONDecodeError:
-                logger.warning("CodeRabbit output is not valid JSON, treating as text")
-                findings = [{"message": result.stdout, "severity": "info"}]
+                content = file_path.read_text()
+                spec_files[filename] = content
+                logger.debug(f"Loaded spec file: {file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to read spec file {file_path}: {e}")
 
-        return CodeRabbitResult(
-            available=True,
-            findings=tuple(findings),
-            error=None,
-        )
-
-    except Exception as e:
-        logger.error(f"CodeRabbit review failed: {e}")
-        return CodeRabbitResult(
-            available=True,
-            findings=(),
-            error=str(e),
-        )
+    return spec_files
 
 
 async def combine_review_results(
-    agent_review: dict[str, Any],
-    coderabbit_review: dict[str, Any],
+    spec_review: dict[str, Any] | None,
+    technical_review: dict[str, Any] | None,
     pr_metadata: dict[str, Any],
 ) -> CombinedReviewResult:
-    """Combine review results from multiple sources.
+    """Combine review results from spec and technical reviewers.
 
     Args:
-        agent_review: Agent review output
-        coderabbit_review: CodeRabbit review output
+        spec_review: Spec compliance review output
+        technical_review: Technical quality review output
         pr_metadata: PR metadata
 
     Returns:
         CombinedReviewResult with unified report
     """
-    # Extract issues from both sources
-    agent_issues = []
-    if isinstance(agent_review, dict):
-        # Agent review may have various structures
-        if "issues" in agent_review:
-            agent_issues = list(agent_review["issues"])
-        elif "findings" in agent_review:
-            agent_issues = list(agent_review["findings"])
-        elif "comments" in agent_review:
-            agent_issues = list(agent_review["comments"])
+    # Extract findings from both sources
+    spec_findings = ""
+    spec_assessment = "UNKNOWN"
+    if spec_review:
+        spec_findings = spec_review.get("findings", "")
+        spec_assessment = spec_review.get("assessment", "UNKNOWN")
 
-    coderabbit_issues = list(coderabbit_review.get("findings", ()))
-
-    # Combine and de-duplicate issues
-    all_issues = []
-    seen_issues = set()
-
-    for issue in agent_issues:
-        # Create a simple hash key for deduplication
-        issue_key = (
-            issue.get("file", ""),
-            issue.get("line", 0),
-            issue.get("message", "")[:100],
-        )
-        if issue_key not in seen_issues:
-            seen_issues.add(issue_key)
-            all_issues.append(
-                {
-                    **issue,
-                    "source": "agent",
-                }
-            )
-
-    for issue in coderabbit_issues:
-        issue_key = (
-            issue.get("file", ""),
-            issue.get("line", 0),
-            issue.get("message", "")[:100],
-        )
-        if issue_key not in seen_issues:
-            seen_issues.add(issue_key)
-            all_issues.append(
-                {
-                    **issue,
-                    "source": "coderabbit",
-                }
-            )
+    technical_findings = ""
+    technical_quality = "UNKNOWN"
+    has_critical = False
+    if technical_review:
+        technical_findings = technical_review.get("findings", "")
+        technical_quality = technical_review.get("quality", "UNKNOWN")
+        has_critical = technical_review.get("has_critical", False)
 
     # Generate unified report
     report_lines = []
@@ -343,61 +269,41 @@ async def combine_review_results(
         report_lines.append(f"**Author:** {pr_metadata['author']}")
     report_lines.append("")
 
+    # Summary section
     report_lines.append("## Summary")
     report_lines.append("")
-    report_lines.append(f"- Total issues found: {len(all_issues)}")
-    agent_count = len([i for i in all_issues if i.get("source") == "agent"])
-    report_lines.append(f"- Agent review issues: {agent_count}")
-    coderabbit_count = len([i for i in all_issues if i.get("source") == "coderabbit"])
-    report_lines.append(f"- CodeRabbit issues: {coderabbit_count}")
+    report_lines.append(f"- **Spec Compliance:** {spec_assessment}")
+    report_lines.append(f"- **Technical Quality:** {technical_quality}")
     report_lines.append("")
 
-    # Group issues by severity
-    severity_groups: dict[str, list[dict[str, Any]]] = {
-        "critical": [],
-        "error": [],
-        "warning": [],
-        "info": [],
-        "other": [],
-    }
+    # Spec Review section
+    report_lines.append("## Spec Compliance Review")
+    report_lines.append("")
+    if spec_findings:
+        report_lines.append(spec_findings)
+    else:
+        report_lines.append("_No spec compliance review available._")
+    report_lines.append("")
 
-    for issue in all_issues:
-        severity = issue.get("severity", "other").lower()
-        if severity in severity_groups:
-            severity_groups[severity].append(issue)
-        else:
-            severity_groups["other"].append(issue)
-
-    # Add issues to report by severity
-    for severity in ["critical", "error", "warning", "info", "other"]:
-        issues = severity_groups[severity]
-        if not issues:
-            continue
-
-        report_lines.append(f"## {severity.title()} Issues ({len(issues)})")
-        report_lines.append("")
-
-        for i, issue in enumerate(issues, 1):
-            file_info = issue.get("file", "unknown")
-            line_info = issue.get("line", "")
-            if line_info:
-                file_info = f"{file_info}:{line_info}"
-
-            source = issue.get("source", "unknown")
-            report_lines.append(f"{i}. **{file_info}** ({source})")
-            report_lines.append(f"   {issue.get('message', 'No message')}")
-            report_lines.append("")
+    # Technical Review section
+    report_lines.append("## Technical Quality Review")
+    report_lines.append("")
+    if technical_findings:
+        report_lines.append(technical_findings)
+    else:
+        report_lines.append("_No technical review available._")
+    report_lines.append("")
 
     # Determine recommendation
-    critical_count = len(severity_groups["critical"])
-    error_count = len(severity_groups["error"])
-    warning_count = len(severity_groups["warning"])
-
-    if critical_count > 0 or error_count > 0:
+    if has_critical:
         recommendation = "request_changes"
-    elif warning_count > 3:
+    elif spec_assessment == "NON-COMPLIANT":
+        recommendation = "request_changes"
+    elif technical_quality == "POOR":
+        recommendation = "request_changes"
+    elif spec_assessment == "PARTIAL" or technical_quality == "NEEDS_WORK":
         recommendation = "comment"
-    elif len(all_issues) == 0:
+    elif spec_assessment == "COMPLIANT" and technical_quality in ("GOOD", "EXCELLENT"):
         recommendation = "approve"
     else:
         recommendation = "comment"
@@ -408,6 +314,6 @@ async def combine_review_results(
 
     return CombinedReviewResult(
         review_report="\n".join(report_lines),
-        issues=tuple(all_issues),
+        issues=(),  # No structured issues, findings are in the report
         recommendation=recommendation,
     )

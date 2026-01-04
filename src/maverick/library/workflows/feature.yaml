@@ -381,34 +381,31 @@ steps:
   # ============================================================================
   # Stage 5: Code Review (Optional)
   # ============================================================================
-  # Perform automated code review using the code reviewer agent.
+  # Perform automated code review using two specialized agents:
+  # 1. Spec Reviewer - Reviews for spec compliance and completeness
+  # 2. Technical Reviewer - Reviews for code quality and best practices
   #
   # This step is CONDITIONAL - it only runs when skip_review is false AND
-  # dry_run is false. The condition expression evaluates to:
-  # - true when both skip_review and dry_run are false or omitted
-  # - false when either skip_review or dry_run is explicitly set to true
+  # dry_run is false.
   #
-  # The code reviewer agent:
-  # - Analyzes the diff between the current branch and base branch
-  # - Checks for architecture consistency
-  # - Validates adherence to project conventions (CLAUDE.md)
-  # - Identifies potential issues or improvements
-  #
-  # Context builder: review_context
-  # - Includes: git diff, changed files, project conventions, architecture docs
+  # The review workflow:
+  # - Gathers PR context including spec files
+  # - Runs both reviewers in parallel
+  # - Combines findings into a unified report
   #
   # To skip review for specific scenarios:
-  # - Small changes: maverick workflow run fly -i skip_review=true
+  # - Small changes: maverick fly feature -i skip_review=true
   # - Documentation updates: Often safe to skip
   # - Emergency fixes: May need to skip and review post-merge
   #
-  # Output: Review findings and recommendations
+  # Output: Combined review findings from both perspectives
   # ============================================================================
   - name: review
-    type: agent
-    agent: code_reviewer
-    context: review_context
+    type: subworkflow
+    workflow: review
     when: ${{ not inputs.skip_review and not inputs.dry_run }}
+    inputs:
+      base_branch: main
     metadata:
       progress:
         stage: "review"
