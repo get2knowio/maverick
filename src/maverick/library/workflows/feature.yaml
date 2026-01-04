@@ -177,18 +177,6 @@ steps:
         stage: "initialization"
         weight: 5
 
-  - name: init_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run }}
-    kwargs:
-      operation: "init_workspace"
-      details: "Would initialize workspace on branch ${{ inputs.branch_name }}"
-    metadata:
-      progress:
-        stage: "initialization"
-        weight: 5
-
   # ============================================================================
   # Stage 2: Get Phase Names
   # ============================================================================
@@ -307,17 +295,6 @@ steps:
         stage: "implementation"
         weight: 40
 
-  - name: implement_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run }}
-    kwargs:
-      operation: "implement_tasks_by_phase"
-      details: "Would execute tasks from task file, phase by phase with per-phase validation and commits"
-    metadata:
-      progress:
-        stage: "implementation"
-        weight: 40
 
   # ============================================================================
   # Checkpoint: After All Implementation
@@ -357,17 +334,6 @@ steps:
         stage: "validation"
         weight: 25
 
-  - name: validate_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run }}
-    kwargs:
-      operation: "validate_and_fix"
-      details: "Would run validation stages: format, lint, typecheck, test (max 3 fix attempts)"
-    metadata:
-      progress:
-        stage: "validation"
-        weight: 25
 
   # ============================================================================
   # Checkpoint: After Validation
@@ -411,17 +377,6 @@ steps:
         stage: "commit"
         weight: 10
 
-  - name: commit_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run }}
-    kwargs:
-      operation: "commit_and_push"
-      details: "Would generate commit message, create commit, and push to remote branch"
-    metadata:
-      progress:
-        stage: "commit"
-        weight: 10
 
   # ============================================================================
   # Stage 5: Code Review (Optional)
@@ -459,17 +414,6 @@ steps:
         stage: "review"
         weight: 10
 
-  - name: review_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run and not inputs.skip_review }}
-    kwargs:
-      operation: "code_review"
-      details: "Would perform automated code review and architecture analysis"
-    metadata:
-      progress:
-        stage: "review"
-        weight: 10
 
   # ============================================================================
   # Stage 6: Create Pull Request
@@ -508,14 +452,3 @@ steps:
         stage: "pr_creation"
         weight: 10
 
-  - name: create_pr_dry_run
-    type: python
-    action: log_dry_run
-    when: ${{ inputs.dry_run }}
-    kwargs:
-      operation: "create_pr"
-      details: "Would generate PR body and create pull request against main (ready for review)"
-    metadata:
-      progress:
-        stage: "pr_creation"
-        weight: 10
