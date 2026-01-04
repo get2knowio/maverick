@@ -618,8 +618,63 @@ class TestGenerateStepExecution:
 class TestValidateStepExecution:
     """Tests for ValidateStepRecord execution."""
 
+    @pytest.fixture
+    def mock_validation_runner(self):
+        """Mock ValidationRunner to return success without running real commands."""
+        from unittest.mock import AsyncMock, patch
+
+        from maverick.runners.models import StageResult, ValidationOutput
+
+        mock_output = ValidationOutput(
+            success=True,
+            stages=(
+                StageResult(
+                    stage_name="format",
+                    passed=True,
+                    output="OK",
+                    duration_ms=10,
+                    fix_attempts=0,
+                    errors=(),
+                ),
+                StageResult(
+                    stage_name="lint",
+                    passed=True,
+                    output="OK",
+                    duration_ms=10,
+                    fix_attempts=0,
+                    errors=(),
+                ),
+                StageResult(
+                    stage_name="typecheck",
+                    passed=True,
+                    output="OK",
+                    duration_ms=10,
+                    fix_attempts=0,
+                    errors=(),
+                ),
+                StageResult(
+                    stage_name="test",
+                    passed=True,
+                    output="OK",
+                    duration_ms=10,
+                    fix_attempts=0,
+                    errors=(),
+                ),
+            ),
+            total_duration_ms=40,
+        )
+
+        mock_runner = AsyncMock()
+        mock_runner.run.return_value = mock_output
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.validate_step.ValidationRunner",
+            return_value=mock_runner,
+        ):
+            yield mock_runner
+
     @pytest.mark.asyncio
-    async def test_validate_step_success(self, registry):
+    async def test_validate_step_success(self, registry, mock_validation_runner):
         """Test successful validate step execution."""
         workflow = WorkflowFile(
             version="1.0",
@@ -646,7 +701,7 @@ class TestValidateStepExecution:
         assert len(result.final_output["stages"]) == 2
 
     @pytest.mark.asyncio
-    async def test_validate_step_multiple_stages(self, registry):
+    async def test_validate_step_multiple_stages(self, registry, mock_validation_runner):
         """Test validate step with multiple stages."""
         workflow = WorkflowFile(
             version="1.0",
@@ -673,7 +728,7 @@ class TestValidateStepExecution:
         assert result.final_output["stages"] == ["format", "lint", "typecheck", "test"]
 
     @pytest.mark.asyncio
-    async def test_validate_step_with_retry(self, registry):
+    async def test_validate_step_with_retry(self, registry, mock_validation_runner):
         """Test validate step with retry configuration."""
         workflow = WorkflowFile(
             version="1.0",

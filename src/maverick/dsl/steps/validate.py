@@ -20,10 +20,17 @@ from maverick.exceptions import StagesNotFoundError
 
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
-    """Result of a validation step."""
+    """Result of a validation step.
+
+    Attributes:
+        success: True if all validation stages passed.
+        stages: List of stage names that were requested to run.
+        stage_results: Per-stage results with passed status, output, and errors.
+    """
 
     success: bool
     stages: list[str]
+    stage_results: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -34,12 +41,13 @@ class ValidationResult:
         """Convert to dict for expression evaluation compatibility.
 
         Returns:
-            Dictionary with success and stages fields.
+            Dictionary with success, stages, passed, and stage_results fields.
         """
         return {
             "success": self.success,
             "stages": list(self.stages),
             "passed": self.passed,
+            "stage_results": dict(self.stage_results),
         }
 
 
