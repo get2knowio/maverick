@@ -58,9 +58,9 @@ from maverick.cli.context import async_command
 )
 @click.option(
     "--step",
-    "stop_after_step",
+    "only_step",
     default=None,
-    help="Stop after specified step (name or number). Use --list-steps to see options.",
+    help="Run only specified step (name or number). Use --list-steps to see options.",
 )
 @click.pass_context
 @async_command
@@ -73,7 +73,7 @@ async def fly(
     resume: bool,
     no_validate: bool,
     list_steps: bool,
-    stop_after_step: str | None,
+    only_step: str | None,
 ) -> None:
     """Execute a DSL workflow.
 
@@ -113,7 +113,7 @@ async def fly(
         # List workflow steps
         maverick fly feature --list-steps
 
-        # Run up to and including a specific step
+        # Run only a specific step (skips earlier steps)
         maverick fly feature -i branch_name=001-foo --step init
         maverick fly feature -i branch_name=001-foo --step 3
     """
@@ -127,5 +127,5 @@ async def fly(
         resume,
         no_validate,
         list_steps,
-        stop_after_step,
+        only_step,
     )

@@ -128,7 +128,7 @@ class WorkflowFileExecutor:
         workflow: WorkflowFile,
         inputs: dict[str, Any] | None = None,
         resume_from_checkpoint: bool = False,
-        stop_after_step: int | None = None,
+        only_step: int | None = None,
     ) -> AsyncIterator[ProgressEvent]:
         """Execute a workflow file and yield progress events.
 
@@ -141,7 +141,8 @@ class WorkflowFileExecutor:
             inputs: Input values for the workflow (merged with defaults).
             resume_from_checkpoint: If True, attempts to resume from the latest
                 checkpoint. Validates that inputs match the checkpoint.
-            stop_after_step: If provided, stop after this step index (0-based).
+            only_step: If provided, run only this step index (0-based).
+                Steps before this are skipped (with None outputs stored).
                 Useful for step-by-step debugging.
 
         Yields:
@@ -159,9 +160,9 @@ class WorkflowFileExecutor:
                 workflow, {"dry_run": False}, resume_from_checkpoint=True
             ):
                 print(f"Event: {event}")
-            # Stop after step 2 (0-based index)
+            # Run only step 2 (0-based index)
             async for event in executor.execute(
-                workflow, {"dry_run": False}, stop_after_step=2
+                workflow, {"dry_run": False}, only_step=2
             ):
                 print(f"Event: {event}")
             ```
@@ -258,8 +259,19 @@ class WorkflowFileExecutor:
                 if should_skip:
                     continue
 
-            # Check conditional execution
-            if step_record.when:
+            # Skip steps before only_step (store None output for expression refs)
+            if only_step is not None and step_index < only_step:
+                logger.debug(
+                    f"Skipping step '{step_record.name}' (before --step target)"
+                )
+                context.store_step_output(
+                    exec_context, step_record.name, None, step_record.type
+                )
+                continue
+
+            # Check conditional execution (skip condition check for --step target)
+            is_target_step = only_step is not None and step_index == only_step
+            if step_record.when and not is_target_step:
                 try:
                     should_run = conditions.evaluate_condition(
                         step_record.when, exec_context
@@ -284,6 +296,10 @@ class WorkflowFileExecutor:
                         exec_context, step_record.name, None, step_record.type
                     )
                     continue
+            elif is_target_step and step_record.when:
+                logger.debug(
+                    f"Bypassing condition for target step '{step_record.name}' (--step flag)"
+                )
 
             yield StepStarted(step_name=step_record.name, step_type=step_record.type)
 
@@ -331,11 +347,9 @@ class WorkflowFileExecutor:
                 success = False
                 break
 
-            # Stop if we've reached the requested step limit
-            if stop_after_step is not None and step_index >= stop_after_step:
-                logger.info(
-                    f"Stopping after step '{step_record.name}' (--step flag)"
-                )
+            # Stop if we've run the only_step target
+            if only_step is not None and step_index >= only_step:
+                logger.info(f"Stopping after step '{step_record.name}' (--step flag)")
                 break
 
         # Execute rollbacks if workflow failed

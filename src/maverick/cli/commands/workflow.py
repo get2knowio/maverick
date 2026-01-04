@@ -1058,7 +1058,7 @@ async def _execute_workflow_run(
     resume: bool,
     no_validate: bool = False,
     list_steps: bool = False,
-    stop_after_step: str | None = None,
+    only_step: str | None = None,
 ) -> None:
     """Core workflow execution logic (shared by fly and workflow run commands).
 
@@ -1071,7 +1071,7 @@ async def _execute_workflow_run(
         resume: If True, resume from latest checkpoint.
         no_validate: If True, skip semantic validation before execution.
         list_steps: If True, list workflow steps and exit.
-        stop_after_step: If provided, stop after this step (name or number).
+        only_step: If provided, run only this step (name or number).
     """
     import json
 
@@ -1164,19 +1164,17 @@ async def _execute_workflow_run(
                     when_str = click.style(f"when: {step.when}", dim=True)
                     click.echo(f"     {when_str}")
             click.echo()
-            click.echo(
-                "Use --step <name|number> to run up to and including a step."
-            )
+            click.echo("Use --step <name|number> to run only a specific step.")
             raise SystemExit(ExitCode.SUCCESS)
 
-        # Resolve stop_after_step to step index if provided
-        stop_after_index: int | None = None
-        if stop_after_step:
+        # Resolve only_step to step index if provided
+        only_step_index: int | None = None
+        if only_step:
             # Try to parse as number first
             try:
-                step_num = int(stop_after_step)
+                step_num = int(only_step)
                 if 1 <= step_num <= len(workflow_obj.steps):
-                    stop_after_index = step_num - 1  # Convert to 0-based
+                    only_step_index = step_num - 1  # Convert to 0-based
                 else:
                     error_msg = format_error(
                         f"Step number {step_num} out of range",
@@ -1187,12 +1185,12 @@ async def _execute_workflow_run(
             except ValueError:
                 # Try to find step by name
                 step_names = [s.name for s in workflow_obj.steps]
-                if stop_after_step in step_names:
-                    stop_after_index = step_names.index(stop_after_step)
+                if only_step in step_names:
+                    only_step_index = step_names.index(only_step)
                 else:
                     # Show available steps
                     error_msg = format_error(
-                        f"Step '{stop_after_step}' not found",
+                        f"Step '{only_step}' not found",
                         suggestion="Use --list-steps to see available steps",
                     )
                     click.echo(error_msg, err=True)
@@ -1251,11 +1249,11 @@ async def _execute_workflow_run(
         total_steps = len(workflow_obj.steps)
 
         # Show limited execution message if --step was used
-        if stop_after_index is not None:
-            stop_step_name = workflow_obj.steps[stop_after_index].name
+        if only_step_index is not None:
+            only_step_name = workflow_obj.steps[only_step_index].name
             limit_msg = click.style(
-                f"Will stop after step: {stop_step_name} "
-                f"({stop_after_index + 1}/{total_steps})",
+                f"Will run only step: {only_step_name} "
+                f"({only_step_index + 1}/{total_steps})",
                 fg="yellow",
             )
             click.echo(limit_msg)
@@ -1272,7 +1270,7 @@ async def _execute_workflow_run(
             workflow_obj,
             inputs=input_dict,
             resume_from_checkpoint=resume,
-            stop_after_step=stop_after_index,
+            only_step=only_step_index,
         ):
             if isinstance(event, ValidationStarted):
                 # Show validation start
