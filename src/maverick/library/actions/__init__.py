@@ -34,6 +34,7 @@ from maverick.library.actions.github import (
     fetch_github_issue,
     fetch_github_issues,
 )
+from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.refuel import (
     generate_refuel_summary,
     process_selected_issues,
@@ -52,6 +53,8 @@ from maverick.library.actions.validation import (
 from maverick.library.actions.workspace import init_workspace
 
 __all__ = [
+    # Preflight actions
+    "run_preflight_checks",
     # Workspace actions
     "init_workspace",
     # Task actions
@@ -89,6 +92,9 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     Args:
         registry: Component registry to register actions with.
     """
+    # Preflight actions
+    registry.actions.register("run_preflight_checks", run_preflight_checks)
+
     # Workspace actions
     registry.actions.register("init_workspace", init_workspace)
 

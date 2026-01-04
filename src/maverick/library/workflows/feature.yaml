@@ -122,6 +122,38 @@ inputs:
 # ------------------------------------------------------------------------------
 steps:
   # ============================================================================
+  # Stage 0: Preflight Checks
+  # ============================================================================
+  # Validate that all required tools and credentials are available before
+  # starting the workflow. This prevents mid-workflow failures due to missing
+  # or misconfigured tools.
+  #
+  # Checks:
+  # - Anthropic API credentials (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)
+  # - Git is installed
+  # - GitHub CLI is installed and authenticated (warning if not)
+  # - Validation tools are installed (yamllint, ansible-lint, etc.)
+  #
+  # Output: PreflightCheckResult with success status and any errors/warnings
+  # ============================================================================
+  - name: preflight
+    type: python
+    action: run_preflight_checks
+    kwargs:
+      check_api: true
+      check_git: true
+      check_github: true
+      check_validation_tools: true
+      validation_stages:
+        - format
+        - lint
+        - test
+    metadata:
+      progress:
+        stage: "preflight"
+        weight: 2
+
+  # ============================================================================
   # Stage 1: Workspace Initialization
   # ============================================================================
   # Initialize the workspace by syncing the feature branch with the base branch
@@ -137,7 +169,7 @@ steps:
   - name: init
     type: python
     action: init_workspace
-    when: ${{ not inputs.dry_run }}
+    when: ${{ not inputs.dry_run and steps.preflight.output.success }}
     kwargs:
       branch_name: ${{ inputs.branch_name }}
     metadata:
