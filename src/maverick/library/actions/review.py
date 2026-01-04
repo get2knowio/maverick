@@ -10,13 +10,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
-
 from maverick.library.actions.types import (
     AnalyzedFindingsResult,
     CombinedReviewResult,
@@ -548,160 +541,236 @@ def _generate_group_id(file_path: str | None, issues: list[ReviewIssue]) -> str:
 
 
 async def run_review_fix_loop(
-    initial_review: dict[str, Any],
-    analyzed_findings: dict[str, Any],
-    max_attempts: int,
-    fixer_agent: str,
+    pr_context: dict[str, Any],
     base_branch: str,
+    max_attempts: int,
     skip_if_approved: bool = True,
 ) -> ReviewFixLoopResult:
-    """Execute fix-and-re-review loop for review issues.
+    """Execute review-fix loop with dual-agent review and single fixer.
 
-    This function implements the fix loop for code review findings:
-    1. Check if fixes are needed (based on analyzed findings)
-    2. For each parallelizable group, spawn fixer agents
-    3. Re-run review to verify fixes
-    4. Repeat until review passes or max_attempts exhausted
+    This implements the simplified review-fix architecture:
+    1. Run both reviewers in parallel (spec + technical)
+    2. Combine findings
+    3. If approved or no issues, exit loop
+    4. Run single fixer agent (handles parallelization internally via subagents)
+    5. Loop back until max_attempts exhausted
+
+    The fixer agent receives ALL issues and handles parallelization internally,
+    spawning subagents to fix issues affecting different files in parallel.
 
     Args:
-        initial_review: Initial review result
-        analyzed_findings: Result from analyze_review_findings
-        max_attempts: Maximum fix attempts (0 disables fixes)
-        fixer_agent: Name of fixer agent to use
-        base_branch: Base branch for re-review
-        skip_if_approved: Skip if initial review recommends approve
+        pr_context: PR context from gather_pr_context (dict with pr_metadata, etc.)
+        base_branch: Base branch for comparison
+        max_attempts: Maximum review-fix cycles (0 disables fixes)
+        skip_if_approved: Skip fix loop if review recommends approve
 
     Returns:
-        ReviewFixLoopResult with fix outcomes
+        ReviewFixLoopResult with review and fix outcomes
     """
-    # Check if we should skip
-    if analyzed_findings.get("skip_reason"):
-        return ReviewFixLoopResult(
-            success=True,
-            attempts=0,
-            issues_fixed=(),
-            issues_remaining=(),
-            final_recommendation=initial_review.get("recommendation", "approve"),
-            skipped=True,
-            skip_reason=analyzed_findings.get("skip_reason"),
-        )
-
-    if not analyzed_findings.get("needs_fixes", False):
-        return ReviewFixLoopResult(
-            success=True,
-            attempts=0,
-            issues_fixed=(),
-            issues_remaining=(),
-            final_recommendation=initial_review.get("recommendation", "comment"),
-            skipped=True,
-            skip_reason="No critical or major issues to fix",
-        )
+    # Convert pr_context if it's a ReviewContextResult
+    if hasattr(pr_context, "to_dict"):
+        pr_context = pr_context.to_dict()
 
     if max_attempts <= 0:
-        # Convert issue_groups to remaining issues
-        remaining = _flatten_issue_groups(analyzed_findings.get("issue_groups", []))
-        final_rec = initial_review.get("recommendation", "request_changes")
+        # Just run review once, no fixing
+        review_result = await _run_dual_review(pr_context, base_branch)
         return ReviewFixLoopResult(
-            success=False,
+            success=True,
             attempts=0,
             issues_fixed=(),
-            issues_remaining=remaining,
-            final_recommendation=final_rec,
+            issues_remaining=(),
+            final_recommendation=review_result.get("recommendation", "comment"),
             skipped=True,
             skip_reason="Fix attempts disabled (max_attempts=0)",
         )
 
-    # Execute fix loop
     attempts = 0
-    all_fixes: list[IssueFixResult] = []
-    remaining_issues = _flatten_issue_groups(analyzed_findings.get("issue_groups", []))
-    current_recommendation = initial_review.get("recommendation", "request_changes")
+    current_recommendation = "request_changes"
 
-    try:
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=1, min=1, max=8),
-            retry=retry_if_exception_type(_ReviewStillFailingError),
-            reraise=True,
-        ):
-            with attempt:
-                attempts = attempt.retry_state.attempt_number
-                logger.info(
-                    "Review fix attempt %d/%d using '%s' agent",
-                    attempts,
-                    max_attempts,
-                    fixer_agent,
-                )
+    for attempt_num in range(1, max_attempts + 1):
+        attempts = attempt_num
+        logger.info("Review-fix cycle %d/%d", attempt_num, max_attempts)
 
-                # Get issue groups for this attempt
-                issue_groups = analyzed_findings.get("issue_groups", [])
-                if not issue_groups:
-                    break
+        # Step 1: Run dual review (spec + technical in parallel)
+        review_result = await _run_dual_review(pr_context, base_branch)
+        current_recommendation = review_result.get("recommendation", "request_changes")
 
-                # Fix issues in parallel by group
-                group_fix_results = await _fix_issue_groups_parallel(
-                    issue_groups=issue_groups,
-                    fixer_agent=fixer_agent,
-                )
+        # Step 2: Check if we're done (approved on first attempt = skip fixes)
+        if current_recommendation == "approve":
+            logger.info("Review approved on attempt %d", attempt_num)
+            return ReviewFixLoopResult(
+                success=True,
+                attempts=attempts,
+                issues_fixed=(),
+                issues_remaining=(),
+                final_recommendation=current_recommendation,
+                skipped=(attempt_num == 1 and skip_if_approved),
+                skip_reason="Initial review approved" if attempt_num == 1 else None,
+            )
 
-                # Collect fix results
-                for fix_result in group_fix_results:
-                    all_fixes.append(fix_result)
+        # Step 3: Check if there are issues worth fixing
+        has_critical = review_result.get("has_critical", False)
+        review_report = review_result.get("review_report", "")
+        has_major = "MAJOR" in review_report.upper() or "### Major" in review_report
 
-                # Re-run review to check if issues are resolved
-                re_review_result = await _run_review_check(base_branch)
-                current_recommendation = re_review_result.get(
-                    "recommendation", "request_changes"
-                )
+        if not has_critical and not has_major:
+            logger.info("No critical/major issues, accepting current state")
+            return ReviewFixLoopResult(
+                success=True,
+                attempts=attempts,
+                issues_fixed=(),
+                issues_remaining=(),
+                final_recommendation=current_recommendation,
+                skipped=False,
+                skip_reason=None,
+            )
 
-                if current_recommendation == "approve":
-                    logger.info("Review passed after fix attempt %d", attempts)
-                    return ReviewFixLoopResult(
-                        success=True,
-                        attempts=attempts,
-                        issues_fixed=tuple(all_fixes),
-                        issues_remaining=(),
-                        final_recommendation=current_recommendation,
-                        skipped=False,
-                        skip_reason=None,
-                    )
+        # Step 4: Run fixer agent (handles parallelization internally)
+        # Don't fix on the last attempt - just report what's remaining
+        if attempt_num < max_attempts:
+            logger.info("Running review fixer agent")
+            await _run_review_fixer(review_result, pr_context)
 
-                # Re-analyze to get remaining issues
-                re_analyzed = await analyze_review_findings(
-                    re_review_result, current_recommendation
-                )
-                remaining_issues = _flatten_issue_groups(
-                    [g.to_dict() for g in re_analyzed.issue_groups]
-                )
-
-                # Check if we made progress
-                if not re_analyzed.needs_fixes:
-                    return ReviewFixLoopResult(
-                        success=True,
-                        attempts=attempts,
-                        issues_fixed=tuple(all_fixes),
-                        issues_remaining=remaining_issues,
-                        final_recommendation=current_recommendation,
-                        skipped=False,
-                        skip_reason=None,
-                    )
-
-                # Signal retry needed
-                raise _ReviewStillFailingError()
-
-    except _ReviewStillFailingError:
-        # All retries exhausted
-        pass
-
+    # Max attempts exhausted
     return ReviewFixLoopResult(
-        success=False,
+        success=current_recommendation == "approve",
         attempts=attempts,
-        issues_fixed=tuple(all_fixes),
-        issues_remaining=remaining_issues,
+        issues_fixed=(),
+        issues_remaining=(),
         final_recommendation=current_recommendation,
         skipped=False,
         skip_reason=None,
     )
+
+
+async def _run_dual_review(
+    pr_context: dict[str, Any],
+    base_branch: str,
+) -> dict[str, Any]:
+    """Run both reviewers in parallel and combine results.
+
+    Args:
+        pr_context: PR context dict
+        base_branch: Base branch for comparison
+
+    Returns:
+        Combined review result with recommendation and report
+    """
+    try:
+        # Import reviewer agents
+        from maverick.agents.reviewers.spec_reviewer import SpecReviewerAgent
+        from maverick.agents.reviewers.technical_reviewer import TechnicalReviewerAgent
+
+        # Build context dict for reviewers
+        pr_metadata = pr_context.get("pr_metadata", {})
+        if hasattr(pr_metadata, "to_dict"):
+            pr_metadata = pr_metadata.to_dict()
+
+        review_context = {
+            "pr_metadata": pr_metadata,
+            "changed_files": list(pr_context.get("changed_files", [])),
+            "diff": pr_context.get("diff", ""),
+            "commits": list(pr_context.get("commits", [])),
+            "spec_files": pr_context.get("spec_files", {}),
+            "base_branch": base_branch,
+        }
+
+        # Run both reviewers in parallel
+        spec_agent = SpecReviewerAgent()
+        technical_agent = TechnicalReviewerAgent()
+
+        spec_task = spec_agent.execute(review_context)
+        technical_task = technical_agent.execute(review_context)
+
+        results = await asyncio.gather(
+            spec_task, technical_task, return_exceptions=True
+        )
+
+        spec_review = results[0] if not isinstance(results[0], Exception) else None
+        technical_review = results[1] if not isinstance(results[1], Exception) else None
+
+        if isinstance(results[0], Exception):
+            logger.warning("Spec review failed: %s", results[0])
+        if isinstance(results[1], Exception):
+            logger.warning("Technical review failed: %s", results[1])
+
+        # Combine results
+        combined = await combine_review_results(
+            spec_review=spec_review,
+            technical_review=technical_review,
+            pr_metadata=pr_metadata,
+        )
+
+        return {
+            "recommendation": combined.recommendation,
+            "review_report": combined.review_report,
+            "has_critical": (
+                technical_review.get("has_critical", False)
+                if technical_review
+                else False
+            ),
+        }
+
+    except ImportError as e:
+        logger.warning("Failed to import reviewer agents: %s", e)
+        return {
+            "recommendation": "request_changes",
+            "review_report": "",
+            "has_critical": False,
+        }
+    except Exception as e:
+        logger.warning("Dual review failed: %s", e)
+        return {
+            "recommendation": "request_changes",
+            "review_report": "",
+            "has_critical": False,
+        }
+
+
+async def _run_review_fixer(
+    review_result: dict[str, Any],
+    pr_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Run the review fixer agent to address issues.
+
+    The fixer agent handles parallelization internally by spawning subagents
+    for issues affecting different files.
+
+    Args:
+        review_result: Combined review result with report and recommendation
+        pr_context: PR context dict
+
+    Returns:
+        Fix result dict
+    """
+    try:
+        from maverick.agents.reviewers.review_fixer import ReviewFixerAgent
+
+        # Build context for fixer
+        pr_metadata = pr_context.get("pr_metadata", {})
+        if hasattr(pr_metadata, "to_dict"):
+            pr_metadata = pr_metadata.to_dict()
+
+        fixer_context = {
+            "review_report": review_result.get("review_report", ""),
+            "recommendation": review_result.get("recommendation", "request_changes"),
+            "changed_files": list(pr_context.get("changed_files", [])),
+            "diff": pr_context.get("diff", ""),
+            "pr_metadata": pr_metadata,
+        }
+
+        # Run fixer agent (it handles parallelization via subagents)
+        fixer_agent = ReviewFixerAgent()
+        result = await fixer_agent.execute(fixer_context)
+
+        return result
+
+    except ImportError as e:
+        logger.warning("Failed to import ReviewFixerAgent: %s", e)
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.warning("Review fixer failed: %s", e)
+        return {"success": False, "error": str(e)}
 
 
 def _flatten_issue_groups(
@@ -1018,48 +1087,39 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
 
 
 async def generate_review_fix_report(
-    initial_review: dict[str, Any],
-    fix_loop_result: dict[str, Any],
+    loop_result: dict[str, Any],
     max_attempts: int,
 ) -> ReviewAndFixReport:
     """Generate final review-and-fix report.
 
     Args:
-        initial_review: Initial review result
-        fix_loop_result: Result from run_review_fix_loop
+        loop_result: Result from run_review_fix_loop
         max_attempts: Configured max attempts
 
     Returns:
         ReviewAndFixReport with final summary
     """
-    # Extract metrics
-    issues_fixed_list = fix_loop_result.get("issues_fixed", [])
-    issues_remaining_list = fix_loop_result.get("issues_remaining", [])
-    attempts = fix_loop_result.get("attempts", 0)
-    final_recommendation = fix_loop_result.get(
-        "final_recommendation",
-        initial_review.get("recommendation", "comment"),
-    )
-    skipped = fix_loop_result.get("skipped", False)
-    skip_reason = fix_loop_result.get("skip_reason")
+    # Handle ReviewFixLoopResult if passed directly
+    if hasattr(loop_result, "to_dict"):
+        loop_result = loop_result.to_dict()
 
-    # Count issues
-    issues_fixed_count = sum(
-        1 for f in issues_fixed_list if isinstance(f, dict) and f.get("fixed", False)
-    )
-    issues_remaining_count = len(issues_remaining_list)
-    total_issues = issues_fixed_count + issues_remaining_count
+    # Extract metrics
+    attempts = loop_result.get("attempts", 0)
+    final_recommendation = loop_result.get("final_recommendation", "comment")
+    skipped = loop_result.get("skipped", False)
+    skip_reason = loop_result.get("skip_reason")
+    success = loop_result.get("success", False)
 
     # Build fix summary
     fix_summary_lines = []
     if skipped:
         fix_summary_lines.append(f"Fix loop skipped: {skip_reason}")
     elif attempts > 0:
-        fix_summary_lines.append(f"Completed {attempts} fix attempt(s)")
-        if issues_fixed_count > 0:
-            fix_summary_lines.append(f"Fixed {issues_fixed_count} issue(s)")
-        if issues_remaining_count > 0:
-            fix_summary_lines.append(f"{issues_remaining_count} issue(s) remaining")
+        fix_summary_lines.append(f"Completed {attempts} review-fix cycle(s)")
+        if success:
+            fix_summary_lines.append("Review passed")
+        else:
+            fix_summary_lines.append("Issues remain after max attempts")
     else:
         fix_summary_lines.append("No fix attempts needed")
 
@@ -1069,50 +1129,25 @@ async def generate_review_fix_report(
     report_lines.append("")
     report_lines.append("## Summary")
     report_lines.append("")
-    report_lines.append(f"- **Total Issues Found:** {total_issues}")
-    report_lines.append(f"- **Issues Fixed:** {issues_fixed_count}")
-    report_lines.append(f"- **Issues Remaining:** {issues_remaining_count}")
-    report_lines.append(f"- **Fix Attempts:** {attempts}/{max_attempts}")
+    report_lines.append(f"- **Review-Fix Cycles:** {attempts}/{max_attempts}")
     report_lines.append(f"- **Final Recommendation:** {final_recommendation}")
+    report_lines.append(f"- **Success:** {'Yes' if success else 'No'}")
+    if skipped:
+        report_lines.append(f"- **Skipped:** {skip_reason}")
     report_lines.append("")
 
-    # Include original review report
-    original_report = initial_review.get("review_report", "")
-    if original_report:
-        report_lines.append("## Original Review")
-        report_lines.append("")
-        report_lines.append(original_report)
-        report_lines.append("")
-
-    # Add fix details if any
-    if issues_fixed_list:
-        report_lines.append("## Fixes Applied")
-        report_lines.append("")
-        for fix in issues_fixed_list:
-            if isinstance(fix, dict):
-                status = "✓" if fix.get("fixed") else "✗"
-                issue_id = fix.get("issue_id", "unknown")
-                desc = fix.get("fix_description") or fix.get("error") or "No details"
-                report_lines.append(f"- {status} {issue_id}: {desc[:100]}")
-        report_lines.append("")
-
-    # Add remaining issues if any
-    if issues_remaining_list:
-        report_lines.append("## Remaining Issues")
-        report_lines.append("")
-        for issue in issues_remaining_list:
-            if isinstance(issue, dict):
-                severity = issue.get("severity", "unknown")
-                desc = issue.get("description", "No description")[:100]
-                report_lines.append(f"- [{severity}] {desc}")
-        report_lines.append("")
+    report_lines.append("## Process")
+    report_lines.append("")
+    for line in fix_summary_lines:
+        report_lines.append(f"- {line}")
+    report_lines.append("")
 
     return ReviewAndFixReport(
         review_report="\n".join(report_lines),
         recommendation=final_recommendation,
-        issues_found=total_issues,
-        issues_fixed=issues_fixed_count,
-        issues_remaining=issues_remaining_count,
+        issues_found=0,  # Not tracking individual issues in simplified flow
+        issues_fixed=0,
+        issues_remaining=0,
         attempts=attempts,
         fix_summary=tuple(fix_summary_lines),
     )
