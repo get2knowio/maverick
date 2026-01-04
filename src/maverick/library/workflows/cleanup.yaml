@@ -239,7 +239,7 @@ steps:
   # ============================================================================
   # Stage 4: Generate Summary Report
   # ============================================================================
-  # Generate summary report of refuel workflow execution.
+  # Generate summary report of cleanup workflow execution.
   #
   # Aggregates results from all processed issues and reports:
   # - Total issues requested vs. processed
@@ -247,11 +247,11 @@ steps:
   # - List of created PR URLs
   # - Any errors encountered
   #
-  # Output: RefuelSummaryResult with complete workflow statistics
+  # Output: CleanupSummaryResult with complete workflow statistics
   # ============================================================================
   - name: report_summary
     type: python
-    action: generate_refuel_summary
+    action: generate_cleanup_summary
     when: ${{ not inputs.dry_run }}
     kwargs:
       parallel_result: ${{ steps.process_issues.output }}
@@ -269,7 +269,7 @@ steps:
     action: log_dry_run
     when: ${{ inputs.dry_run }}
     kwargs:
-      operation: "generate_refuel_summary"
+      operation: "generate_cleanup_summary"
       details: "Would generate summary report of all processed issues"
     metadata:
       progress:

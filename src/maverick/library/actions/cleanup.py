@@ -1,4 +1,4 @@
-"""Refuel workflow actions for batch issue processing."""
+"""Cleanup workflow actions for batch issue processing."""
 
 from __future__ import annotations
 
@@ -142,14 +142,14 @@ async def _process_single_issue(issue: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def generate_refuel_summary(
+async def generate_cleanup_summary(
     parallel_result: dict[str, Any] | None,
     sequential_result: dict[str, Any] | None,
     total_requested: int,
     label: str,
     parallel_mode: bool,
 ) -> dict[str, Any]:
-    """Generate summary of refuel workflow execution.
+    """Generate summary of cleanup workflow execution.
 
     Args:
         parallel_result: Result from parallel processing (optional)
@@ -159,7 +159,7 @@ async def generate_refuel_summary(
         parallel_mode: Whether parallel mode was used
 
     Returns:
-        RefuelSummaryResult as dict
+        CleanupSummaryResult as dict
     """
     # Get processed results from whichever mode was used
     results = []
@@ -177,7 +177,7 @@ async def generate_refuel_summary(
     pr_urls = [r.get("pr_url") for r in results if r.get("pr_url")]
 
     logger.info(
-        f"Refuel summary: {success_count} fixed, {failure_count} failed, "
+        f"Cleanup summary: {success_count} fixed, {failure_count} failed, "
         f"{skipped_count} skipped out of {total_requested} total issues"
     )
 

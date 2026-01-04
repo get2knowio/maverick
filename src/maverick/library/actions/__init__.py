@@ -10,7 +10,7 @@ Actions are organized by domain:
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
 - review: Code review operations
-- refuel: Refuel workflow-specific operations
+- cleanup: Cleanup workflow-specific operations
 - dry_run: Dry-run mode support
 """
 
@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
 # Import action functions
+from maverick.library.actions.cleanup import (
+    generate_cleanup_summary,
+    process_selected_issues,
+)
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
     create_git_branch,
@@ -35,10 +39,6 @@ from maverick.library.actions.github import (
     fetch_github_issues,
 )
 from maverick.library.actions.preflight import run_preflight_checks
-from maverick.library.actions.refuel import (
-    generate_refuel_summary,
-    process_selected_issues,
-)
 from maverick.library.actions.review import (
     combine_review_results,
     gather_pr_context,
@@ -72,9 +72,9 @@ __all__ = [
     "gather_pr_context",
     "run_coderabbit_review",
     "combine_review_results",
-    # Refuel actions
+    # Cleanup actions
     "process_selected_issues",
-    "generate_refuel_summary",
+    "generate_cleanup_summary",
     # Validation actions
     "run_fix_retry_loop",
     "generate_validation_report",
@@ -120,9 +120,9 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("review.run_coderabbit_review", run_coderabbit_review)
     registry.actions.register("review.combine_review_results", combine_review_results)
 
-    # Refuel actions
+    # Cleanup actions
     registry.actions.register("process_selected_issues", process_selected_issues)
-    registry.actions.register("generate_refuel_summary", generate_refuel_summary)
+    registry.actions.register("generate_cleanup_summary", generate_cleanup_summary)
 
     # Validation actions
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
