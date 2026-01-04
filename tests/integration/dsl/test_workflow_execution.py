@@ -854,7 +854,8 @@ class TestUserStory3ValidateWorkflow:
         result = executor.get_result()
         assert result.success is True
         # Final output is last step (validate), which returns success=True
-        assert result.final_output.success is True
+        # ValidationResult is converted to dict for expression evaluation compatibility
+        assert result.final_output["success"] is True
 
 
 class TestEdgeCases:

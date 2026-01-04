@@ -1057,6 +1057,8 @@ async def _execute_workflow_run(
     dry_run: bool,
     resume: bool,
     no_validate: bool = False,
+    list_steps: bool = False,
+    stop_after_step: str | None = None,
 ) -> None:
     """Core workflow execution logic (shared by fly and workflow run commands).
 
@@ -1068,6 +1070,8 @@ async def _execute_workflow_run(
         dry_run: If True, show execution plan without running.
         resume: If True, resume from latest checkpoint.
         no_validate: If True, skip semantic validation before execution.
+        list_steps: If True, list workflow steps and exit.
+        stop_after_step: If provided, stop after this step (name or number).
     """
     import json
 
@@ -1145,6 +1149,55 @@ async def _execute_workflow_run(
 
             input_dict[key] = parsed_value
 
+        # List steps and exit if requested
+        if list_steps:
+            click.echo(click.style(f"Workflow: {workflow_obj.name}", bold=True))
+            click.echo(f"Version: {workflow_obj.version}")
+            if workflow_obj.description:
+                click.echo(f"Description: {workflow_obj.description}")
+            click.echo()
+            click.echo(click.style("Steps:", bold=True))
+            for i, step in enumerate(workflow_obj.steps, 1):
+                step_type = click.style(f"({step.type.value})", dim=True)
+                click.echo(f"  {i}. {step.name} {step_type}")
+                if step.when:
+                    when_str = click.style(f"when: {step.when}", dim=True)
+                    click.echo(f"     {when_str}")
+            click.echo()
+            click.echo(
+                "Use --step <name|number> to run up to and including a step."
+            )
+            raise SystemExit(ExitCode.SUCCESS)
+
+        # Resolve stop_after_step to step index if provided
+        stop_after_index: int | None = None
+        if stop_after_step:
+            # Try to parse as number first
+            try:
+                step_num = int(stop_after_step)
+                if 1 <= step_num <= len(workflow_obj.steps):
+                    stop_after_index = step_num - 1  # Convert to 0-based
+                else:
+                    error_msg = format_error(
+                        f"Step number {step_num} out of range",
+                        suggestion=f"Valid range: 1-{len(workflow_obj.steps)}",
+                    )
+                    click.echo(error_msg, err=True)
+                    raise SystemExit(ExitCode.FAILURE)
+            except ValueError:
+                # Try to find step by name
+                step_names = [s.name for s in workflow_obj.steps]
+                if stop_after_step in step_names:
+                    stop_after_index = step_names.index(stop_after_step)
+                else:
+                    # Show available steps
+                    error_msg = format_error(
+                        f"Step '{stop_after_step}' not found",
+                        suggestion="Use --list-steps to see available steps",
+                    )
+                    click.echo(error_msg, err=True)
+                    raise SystemExit(ExitCode.FAILURE) from None
+
         # Show execution plan for dry run
         if dry_run:
             click.echo(f"Dry run: Would execute workflow '{workflow_obj.name}'")
@@ -1197,6 +1250,17 @@ async def _execute_workflow_run(
         step_index = 0
         total_steps = len(workflow_obj.steps)
 
+        # Show limited execution message if --step was used
+        if stop_after_index is not None:
+            stop_step_name = workflow_obj.steps[stop_after_index].name
+            limit_msg = click.style(
+                f"Will stop after step: {stop_step_name} "
+                f"({stop_after_index + 1}/{total_steps})",
+                fg="yellow",
+            )
+            click.echo(limit_msg)
+            click.echo()
+
         # Execute workflow and display progress
         from maverick.dsl.events import (
             ValidationCompleted,
@@ -1208,6 +1272,7 @@ async def _execute_workflow_run(
             workflow_obj,
             inputs=input_dict,
             resume_from_checkpoint=resume,
+            stop_after_step=stop_after_index,
         ):
             if isinstance(event, ValidationStarted):
                 # Show validation start

@@ -1184,3 +1184,110 @@ class TestTernaryErrorHandling:
         with pytest.raises(ExpressionEvaluationError) as exc_info:
             evaluator.evaluate(expr)
         assert "missing" in str(exc_info.value)
+
+
+class TestBooleanOrReturnsValue:
+    """Test that 'or' expressions return actual values, not just True/False.
+
+    This is critical for workflow expressions like:
+        ${{ inputs.task_file or steps.init.output.task_file_path }}
+    which should return the path string, not just True.
+    """
+
+    def test_or_returns_first_truthy_value(self) -> None:
+        """Or expression should return the first truthy value, not True."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": None, "b": "hello"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a or inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "hello"
+
+    def test_or_returns_first_truthy_when_first_is_truthy(self) -> None:
+        """Or expression should return the first value if it's truthy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "first", "b": "second"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a or inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "first"
+
+    def test_or_returns_last_value_when_all_falsy(self) -> None:
+        """Or expression should return last value when all are falsy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": None, "b": "", "c": 0},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a or inputs.b or inputs.c")
+        result = evaluator.evaluate(expr)
+        assert result == 0  # Last value, even though falsy
+
+    def test_or_with_step_output_returns_path(self) -> None:
+        """Or expression with step output should return the path string."""
+        evaluator = ExpressionEvaluator(
+            inputs={"task_file": None},
+            step_outputs={"init": {"output": {"task_file_path": "/path/to/file.md"}}},
+        )
+        expr = parse_expression(
+            "inputs.task_file or steps.init.output.task_file_path"
+        )
+        result = evaluator.evaluate(expr)
+        assert result == "/path/to/file.md"
+
+    def test_or_short_circuits_on_first_truthy(self) -> None:
+        """Or expression should short-circuit and not evaluate later operands."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "found"},
+            step_outputs={},  # No 'missing' step
+        )
+        # If short-circuit is working, steps.missing.output should not be evaluated
+        expr = parse_expression("inputs.a or steps.missing.output")
+        result = evaluator.evaluate(expr)
+        assert result == "found"
+
+
+class TestBooleanAndReturnsValue:
+    """Test that 'and' expressions return actual values, not just True/False."""
+
+    def test_and_returns_last_truthy_when_all_truthy(self) -> None:
+        """And expression should return the last value when all are truthy."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "first", "b": "second"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a and inputs.b")
+        result = evaluator.evaluate(expr)
+        assert result == "second"
+
+    def test_and_returns_first_falsy_value(self) -> None:
+        """And expression should return the first falsy value."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "first", "b": None, "c": "third"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a and inputs.b and inputs.c")
+        result = evaluator.evaluate(expr)
+        assert result is None
+
+    def test_and_returns_first_falsy_value_empty_string(self) -> None:
+        """And expression should return first falsy (empty string)."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": "first", "b": "", "c": "third"},
+            step_outputs={},
+        )
+        expr = parse_expression("inputs.a and inputs.b and inputs.c")
+        result = evaluator.evaluate(expr)
+        assert result == ""
+
+    def test_and_short_circuits_on_first_falsy(self) -> None:
+        """And expression should short-circuit on first falsy value."""
+        evaluator = ExpressionEvaluator(
+            inputs={"a": None},
+            step_outputs={},  # No 'missing' step
+        )
+        # If short-circuit is working, steps.missing.output should not be evaluated
+        expr = parse_expression("inputs.a and steps.missing.output")
+        result = evaluator.evaluate(expr)
+        assert result is None

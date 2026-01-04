@@ -261,21 +261,39 @@ class ExpressionEvaluator:
 
         return current
 
-    def _evaluate_boolean(self, expr: BooleanExpression) -> bool:
+    def _evaluate_boolean(self, expr: BooleanExpression) -> Any:
         """Evaluate a compound boolean expression.
+
+        This method implements Python-style short-circuit evaluation where
+        the actual values are returned, not just True/False. This allows
+        expressions like `inputs.x or steps.y.output` to return the value
+        of the first truthy operand, not just True.
 
         Args:
             expr: BooleanExpression with 'and' or 'or' operator.
 
         Returns:
-            Boolean result of evaluating all operands with the operator.
+            For 'and': last value if all truthy, otherwise first falsy value.
+            For 'or': first truthy value, or last value if all falsy.
         """
         if expr.operator == "and":
-            # all() short-circuits: returns False as soon as one operand is falsy
-            return all(self.evaluate(operand) for operand in expr.operands)
+            # Python-style 'and': return last value if all truthy,
+            # otherwise return first falsy value
+            result: Any = True
+            for operand in expr.operands:
+                result = self.evaluate(operand)
+                if not result:
+                    return result
+            return result
         elif expr.operator == "or":
-            # any() short-circuits: returns True as soon as one operand is truthy
-            return any(self.evaluate(operand) for operand in expr.operands)
+            # Python-style 'or': return first truthy value,
+            # or last value if all falsy
+            result = None
+            for operand in expr.operands:
+                result = self.evaluate(operand)
+                if result:
+                    return result
+            return result
         else:
             # Should not happen, but handle gracefully
             raise ExpressionEvaluationError(

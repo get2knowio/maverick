@@ -142,6 +142,25 @@ inputs:
 # ------------------------------------------------------------------------------
 steps:
   # ============================================================================
+  # Step 0: Check for Changes
+  # ============================================================================
+  # Check if there are any changes to commit before proceeding.
+  #
+  # This step checks for:
+  # - Staged changes (git diff --cached)
+  # - Unstaged changes (git diff)
+  # - Untracked files (git ls-files --others)
+  #
+  # If no changes exist, subsequent steps will be skipped to avoid errors.
+  # This prevents the "Diff cannot be empty" error when there's nothing to commit.
+  #
+  # Output: Object with has_staged, has_unstaged, has_untracked, has_any booleans
+  # ============================================================================
+  - name: check_changes
+    type: python
+    action: git_has_changes
+
+  # ============================================================================
   # Step 1: Generate Commit Message (Conditional)
   # ============================================================================
   # Automatically generate a conventional commit message if none was provided.
@@ -175,7 +194,7 @@ steps:
     type: generate
     generator: commit_message_generator
     context: commit_message_context
-    when: ${{ not inputs.message }}
+    when: ${{ not inputs.message and steps.check_changes.output.has_any }}
 
   # ============================================================================
   # Step 2a: Commit Changes (with provided message)
@@ -199,7 +218,7 @@ steps:
       message: ${{ inputs.message }}
       add_all: true
       include_attribution: true
-    when: ${{ inputs.message }}
+    when: ${{ inputs.message and steps.check_changes.output.has_any }}
 
   # ============================================================================
   # Step 2b: Commit Changes (with generated message)
@@ -224,7 +243,7 @@ steps:
       message: ${{ steps.generate_message.output }}
       add_all: true
       include_attribution: true
-    when: ${{ not inputs.message }}
+    when: ${{ not inputs.message and steps.check_changes.output.has_any }}
 
   # ============================================================================
   # Step 3: Push to Remote (Conditional)
@@ -254,4 +273,4 @@ steps:
     action: git_push
     kwargs:
       set_upstream: true
-    when: ${{ inputs.push }}
+    when: ${{ inputs.push and steps.check_changes.output.has_any }}

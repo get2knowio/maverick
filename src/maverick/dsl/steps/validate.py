@@ -30,6 +30,18 @@ class ValidationResult:
         """Alias for success for compatibility with workflow expressions."""
         return self.success
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for expression evaluation compatibility.
+
+        Returns:
+            Dictionary with success and stages fields.
+        """
+        return {
+            "success": self.success,
+            "stages": list(self.stages),
+            "passed": self.passed,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ValidateStep(StepDefinition):

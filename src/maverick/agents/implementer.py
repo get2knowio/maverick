@@ -94,36 +94,20 @@ After completing a task, output a JSON summary:
 }
 """
 
-PHASE_EXECUTION_PROMPT = """## Phase: {phase_name}
-
-Execute ALL tasks in this phase. Tasks marked with [P] can be executed
-in parallel using the Task tool. Sequential tasks must complete in order.
-
-### Tasks in this phase:
-{task_list}
-
-### Instructions:
-1. **For [P] tasks**: These can run in parallel. Use the Task tool to launch
-   parallel agents where beneficial for independent work.
-2. **For sequential tasks**: Complete in the order listed above.
-3. **TDD approach**: Write tests alongside implementation for each task.
-4. **Report results**: After completing ALL tasks, provide a summary.
-
-### Execution Strategy:
-- Group [P] tasks and execute them concurrently when they don't depend on each other
-- Execute non-[P] tasks one at a time in order
-- If a task fails, continue with remaining tasks (fail gracefully)
-
-### Output Format:
-After completing all tasks, provide a JSON summary:
-{{
-  "phase": "{phase_name}",
-  "tasks_completed": ["T001", "T002"],
-  "tasks_failed": [],
-  "files_changed": ["src/file.py", "tests/test_file.py"],
-  "summary": "Brief description of work done"
-}}
-"""
+PHASE_EXECUTION_PROMPT = (
+    '/speckit.implement Implement all the tasks in phase "{phase_name}", '
+    "creating a subagent to complete each task. "
+    'Tasks marked with a "[P]" can be processed simultaneously '
+    "(in separate subagents). Update tasks.md to track your progress.\n\n"
+    "After completing all tasks, provide a JSON summary:\n"
+    "{{\n"
+    '  "phase": "{phase_name}",\n'
+    '  "tasks_completed": ["T001", "T002"],\n'
+    '  "tasks_failed": [],\n'
+    '  "files_changed": ["src/file.py", "tests/test_file.py"],\n'
+    '  "summary": "Brief description of work done"\n'
+    "}}\n"
+)
 
 
 # =============================================================================
@@ -623,23 +607,19 @@ After completion, provide a summary of changes made.
     ) -> str:
         """Build prompt for phase-level execution.
 
+        The prompt invokes /speckit.implement which handles:
+        - Prerequisites check
+        - Checklist verification
+        - Loading spec artifacts (plan.md, data-model.md, etc.)
+        - Project setup verification
+        - Task parsing and execution
+
         Args:
             phase_name: Name of the phase.
-            tasks: List of tasks in the phase.
+            tasks: List of tasks in the phase (used for logging only).
             context: Execution context.
 
         Returns:
             Formatted prompt for Claude.
         """
-        # Format task list with [P] markers visible
-        task_lines = []
-        for task in tasks:
-            parallel_marker = "[P] " if task.parallel else ""
-            task_lines.append(f"- {task.id} {parallel_marker}{task.description}")
-
-        task_list = "\n".join(task_lines)
-
-        return PHASE_EXECUTION_PROMPT.format(
-            phase_name=phase_name,
-            task_list=task_list,
-        )
+        return PHASE_EXECUTION_PROMPT.format(phase_name=phase_name)

@@ -36,10 +36,17 @@ async def execute_validate_step(
         Validation result with success status and stage results.
     """
     # Execute validation stages
+    # Use resolved stages from resolved_inputs (handles expression evaluation)
+    # Fall back to step.stages for backward compatibility (literal lists)
+    stages = resolved_inputs.get("stages", step.stages)
+    if isinstance(stages, str):
+        # If stages is still a string, it's a literal stage name, wrap in list
+        stages = [stages]
+
     stage_results = []
     overall_success = True
 
-    for stage_name in step.stages:
+    for stage_name in stages:
         # For now, implement a simple mock that executes stages
         # In the future, this should integrate with ValidationRunner
         try:

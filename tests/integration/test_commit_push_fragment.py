@@ -74,6 +74,15 @@ class TestCommitAndPushFragment:
                 "upstream_set": set_upstream,
             }
 
+        # Mock git_has_changes action (assumes there are changes to commit)
+        def mock_git_has_changes() -> dict[str, Any]:
+            return {
+                "has_staged": True,
+                "has_unstaged": False,
+                "has_untracked": False,
+                "has_any": True,
+            }
+
         # Register components (validate=False for mock objects)
         registry.generators.register(
             "commit_message_generator", MockCommitMessageGenerator, validate=False
@@ -83,6 +92,7 @@ class TestCommitAndPushFragment:
         )
         registry.actions.register("git_commit", mock_git_commit)
         registry.actions.register("git_push", mock_git_push)
+        registry.actions.register("git_has_changes", mock_git_has_changes)
 
         return registry
 

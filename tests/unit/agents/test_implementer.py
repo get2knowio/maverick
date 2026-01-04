@@ -1074,10 +1074,10 @@ class TestPhaseLevelExecution:
         assert result.tasks_completed == 0
         assert len(result.task_results) == 0
 
-    def test_build_phase_prompt_includes_all_tasks(
+    def test_build_phase_prompt_invokes_speckit_implement(
         self, agent: ImplementerAgent
     ) -> None:
-        """Test phase prompt includes all tasks in the phase."""
+        """Test phase prompt invokes /speckit.implement skill."""
         tasks = [
             Task(id="T001", description="Setup config", parallel=False),
             Task(id="T002", description="Add logging", parallel=True),
@@ -1090,17 +1090,19 @@ class TestPhaseLevelExecution:
 
         prompt = agent._build_phase_prompt("Phase 1", tasks, context)
 
+        # Prompt should invoke /speckit.implement with the phase name
+        assert "/speckit.implement" in prompt
         assert "Phase 1" in prompt
-        assert "T001" in prompt
-        assert "T002" in prompt
-        assert "T003" in prompt
-        assert "Setup config" in prompt
-        assert "[P]" in prompt  # Parallel marker visible
+        # Prompt should mention parallel tasks and subagents
+        assert "[P]" in prompt
+        assert "subagent" in prompt.lower()
+        # Prompt should ask to update tasks.md
+        assert "tasks.md" in prompt
 
-    def test_build_phase_prompt_marks_parallel_tasks(
+    def test_build_phase_prompt_includes_phase_name(
         self, agent: ImplementerAgent
     ) -> None:
-        """Test phase prompt shows [P] marker for parallel tasks."""
+        """Test phase prompt includes the phase name for /speckit.implement."""
         tasks = [
             Task(id="T001", description="Sequential task", parallel=False),
             Task(id="T002", description="Parallel task", parallel=True),
@@ -1112,13 +1114,10 @@ class TestPhaseLevelExecution:
 
         prompt = agent._build_phase_prompt("Test Phase", tasks, context)
 
-        # T001 should NOT have [P], T002 should have [P]
-        lines = prompt.split("\n")
-        t001_line = next(line for line in lines if "T001" in line)
-        t002_line = next(line for line in lines if "T002" in line)
-
-        assert "[P]" not in t001_line
-        assert "[P]" in t002_line
+        # The phase name should be included in the prompt
+        assert "Test Phase" in prompt
+        # Should request JSON output format
+        assert "JSON" in prompt or "json" in prompt
 
     # NOTE: test_phase_commit_message_format was removed as _create_phase_commit
     # was removed from the agent (issue #147). Commits are handled by workflow.

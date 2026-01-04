@@ -521,7 +521,7 @@ async def commit_message_context(
     Used by: commit_and_push.yaml (generate_message step)
 
     The context includes:
-    - diff: Git diff of staged changes
+    - diff: Git diff of all changes (staged + unstaged)
     - file_stats: Insertions/deletions per file
     - recent_commits: Recent commit messages for style reference
 
@@ -532,10 +532,19 @@ async def commit_message_context(
     Returns:
         CommitMessageContext as dict
     """
-    # Get diff of staged changes
-    diff = await _get_diff(staged=True)
+    # Get diff of all changes (staged + unstaged)
+    # We include unstaged changes because git_commit uses add_all=True
+    # which stages everything before committing
+    staged_diff = await _get_diff(staged=True)
+    unstaged_diff = await _get_diff(staged=False)
 
-    # Get file statistics for staged changes
+    # Combine staged and unstaged diffs
+    if staged_diff and unstaged_diff:
+        diff = f"{staged_diff}\n{unstaged_diff}"
+    else:
+        diff = staged_diff or unstaged_diff
+
+    # Get file statistics for working tree changes
     file_stats = await _get_file_stats("HEAD")
 
     # Get recent commits for style reference

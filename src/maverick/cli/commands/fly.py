@@ -50,6 +50,18 @@ from maverick.cli.context import async_command
     default=False,
     help="Skip semantic validation before execution (not recommended).",
 )
+@click.option(
+    "--list-steps",
+    is_flag=True,
+    default=False,
+    help="List workflow steps and exit without executing.",
+)
+@click.option(
+    "--step",
+    "stop_after_step",
+    default=None,
+    help="Stop after specified step (name or number). Use --list-steps to see options.",
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -60,6 +72,8 @@ async def fly(
     dry_run: bool,
     resume: bool,
     no_validate: bool,
+    list_steps: bool,
+    stop_after_step: str | None,
 ) -> None:
     """Execute a DSL workflow.
 
@@ -95,8 +109,23 @@ async def fly(
 
         # Skip validation (not recommended)
         maverick fly feature --no-validate
+
+        # List workflow steps
+        maverick fly feature --list-steps
+
+        # Run up to and including a specific step
+        maverick fly feature -i branch_name=001-foo --step init
+        maverick fly feature -i branch_name=001-foo --step 3
     """
     # Delegate to shared helper function
     await _execute_workflow_run(
-        ctx, name_or_file, inputs, input_file, dry_run, resume, no_validate
+        ctx,
+        name_or_file,
+        inputs,
+        input_file,
+        dry_run,
+        resume,
+        no_validate,
+        list_steps,
+        stop_after_step,
     )

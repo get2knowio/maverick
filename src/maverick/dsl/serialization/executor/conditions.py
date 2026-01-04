@@ -108,6 +108,7 @@ def resolve_expressions(
         GenerateStepRecord,
         PythonStepRecord,
         SubWorkflowStepRecord,
+        ValidateStepRecord,
     )
 
     evaluator = ExpressionEvaluator(
@@ -134,6 +135,9 @@ def resolve_expressions(
         # Resolve inputs dict
         for key, value in step.inputs.items():
             resolved[key] = _resolve_value(value, evaluator)
+    elif isinstance(step, ValidateStepRecord):
+        # Resolve stages (can be list or expression string)
+        resolved["stages"] = _resolve_value(step.stages, evaluator)
 
     return resolved
 

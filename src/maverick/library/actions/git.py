@@ -10,6 +10,80 @@ from maverick.logging import get_logger
 logger = get_logger(__name__)
 
 
+async def git_has_changes() -> dict[str, Any]:
+    """Check if there are staged or unstaged changes to commit.
+
+    Returns:
+        Dict with:
+        - has_staged: True if there are staged changes
+        - has_unstaged: True if there are unstaged changes
+        - has_untracked: True if there are untracked files
+        - has_any: True if any changes exist (staged, unstaged, or untracked)
+    """
+    try:
+        # Check for staged changes
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "diff",
+            "--cached",
+            "--quiet",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.wait()
+        has_staged = proc.returncode != 0
+
+        # Check for unstaged changes
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "diff",
+            "--quiet",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.wait()
+        has_unstaged = proc.returncode != 0
+
+        # Check for untracked files
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        has_untracked = bool(stdout.decode().strip())
+
+        has_any = has_staged or has_unstaged or has_untracked
+
+        logger.debug(
+            "Git change status",
+            has_staged=has_staged,
+            has_unstaged=has_unstaged,
+            has_untracked=has_untracked,
+            has_any=has_any,
+        )
+
+        return {
+            "has_staged": has_staged,
+            "has_unstaged": has_unstaged,
+            "has_untracked": has_untracked,
+            "has_any": has_any,
+        }
+
+    except (RuntimeError, OSError) as e:
+        logger.error(f"Git status check failed: {e}")
+        # On error, assume there might be changes to be safe
+        return {
+            "has_staged": True,
+            "has_unstaged": True,
+            "has_untracked": True,
+            "has_any": True,
+        }
+
+
 async def git_commit(
     message: str,
     add_all: bool = True,

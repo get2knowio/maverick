@@ -23,7 +23,12 @@ if TYPE_CHECKING:
 
 # Import action functions
 from maverick.library.actions.dry_run import log_dry_run
-from maverick.library.actions.git import create_git_branch, git_commit, git_push
+from maverick.library.actions.git import (
+    create_git_branch,
+    git_commit,
+    git_has_changes,
+    git_push,
+)
 from maverick.library.actions.github import (
     create_github_pr,
     fetch_github_issue,
@@ -38,6 +43,7 @@ from maverick.library.actions.review import (
     gather_pr_context,
     run_coderabbit_review,
 )
+from maverick.library.actions.tasks import get_phase_names
 from maverick.library.actions.validation import (
     generate_validation_report,
     log_message,
@@ -48,9 +54,12 @@ from maverick.library.actions.workspace import init_workspace
 __all__ = [
     # Workspace actions
     "init_workspace",
+    # Task actions
+    "get_phase_names",
     # Git actions
     "git_commit",
     "git_push",
+    "git_has_changes",
     "create_git_branch",
     # GitHub actions
     "create_github_pr",
@@ -83,9 +92,13 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     # Workspace actions
     registry.actions.register("init_workspace", init_workspace)
 
+    # Task actions
+    registry.actions.register("get_phase_names", get_phase_names)
+
     # Git actions
     registry.actions.register("git_commit", git_commit)
     registry.actions.register("git_push", git_push)
+    registry.actions.register("git_has_changes", git_has_changes)
     registry.actions.register("create_git_branch", create_git_branch)
 
     # GitHub actions
