@@ -112,6 +112,7 @@ def generate_config(
 
     # Assemble complete config
     return InitConfig(
+        project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
         model=model_config,

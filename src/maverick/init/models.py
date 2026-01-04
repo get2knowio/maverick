@@ -563,6 +563,7 @@ class InitConfig(BaseModel):
     This model represents the full maverick.yaml file structure.
 
     Attributes:
+        project_type: Detected project type (python, rust, ansible_playbook, etc.)
         github: GitHub repository configuration.
         validation: Validation command configuration.
         model: Claude model configuration.
@@ -571,6 +572,10 @@ class InitConfig(BaseModel):
         verbosity: Logging verbosity level.
     """
 
+    project_type: str = Field(
+        default="unknown",
+        description="Detected project type for skill selection",
+    )
     github: InitGitHubConfig = Field(default_factory=InitGitHubConfig)
     validation: InitValidationConfig = Field(default_factory=InitValidationConfig)
     model: InitModelConfig = Field(default_factory=InitModelConfig)
