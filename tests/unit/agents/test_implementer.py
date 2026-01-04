@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from maverick.agents.implementer import (
-    IMPLEMENTER_SYSTEM_PROMPT,
+    IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
     ImplementerAgent,
 )
 from maverick.agents.tools import IMPLEMENTER_TOOLS
@@ -162,7 +162,9 @@ class TestImplementerAgentInitialization:
     def test_default_initialization(self, agent: ImplementerAgent) -> None:
         """Test agent initializes with correct defaults."""
         assert agent.name == "implementer"
-        assert agent.system_prompt == IMPLEMENTER_SYSTEM_PROMPT
+        # System prompt is rendered with skill guidance, so check key content
+        assert "expert software engineer" in agent.system_prompt.lower()
+        assert "test-driven" in agent.system_prompt.lower()
         # Compare as sets since allowed_tools is a list and
         # IMPLEMENTER_TOOLS is a frozenset
         assert set(agent.allowed_tools) == set(IMPLEMENTER_TOOLS)
@@ -255,10 +257,12 @@ class TestImplementerAgentInitialization:
 class TestImplementerConstants:
     """Tests for ImplementerAgent constants."""
 
-    def test_implementer_system_prompt_is_string(self) -> None:
-        """Test IMPLEMENTER_SYSTEM_PROMPT is defined and non-empty."""
-        assert isinstance(IMPLEMENTER_SYSTEM_PROMPT, str)
-        assert len(IMPLEMENTER_SYSTEM_PROMPT) > 100
+    def test_implementer_system_prompt_template_is_string(self) -> None:
+        """Test IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE is defined and non-empty."""
+        assert isinstance(IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE, str)
+        assert len(IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE) > 100
+        # Template should contain skill_guidance placeholder
+        assert "$skill_guidance" in IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE
 
     def test_implementer_tools_is_frozenset(self) -> None:
         """Test IMPLEMENTER_TOOLS is a frozenset of strings (centralized, immutable)."""

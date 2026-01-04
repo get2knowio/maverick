@@ -212,7 +212,7 @@ class TestSpecificWorkflows:
         # Check for key steps (dual-agent review structure)
         step_names = [step.name for step in workflow.steps]
         assert "gather_context" in step_names
-        assert "parallel_reviews" in step_names  # Loop step for spec + technical reviewers
+        assert "parallel_reviews" in step_names  # dual-agent review loop
         assert "combine_results" in step_names
 
     def test_validate_workflow_structure(self) -> None:

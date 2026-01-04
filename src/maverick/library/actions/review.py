@@ -295,11 +295,11 @@ async def combine_review_results(
     report_lines.append("")
 
     # Determine recommendation
-    if has_critical:
-        recommendation = "request_changes"
-    elif spec_assessment == "NON-COMPLIANT":
-        recommendation = "request_changes"
-    elif technical_quality == "POOR":
+    if (
+        has_critical
+        or spec_assessment == "NON-COMPLIANT"
+        or technical_quality == "POOR"
+    ):
         recommendation = "request_changes"
     elif spec_assessment == "PARTIAL" or technical_quality == "NEEDS_WORK":
         recommendation = "comment"

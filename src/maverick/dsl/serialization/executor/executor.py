@@ -298,7 +298,8 @@ class WorkflowFileExecutor:
                     continue
             elif is_target_step and step_record.when:
                 logger.debug(
-                    f"Bypassing condition for target step '{step_record.name}' (--step flag)"
+                    "Bypassing condition for target step '%s' (--step flag)",
+                    step_record.name,
                 )
 
             yield StepStarted(step_name=step_record.name, step_type=step_record.type)

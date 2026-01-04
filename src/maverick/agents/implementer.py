@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts import render_prompt
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.agents.utils import detect_file_changes
 from maverick.exceptions import TaskParseError
@@ -35,8 +36,10 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-IMPLEMENTER_SYSTEM_PROMPT = """You are an expert software engineer.
+IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE = """You are an expert software engineer.
 You focus on methodical, test-driven implementation within an orchestrated workflow.
+
+$skill_guidance
 
 ## Your Role
 You implement tasks by writing and modifying code. The orchestration layer handles:
@@ -142,6 +145,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         mcp_servers: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        project_type: str | None = None,
     ) -> None:
         """Initialize ImplementerAgent.
 
@@ -150,10 +154,17 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             mcp_servers: Optional MCP server configurations.
             max_tokens: Optional maximum output tokens (SDK default used if None).
             temperature: Optional sampling temperature 0.0-1.0 (SDK default).
+            project_type: Project type for skill guidance (auto-detected if None).
         """
+        # Render prompt with skill guidance for this project type
+        system_prompt = render_prompt(
+            IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
+            project_type=project_type,
+        )
+
         super().__init__(
             name="implementer",
-            system_prompt=IMPLEMENTER_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             allowed_tools=list(IMPLEMENTER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,

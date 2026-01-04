@@ -14,14 +14,17 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts import render_prompt
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
 
-SPEC_REVIEWER_PROMPT = """\
+SPEC_REVIEWER_PROMPT_TEMPLATE = """\
 You are a Spec Compliance Reviewer. Your role is to review code changes and verify
 they correctly implement the project specification.
+
+$skill_guidance
 
 ## Your Focus Areas
 
@@ -102,6 +105,7 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         model: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        project_type: str | None = None,
     ) -> None:
         """Initialize the SpecReviewerAgent.
 
@@ -109,10 +113,17 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
             model: Optional Claude model ID.
             max_tokens: Optional maximum output tokens.
             temperature: Optional sampling temperature 0.0-1.0.
+            project_type: Optional project type for skill guidance.
+                If None, reads from maverick.yaml.
         """
+        # Render prompt with skill guidance for this project type
+        system_prompt = render_prompt(
+            SPEC_REVIEWER_PROMPT_TEMPLATE,
+            project_type=project_type,
+        )
         super().__init__(
             name="spec-reviewer",
-            system_prompt=SPEC_REVIEWER_PROMPT,
+            system_prompt=system_prompt,
             allowed_tools=list(REVIEWER_TOOLS),
             model=model,
             max_tokens=max_tokens,
@@ -205,5 +216,7 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         # Use the base class's query mechanism
         from maverick.agents.utils import extract_all_text
 
-        response = await self.query(prompt)
-        return extract_all_text(response)
+        messages = []
+        async for msg in self.query(prompt):
+            messages.append(msg)
+        return extract_all_text(messages)
