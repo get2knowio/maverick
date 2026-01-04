@@ -102,8 +102,8 @@ class TestGetPhaseNames:
         assert result == ["Zebra", "Alpha", "Middle"]
 
     @pytest.mark.asyncio
-    async def test_handles_phase_with_no_tasks(self, tmp_path: Path) -> None:
-        """Test extracts phases even if they have no tasks under them."""
+    async def test_excludes_phases_with_no_tasks(self, tmp_path: Path) -> None:
+        """Test excludes phases that have no tasks (e.g., documentation headers)."""
         task_file = tmp_path / "tasks.md"
         task_file.write_text(
             """## Empty Phase
@@ -115,8 +115,41 @@ class TestGetPhaseNames:
 
         result = await get_phase_names(task_file)
 
-        # Empty phase should still be included
-        assert result == ["Empty Phase", "Phase With Tasks"]
+        # Empty phases should be excluded (they're just documentation headers)
+        assert result == ["Phase With Tasks"]
+
+    @pytest.mark.asyncio
+    async def test_excludes_documentation_headers(self, tmp_path: Path) -> None:
+        """Test excludes typical documentation headers without tasks."""
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text(
+            """# Tasks: Feature Name
+
+## Format: `[ID] [P?] [Story] Description`
+
+## Path Conventions
+
+Some documentation text here.
+
+## Phase 1: Setup
+
+- [ ] T001 Create directory structure
+- [ ] T002 Initialize configuration
+
+## Dependencies & Execution Order
+
+Some notes about dependencies.
+
+## Phase 2: Implementation
+
+- [ ] T003 Implement feature
+"""
+        )
+
+        result = await get_phase_names(task_file)
+
+        # Only phases with actual tasks should be returned
+        assert result == ["Phase 1: Setup", "Phase 2: Implementation"]
 
     @pytest.mark.asyncio
     async def test_handles_complex_phase_names(self, tmp_path: Path) -> None:

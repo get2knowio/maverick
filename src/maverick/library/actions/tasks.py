@@ -36,8 +36,9 @@ async def get_phase_names(task_file: str | Path) -> list[str]:
 
     try:
         _tasks, phases_dict = parse_tasks_file(path)
-        # Return phase names in order they appear (dict preserves insertion order)
-        phase_names = list(phases_dict.keys())
+        # Return phase names that contain at least one task
+        # (filters out documentation headers like "Format:", "Path Conventions", etc.)
+        phase_names = [name for name, tasks in phases_dict.items() if tasks]
         logger.info(
             "Extracted phase names from task file",
             task_file=str(path),
