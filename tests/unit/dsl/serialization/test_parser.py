@@ -640,14 +640,14 @@ def test_resolve_references_invalid_subworkflow(
 
 
 def test_resolve_references_nested_steps(component_reg: ComponentRegistry) -> None:
-    """Test resolving references in nested step structures (branch, parallel)."""
+    """Test resolving references in nested step structures (branch, loop)."""
     workflow = WorkflowFile(
         version="1.0",
         name="test-workflow",
         steps=[
             {
-                "name": "parallel_step",
-                "type": "parallel",
+                "name": "loop_step",
+                "type": "loop",
                 "steps": [
                     {
                         "name": "sub1",
@@ -870,8 +870,8 @@ inputs:
     required: false
     default: false
 steps:
-  - name: parallel_tasks
-    type: parallel
+  - name: loop_tasks
+    type: loop
     steps:
       - name: task1
         type: python

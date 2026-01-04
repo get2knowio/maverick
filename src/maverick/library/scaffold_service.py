@@ -99,18 +99,18 @@ class ScaffoldService:
                     "create_pr",
                 ),
             ),
-            # Parallel templates
+            # Loop templates
             TemplateInfo(
-                template_type=TemplateType.PARALLEL,
+                template_type=TemplateType.LOOP,
                 format=TemplateFormat.YAML,
-                description="Demonstrates parallel step execution interface",
-                example_steps=("setup", "parallel_tasks", "aggregate", "finalize"),
+                description="Loop step with concurrency control",
+                example_steps=("loop_processing", "combine_results"),
             ),
             TemplateInfo(
-                template_type=TemplateType.PARALLEL,
+                template_type=TemplateType.LOOP,
                 format=TemplateFormat.PYTHON,
-                description="Demonstrates parallel step execution interface (Python)",
-                example_steps=("setup", "parallel_tasks", "aggregate", "finalize"),
+                description="Loop step with concurrency control (Python)",
+                example_steps=("loop_processing", "combine_results"),
             ),
         ]
         return templates

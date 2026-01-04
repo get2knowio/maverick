@@ -41,7 +41,7 @@ inputs:
 
 steps:
   - name: process_all_items
-    type: parallel
+    type: loop
     for_each: ${{ inputs.items }}
     steps:
       - name: process_item
@@ -64,10 +64,10 @@ steps:
         # Verify schema is correct
         assert workflow.name == "parallel-processing"
         assert len(workflow.steps) == 1
-        parallel_step = workflow.steps[0]
-        assert parallel_step.type.value == "parallel"
-        assert parallel_step.for_each == "${{ inputs.items }}"
-        assert len(parallel_step.steps) == 1
+        loop_step = workflow.steps[0]
+        assert loop_step.type.value == "loop"
+        assert loop_step.for_each == "${{ inputs.items }}"
+        assert len(loop_step.steps) == 1
 
         # Execute workflow
         executor = WorkflowFileExecutor(registry=registry)
@@ -103,7 +103,7 @@ inputs:
 
 steps:
   - name: process_numbers
-    type: parallel
+    type: loop
     for_each: ${{ inputs.numbers }}
     steps:
       - name: double
@@ -156,7 +156,7 @@ inputs:
 
 steps:
   - name: process_items
-    type: parallel
+    type: loop
     for_each: ${{ inputs.items }}
     steps:
       - name: transform
@@ -205,7 +205,7 @@ description: Execute steps in parallel without iteration
 
 steps:
   - name: run_parallel
-    type: parallel
+    type: loop
     steps:
       - name: task_a
         type: python
@@ -259,7 +259,7 @@ inputs:
 
 steps:
   - name: process_items
-    type: parallel
+    type: loop
     for_each: ${{ inputs.items }}
     steps:
       - name: process
@@ -299,7 +299,7 @@ inputs:
 
 steps:
   - name: process_items
-    type: parallel
+    type: loop
     for_each: ${{ inputs.items }}
     steps:
       - name: maybe_fail
@@ -361,7 +361,7 @@ inputs:
 
 steps:
   - name: process_users
-    type: parallel
+    type: loop
     for_each: ${{ inputs.users }}
     steps:
       - name: extract_name

@@ -16,7 +16,7 @@ from maverick.dsl.serialization.schema import (
     GenerateStepRecord,
     InputDefinition,
     InputType,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecord,
     SubWorkflowStepRecord,
@@ -1284,52 +1284,52 @@ class TestBranchStepRecord:
 
 
 # =============================================================================
-# ParallelStepRecord Tests
+# LoopStepRecord Tests
 # =============================================================================
 
 
-class TestParallelStepRecord:
-    """Test ParallelStepRecord model."""
+class TestLoopStepRecord:
+    """Test LoopStepRecord model."""
 
-    def test_minimal_parallel_step(self):
-        """Test minimal ParallelStepRecord with single step."""
+    def test_minimal_loop_step(self):
+        """Test minimal LoopStepRecord with single step."""
         steps = [PythonStepRecord(name="task1", action="func1")]
-        step = ParallelStepRecord(name="parallel", steps=steps)
+        step = LoopStepRecord(name="parallel", steps=steps)
         assert step.name == "parallel"
-        assert step.type == StepType.PARALLEL
+        assert step.type == StepType.LOOP
         assert len(step.steps) == 1
         assert step.steps[0].name == "task1"
 
-    def test_parallel_step_with_multiple_steps(self):
-        """Test ParallelStepRecord with multiple steps."""
+    def test_loop_step_with_multiple_steps(self):
+        """Test LoopStepRecord with multiple steps."""
         steps = [
             PythonStepRecord(name="task1", action="func1"),
             PythonStepRecord(name="task2", action="func2"),
             AgentStepRecord(name="task3", agent="reviewer"),
         ]
-        step = ParallelStepRecord(name="parallel", steps=steps)
+        step = LoopStepRecord(name="parallel", steps=steps)
         assert len(step.steps) == 3
         assert step.steps[0].type == StepType.PYTHON
         assert step.steps[1].type == StepType.PYTHON
         assert step.steps[2].type == StepType.AGENT
 
-    def test_parallel_step_with_nested_parallel(self):
-        """Test ParallelStepRecord with nested parallel step."""
+    def test_loop_step_with_nested_parallel(self):
+        """Test LoopStepRecord with nested parallel step."""
         inner_steps = [
             PythonStepRecord(name="inner1", action="func1"),
             PythonStepRecord(name="inner2", action="func2"),
         ]
-        inner_parallel = ParallelStepRecord(name="inner_parallel", steps=inner_steps)
+        inner_parallel = LoopStepRecord(name="inner_parallel", steps=inner_steps)
         outer_steps = [
             inner_parallel,
             PythonStepRecord(name="outer_task", action="func3"),
         ]
-        outer_step = ParallelStepRecord(name="outer_parallel", steps=outer_steps)
+        outer_step = LoopStepRecord(name="outer_parallel", steps=outer_steps)
 
         assert len(outer_step.steps) == 2
-        assert outer_step.steps[0].type == StepType.PARALLEL
+        assert outer_step.steps[0].type == StepType.LOOP
         nested_parallel = outer_step.steps[0]
-        assert isinstance(nested_parallel, ParallelStepRecord)
+        assert isinstance(nested_parallel, LoopStepRecord)
         assert len(nested_parallel.steps) == 2
 
     def test_duplicate_step_names_fails(self):
@@ -1338,13 +1338,13 @@ class TestParallelStepRecord:
             PythonStepRecord(name="task", action="func1"),
             PythonStepRecord(name="task", action="func2"),
         ]
-        with pytest.raises(Exception, match="Duplicate step names in parallel block"):
-            ParallelStepRecord(name="parallel", steps=steps)
+        with pytest.raises(Exception, match="Duplicate step names in loop block"):
+            LoopStepRecord(name="loop", steps=steps)
 
     def test_empty_steps_fails(self):
         """Test that empty steps list raises validation error."""
         with pytest.raises(Exception):
-            ParallelStepRecord(name="parallel", steps=[])
+            LoopStepRecord(name="loop", steps=[])
 
 
 # =============================================================================
@@ -1458,11 +1458,11 @@ class TestStepRecordUnion:
         assert len(step.options) == 1
         assert isinstance(step.options[0].step, PythonStepRecord)
 
-    def test_parse_parallel_step_from_dict(self):
-        """Test parsing dict to ParallelStepRecord via type discriminator."""
+    def test_parse_loop_step_from_dict(self):
+        """Test parsing dict to LoopStepRecord via type discriminator."""
         data = {
-            "name": "parallel",
-            "type": "parallel",
+            "name": "loop",
+            "type": "loop",
             "steps": [
                 {"name": "task1", "type": "python", "action": "func1"},
                 {"name": "task2", "type": "agent", "agent": "reviewer"},
@@ -1474,7 +1474,7 @@ class TestStepRecordUnion:
 
         adapter = TypeAdapter(StepRecordUnion)
         step = adapter.validate_python(data)
-        assert isinstance(step, ParallelStepRecord)
+        assert isinstance(step, LoopStepRecord)
         assert len(step.steps) == 2
         assert isinstance(step.steps[0], PythonStepRecord)
         assert isinstance(step.steps[1], AgentStepRecord)
@@ -1520,7 +1520,7 @@ class TestNestedStructures:
         """Test parallel step containing branch step with nested options."""
         data = {
             "name": "complex",
-            "type": "parallel",
+            "type": "loop",
             "steps": [
                 {
                     "name": "branch_task",
@@ -1530,7 +1530,7 @@ class TestNestedStructures:
                             "when": "state.x > 0",
                             "step": {
                                 "name": "nested_parallel",
-                                "type": "parallel",
+                                "type": "loop",
                                 "steps": [
                                     {"name": "task1", "type": "python", "action": "f1"},
                                     {"name": "task2", "type": "python", "action": "f2"},
@@ -1550,7 +1550,7 @@ class TestNestedStructures:
         step = adapter.validate_python(data)
 
         # Verify structure
-        assert isinstance(step, ParallelStepRecord)
+        assert isinstance(step, LoopStepRecord)
         assert len(step.steps) == 2
 
         # First parallel step is a branch
@@ -1559,7 +1559,7 @@ class TestNestedStructures:
 
         # Branch contains a nested parallel
         nested_parallel = branch_step.options[0].step
-        assert isinstance(nested_parallel, ParallelStepRecord)
+        assert isinstance(nested_parallel, LoopStepRecord)
         assert len(nested_parallel.steps) == 2
 
     def test_validate_step_with_nested_on_failure(self):

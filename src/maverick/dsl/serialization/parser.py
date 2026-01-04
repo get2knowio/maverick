@@ -30,7 +30,7 @@ from maverick.dsl.serialization.schema import (
     AgentStepRecord,
     BranchStepRecord,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecordUnion,
     SubWorkflowStepRecord,
@@ -252,7 +252,7 @@ def _extract_from_step(step: StepRecordUnion, expressions: list[AnyExpression]) 
         for option in step.options:
             _extract_from_value(option.when, expressions)
             _extract_from_step(option.step, expressions)
-    elif isinstance(step, ParallelStepRecord):
+    elif isinstance(step, LoopStepRecord):
         for substep in step.steps:
             _extract_from_step(substep, expressions)
 
@@ -388,7 +388,7 @@ def _resolve_step_references(
         # Resolve references in all branch options
         for option in step.options:
             _resolve_step_references(option.step, registry)
-    elif isinstance(step, ParallelStepRecord):
+    elif isinstance(step, LoopStepRecord):
         # Resolve references in all parallel substeps
         for substep in step.steps:
             _resolve_step_references(substep, registry)

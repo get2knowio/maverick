@@ -1,7 +1,7 @@
 """Integration tests for workflow template scaffolding.
 
 This module validates the complete template scaffolding flow:
-- Creating workflows from basic, full, and parallel templates
+- Creating workflows from basic, full, and loop templates
 - YAML and Python format generation
 - Custom values (name, description, author)
 - Preview mode without file creation
@@ -346,19 +346,19 @@ class TestFullTemplateScaffolding:
         )
 
 
-class TestParallelTemplateScaffolding:
-    """Test parallel template scaffolding demonstrating parallel steps."""
+class TestLoopTemplateScaffolding:
+    """Test loop template scaffolding demonstrating loop steps with concurrency."""
 
-    def test_scaffold_parallel_yaml_workflow(self, tmp_path: Path) -> None:
-        """Create a parallel YAML workflow and verify parallel structure."""
+    def test_scaffold_loop_yaml_workflow(self, tmp_path: Path) -> None:
+        """Create a loop YAML workflow and verify loop structure."""
         scaffolder = get_scaffolder()
 
         output_dir = tmp_path / "workflows"
         output_dir.mkdir()
 
         request = ScaffoldRequest(
-            name="parallel-workflow",
-            template=TemplateType.PARALLEL,
+            name="loop-workflow",
+            template=TemplateType.LOOP,
             format=TemplateFormat.YAML,
             output_dir=output_dir,
         )
@@ -368,25 +368,25 @@ class TestParallelTemplateScaffolding:
         assert result.success
         assert result.output_path is not None
 
-        # Verify workflow has parallel steps
+        # Verify workflow has loop steps
         content = result.output_path.read_text()
         workflow = parse_workflow(content)
 
-        assert workflow.name == "parallel-workflow"
+        assert workflow.name == "loop-workflow"
 
-        # Should contain parallel step type
-        assert "type: parallel" in content
+        # Should contain loop step type
+        assert "type: loop" in content
 
-    def test_parallel_template_has_for_each_substeps(self, tmp_path: Path) -> None:
-        """Parallel template should demonstrate for_each pattern with substeps."""
+    def test_loop_template_has_for_each_substeps(self, tmp_path: Path) -> None:
+        """Loop template should demonstrate for_each pattern with substeps."""
         scaffolder = get_scaffolder()
 
         output_dir = tmp_path / "workflows"
         output_dir.mkdir()
 
         request = ScaffoldRequest(
-            name="multi-parallel",
-            template=TemplateType.PARALLEL,
+            name="multi-loop",
+            template=TemplateType.LOOP,
             format=TemplateFormat.YAML,
             output_dir=output_dir,
         )
@@ -396,16 +396,16 @@ class TestParallelTemplateScaffolding:
         content = result.output_path.read_text()
         workflow = parse_workflow(content)
 
-        # Find parallel step
-        parallel_steps = [s for s in workflow.steps if hasattr(s, "steps")]
-        assert len(parallel_steps) > 0
+        # Find loop step
+        loop_steps = [s for s in workflow.steps if hasattr(s, "steps")]
+        assert len(loop_steps) > 0
 
-        # Parallel step should have substeps (for_each pattern has 1 step repeated)
-        if parallel_steps:
-            # At least one parallel step should have substeps
-            assert any(len(s.steps) >= 1 for s in parallel_steps)
+        # Loop step should have substeps (for_each pattern has 1 step repeated)
+        if loop_steps:
+            # At least one loop step should have substeps
+            assert any(len(s.steps) >= 1 for s in loop_steps)
             # Verify it uses for_each pattern
-            assert any(hasattr(s, "for_each") and s.for_each for s in parallel_steps)
+            assert any(hasattr(s, "for_each") and s.for_each for s in loop_steps)
 
 
 class TestPythonTemplateScaffolding:
@@ -460,16 +460,16 @@ class TestPythonTemplateScaffolding:
         # Should contain async def or function definition
         assert "def " in content
 
-    def test_scaffold_parallel_python_workflow(self, tmp_path: Path) -> None:
-        """Create parallel Python workflow and verify syntax."""
+    def test_scaffold_loop_python_workflow(self, tmp_path: Path) -> None:
+        """Create loop Python workflow and verify syntax."""
         scaffolder = get_scaffolder()
 
         output_dir = tmp_path / "workflows"
         output_dir.mkdir()
 
         request = ScaffoldRequest(
-            name="python-parallel",
-            template=TemplateType.PARALLEL,
+            name="python-loop",
+            template=TemplateType.LOOP,
             format=TemplateFormat.PYTHON,
             output_dir=output_dir,
         )
@@ -737,7 +737,7 @@ class TestTemplateList:
         template_types = {t.template_type for t in templates}
         assert TemplateType.BASIC in template_types
         assert TemplateType.FULL in template_types
-        assert TemplateType.PARALLEL in template_types
+        assert TemplateType.LOOP in template_types
 
     def test_list_templates_includes_both_formats(self) -> None:
         """list_templates should include both YAML and Python formats."""

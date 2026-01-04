@@ -39,7 +39,7 @@ from maverick.dsl.config import DEFAULTS
 from maverick.dsl.serialization.schema import (
     BranchStepRecord,
     InputDefinition,
-    ParallelStepRecord,
+    LoopStepRecord,
     StepRecordUnion,
     ValidateStepRecord,
     WorkflowFile,
@@ -221,7 +221,7 @@ class ASCIIGenerator:
             lines.extend(self._draw_validate_details(step, index))
         elif isinstance(step, BranchStepRecord):
             lines.extend(self._draw_branch_details(step, index))
-        elif isinstance(step, ParallelStepRecord):
+        elif isinstance(step, LoopStepRecord):
             lines.extend(self._draw_parallel_details(step, index))
 
         return lines
@@ -299,7 +299,7 @@ class ASCIIGenerator:
 
     def _draw_parallel_details(
         self,
-        step: ParallelStepRecord,
+        step: LoopStepRecord,
         index: int,
     ) -> list[str]:
         """Draw parallel substeps.

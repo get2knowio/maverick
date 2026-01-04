@@ -24,12 +24,12 @@ class TemplateType(str, Enum):
     Values:
         BASIC: Linear workflow with few steps (FR-019).
         FULL: Complete workflow with validation/review/PR (FR-020).
-        PARALLEL: Demonstrates parallel step interface (FR-021).
+        LOOP: Demonstrates loop step interface with concurrency control (FR-021).
     """
 
     BASIC = "basic"
     FULL = "full"
-    PARALLEL = "parallel"
+    LOOP = "loop"
 
 
 class TemplateFormat(str, Enum):
@@ -288,17 +288,17 @@ class ScaffoldService:
                 description="Complete workflow with validation/review/PR (Python)",
                 example_steps=("setup", "implement", "validate", "review", "create_pr"),
             ),
-            (TemplateType.PARALLEL, TemplateFormat.YAML): TemplateInfo(
-                template_type=TemplateType.PARALLEL,
+            (TemplateType.LOOP, TemplateFormat.YAML): TemplateInfo(
+                template_type=TemplateType.LOOP,
                 format=TemplateFormat.YAML,
-                description="Demonstrates parallel step interface",
-                example_steps=("parallel_processing", "combine_results"),
+                description="Loop step with concurrency control",
+                example_steps=("loop_processing", "combine_results"),
             ),
-            (TemplateType.PARALLEL, TemplateFormat.PYTHON): TemplateInfo(
-                template_type=TemplateType.PARALLEL,
+            (TemplateType.LOOP, TemplateFormat.PYTHON): TemplateInfo(
+                template_type=TemplateType.LOOP,
                 format=TemplateFormat.PYTHON,
-                description="Demonstrates parallel step interface (Python)",
-                example_steps=("parallel_processing", "combine_results"),
+                description="Loop step with concurrency control (Python)",
+                example_steps=("loop_processing", "combine_results"),
             ),
         }
 

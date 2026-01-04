@@ -5,7 +5,7 @@ This module tests the execution of specific step types in WorkflowFileExecutor:
 - GenerateStepRecord execution with mocked generators
 - ValidateStepRecord execution with validation stages
 - BranchStepRecord execution with conditional branching
-- ParallelStepRecord execution with concurrent steps
+- LoopStepRecord execution with concurrent steps
 
 These tests use mocking to isolate step execution logic from actual implementations.
 """
@@ -20,7 +20,7 @@ from maverick.dsl.serialization import (
     BranchStepRecord,
     ComponentRegistry,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     ValidateStepRecord,
     WorkflowFile,
@@ -640,10 +640,10 @@ class TestValidateStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        # Validate step returns a ValidationResult object
-        assert hasattr(result.final_output, "success")
-        assert result.final_output.success is True
-        assert len(result.final_output.stages) == 2
+        # ValidationResult is converted to dict for expression evaluation compatibility
+        assert "success" in result.final_output
+        assert result.final_output["success"] is True
+        assert len(result.final_output["stages"]) == 2
 
     @pytest.mark.asyncio
     async def test_validate_step_multiple_stages(self, registry):
@@ -668,8 +668,9 @@ class TestValidateStepExecution:
         result = executor.get_result()
         assert result.success is True
         # ValidationResult has stages as a list of stage names
-        assert len(result.final_output.stages) == 4
-        assert result.final_output.stages == ["format", "lint", "typecheck", "test"]
+        # ValidationResult is converted to dict for expression evaluation compatibility
+        assert len(result.final_output["stages"]) == 4
+        assert result.final_output["stages"] == ["format", "lint", "typecheck", "test"]
 
     @pytest.mark.asyncio
     async def test_validate_step_with_retry(self, registry):
@@ -717,7 +718,8 @@ class TestValidateStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output.stages) == 0
+        # ValidationResult is converted to dict for expression evaluation compatibility
+        assert len(result.final_output["stages"]) == 0
 
 
 # =============================================================================
@@ -974,7 +976,7 @@ class TestBranchStepExecution:
 
 
 class TestParallelStepExecution:
-    """Tests for ParallelStepRecord execution."""
+    """Tests for LoopStepRecord execution."""
 
     @pytest.mark.asyncio
     async def test_parallel_step_success(self, registry):
@@ -992,9 +994,9 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="run_parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="step_1",
@@ -1044,9 +1046,9 @@ class TestParallelStepExecution:
             version="1.0",
             name="multi-parallel-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="run_parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="step_a",
@@ -1092,9 +1094,9 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-with-error-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="run_parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="success_step",
@@ -1145,9 +1147,9 @@ class TestParallelStepExecution:
             version="1.0",
             name="mixed-parallel-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="run_parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="sync_step",
@@ -1186,16 +1188,16 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-for-each-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="process_items",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     for_each="${{ inputs.items }}",
                     steps=[
                         PythonStepRecord(
                             name="process",
                             type=StepType.PYTHON,
                             action="process_item",
-                            kwargs={"item": "${{ inputs.item }}"},
+                            kwargs={"item": "${{ item }}"},
                         ),
                     ],
                 )
@@ -1232,22 +1234,22 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-multi-step-for-each",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="process_numbers",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     for_each="${{ inputs.numbers }}",
                     steps=[
                         PythonStepRecord(
                             name="double_it",
                             type=StepType.PYTHON,
                             action="double",
-                            kwargs={"value": "${{ inputs.item }}"},
+                            kwargs={"value": "${{ item }}"},
                         ),
                         PythonStepRecord(
                             name="square_it",
                             type=StepType.PYTHON,
                             action="square",
-                            kwargs={"value": "${{ inputs.item }}"},
+                            kwargs={"value": "${{ item }}"},
                         ),
                     ],
                 )
@@ -1277,16 +1279,16 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-empty-for-each",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="process_items",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     for_each="${{ inputs.items }}",
                     steps=[
                         PythonStepRecord(
                             name="process",
                             type=StepType.PYTHON,
                             action="process_item",
-                            kwargs={"item": "${{ inputs.item }}"},
+                            kwargs={"item": "${{ item }}"},
                         ),
                     ],
                 )
@@ -1314,16 +1316,16 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-invalid-for-each",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="process_items",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     for_each="${{ inputs.not_a_list }}",
                     steps=[
                         PythonStepRecord(
                             name="process",
                             type=StepType.PYTHON,
                             action="process_item",
-                            kwargs={"item": "${{ inputs.item }}"},
+                            kwargs={"item": "${{ item }}"},
                         ),
                     ],
                 )
@@ -1353,16 +1355,16 @@ class TestParallelStepExecution:
             version="1.0",
             name="parallel-for-each-with-error",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="process_items",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     for_each="${{ inputs.items }}",
                     steps=[
                         PythonStepRecord(
                             name="process",
                             type=StepType.PYTHON,
                             action="maybe_fail",
-                            kwargs={"item": "${{ inputs.item }}"},
+                            kwargs={"item": "${{ item }}"},
                         ),
                     ],
                 )

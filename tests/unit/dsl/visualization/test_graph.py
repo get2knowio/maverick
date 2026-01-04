@@ -13,7 +13,7 @@ from maverick.dsl.serialization.schema import (
     BranchOptionRecord,
     BranchStepRecord,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     SubWorkflowStepRecord,
     ValidateStepRecord,
@@ -364,15 +364,15 @@ class TestWorkflowGraphBuilder:
         branch_edges = [e for e in graph.edges if e.edge_type == EdgeType.BRANCH]
         assert len(branch_edges) >= 2
 
-    def test_build_parallel_step(self) -> None:
+    def test_build_loop_step(self) -> None:
         """Test building graph from workflow with parallel step."""
         workflow = WorkflowFile(
             version="1.0",
             name="parallel",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="run_parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="task1",
@@ -441,9 +441,9 @@ class TestWorkflowGraphBuilder:
             description="Complex workflow with all step types",
             steps=[
                 PythonStepRecord(name="setup", type=StepType.PYTHON, action="setup_fn"),
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="parallel_tasks",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         AgentStepRecord(
                             name="analyze",
@@ -535,9 +535,9 @@ class TestWorkflowGraphBuilder:
             version="1.0",
             name="test",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="task1", type=StepType.PYTHON, action="fn1"
@@ -599,9 +599,9 @@ class TestWorkflowGraphBuilder:
                         ),
                     ],
                 ),
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="parallel",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="par1", type=StepType.PYTHON, action="fn3"

@@ -23,7 +23,7 @@ from maverick.dsl.serialization.executor.handlers import (
     checkpoint_step,
     generate_step,
     get_handler,
-    parallel_step,
+    loop_step,
     python_step,
     subworkflow_step,
     validate_step,
@@ -45,7 +45,7 @@ class TestHandlerRegistry:
             StepType.VALIDATE,
             StepType.SUBWORKFLOW,
             StepType.BRANCH,
-            StepType.PARALLEL,
+            StepType.LOOP,
             StepType.CHECKPOINT,
         }
         actual_types = set(STEP_HANDLERS.keys())
@@ -64,7 +64,7 @@ class TestHandlerRegistry:
             subworkflow_step.execute_subworkflow_step
         )
         assert get_handler(StepType.BRANCH) == branch_step.execute_branch_step
-        assert get_handler(StepType.PARALLEL) == parallel_step.execute_parallel_step
+        assert get_handler(StepType.LOOP) == loop_step.execute_loop_step
         assert get_handler(StepType.CHECKPOINT) == (
             checkpoint_step.execute_checkpoint_step
         )
@@ -133,12 +133,12 @@ class TestHandlerProtocolConformance:
 
     def test_special_handlers_have_extra_parameters(self) -> None:
         """Verify handlers with special needs have additional parameters."""
-        # Branch and parallel handlers need execute_step_fn
+        # Branch and loop handlers need execute_step_fn
         branch_sig = inspect.signature(branch_step.execute_branch_step)
         assert "execute_step_fn" in branch_sig.parameters
 
-        parallel_sig = inspect.signature(parallel_step.execute_parallel_step)
-        assert "execute_step_fn" in parallel_sig.parameters
+        loop_sig = inspect.signature(loop_step.execute_loop_step)
+        assert "execute_step_fn" in loop_sig.parameters
 
         # Checkpoint handler needs checkpoint_store
         checkpoint_sig = inspect.signature(checkpoint_step.execute_checkpoint_step)

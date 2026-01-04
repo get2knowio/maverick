@@ -106,7 +106,7 @@ def parallel_yaml_request(output_dir: Path) -> ScaffoldRequest:
     """Create parallel YAML scaffold request."""
     return ScaffoldRequest(
         name="parallel-workflow",
-        template=TemplateType.PARALLEL,
+        template=TemplateType.LOOP,
         format=TemplateFormat.YAML,
         output_dir=output_dir,
         description="Parallel workflow description",
@@ -135,7 +135,7 @@ def test_list_templates_contains_three_template_types(service: ScaffoldService):
     template_types = {t.template_type for t in templates}
     assert TemplateType.BASIC in template_types
     assert TemplateType.FULL in template_types
-    assert TemplateType.PARALLEL in template_types
+    assert TemplateType.LOOP in template_types
 
 
 def test_list_templates_each_type_has_yaml_and_python_formats(
@@ -152,7 +152,7 @@ def test_list_templates_each_type_has_yaml_and_python_formats(
         by_type[t.template_type].append(t.format)
 
     # Check each type has both formats
-    for template_type in [TemplateType.BASIC, TemplateType.FULL, TemplateType.PARALLEL]:
+    for template_type in [TemplateType.BASIC, TemplateType.FULL, TemplateType.LOOP]:
         assert template_type in by_type
         formats = by_type[template_type]
         assert TemplateFormat.YAML in formats
@@ -173,12 +173,12 @@ def test_list_templates_has_correct_descriptions(service: ScaffoldService):
     assert len(full_templates) == 2
     assert all("validation" in t.description.lower() for t in full_templates)
 
-    # Find parallel template
-    parallel_templates = [
-        t for t in templates if t.template_type == TemplateType.PARALLEL
+    # Find loop template
+    loop_templates = [
+        t for t in templates if t.template_type == TemplateType.LOOP
     ]
-    assert len(parallel_templates) == 2
-    assert all("parallel" in t.description.lower() for t in parallel_templates)
+    assert len(loop_templates) == 2
+    assert all("loop" in t.description.lower() for t in loop_templates)
 
 
 def test_list_templates_has_correct_example_steps(service: ScaffoldService):
@@ -206,15 +206,15 @@ def test_list_templates_has_correct_example_steps(service: ScaffoldService):
     expected_steps = {"setup", "implement", "validate", "review", "create_pr"}
     assert all(step in full.example_steps for step in expected_steps)
 
-    # Find parallel template
-    parallel = next(
+    # Find loop template
+    loop = next(
         t
         for t in templates
-        if t.template_type == TemplateType.PARALLEL and t.format == TemplateFormat.YAML
+        if t.template_type == TemplateType.LOOP and t.format == TemplateFormat.YAML
     )
-    assert len(parallel.example_steps) > 0
-    assert "parallel_processing" in parallel.example_steps
-    assert "combine_results" in parallel.example_steps
+    assert len(loop.example_steps) > 0
+    assert "loop_processing" in loop.example_steps
+    assert "combine_results" in loop.example_steps
 
 
 # =============================================================================
@@ -434,10 +434,10 @@ def test_scaffold_full_template_has_all_expected_steps(
     assert main_steps.issubset(step_names)
 
 
-def test_scaffold_parallel_template_has_parallel_structure(
+def test_scaffold_loop_template_has_loop_structure(
     service: ScaffoldService, parallel_yaml_request: ScaffoldRequest
 ):
-    """Test that parallel template has parallel step structure."""
+    """Test that loop template has loop step structure."""
     result = service.scaffold(parallel_yaml_request)
 
     assert result.success
@@ -446,17 +446,17 @@ def test_scaffold_parallel_template_has_parallel_structure(
     # Parse YAML
     parsed = yaml.safe_load(content)
 
-    # Check for parallel step
+    # Check for loop step
     assert "steps" in parsed
     steps = parsed["steps"]
 
-    # Find parallel step
-    parallel_steps = [s for s in steps if s.get("type") == "parallel"]
-    assert len(parallel_steps) > 0
+    # Find loop step
+    loop_steps = [s for s in steps if s.get("type") == "loop"]
+    assert len(loop_steps) > 0
 
-    # Check parallel step has for_each
-    parallel_step = parallel_steps[0]
-    assert "for_each" in parallel_step or "foreach" in parallel_step
+    # Check loop step has for_each
+    loop_step = loop_steps[0]
+    assert "for_each" in loop_step or "foreach" in loop_step
 
 
 # =============================================================================
@@ -590,8 +590,8 @@ def test_create_scaffold_service_raises_value_error_for_missing_template_dir(
         (TemplateType.BASIC, TemplateFormat.PYTHON),
         (TemplateType.FULL, TemplateFormat.YAML),
         (TemplateType.FULL, TemplateFormat.PYTHON),
-        (TemplateType.PARALLEL, TemplateFormat.YAML),
-        (TemplateType.PARALLEL, TemplateFormat.PYTHON),
+        (TemplateType.LOOP, TemplateFormat.YAML),
+        (TemplateType.LOOP, TemplateFormat.PYTHON),
     ],
 )
 def test_each_template_type_renders_successfully(
@@ -619,7 +619,7 @@ def test_each_template_type_renders_successfully(
 
 @pytest.mark.parametrize(
     "template_type",
-    [TemplateType.BASIC, TemplateType.FULL, TemplateType.PARALLEL],
+    [TemplateType.BASIC, TemplateType.FULL, TemplateType.LOOP],
 )
 def test_rendered_yaml_is_valid(
     service: ScaffoldService, output_dir: Path, template_type: TemplateType
@@ -646,7 +646,7 @@ def test_rendered_yaml_is_valid(
 
 @pytest.mark.parametrize(
     "template_type",
-    [TemplateType.BASIC, TemplateType.FULL, TemplateType.PARALLEL],
+    [TemplateType.BASIC, TemplateType.FULL, TemplateType.LOOP],
 )
 def test_rendered_python_is_valid_syntax(
     service: ScaffoldService, output_dir: Path, template_type: TemplateType

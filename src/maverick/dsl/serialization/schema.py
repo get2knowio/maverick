@@ -35,7 +35,7 @@ __all__ = [
     "SubWorkflowStepRecord",
     "BranchStepRecord",
     "BranchOptionRecord",
-    "ParallelStepRecord",
+    "LoopStepRecord",
     "CheckpointStepRecord",
     # Discriminated union
     "StepRecordUnion",
@@ -237,22 +237,52 @@ class BranchStepRecord(StepRecord):
     options: list[BranchOptionRecord] = Field(..., min_length=1)
 
 
-class ParallelStepRecord(StepRecord):
-    """Parallel execution step (FR-011).
+class LoopStepRecord(StepRecord):
+    """Loop/iteration step with concurrency control (FR-011).
 
-    Executes multiple steps concurrently.
+    Iterates over items and executes nested steps with configurable concurrency.
+    Replaces the previous 'parallel' step type with clearer semantics.
 
     Fields:
-        steps: Steps to execute in parallel (names must be unique)
+        steps: Steps to execute for each iteration (names must be unique).
         for_each: Optional expression evaluating to a list for iteration.
             When provided, steps are executed once per item in the list,
             with the current item available as 'item' in expressions.
+        max_concurrency: Maximum number of concurrent iterations.
+            - 1 (default): Sequential execution
+            - N > 1: Up to N concurrent iterations
+            - 0: Unlimited concurrency (fully parallel)
+
+    Examples:
+        # Sequential iteration (default)
+        - name: process_phases
+          type: loop
+          for_each: ${{ steps.get_phases.output }}
+          steps:
+            - name: run_phase
+              type: agent
+              agent: implementer
+
+        # Parallel iteration (3 at a time)
+        - name: run_reviews
+          type: loop
+          for_each: ${{ ['coderabbit', 'architecture', 'security'] }}
+          max_concurrency: 3
+          steps:
+            - name: review
+              type: agent
+              agent: ${{ item }}
     """
 
-    type: Literal[StepType.PARALLEL] = StepType.PARALLEL
+    type: Literal[StepType.LOOP] = StepType.LOOP
     steps: list[StepRecordUnion] = Field(..., min_length=1)
     for_each: str | None = Field(
         None, description="Optional expression evaluating to a list for iteration"
+    )
+    max_concurrency: int = Field(
+        1,
+        ge=0,
+        description="Max concurrent iterations (1=sequential, 0=unlimited)",
     )
 
     @field_validator("steps")
@@ -260,11 +290,11 @@ class ParallelStepRecord(StepRecord):
     def validate_unique_step_names(
         cls, v: list[StepRecordUnion]
     ) -> list[StepRecordUnion]:
-        """Ensure all parallel step names are unique."""
+        """Ensure all loop step names are unique."""
         names = [step.name for step in v]
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
-            raise ValueError(f"Duplicate step names in parallel block: {duplicates}")
+            raise ValueError(f"Duplicate step names in loop block: {duplicates}")
         return v
 
 
@@ -303,8 +333,8 @@ class CheckpointStepRecord(StepRecord):
 # Discriminated Union
 # =============================================================================
 
-# Forward reference resolution for recursive types (branch, parallel, validate)
-# This allows BranchOptionRecord.step and ParallelStepRecord.steps to reference
+# Forward reference resolution for recursive types (branch, loop, validate)
+# This allows BranchOptionRecord.step and LoopStepRecord.steps to reference
 # the full union type including themselves
 StepRecordUnion = Annotated[
     PythonStepRecord
@@ -313,7 +343,7 @@ StepRecordUnion = Annotated[
     | ValidateStepRecord
     | SubWorkflowStepRecord
     | BranchStepRecord
-    | ParallelStepRecord
+    | LoopStepRecord
     | CheckpointStepRecord,
     Field(discriminator="type"),
 ]
@@ -321,7 +351,7 @@ StepRecordUnion = Annotated[
 # Update forward references now that union is defined
 BranchOptionRecord.model_rebuild()
 BranchStepRecord.model_rebuild()
-ParallelStepRecord.model_rebuild()
+LoopStepRecord.model_rebuild()
 ValidateStepRecord.model_rebuild()
 
 

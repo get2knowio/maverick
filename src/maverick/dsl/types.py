@@ -27,7 +27,7 @@ class StepType(str, Enum):
     VALIDATE = "validate"
     SUBWORKFLOW = "subworkflow"
     BRANCH = "branch"
-    PARALLEL = "parallel"
+    LOOP = "loop"
     CHECKPOINT = "checkpoint"
 
 

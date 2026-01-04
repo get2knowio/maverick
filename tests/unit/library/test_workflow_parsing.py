@@ -123,7 +123,7 @@ class TestWorkflowParsing:
             "validate",
             "subworkflow",
             "branch",
-            "parallel",
+            "loop",
             "checkpoint",
         }
 

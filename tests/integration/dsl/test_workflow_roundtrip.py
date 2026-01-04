@@ -276,14 +276,14 @@ steps:
         assert step.options[0].when == "${{ inputs.type_a }}"
         assert step.options[0].step.name == "handle_a"
 
-    def test_parallel_step_roundtrip(self) -> None:
+    def test_loop_step_roundtrip(self) -> None:
         """Test round-trip for parallel step."""
         original_yaml = """
 version: "1.0"
 name: test-workflow
 steps:
-  - name: parallel_tasks
-    type: parallel
+  - name: loop_tasks
+    type: loop
     steps:
       - name: task1
         type: python
@@ -377,14 +377,14 @@ steps:
 class TestWorkflowRoundtripNestedStructures:
     """Test round-trip for complex nested structures."""
 
-    def test_deeply_nested_branch_in_parallel(self) -> None:
-        """Test round-trip for branch inside parallel."""
+    def test_deeply_nested_branch_in_loop(self) -> None:
+        """Test round-trip for branch inside loop."""
         original_yaml = """
 version: "1.0"
 name: test-workflow
 steps:
-  - name: outer_parallel
-    type: parallel
+  - name: outer_loop
+    type: loop
     steps:
       - name: branch1
         type: branch
@@ -404,7 +404,7 @@ steps:
         reparsed = parse_workflow(written_yaml)
 
         outer = reparsed.steps[0]
-        assert outer.type.value == "parallel"
+        assert outer.type.value == "loop"
         assert len(outer.steps) == 2
         branch = outer.steps[0]
         assert branch.type.value == "branch"

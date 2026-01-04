@@ -30,7 +30,7 @@ from maverick.dsl.serialization.schema import (
     GenerateStepRecord,
     InputDefinition,
     InputType,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     SubWorkflowStepRecord,
     ValidateStepRecord,
@@ -332,15 +332,15 @@ class TestWorkflowWriterStepTypes:
         assert step["options"][1]["when"] == "${{ inputs.type == 'b' }}"
         assert step["options"][1]["step"]["name"] == "handle_b"
 
-    def test_parallel_step_to_dict(self) -> None:
-        """Test serializing ParallelStepRecord."""
+    def test_loop_step_to_dict(self) -> None:
+        """Test serializing LoopStepRecord."""
         workflow = WorkflowFile(
             version="1.0",
             name="test-workflow",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="parallel_tasks",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         PythonStepRecord(
                             name="task1",
@@ -361,7 +361,7 @@ class TestWorkflowWriterStepTypes:
         result = writer.to_dict(workflow)
 
         step = result["steps"][0]
-        assert step["type"] == "parallel"
+        assert step["type"] == "loop"
         assert len(step["steps"]) == 2
         assert step["steps"][0]["name"] == "task1"
         assert step["steps"][1]["name"] == "task2"
@@ -977,9 +977,9 @@ class TestWorkflowWriterNestedStructures:
                     options=[
                         BranchOptionRecord(
                             when="${{ inputs.type == 'a' }}",
-                            step=ParallelStepRecord(
+                            step=LoopStepRecord(
                                 name="parallel_a",
-                                type=StepType.PARALLEL,
+                                type=StepType.LOOP,
                                 steps=[
                                     PythonStepRecord(
                                         name="task1",
@@ -1006,7 +1006,7 @@ class TestWorkflowWriterNestedStructures:
         branch = result["steps"][0]
         assert branch["type"] == "branch"
         nested_parallel = branch["options"][0]["step"]
-        assert nested_parallel["type"] == "parallel"
+        assert nested_parallel["type"] == "loop"
         assert len(nested_parallel["steps"]) == 2
 
     def test_validate_with_nested_on_failure(self) -> None:

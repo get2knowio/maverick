@@ -77,7 +77,7 @@ from maverick.dsl.serialization.schema import (
     GenerateStepRecord,
     InputDefinition,
     InputType,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecord,
     StepRecordUnion,
@@ -106,7 +106,7 @@ __all__ = [
     "SubWorkflowStepRecord",
     "BranchStepRecord",
     "BranchOptionRecord",
-    "ParallelStepRecord",
+    "LoopStepRecord",
     "StepRecordUnion",
     # Top-level workflow
     "WorkflowFile",

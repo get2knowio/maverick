@@ -37,7 +37,7 @@ from maverick.dsl.serialization.schema import (
     BranchStepRecord,
     GenerateStepRecord,
     InputDefinition,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecord,
     SubWorkflowStepRecord,
@@ -216,7 +216,7 @@ class WorkflowWriter:
             self._serialize_subworkflow_step(step, result)
         elif isinstance(step, BranchStepRecord):
             self._serialize_branch_step(step, result)
-        elif isinstance(step, ParallelStepRecord):
+        elif isinstance(step, LoopStepRecord):
             self._serialize_parallel_step(step, result)
         else:
             # This should never happen due to discriminated union validation
@@ -319,12 +319,12 @@ class WorkflowWriter:
         }
 
     def _serialize_parallel_step(
-        self, step: ParallelStepRecord, result: dict[str, Any]
+        self, step: LoopStepRecord, result: dict[str, Any]
     ) -> None:
-        """Add ParallelStepRecord-specific fields to result dict.
+        """Add LoopStepRecord-specific fields to result dict.
 
         Args:
-            step: ParallelStepRecord to serialize.
+            step: LoopStepRecord to serialize.
             result: Dictionary to add fields to (modified in place).
         """
         result["steps"] = [

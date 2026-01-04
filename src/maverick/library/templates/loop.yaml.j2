@@ -7,71 +7,76 @@
 {% if author %}# Author: {{ author }}{% endif %}
 #
 # PURPOSE:
-#   Workflow template demonstrating parallel step execution. Processes multiple
-#   items concurrently and combines the results into a final output.
+#   Workflow template demonstrating loop step execution with concurrency control.
+#   Processes multiple items with configurable parallelism and combines results.
 #
 # WORKFLOW STEPS:
-#   1. Parallel Processing: Process all items concurrently using Python actions
-#   2. Combine Results: Aggregate results from parallel execution
+#   1. Loop Processing: Process all items with configurable concurrency
+#   2. Combine Results: Aggregate results from loop execution
 #
 # INPUTS:
-#   - items (array, required): Items to process in parallel
-#     A list of values to be processed concurrently by the workflow.
+#   - items (array, required): Items to process
+#     A list of values to be processed by the workflow.
 #     Example: ["item1", "item2", "item3"]
 #
-#   - max_concurrency (integer, optional, default: 0)
-#     Maximum number of items to process concurrently. Set to 0 for unlimited
-#     concurrency (process all items at once). Use this to control resource
-#     usage and prevent overwhelming the system.
+#   - max_concurrency (integer, optional, default: 1)
+#     Maximum number of items to process concurrently.
+#     - 1: Sequential processing (default, safest)
+#     - N > 1: Process N items at a time
+#     - 0: Unlimited concurrency (process all items at once)
 #
-# ABOUT PARALLEL EXECUTION:
-#   The `parallel` step type executes multiple sub-steps concurrently, which is
-#   useful for independent operations that can run simultaneously. Parallel
-#   execution can significantly reduce workflow execution time when you have
-#   multiple I/O-bound or CPU-independent tasks.
+# ABOUT LOOP EXECUTION:
+#   The `loop` step type iterates over a list of items and executes sub-steps
+#   for each item. The max_concurrency setting controls how many iterations
+#   run concurrently.
 #
-#   WHEN TO USE PARALLEL:
+#   WHEN TO USE LOOP:
 #   - Processing multiple independent items (files, issues, API calls)
-#   - Running non-conflicting validation checks simultaneously
+#   - Running non-conflicting validation checks
 #   - Executing multiple agent tasks that don't share mutable state
 #   - Performing batch operations on distinct resources
 #
-#   WHEN NOT TO USE PARALLEL:
+#   CONCURRENCY SETTINGS:
+#   - max_concurrency: 1 (default) - Sequential, safe for dependent operations
+#   - max_concurrency: N - Balance between parallelism and resource usage
+#   - max_concurrency: 0 - Maximum parallelism, all items processed at once
+#
+#   WHEN NOT TO USE PARALLEL (max_concurrency > 1):
 #   - Steps that modify shared state or files
 #   - Operations with dependencies between items
 #   - Steps that must execute in a specific order
 #   - Resource-limited operations (e.g., rate-limited APIs)
 #
 #   COMBINING RESULTS:
-#   After parallel execution completes, results from all iterations are
+#   After loop execution completes, results from all iterations are
 #   collected in the step output. You can access them using:
-#     {% raw %}${{ steps.parallel_step_name.output }}{% endraw %}
+#     {% raw %}${{ steps.loop_step_name.output }}{% endraw %}
 #
 #   The output is a dictionary mapping step names to results. Use a subsequent
-#   step to aggregate, filter, or transform the parallel results.
+#   step to aggregate, filter, or transform the results.
 #
 # CUSTOMIZATION:
 #   - Modify the process_item action to implement your custom processing logic
 #   - Adjust max_concurrency to control parallelism level
 #   - Add pre-processing or post-processing steps as needed
 #   - Use conditional steps with 'when' clauses for advanced logic
-#   - Add checkpoints after parallel processing for resumption support
+#   - Add checkpoints after loop processing for resumption support
 #
 # EXAMPLE USAGE:
-#   # Process items with unlimited concurrency
+#   # Process items sequentially (default, max_concurrency=1)
 #   maverick fly {{ name }} -i items='["item1", "item2", "item3"]'
 #
-#   # Process items with limited concurrency (2 at a time)
+#   # Process items with parallelism (2 at a time)
 #   maverick fly {{ name }} -i items='["item1", "item2", "item3"]' -i max_concurrency=2
 #
-#   # Process a larger list
-#   maverick fly {{ name }} -i items='["a", "b", "c", "d", "e"]' -i max_concurrency=3
+#   # Process all items in parallel (unlimited concurrency)
+#   maverick fly {{ name }} -i items='["a", "b", "c", "d", "e"]' -i max_concurrency=0
 #
 # =============================================================================
 
 version: "1.0"
 name: {{ name }}
-description: {{ description if description else 'Workflow demonstrating parallel step execution' }}
+description: {{ description if description else 'Workflow demonstrating loop step execution with concurrency control' }}
 
 # ------------------------------------------------------------------------------
 # Input Declarations
@@ -81,46 +86,43 @@ inputs:
     type: array
     required: true
     description: |
-      Items to process in parallel.
-      Each item in the array will be processed concurrently.
+      Items to process in the loop.
+      Each item in the array will be processed by the loop.
 
-  max_concurrency:
-    type: integer
-    required: false
-    default: 0
-    description: |
-      Maximum number of items to process concurrently.
-      Set to 0 for unlimited concurrency (process all items at once).
-      Use positive values to limit parallelism and control resource usage.
+      Note: To control concurrency, set max_concurrency on the loop step directly.
+      - 1 (default): Sequential processing
+      - N > 1: Process N items at a time
+      - 0: Unlimited concurrency (process all items at once)
 
 # ------------------------------------------------------------------------------
 # Workflow Steps
 # ------------------------------------------------------------------------------
 steps:
   # ============================================================================
-  # Stage 1: Parallel Processing
+  # Stage 1: Loop Processing
   # ============================================================================
-  # Process all items concurrently using parallel execution.
+  # Process all items using the loop step with configurable concurrency.
   #
   # This step:
   # - Iterates over the items array
   # - Processes each item using the process_item action
   # - Executes up to max_concurrency items concurrently
-  # - Collects results from all parallel executions
+  # - Collects results from all iterations
   #
-  # The for_each clause creates a dynamic step for each item in the input array.
-  # Each step is named process_item and receives the current item and index.
+  # The for_each clause creates an iteration for each item in the input array.
+  # Each iteration receives the current item via 'item' and index via 'index'.
   #
   # The max_concurrency setting controls parallelism:
-  # - 0: Process all items at once (unlimited concurrency)
+  # - 1 (default): Process items sequentially
   # - N: Process at most N items concurrently
+  # - 0: Process all items at once (unlimited concurrency)
   #
-  # Output: Dictionary mapping step names to processed results
+  # Output: Dictionary with results from all iterations
   # ============================================================================
-  - name: parallel_processing
-    type: parallel
+  - name: loop_processing
+    type: loop
     for_each: {% raw %}${{ inputs.items }}{% endraw %}
-    max_concurrency: {% raw %}${{ inputs.max_concurrency }}{% endraw %}
+    # max_concurrency: 1  # Default: sequential. Set to N for parallel, 0 for unlimited.
     steps:
       # Each item gets its own processing step
       - name: process_item
@@ -135,15 +137,15 @@ steps:
             weight: 1
 
   # ============================================================================
-  # Checkpoint: After Parallel Processing
+  # Checkpoint: After Loop Processing
   # ============================================================================
-  # Save workflow state after successful parallel processing to enable
+  # Save workflow state after successful loop processing to enable
   # resumption from this point if the workflow is interrupted during result
   # combination.
   # ============================================================================
-  - name: checkpoint_after_parallel
+  - name: checkpoint_after_loop
     type: checkpoint
-    checkpoint_id: parallel_processing_complete
+    checkpoint_id: loop_processing_complete
     metadata:
       progress:
         stage: "checkpoint"
@@ -152,10 +154,10 @@ steps:
   # ============================================================================
   # Stage 2: Combine Results
   # ============================================================================
-  # Aggregate results from all parallel executions into a final output.
+  # Aggregate results from all loop iterations into a final output.
   #
   # This step:
-  # - Receives the dictionary of results from parallel_processing step
+  # - Receives the dictionary of results from loop_processing step
   # - Combines all results into a single output structure
   # - Returns success status with aggregated results
   #
@@ -171,7 +173,7 @@ steps:
     type: python
     action: combine_results
     kwargs:
-      results: {% raw %}${{ steps.parallel_processing.output }}{% endraw %}
+      results: {% raw %}${{ steps.loop_processing.output }}{% endraw %}
     metadata:
       progress:
         stage: "aggregation"

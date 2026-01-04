@@ -201,10 +201,10 @@ steps:
   # Output: Implementation results per phase including completed tasks
   # ============================================================================
   - name: implement_by_phase
-    type: parallel
+    type: loop
     when: ${{ not inputs.dry_run and steps.get_phases.output }}
     for_each: ${{ steps.get_phases.output }}
-    max_concurrency: 1 # Execute phases sequentially
+    # max_concurrency defaults to 1 (sequential)
     steps:
       # Execute all tasks in this phase
       - name: implement_phase

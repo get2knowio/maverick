@@ -258,8 +258,8 @@ def test_validate_component_references_nested_steps(
         name="test-workflow",
         steps=[
             {
-                "name": "parallel_step",
-                "type": "parallel",
+                "name": "loop_step",
+                "type": "loop",
                 "steps": [
                     {
                         "name": "sub1",
@@ -741,8 +741,8 @@ def test_validate_input_usage_in_nested_steps(registry: ComponentRegistry) -> No
         },
         steps=[
             {
-                "name": "parallel_step",
-                "type": "parallel",
+                "name": "loop_step",
+                "type": "loop",
                 "steps": [
                     {
                         "name": "sub1",
@@ -883,7 +883,7 @@ def test_validate_valid_workflow_complex(registry: ComponentRegistry) -> None:
             },
             {
                 "name": "step3",
-                "type": "parallel",
+                "type": "loop",
                 "steps": [
                     {
                         "name": "sub1",

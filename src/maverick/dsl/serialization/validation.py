@@ -31,7 +31,7 @@ from maverick.dsl.serialization.schema import (
     AgentStepRecord,
     BranchStepRecord,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecordUnion,
     SubWorkflowStepRecord,
@@ -266,7 +266,7 @@ class WorkflowSemanticValidator:
                 for i, option in enumerate(step.options):
                     check_step(option.step, f"{path_prefix}.options[{i}].step")
 
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 # Check all parallel substeps
                 for i, substep in enumerate(step.steps):
                     check_step(substep, f"{path_prefix}.steps[{i}]")
@@ -351,7 +351,7 @@ class WorkflowSemanticValidator:
                     extract_from_value(option.when, f"{path_prefix}.options[{i}].when")
                     check_step(option.step, f"{path_prefix}.options[{i}].step")
 
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 for i, substep in enumerate(step.steps):
                     check_step(substep, f"{path_prefix}.steps[{i}]")
 
@@ -394,7 +394,7 @@ class WorkflowSemanticValidator:
             elif isinstance(step, BranchStepRecord):
                 for option in step.options:
                     collect_step_names(option.step)
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 for substep in step.steps:
                     collect_step_names(substep)
 
@@ -486,7 +486,7 @@ class WorkflowSemanticValidator:
                     extract_from_value(option.when, f"{path_prefix}.options[{i}].when")
                     check_step(option.step, f"{path_prefix}.options[{i}].step")
 
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 for i, substep in enumerate(step.steps):
                     check_step(substep, f"{path_prefix}.steps[{i}]")
 
@@ -560,7 +560,7 @@ class WorkflowSemanticValidator:
                 for option in step.options:
                     extract_from_value(option.when)
                     collect_dependencies(option.step)
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 for substep in step.steps:
                     collect_dependencies(substep)
 
@@ -689,7 +689,7 @@ class WorkflowSemanticValidator:
                 for option in step.options:
                     extract_from_value(option.when)
                     check_step(option.step)
-            elif isinstance(step, ParallelStepRecord):
+            elif isinstance(step, LoopStepRecord):
                 for substep in step.steps:
                     check_step(substep)
 

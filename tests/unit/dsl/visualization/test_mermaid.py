@@ -162,7 +162,7 @@ class TestMermaidGenerator:
         # Validate steps are conditional by nature
         assert "validate{Validate}" in output or "validate[Validate]" in output
 
-    def test_generate_parallel_step_uses_subgraph(self) -> None:
+    def test_generate_loop_step_uses_subgraph(self) -> None:
         """Test that parallel steps generate a subgraph."""
         child1 = GraphNode(id="task1", label="Task 1", step_type="python")
         child2 = GraphNode(id="task2", label="Task 2", step_type="python")

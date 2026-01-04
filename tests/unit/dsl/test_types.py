@@ -70,7 +70,7 @@ class TestStepType:
         assert StepType.VALIDATE in all_types
         assert StepType.SUBWORKFLOW in all_types
         assert StepType.BRANCH in all_types
-        assert StepType.PARALLEL in all_types
+        assert StepType.LOOP in all_types
         assert StepType.CHECKPOINT in all_types
 
     def test_enum_membership(self) -> None:

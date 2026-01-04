@@ -13,7 +13,7 @@ from maverick.dsl.serialization.schema import (
     AgentStepRecord,
     BranchStepRecord,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     StepRecordUnion,
     SubWorkflowStepRecord,
@@ -299,7 +299,7 @@ class WorkflowGraphBuilder:
                     children=tuple(branch_children),
                 )
             )
-        elif isinstance(step, ParallelStepRecord):
+        elif isinstance(step, LoopStepRecord):
             # Create parallel node with children
             parallel_children: list[GraphNode] = []
             for parallel_step in step.steps:

@@ -64,7 +64,7 @@ class TestParallelStep:
         step2 = MockStep(name="s2", output="r2")
         parallel = ParallelStep(
             name="parallel_group",
-            step_type=StepType.PARALLEL,
+            step_type=StepType.LOOP,
             children=(step1, step2),
         )
         result = await parallel.execute(workflow_context)
@@ -95,7 +95,7 @@ class TestParallelStep:
         with pytest.raises(ValueError) as exc_info:
             ParallelStep(
                 name="parallel_group",
-                step_type=StepType.PARALLEL,
+                step_type=StepType.LOOP,
                 children=(step1, step2),
             )
 
@@ -113,7 +113,7 @@ class TestParallelStep:
         step3 = MockStep(name="s3", output="r3")
         parallel = ParallelStep(
             name="parallel_group",
-            step_type=StepType.PARALLEL,
+            step_type=StepType.LOOP,
             children=(step1, step2, step3),
         )
         result = await parallel.execute(workflow_context)

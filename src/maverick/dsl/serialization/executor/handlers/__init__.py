@@ -11,7 +11,7 @@ from maverick.dsl.serialization.executor.handlers import (
     branch_step,
     checkpoint_step,
     generate_step,
-    parallel_step,
+    loop_step,
     python_step,
     subworkflow_step,
     validate_step,
@@ -31,7 +31,7 @@ STEP_HANDLERS: dict[StepType, StepHandler] = {
     StepType.VALIDATE: validate_step.execute_validate_step,  # type: ignore[dict-item]
     StepType.SUBWORKFLOW: subworkflow_step.execute_subworkflow_step,  # type: ignore[dict-item]
     StepType.BRANCH: branch_step.execute_branch_step,  # type: ignore[dict-item]
-    StepType.PARALLEL: parallel_step.execute_parallel_step,  # type: ignore[dict-item]
+    StepType.LOOP: loop_step.execute_loop_step,  # type: ignore[dict-item]
     StepType.CHECKPOINT: checkpoint_step.execute_checkpoint_step,  # type: ignore[dict-item]
 }
 
@@ -74,7 +74,7 @@ __all__ = [
     "branch_step",
     "checkpoint_step",
     "generate_step",
-    "parallel_step",
+    "loop_step",
     "python_step",
     "subworkflow_step",
     "validate_step",

@@ -11,13 +11,13 @@ from maverick.dsl import step, workflow
 
 @workflow(name="{{ name }}")
 def {{ name.replace('-', '_') }}_workflow(items: list):
-    """{{ description if description else 'Workflow demonstrating parallel step execution' }}.
+    """{{ description if description else 'Workflow demonstrating loop step execution' }}.
 
     Args:
-        items: Items to process in parallel.
+        items: Items to process in the loop.
     """
-    # Parallel processing
-    parallel_result = yield step("parallel_processing").parallel(
+    # Loop processing
+    loop_result = yield step("loop_processing").loop(
         steps=[
             step(f"process_{i}").python(
                 action=process_item,
@@ -30,7 +30,7 @@ def {{ name.replace('-', '_') }}_workflow(items: list):
     # Combine results
     combined = yield step("combine_results").python(
         action=combine_results,
-        kwargs={"results": parallel_result},
+        kwargs={"results": loop_result},
     )
 
     return combined

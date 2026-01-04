@@ -35,7 +35,7 @@ from maverick.dsl.serialization.schema import (
     BranchStepRecord,
     CheckpointStepRecord,
     GenerateStepRecord,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     SubWorkflowStepRecord,
     ValidateStepRecord,
@@ -54,7 +54,7 @@ StepRecordType = (
     | ValidateStepRecord
     | SubWorkflowStepRecord
     | BranchStepRecord
-    | ParallelStepRecord
+    | LoopStepRecord
     | CheckpointStepRecord
 )
 
@@ -128,6 +128,7 @@ class WorkflowFileExecutor:
         workflow: WorkflowFile,
         inputs: dict[str, Any] | None = None,
         resume_from_checkpoint: bool = False,
+        stop_after_step: int | None = None,
     ) -> AsyncIterator[ProgressEvent]:
         """Execute a workflow file and yield progress events.
 
@@ -140,6 +141,8 @@ class WorkflowFileExecutor:
             inputs: Input values for the workflow (merged with defaults).
             resume_from_checkpoint: If True, attempts to resume from the latest
                 checkpoint. Validates that inputs match the checkpoint.
+            stop_after_step: If provided, stop after this step index (0-based).
+                Useful for step-by-step debugging.
 
         Yields:
             ProgressEvent objects for TUI/CLI consumption.
@@ -154,6 +157,11 @@ class WorkflowFileExecutor:
             # Resume from checkpoint
             async for event in executor.execute(
                 workflow, {"dry_run": False}, resume_from_checkpoint=True
+            ):
+                print(f"Event: {event}")
+            # Stop after step 2 (0-based index)
+            async for event in executor.execute(
+                workflow, {"dry_run": False}, stop_after_step=2
             ):
                 print(f"Event: {event}")
             ```
@@ -237,7 +245,7 @@ class WorkflowFileExecutor:
 
         yield WorkflowStarted(workflow_name=workflow.name, inputs=inputs)
 
-        for step_record in workflow.steps:
+        for step_index, step_record in enumerate(workflow.steps):
             if self._cancelled:
                 success = False
                 break
@@ -323,6 +331,13 @@ class WorkflowFileExecutor:
                 success = False
                 break
 
+            # Stop if we've reached the requested step limit
+            if stop_after_step is not None and step_index >= stop_after_step:
+                logger.info(
+                    f"Stopping after step '{step_record.name}' (--step flag)"
+                )
+                break
+
         # Execute rollbacks if workflow failed
         rollback_errors: list[RollbackError] = []
         if not success:
@@ -397,7 +412,7 @@ class WorkflowFileExecutor:
         }
 
         # Special cases: some handlers need additional parameters
-        if step_type in (StepType.BRANCH, StepType.PARALLEL):
+        if step_type in (StepType.BRANCH, StepType.LOOP):
             # Branch and parallel steps need execute_step_fn for nested execution
             handler_kwargs["execute_step_fn"] = self._execute_step
         elif step_type == StepType.CHECKPOINT:

@@ -19,7 +19,7 @@ from maverick.dsl.serialization.schema import (
     GenerateStepRecord,
     InputDefinition,
     InputType,
-    ParallelStepRecord,
+    LoopStepRecord,
     PythonStepRecord,
     ValidateStepRecord,
     WorkflowFile,
@@ -492,15 +492,15 @@ class TestASCIIBranchRendering:
 class TestASCIIParallelRendering:
     """Test parallel step rendering (T062)."""
 
-    def test_parallel_step_indentation(self) -> None:
+    def test_loop_step_indentation(self) -> None:
         """Test parallel step with substeps."""
         workflow = WorkflowFile(
             version="1.0",
             name="parallel",
             steps=[
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="parallel_review",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         AgentStepRecord(
                             name="arch_review",
@@ -520,8 +520,8 @@ class TestASCIIParallelRendering:
         generator = ASCIIGenerator(width=70)
         result = generator.generate(workflow)
 
-        # Should show parallel step
-        assert "[parallel] parallel_review" in result
+        # Should show loop step
+        assert "[loop] parallel_review" in result
         # Should show substeps (may be indented or marked)
         assert "arch_review" in result
         assert "lint_review" in result
@@ -635,9 +635,9 @@ class TestASCIIComplexWorkflows:
                         agent="fixer_agent",
                     ),
                 ),
-                ParallelStepRecord(
+                LoopStepRecord(
                     name="review",
-                    type=StepType.PARALLEL,
+                    type=StepType.LOOP,
                     steps=[
                         AgentStepRecord(
                             name="architecture_review",
@@ -673,7 +673,7 @@ class TestASCIIComplexWorkflows:
         assert "[python] load_tasks" in result
         assert "[agent] implement" in result
         assert "[validate] validate" in result
-        assert "[parallel] review" in result
+        assert "[loop] review" in result
         assert "[python] deploy" in result
 
         # Verify conditions
@@ -694,9 +694,9 @@ class TestASCIIComplexWorkflows:
                     options=[
                         BranchOptionRecord(
                             when="inputs.option == 'a'",
-                            step=ParallelStepRecord(
+                            step=LoopStepRecord(
                                 name="parallel_a",
-                                type=StepType.PARALLEL,
+                                type=StepType.LOOP,
                                 steps=[
                                     PythonStepRecord(
                                         name="a1",
@@ -722,4 +722,4 @@ class TestASCIIComplexWorkflows:
         # Should handle nested structures without crashing
         assert len(result) > 0
         assert "[branch] branch1" in result
-        assert "[parallel] parallel_a" in result or "a1" in result
+        assert "[loop] parallel_a" in result or "a1" in result
