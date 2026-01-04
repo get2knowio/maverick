@@ -52,8 +52,11 @@ async def execute_checkpoint_step(
     if checkpoint_store is None:
         raise ValueError("checkpoint_store is required for checkpoint step execution")
 
-    # Determine checkpoint ID (use explicit ID or step name)
-    checkpoint_id = step.checkpoint_id or step.name
+    # Determine checkpoint ID (use resolved ID from expressions, fall back to step name)
+    # resolved_inputs may contain a resolved checkpoint_id if expressions were used
+    checkpoint_id = (
+        resolved_inputs.get("checkpoint_id") or step.checkpoint_id or step.name
+    )
 
     # Get workflow name and inputs from context
     workflow_name = context.workflow_name or "unknown"

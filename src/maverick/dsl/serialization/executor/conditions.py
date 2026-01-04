@@ -105,6 +105,7 @@ def resolve_expressions(
     """
     from maverick.dsl.serialization.schema import (
         AgentStepRecord,
+        CheckpointStepRecord,
         GenerateStepRecord,
         PythonStepRecord,
         SubWorkflowStepRecord,
@@ -138,6 +139,9 @@ def resolve_expressions(
     elif isinstance(step, ValidateStepRecord):
         # Resolve stages (can be list or expression string)
         resolved["stages"] = _resolve_value(step.stages, evaluator)
+    elif isinstance(step, CheckpointStepRecord) and step.checkpoint_id:
+        # Resolve checkpoint_id (may contain expressions like ${{ index }})
+        resolved["checkpoint_id"] = _resolve_value(step.checkpoint_id, evaluator)
 
     return resolved
 
