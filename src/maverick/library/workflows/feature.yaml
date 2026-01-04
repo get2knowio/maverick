@@ -239,22 +239,25 @@ steps:
         weight: 10
 
   # ============================================================================
-  # Stage 5: Code Review
+  # Stage 5: Code Review with Fix Loop
   # ============================================================================
-  # Dual-agent code review:
+  # Dual-agent code review with automatic issue resolution:
   # 1. Spec Reviewer - Reviews for spec compliance and completeness
   # 2. Technical Reviewer - Reviews for code quality and best practices
+  # 3. Fixer Agent - Addresses critical and major issues in parallel
   # ============================================================================
   - name: review
     type: subworkflow
-    workflow: review
+    workflow: review-and-fix
     when: ${{ not inputs.skip_review and not inputs.dry_run }}
     inputs:
       base_branch: main
+      max_attempts: 2
+      skip_if_approved: true
     metadata:
       progress:
         stage: "review"
-        weight: 10
+        weight: 15
 
   # ============================================================================
   # Stage 6: Create Pull Request

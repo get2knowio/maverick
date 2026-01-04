@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
+import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from maverick.library.actions.types import (
+    AnalyzedFindingsResult,
     CombinedReviewResult,
+    IssueFixResult,
+    IssueGroup,
     PRMetadata,
+    ReviewAndFixReport,
     ReviewContextResult,
+    ReviewFixLoopResult,
+    ReviewIssue,
 )
 from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
@@ -316,4 +333,786 @@ async def combine_review_results(
         review_report="\n".join(report_lines),
         issues=(),  # No structured issues, findings are in the report
         recommendation=recommendation,
+    )
+
+
+# =============================================================================
+# Review-and-Fix Actions
+# =============================================================================
+
+
+class _ReviewStillFailingError(Exception):
+    """Internal exception to signal review still has issues and retry is needed."""
+
+    pass
+
+
+async def analyze_review_findings(
+    review_result: dict[str, Any],
+    recommendation: str,
+) -> AnalyzedFindingsResult:
+    """Analyze review findings and categorize issues for parallel fixing.
+
+    This function consolidates findings from the review step and groups them
+    by file for parallelization. Issues affecting different files can be
+    fixed in parallel, while issues affecting the same file are grouped
+    for sequential processing within that group.
+
+    Args:
+        review_result: Combined review result from the review workflow
+        recommendation: Review recommendation (approve, comment, request_changes)
+
+    Returns:
+        AnalyzedFindingsResult with categorized issue groups
+    """
+    # If review already recommends approve, skip analysis
+    if recommendation == "approve":
+        return AnalyzedFindingsResult(
+            total_issues=0,
+            critical_count=0,
+            major_count=0,
+            minor_count=0,
+            suggestion_count=0,
+            issue_groups=(),
+            needs_fixes=False,
+            skip_reason="Review already recommends approve",
+        )
+
+    # Extract issues from the review report
+    review_report = review_result.get("review_report", "")
+    issues = _parse_issues_from_report(review_report)
+
+    if not issues:
+        return AnalyzedFindingsResult(
+            total_issues=0,
+            critical_count=0,
+            major_count=0,
+            minor_count=0,
+            suggestion_count=0,
+            issue_groups=(),
+            needs_fixes=False,
+            skip_reason="No actionable issues found in review",
+        )
+
+    # Count issues by severity
+    severity_counts: dict[str, int] = defaultdict(int)
+    for issue in issues:
+        severity_counts[issue.severity] += 1
+
+    # Group issues by file path for parallelization
+    file_groups: dict[str | None, list[ReviewIssue]] = defaultdict(list)
+    for issue in issues:
+        file_groups[issue.file_path].append(issue)
+
+    # Create issue groups
+    issue_groups = []
+    for file_path, group_issues in file_groups.items():
+        group_id = _generate_group_id(file_path, group_issues)
+        issue_groups.append(
+            IssueGroup(
+                group_id=group_id,
+                file_path=file_path,
+                issues=tuple(group_issues),
+                can_parallelize=file_path is not None,  # File-specific can parallelize
+            )
+        )
+
+    # Determine if fixes are needed (critical or major issues)
+    needs_fixes = severity_counts["critical"] > 0 or severity_counts["major"] > 0
+
+    return AnalyzedFindingsResult(
+        total_issues=len(issues),
+        critical_count=severity_counts["critical"],
+        major_count=severity_counts["major"],
+        minor_count=severity_counts["minor"],
+        suggestion_count=severity_counts["suggestion"],
+        issue_groups=tuple(issue_groups),
+        needs_fixes=needs_fixes,
+        skip_reason=None,
+    )
+
+
+def _parse_issues_from_report(report: str) -> list[ReviewIssue]:
+    """Parse structured issues from the review report.
+
+    This function extracts actionable issues from the review report text
+    by looking for common patterns in issue descriptions.
+
+    Args:
+        report: Review report text
+
+    Returns:
+        List of ReviewIssue objects
+    """
+    issues: list[ReviewIssue] = []
+    issue_counter = 0
+
+    # Patterns to match issue sections
+    section_patterns = [
+        (r"###\s*Critical Issues.*?\n(.*?)(?=###|\Z)", "critical"),
+        (r"###\s*Major Issues.*?\n(.*?)(?=###|\Z)", "major"),
+        (r"###\s*Minor Issues.*?\n(.*?)(?=###|\Z)", "minor"),
+        (r"###\s*Suggestions.*?\n(.*?)(?=###|\Z)", "suggestion"),
+    ]
+
+    # Pattern to match file:line references
+    file_line_pattern = re.compile(r"([a-zA-Z0-9_./\-]+\.[a-zA-Z]+):(\d+)")
+
+    for pattern, severity in section_patterns:
+        matches = re.findall(pattern, report, re.DOTALL | re.IGNORECASE)
+        for section_content in matches:
+            # Split by bullet points or numbered items
+            items = re.split(r"\n\s*[-*•]\s*|\n\s*\d+\.\s*", section_content)
+            for item in items:
+                item = item.strip()
+                if not item or len(item) < 10:
+                    continue
+
+                # Try to extract file:line reference
+                file_match = file_line_pattern.search(item)
+                file_path = file_match.group(1) if file_match else None
+                line_number = int(file_match.group(2)) if file_match else None
+
+                # Determine category based on content
+                category = _categorize_issue(item)
+
+                # Determine reviewer based on section
+                reviewer = "technical"
+                if "spec" in item.lower() or "requirement" in item.lower():
+                    reviewer = "spec"
+
+                issue_counter += 1
+                issues.append(
+                    ReviewIssue(
+                        id=f"issue_{issue_counter}",
+                        file_path=file_path,
+                        line_number=line_number,
+                        severity=severity,
+                        category=category,
+                        description=item[:500],  # Limit description length
+                        suggested_fix=None,
+                        reviewer=reviewer,
+                    )
+                )
+
+    return issues
+
+
+def _categorize_issue(description: str) -> str:
+    """Categorize an issue based on its description.
+
+    Args:
+        description: Issue description text
+
+    Returns:
+        Category string
+    """
+    desc_lower = description.lower()
+
+    if any(
+        kw in desc_lower
+        for kw in ["security", "vulnerability", "injection", "xss", "auth"]
+    ):
+        return "security"
+    elif any(
+        kw in desc_lower
+        for kw in ["performance", "slow", "inefficient", "o(n²)", "memory"]
+    ):
+        return "performance"
+    elif any(
+        kw in desc_lower
+        for kw in ["spec", "requirement", "missing feature", "expected"]
+    ):
+        return "spec"
+    elif any(
+        kw in desc_lower
+        for kw in ["style", "format", "naming", "convention", "readability"]
+    ):
+        return "style"
+    else:
+        return "correctness"
+
+
+def _generate_group_id(file_path: str | None, issues: list[ReviewIssue]) -> str:
+    """Generate a unique ID for an issue group.
+
+    Args:
+        file_path: File path for the group
+        issues: Issues in the group
+
+    Returns:
+        Unique group ID
+    """
+    content = f"{file_path}:{len(issues)}"
+    return hashlib.md5(content.encode()).hexdigest()[:8]
+
+
+async def run_review_fix_loop(
+    initial_review: dict[str, Any],
+    analyzed_findings: dict[str, Any],
+    max_attempts: int,
+    fixer_agent: str,
+    base_branch: str,
+    skip_if_approved: bool = True,
+) -> ReviewFixLoopResult:
+    """Execute fix-and-re-review loop for review issues.
+
+    This function implements the fix loop for code review findings:
+    1. Check if fixes are needed (based on analyzed findings)
+    2. For each parallelizable group, spawn fixer agents
+    3. Re-run review to verify fixes
+    4. Repeat until review passes or max_attempts exhausted
+
+    Args:
+        initial_review: Initial review result
+        analyzed_findings: Result from analyze_review_findings
+        max_attempts: Maximum fix attempts (0 disables fixes)
+        fixer_agent: Name of fixer agent to use
+        base_branch: Base branch for re-review
+        skip_if_approved: Skip if initial review recommends approve
+
+    Returns:
+        ReviewFixLoopResult with fix outcomes
+    """
+    # Check if we should skip
+    if analyzed_findings.get("skip_reason"):
+        return ReviewFixLoopResult(
+            success=True,
+            attempts=0,
+            issues_fixed=(),
+            issues_remaining=(),
+            final_recommendation=initial_review.get("recommendation", "approve"),
+            skipped=True,
+            skip_reason=analyzed_findings.get("skip_reason"),
+        )
+
+    if not analyzed_findings.get("needs_fixes", False):
+        return ReviewFixLoopResult(
+            success=True,
+            attempts=0,
+            issues_fixed=(),
+            issues_remaining=(),
+            final_recommendation=initial_review.get("recommendation", "comment"),
+            skipped=True,
+            skip_reason="No critical or major issues to fix",
+        )
+
+    if max_attempts <= 0:
+        # Convert issue_groups to remaining issues
+        remaining = _flatten_issue_groups(analyzed_findings.get("issue_groups", []))
+        final_rec = initial_review.get("recommendation", "request_changes")
+        return ReviewFixLoopResult(
+            success=False,
+            attempts=0,
+            issues_fixed=(),
+            issues_remaining=remaining,
+            final_recommendation=final_rec,
+            skipped=True,
+            skip_reason="Fix attempts disabled (max_attempts=0)",
+        )
+
+    # Execute fix loop
+    attempts = 0
+    all_fixes: list[IssueFixResult] = []
+    remaining_issues = _flatten_issue_groups(analyzed_findings.get("issue_groups", []))
+    current_recommendation = initial_review.get("recommendation", "request_changes")
+
+    try:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            retry=retry_if_exception_type(_ReviewStillFailingError),
+            reraise=True,
+        ):
+            with attempt:
+                attempts = attempt.retry_state.attempt_number
+                logger.info(
+                    "Review fix attempt %d/%d using '%s' agent",
+                    attempts,
+                    max_attempts,
+                    fixer_agent,
+                )
+
+                # Get issue groups for this attempt
+                issue_groups = analyzed_findings.get("issue_groups", [])
+                if not issue_groups:
+                    break
+
+                # Fix issues in parallel by group
+                group_fix_results = await _fix_issue_groups_parallel(
+                    issue_groups=issue_groups,
+                    fixer_agent=fixer_agent,
+                )
+
+                # Collect fix results
+                for fix_result in group_fix_results:
+                    all_fixes.append(fix_result)
+
+                # Re-run review to check if issues are resolved
+                re_review_result = await _run_review_check(base_branch)
+                current_recommendation = re_review_result.get(
+                    "recommendation", "request_changes"
+                )
+
+                if current_recommendation == "approve":
+                    logger.info("Review passed after fix attempt %d", attempts)
+                    return ReviewFixLoopResult(
+                        success=True,
+                        attempts=attempts,
+                        issues_fixed=tuple(all_fixes),
+                        issues_remaining=(),
+                        final_recommendation=current_recommendation,
+                        skipped=False,
+                        skip_reason=None,
+                    )
+
+                # Re-analyze to get remaining issues
+                re_analyzed = await analyze_review_findings(
+                    re_review_result, current_recommendation
+                )
+                remaining_issues = _flatten_issue_groups(
+                    [g.to_dict() for g in re_analyzed.issue_groups]
+                )
+
+                # Check if we made progress
+                if not re_analyzed.needs_fixes:
+                    return ReviewFixLoopResult(
+                        success=True,
+                        attempts=attempts,
+                        issues_fixed=tuple(all_fixes),
+                        issues_remaining=remaining_issues,
+                        final_recommendation=current_recommendation,
+                        skipped=False,
+                        skip_reason=None,
+                    )
+
+                # Signal retry needed
+                raise _ReviewStillFailingError()
+
+    except _ReviewStillFailingError:
+        # All retries exhausted
+        pass
+
+    return ReviewFixLoopResult(
+        success=False,
+        attempts=attempts,
+        issues_fixed=tuple(all_fixes),
+        issues_remaining=remaining_issues,
+        final_recommendation=current_recommendation,
+        skipped=False,
+        skip_reason=None,
+    )
+
+
+def _flatten_issue_groups(
+    issue_groups: list[dict[str, Any]],
+) -> tuple[ReviewIssue, ...]:
+    """Flatten issue groups into a tuple of ReviewIssue objects.
+
+    Args:
+        issue_groups: List of issue group dicts
+
+    Returns:
+        Tuple of ReviewIssue objects
+    """
+    issues: list[ReviewIssue] = []
+    for group in issue_groups:
+        for issue_dict in group.get("issues", []):
+            issues.append(
+                ReviewIssue(
+                    id=issue_dict.get("id", "unknown"),
+                    file_path=issue_dict.get("file_path"),
+                    line_number=issue_dict.get("line_number"),
+                    severity=issue_dict.get("severity", "minor"),
+                    category=issue_dict.get("category", "correctness"),
+                    description=issue_dict.get("description", ""),
+                    suggested_fix=issue_dict.get("suggested_fix"),
+                    reviewer=issue_dict.get("reviewer", "technical"),
+                )
+            )
+    return tuple(issues)
+
+
+async def _fix_issue_groups_parallel(
+    issue_groups: list[dict[str, Any]],
+    fixer_agent: str,
+) -> list[IssueFixResult]:
+    """Fix issue groups in parallel where possible.
+
+    Groups affecting different files are fixed in parallel.
+    Issues within the same file group are fixed sequentially.
+
+    Args:
+        issue_groups: List of issue group dicts
+        fixer_agent: Name of fixer agent to use
+
+    Returns:
+        List of IssueFixResult for each issue
+    """
+    # Separate parallelizable and sequential groups
+    parallel_groups = [g for g in issue_groups if g.get("can_parallelize", False)]
+    sequential_groups = [g for g in issue_groups if not g.get("can_parallelize", False)]
+
+    all_results: list[IssueFixResult] = []
+
+    # Process parallel groups concurrently
+    if parallel_groups:
+        parallel_tasks = [
+            _fix_single_group(group, fixer_agent) for group in parallel_groups
+        ]
+        parallel_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+
+        for result in parallel_results:
+            if isinstance(result, Exception):
+                logger.warning("Parallel fix group failed: %s", result)
+            elif isinstance(result, list):
+                all_results.extend(result)
+
+    # Process sequential groups one at a time
+    for group in sequential_groups:
+        try:
+            results = await _fix_single_group(group, fixer_agent)
+            all_results.extend(results)
+        except Exception as e:
+            logger.warning("Sequential fix group failed: %s", e)
+
+    return all_results
+
+
+async def _fix_single_group(
+    group: dict[str, Any],
+    fixer_agent: str,
+) -> list[IssueFixResult]:
+    """Fix all issues in a single group.
+
+    Args:
+        group: Issue group dict
+        fixer_agent: Name of fixer agent to use
+
+    Returns:
+        List of IssueFixResult for issues in this group
+    """
+    results: list[IssueFixResult] = []
+    file_path = group.get("file_path", "unknown")
+    issues = group.get("issues", [])
+
+    for issue in issues:
+        issue_id = issue.get("id", "unknown")
+        description = issue.get("description", "")
+        severity = issue.get("severity", "minor")
+
+        try:
+            # Build fix prompt for this issue
+            fix_prompt = _build_review_fix_prompt(
+                file_path=file_path,
+                issue_description=description,
+                severity=severity,
+                suggested_fix=issue.get("suggested_fix"),
+            )
+
+            # Invoke fixer agent
+            fix_result = await _invoke_review_fixer_agent(
+                fix_prompt=fix_prompt,
+                fixer_agent=fixer_agent,
+            )
+
+            results.append(
+                IssueFixResult(
+                    issue_id=issue_id,
+                    fixed=fix_result.get("success", False),
+                    fix_description=fix_result.get("changes_made"),
+                    error=fix_result.get("error"),
+                )
+            )
+
+        except Exception as e:
+            logger.warning("Failed to fix issue %s: %s", issue_id, e)
+            results.append(
+                IssueFixResult(
+                    issue_id=issue_id,
+                    fixed=False,
+                    fix_description=None,
+                    error=str(e),
+                )
+            )
+
+    return results
+
+
+def _build_review_fix_prompt(
+    file_path: str | None,
+    issue_description: str,
+    severity: str,
+    suggested_fix: str | None,
+) -> str:
+    """Build a prompt for the fixer agent based on review issue.
+
+    Args:
+        file_path: File path affected
+        issue_description: Description of the issue
+        severity: Issue severity
+        suggested_fix: Suggested fix if available
+
+    Returns:
+        Formatted prompt string for fixer agent
+    """
+    parts = [f"Fix the following {severity} review issue:"]
+
+    if file_path:
+        parts.append(f"\nFile: {file_path}")
+
+    parts.append(f"\nIssue: {issue_description}")
+
+    if suggested_fix:
+        parts.append(f"\nSuggested fix: {suggested_fix}")
+
+    parts.append(
+        "\n\nPlease apply a minimal fix to resolve this issue. "
+        "Focus only on the specific problem described."
+    )
+
+    return "\n".join(parts)
+
+
+async def _invoke_review_fixer_agent(
+    fix_prompt: str,
+    fixer_agent: str,
+) -> dict[str, Any]:
+    """Invoke the fixer agent to apply a fix.
+
+    Args:
+        fix_prompt: The prompt describing the fix to apply
+        fixer_agent: Name of the fixer agent
+
+    Returns:
+        Dict with success status and fix details or error message
+    """
+    try:
+        # Import here to avoid circular imports
+        from maverick.agents.context import AgentContext
+        from maverick.agents.fixer import FixerAgent
+        from maverick.config import MaverickConfig
+
+        # Create agent instance
+        agent = FixerAgent()
+
+        # Build context with the fix prompt
+        context = AgentContext.from_cwd(
+            cwd=Path.cwd(),
+            config=MaverickConfig(),
+            extra={"prompt": fix_prompt},
+        )
+
+        # Execute the agent
+        result = await agent.execute(context)
+
+        if result.success:
+            output = result.output or ""
+            try:
+                parsed = json.loads(output)
+                return {
+                    "success": True,
+                    "changes_made": parsed.get("changes_made", "Fix applied"),
+                }
+            except (json.JSONDecodeError, TypeError):
+                return {
+                    "success": True,
+                    "changes_made": output[:200] if output else "Fix applied",
+                }
+        else:
+            error_messages = []
+            for error in result.errors or []:
+                if hasattr(error, "message"):
+                    error_messages.append(error.message)
+                else:
+                    error_messages.append(str(error))
+
+            return {
+                "success": False,
+                "error": "; ".join(error_messages) if error_messages else "Fix failed",
+            }
+
+    except ImportError as e:
+        logger.error("Failed to import agent modules: %s", e)
+        return {"success": False, "error": f"Import error: {e}"}
+    except ValueError as e:
+        logger.error("Invalid context configuration: %s", e)
+        return {"success": False, "error": f"Context error: {e}"}
+    except Exception as e:
+        logger.exception("Unexpected error invoking fixer agent: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+async def _run_review_check(base_branch: str) -> dict[str, Any]:
+    """Re-run the review to check if issues are resolved.
+
+    This performs a lightweight review check by gathering PR context
+    and re-running the reviewers, without invoking the full workflow.
+
+    Args:
+        base_branch: Base branch for comparison
+
+    Returns:
+        Review result dict with recommendation
+    """
+    try:
+        # Gather fresh PR context
+        context_result = await gather_pr_context(
+            pr_number=None,  # Auto-detect from current branch
+            base_branch=base_branch,
+            include_spec_files=True,
+        )
+
+        if context_result.error:
+            logger.warning("Failed to gather PR context: %s", context_result.error)
+            return {"recommendation": "request_changes"}
+
+        # Import reviewer agents
+        from maverick.agents.reviewers.spec_reviewer import SpecReviewerAgent
+        from maverick.agents.reviewers.technical_reviewer import TechnicalReviewerAgent
+
+        # Build context dict for reviewers
+        review_context = {
+            "pr_metadata": context_result.pr_metadata.to_dict(),
+            "changed_files": list(context_result.changed_files),
+            "diff": context_result.diff,
+            "commits": list(context_result.commits),
+            "spec_files": context_result.spec_files,
+            "base_branch": base_branch,
+        }
+
+        # Run both reviewers (simplified - not in parallel to avoid overwhelming)
+        spec_review = None
+        technical_review = None
+
+        try:
+            spec_agent = SpecReviewerAgent()
+            spec_review = await spec_agent.execute(review_context)
+        except Exception as e:
+            logger.warning("Spec review failed in re-check: %s", e)
+
+        try:
+            technical_agent = TechnicalReviewerAgent()
+            technical_review = await technical_agent.execute(review_context)
+        except Exception as e:
+            logger.warning("Technical review failed in re-check: %s", e)
+
+        # Combine results
+        combined = await combine_review_results(
+            spec_review=spec_review,
+            technical_review=technical_review,
+            pr_metadata=context_result.pr_metadata.to_dict(),
+        )
+
+        return {
+            "recommendation": combined.recommendation,
+            "review_report": combined.review_report,
+        }
+
+    except ImportError as e:
+        logger.warning("Failed to import reviewer agents: %s", e)
+        return {"recommendation": "request_changes"}
+    except Exception as e:
+        logger.warning("Re-review failed: %s, assuming issues remain", e)
+        return {"recommendation": "request_changes"}
+
+
+async def generate_review_fix_report(
+    initial_review: dict[str, Any],
+    fix_loop_result: dict[str, Any],
+    max_attempts: int,
+) -> ReviewAndFixReport:
+    """Generate final review-and-fix report.
+
+    Args:
+        initial_review: Initial review result
+        fix_loop_result: Result from run_review_fix_loop
+        max_attempts: Configured max attempts
+
+    Returns:
+        ReviewAndFixReport with final summary
+    """
+    # Extract metrics
+    issues_fixed_list = fix_loop_result.get("issues_fixed", [])
+    issues_remaining_list = fix_loop_result.get("issues_remaining", [])
+    attempts = fix_loop_result.get("attempts", 0)
+    final_recommendation = fix_loop_result.get(
+        "final_recommendation",
+        initial_review.get("recommendation", "comment"),
+    )
+    skipped = fix_loop_result.get("skipped", False)
+    skip_reason = fix_loop_result.get("skip_reason")
+
+    # Count issues
+    issues_fixed_count = sum(
+        1 for f in issues_fixed_list if isinstance(f, dict) and f.get("fixed", False)
+    )
+    issues_remaining_count = len(issues_remaining_list)
+    total_issues = issues_fixed_count + issues_remaining_count
+
+    # Build fix summary
+    fix_summary_lines = []
+    if skipped:
+        fix_summary_lines.append(f"Fix loop skipped: {skip_reason}")
+    elif attempts > 0:
+        fix_summary_lines.append(f"Completed {attempts} fix attempt(s)")
+        if issues_fixed_count > 0:
+            fix_summary_lines.append(f"Fixed {issues_fixed_count} issue(s)")
+        if issues_remaining_count > 0:
+            fix_summary_lines.append(f"{issues_remaining_count} issue(s) remaining")
+    else:
+        fix_summary_lines.append("No fix attempts needed")
+
+    # Build combined report
+    report_lines = []
+    report_lines.append("# Review and Fix Report")
+    report_lines.append("")
+    report_lines.append("## Summary")
+    report_lines.append("")
+    report_lines.append(f"- **Total Issues Found:** {total_issues}")
+    report_lines.append(f"- **Issues Fixed:** {issues_fixed_count}")
+    report_lines.append(f"- **Issues Remaining:** {issues_remaining_count}")
+    report_lines.append(f"- **Fix Attempts:** {attempts}/{max_attempts}")
+    report_lines.append(f"- **Final Recommendation:** {final_recommendation}")
+    report_lines.append("")
+
+    # Include original review report
+    original_report = initial_review.get("review_report", "")
+    if original_report:
+        report_lines.append("## Original Review")
+        report_lines.append("")
+        report_lines.append(original_report)
+        report_lines.append("")
+
+    # Add fix details if any
+    if issues_fixed_list:
+        report_lines.append("## Fixes Applied")
+        report_lines.append("")
+        for fix in issues_fixed_list:
+            if isinstance(fix, dict):
+                status = "✓" if fix.get("fixed") else "✗"
+                issue_id = fix.get("issue_id", "unknown")
+                desc = fix.get("fix_description") or fix.get("error") or "No details"
+                report_lines.append(f"- {status} {issue_id}: {desc[:100]}")
+        report_lines.append("")
+
+    # Add remaining issues if any
+    if issues_remaining_list:
+        report_lines.append("## Remaining Issues")
+        report_lines.append("")
+        for issue in issues_remaining_list:
+            if isinstance(issue, dict):
+                severity = issue.get("severity", "unknown")
+                desc = issue.get("description", "No description")[:100]
+                report_lines.append(f"- [{severity}] {desc}")
+        report_lines.append("")
+
+    return ReviewAndFixReport(
+        review_report="\n".join(report_lines),
+        recommendation=final_recommendation,
+        issues_found=total_issues,
+        issues_fixed=issues_fixed_count,
+        issues_remaining=issues_remaining_count,
+        attempts=attempts,
+        fix_summary=tuple(fix_summary_lines),
     )

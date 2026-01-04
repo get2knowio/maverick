@@ -40,8 +40,11 @@ from maverick.library.actions.github import (
 )
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.review import (
+    analyze_review_findings,
     combine_review_results,
     gather_pr_context,
+    generate_review_fix_report,
+    run_review_fix_loop,
 )
 from maverick.library.actions.tasks import get_phase_names
 from maverick.library.actions.validation import (
@@ -70,6 +73,9 @@ __all__ = [
     # Review actions
     "gather_pr_context",
     "combine_review_results",
+    "analyze_review_findings",
+    "run_review_fix_loop",
+    "generate_review_fix_report",
     # Cleanup actions
     "process_selected_issues",
     "generate_cleanup_summary",
@@ -113,8 +119,16 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     # Review actions (with both prefixed and unprefixed names for compatibility)
     registry.actions.register("gather_pr_context", gather_pr_context)
     registry.actions.register("combine_review_results", combine_review_results)
+    registry.actions.register("analyze_review_findings", analyze_review_findings)
+    registry.actions.register("run_review_fix_loop", run_review_fix_loop)
+    registry.actions.register("generate_review_fix_report", generate_review_fix_report)
     registry.actions.register("review.gather_pr_context", gather_pr_context)
     registry.actions.register("review.combine_review_results", combine_review_results)
+    registry.actions.register("review.analyze_review_findings", analyze_review_findings)
+    registry.actions.register("review.run_review_fix_loop", run_review_fix_loop)
+    registry.actions.register(
+        "review.generate_review_fix_report", generate_review_fix_report
+    )
 
     # Cleanup actions
     registry.actions.register("process_selected_issues", process_selected_issues)

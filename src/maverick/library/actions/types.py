@@ -312,6 +312,152 @@ class CombinedReviewResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewIssue:
+    """Individual issue identified in code review."""
+
+    id: str  # Unique ID for tracking
+    file_path: str | None  # File path affected (None if general issue)
+    line_number: int | None  # Line number if applicable
+    severity: str  # "critical", "major", "minor", "suggestion"
+    category: str  # "correctness", "security", "performance", "style", "spec"
+    description: str
+    suggested_fix: str | None
+    reviewer: str  # "spec" or "technical"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "id": self.id,
+            "file_path": self.file_path,
+            "line_number": self.line_number,
+            "severity": self.severity,
+            "category": self.category,
+            "description": self.description,
+            "suggested_fix": self.suggested_fix,
+            "reviewer": self.reviewer,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class IssueGroup:
+    """Group of issues that can be addressed together.
+
+    Issues affecting different files can be fixed in parallel.
+    Issues affecting the same file are grouped for sequential processing.
+    """
+
+    group_id: str
+    file_path: str | None  # File path for file-specific groups, None for general
+    issues: tuple[ReviewIssue, ...]
+    can_parallelize: bool  # True if this group can run in parallel with others
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "group_id": self.group_id,
+            "file_path": self.file_path,
+            "issues": [issue.to_dict() for issue in self.issues],
+            "can_parallelize": self.can_parallelize,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzedFindingsResult:
+    """Result of analyzing review findings for fix prioritization."""
+
+    total_issues: int
+    critical_count: int
+    major_count: int
+    minor_count: int
+    suggestion_count: int
+    issue_groups: tuple[IssueGroup, ...]
+    needs_fixes: bool  # True if there are issues that should be fixed
+    skip_reason: str | None  # Reason to skip fixing (e.g., already approved)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "total_issues": self.total_issues,
+            "critical_count": self.critical_count,
+            "major_count": self.major_count,
+            "minor_count": self.minor_count,
+            "suggestion_count": self.suggestion_count,
+            "issue_groups": [group.to_dict() for group in self.issue_groups],
+            "needs_fixes": self.needs_fixes,
+            "skip_reason": self.skip_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class IssueFixResult:
+    """Result of attempting to fix a single issue."""
+
+    issue_id: str
+    fixed: bool
+    fix_description: str | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "issue_id": self.issue_id,
+            "fixed": self.fixed,
+            "fix_description": self.fix_description,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFixLoopResult:
+    """Result of the review fix loop."""
+
+    success: bool  # True if all issues resolved or review passed
+    attempts: int
+    issues_fixed: tuple[IssueFixResult, ...]
+    issues_remaining: tuple[ReviewIssue, ...]
+    final_recommendation: str  # Final review recommendation after fixes
+    skipped: bool  # True if fix loop was skipped
+    skip_reason: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "attempts": self.attempts,
+            "issues_fixed": [fix.to_dict() for fix in self.issues_fixed],
+            "issues_remaining": [issue.to_dict() for issue in self.issues_remaining],
+            "final_recommendation": self.final_recommendation,
+            "skipped": self.skipped,
+            "skip_reason": self.skip_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewAndFixReport:
+    """Final report from review-and-fix workflow."""
+
+    review_report: str
+    recommendation: str  # "approve", "request_changes", "comment"
+    issues_found: int
+    issues_fixed: int
+    issues_remaining: int
+    attempts: int
+    fix_summary: tuple[str, ...]  # Summary of fixes applied
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "review_report": self.review_report,
+            "recommendation": self.recommendation,
+            "issues_found": self.issues_found,
+            "issues_fixed": self.issues_fixed,
+            "issues_remaining": self.issues_remaining,
+            "attempts": self.attempts,
+            "fix_summary": list(self.fix_summary),
+        }
+
+
 # =============================================================================
 # Refuel Types
 # =============================================================================

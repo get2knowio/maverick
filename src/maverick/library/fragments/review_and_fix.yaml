@@ -1,0 +1,167 @@
+# =============================================================================
+# Review and Fix Fragment
+# =============================================================================
+#
+# Purpose:
+#   Orchestrates code review with automatic issue resolution. Runs dual-agent
+#   review (spec compliance + technical quality), consolidates findings, and
+#   spawns fixer agents to address issues in parallel where possible.
+#
+# Pattern:
+#   This follows the same pattern as validate-and-fix but for review findings:
+#   1. Run review (spec + technical agents in parallel)
+#   2. Consolidate findings into actionable issues
+#   3. Categorize issues for parallelization:
+#      - Issues affecting different files → can be fixed in parallel
+#      - Issues affecting the same file → must be fixed sequentially
+#   4. Spawn fixer agents to address issues
+#   5. Re-run review to verify fixes
+#   6. Repeat until clean or max_attempts exhausted
+#
+# Inputs:
+#   - base_branch (string, optional, default: "main")
+#     Base branch for PR comparison.
+#
+#   - max_attempts (integer, optional, default: 2)
+#     Maximum fix-and-re-review cycles. Set to 0 to disable fixes.
+#
+#   - fixer_agent (string, optional, default: "review_fixer")
+#     Agent to use for fixing review issues.
+#
+#   - skip_if_approved (boolean, optional, default: true)
+#     Skip fix loop if initial review recommends "approve".
+#
+# Output:
+#   ReviewAndFixResult with:
+#   - review_report: Final consolidated review report
+#   - recommendation: approve | comment | request_changes
+#   - issues_found: Total issues identified
+#   - issues_fixed: Issues successfully resolved
+#   - issues_remaining: Issues that couldn't be auto-fixed
+#   - attempts: Number of fix cycles executed
+#
+# Used By:
+#   - feature workflow (review stage)
+#
+# =============================================================================
+
+version: "1.0"
+name: review-and-fix
+description: Code review with automatic issue resolution
+
+inputs:
+  base_branch:
+    type: string
+    required: false
+    default: "main"
+    description: Base branch for PR comparison
+
+  max_attempts:
+    type: integer
+    required: false
+    default: 2
+    description: Maximum fix-and-re-review cycles (0 disables fixes)
+
+  fixer_agent:
+    type: string
+    required: false
+    default: "review_fixer"
+    description: Agent for fixing review issues
+
+  skip_if_approved:
+    type: boolean
+    required: false
+    default: true
+    description: Skip fix loop if initial review recommends approve
+
+steps:
+  # ===========================================================================
+  # Step 1: Initial Review
+  # ===========================================================================
+  # Run the dual-agent review (spec + technical) to gather findings.
+  # ===========================================================================
+  - name: initial_review
+    type: subworkflow
+    workflow: review
+    inputs:
+      base_branch: ${{ inputs.base_branch }}
+    metadata:
+      progress:
+        stage: "review"
+        weight: 30
+
+  # ===========================================================================
+  # Step 2: Analyze Findings
+  # ===========================================================================
+  # Consolidate findings from both reviewers and categorize issues:
+  # - Extract actionable issues from the review report
+  # - Determine which issues can be fixed in parallel (different files)
+  # - Group issues by file for sequential processing within groups
+  # - Estimate fix complexity for prioritization
+  #
+  # Output: AnalyzedFindings with issue_groups for parallel processing
+  # ===========================================================================
+  - name: analyze_findings
+    type: python
+    action: analyze_review_findings
+    kwargs:
+      review_result: ${{ steps.initial_review.output }}
+      recommendation: ${{ steps.initial_review.output.recommendation }}
+    metadata:
+      progress:
+        stage: "analyzing"
+        weight: 5
+
+  # ===========================================================================
+  # Step 3: Fix Loop
+  # ===========================================================================
+  # If issues were found and fixes are enabled, enter a fix-and-re-review loop.
+  #
+  # The fix loop:
+  # 1. Iterates over issue groups (parallelizable batches)
+  # 2. For each group, spawns fixer agents (parallel within group)
+  # 3. Re-runs review to verify fixes
+  # 4. Repeats until review passes or max_attempts exhausted
+  #
+  # Issues are grouped by file:
+  # - Different files = different groups = parallel execution
+  # - Same file = same group = sequential within group
+  #
+  # The Python action handles the complex orchestration logic since
+  # the DSL doesn't support nested dynamic parallelization.
+  # ===========================================================================
+  - name: fix_loop
+    type: python
+    action: run_review_fix_loop
+    kwargs:
+      initial_review: ${{ steps.initial_review.output }}
+      analyzed_findings: ${{ steps.analyze_findings.output }}
+      max_attempts: ${{ inputs.max_attempts }}
+      fixer_agent: ${{ inputs.fixer_agent }}
+      base_branch: ${{ inputs.base_branch }}
+      skip_if_approved: ${{ inputs.skip_if_approved }}
+    metadata:
+      progress:
+        stage: "fixing"
+        weight: 50
+
+  # ===========================================================================
+  # Step 4: Generate Final Report
+  # ===========================================================================
+  # Produce a final summary combining:
+  # - Initial review findings
+  # - Fix attempts and outcomes
+  # - Final review status
+  # - Recommendations for any remaining issues
+  # ===========================================================================
+  - name: final_report
+    type: python
+    action: generate_review_fix_report
+    kwargs:
+      initial_review: ${{ steps.initial_review.output }}
+      fix_loop_result: ${{ steps.fix_loop.output }}
+      max_attempts: ${{ inputs.max_attempts }}
+    metadata:
+      progress:
+        stage: "reporting"
+        weight: 5

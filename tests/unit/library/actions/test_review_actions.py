@@ -45,7 +45,8 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with patch("maverick.library.actions.review._runner") as mock_runner:
-            # Mock PR view - order matches implementation: PR view, diff, changed files, commits
+            # Mock PR view - order matches implementation:
+            # PR view, diff, changed files, commits
             mock_runner.run = AsyncMock(
                 side_effect=[
                     # PR view result
