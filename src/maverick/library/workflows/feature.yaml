@@ -1,19 +1,26 @@
 # ==============================================================================
-# Feature Workflow - Full Spec-Based Development
+# Feature Workflow - Speckit-Based Development
 # ==============================================================================
 #
 # The "feature" workflow orchestrates a complete feature implementation from a
-# task list through to pull request creation. It is Maverick's primary workflow
-# for spec-based development, handling implementation, validation, review, and PR
-# management in a single coordinated flow.
+# speckit task list through to pull request creation. This workflow is designed
+# for speckit-based development and expects a properly structured tasks.md with
+# phases.
+#
+# PREREQUISITES:
+#   This workflow expects a speckit project structure:
+#   - specs/<branch-name>/tasks.md with phase markers (## Phase: Setup, etc.)
+#   - specs/<branch-name>/plan.md with technical design
+#   - Optional: spec.md, data-model.md, contracts/, checklists/
 #
 # WORKFLOW STAGES:
-#   1. Init: Workspace initialization and branch sync
-#   2. Implement: Execute all tasks from tasks.md
-#   3. Validate: Run validation stages with automatic fix retry loop
-#   4. Commit: Generate commit message and push changes
-#   5. Review: Code review (optional, skippable)
-#   6. Create PR: Generate PR body and create pull request
+#   1. Preflight: Validate tools and credentials
+#   2. Init: Workspace initialization and branch sync
+#   3. Implement: Execute tasks phase-by-phase from tasks.md
+#   4. Validate: Run validation after each phase with fix retry loop
+#   5. Commit: Commit after each phase, final push after all phases
+#   6. Review: Dual-agent code review (spec + technical)
+#   7. Create PR: Generate PR body and create pull request
 #
 # INPUTS:
 #   - branch_name (string, required): Feature branch name
@@ -22,57 +29,22 @@
 #
 #   - task_file (string, optional): Path to tasks.md file
 #       Location of the task list to execute. If omitted, workflow will
-#       auto-detect by searching for tasks.md in standard locations:
-#       - specs/<branch-name>/tasks.md
-#       - ./tasks.md
-#       Example: "specs/025-builtin-workflow-library/tasks.md"
+#       auto-detect: specs/<branch-name>/tasks.md
 #
 #   - skip_review (boolean, optional, default: false): Skip code review stage
-#       Set to true to bypass the code review step. Useful for:
-#       - Small changes or documentation updates
-#       - Emergency fixes
-#       - Work-in-progress PRs
-#       Example: true
+#       Set to true to bypass the code review step.
 #
 #   - dry_run (boolean, optional, default: false): Preview mode
 #       Set to true to preview workflow actions without executing them.
-#       Logs all planned operations instead of making actual changes.
-#       Example: true
-#
-# CUSTOMIZATION POINTS:
-#   - Override this workflow in your project to customize stages
-#   - Adjust validation stages in validate-and-fix step inputs
-#   - Replace review agent or add additional review steps
-#   - Customize commit message generation via commit-and-push fragment
-#   - Override fragments to customize common patterns across workflows
-#
-# DEPENDENCIES:
-#   This workflow requires the following fragments (built-in or overridden):
-#   - validate_and_fix: Validation-with-retry loop
-#   - commit_and_push: Commit message generation and git push
-#   - create_pr_with_summary: PR body generation and creation
 #
 # EXAMPLE USAGE:
-#   # Basic usage (auto-detect task file)
 #   maverick fly feature -i branch_name=025-builtin-workflow-library
-#
-#   # Explicit task file
-#   maverick fly feature -i branch_name=025-builtin-workflow-library \
-#     -i task_file=specs/025-builtin-workflow-library/tasks.md
-#
-#   # Skip code review
-#   maverick fly feature -i branch_name=025-builtin-workflow-library \
-#     -i skip_review=true
-#
-#   # Dry run (preview without executing)
-#   maverick fly feature -i branch_name=025-builtin-workflow-library \
-#     -i dry_run=true
 #
 # ==============================================================================
 
 version: "1.0"
 name: feature
-description: Full spec-based development workflow
+description: Speckit-based feature development workflow
 
 # ------------------------------------------------------------------------------
 # Input Declarations
@@ -81,17 +53,13 @@ inputs:
   branch_name:
     type: string
     required: true
-    description: Feature branch name
+    description: Feature branch name (matches specs/<branch-name>/ directory)
 
   task_file:
     type: string
     required: false
     description: |
-      Path to tasks.md (auto-detect if omitted)
-
-      Auto-detection: If not specified, searches for tasks.md in:
-      1. specs/<branch-name>/tasks.md
-      2. Current directory (./tasks.md)
+      Path to tasks.md (auto-detect from specs/<branch-name>/tasks.md if omitted)
 
   skip_review:
     type: boolean
@@ -103,19 +71,7 @@ inputs:
     type: boolean
     required: false
     default: false
-    description: |
-      When true, log planned operations without executing them.
-      Useful for previewing workflow actions before running.
-
-      In dry-run mode:
-      - Workspace initialization is logged but not executed
-      - Task implementation is skipped (logs task list only)
-      - Validation is skipped
-      - No commits or pushes are made
-      - No code review is performed
-      - No PR is created
-
-      Use this to preview what the workflow would do without making changes.
+    description: Preview workflow actions without executing them
 
 # ------------------------------------------------------------------------------
 # Workflow Steps
@@ -125,16 +81,7 @@ steps:
   # Stage 0: Preflight Checks
   # ============================================================================
   # Validate that all required tools and credentials are available before
-  # starting the workflow. This prevents mid-workflow failures due to missing
-  # or misconfigured tools.
-  #
-  # Checks:
-  # - Anthropic API credentials (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)
-  # - Git is installed
-  # - GitHub CLI is installed and authenticated (warning if not)
-  # - Validation tools are installed (yamllint, ansible-lint, etc.)
-  #
-  # Output: PreflightCheckResult with success status and any errors/warnings
+  # starting the workflow.
   # ============================================================================
   - name: preflight
     type: python
@@ -156,15 +103,8 @@ steps:
   # ============================================================================
   # Stage 1: Workspace Initialization
   # ============================================================================
-  # Initialize the workspace by syncing the feature branch with the base branch
-  # (typically main), ensuring we're starting from a clean, up-to-date state.
-  #
-  # This step:
-  # - Checks out or creates the feature branch
-  # - Syncs with origin/main (fast-forward if possible)
-  # - Validates that the workspace is clean
-  #
-  # Output: Workspace state including current branch, base branch, and sync status
+  # Initialize the workspace by syncing the feature branch with the base branch,
+  # ensuring we're starting from a clean, up-to-date state.
   # ============================================================================
   - name: init
     type: python
@@ -181,10 +121,7 @@ steps:
   # Stage 2: Get Phase Names
   # ============================================================================
   # Extract phase names from tasks.md to enable phase-level iteration.
-  # Each phase will be executed separately with Claude handling parallelization
-  # of [P] marked tasks within the phase.
-  #
-  # Uses auto-detected task file from init step if not explicitly provided.
+  # Speckit tasks.md files contain phases like "## Phase: Setup", "## Phase: Core".
   # ============================================================================
   - name: get_phases
     type: python
@@ -198,33 +135,26 @@ steps:
         weight: 2
 
   # ============================================================================
-  # Stage 2: Implementation by Phase
+  # Stage 3: Implementation by Phase
   # ============================================================================
   # Execute tasks phase-by-phase using the Implementer agent.
   #
-  # This step iterates over each phase in tasks.md:
-  # - Each phase is executed as a single Claude invocation
-  # - Claude handles parallelization of [P] marked tasks within the phase
-  # - After each phase: validate, commit, and checkpoint
+  # For each phase:
+  # - Execute all tasks (Claude handles [P] parallelization)
+  # - Validate (format, lint, typecheck, test)
+  # - Commit phase changes
+  # - Checkpoint for resume capability
   #
-  # Benefits of phase-level execution:
-  # - Coarser-grained control with better context coherence
-  # - Claude decides optimal parallelization strategy
-  # - Atomic commits per phase for cleaner git history
-  # - Resume from any phase checkpoint on failure
-  #
-  # The implementer agent has access to:
-  # - File read/write operations
-  # - Git operations (commit, status, diff)
-  # - Project context from the spec directory
-  #
-  # Output: Implementation results per phase including completed tasks
+  # The implementer invokes /speckit.implement which handles:
+  # - Prerequisites check
+  # - Checklist verification
+  # - Loading spec artifacts (plan.md, data-model.md, etc.)
+  # - TDD-based task execution
   # ============================================================================
   - name: implement_by_phase
     type: loop
     when: ${{ not inputs.dry_run and steps.get_phases.output }}
     for_each: ${{ steps.get_phases.output }}
-    # max_concurrency defaults to 1 (sequential)
     steps:
       # Execute all tasks in this phase
       - name: implement_phase
@@ -250,7 +180,7 @@ steps:
             - lint
             - typecheck
             - test
-          max_attempts: 2 # Fewer attempts per phase
+          max_attempts: 2
           fixer_agent: validation_fixer
         metadata:
           progress:
@@ -264,7 +194,7 @@ steps:
         workflow: commit-and-push
         when: ${{ steps.validate_phase.output.success }}
         inputs:
-          push: false # Don't push until all phases done
+          push: false
           commit_message: "feat(${{ item }}): complete phase tasks"
         metadata:
           progress:
@@ -282,25 +212,8 @@ steps:
             phase: ${{ item }}
             weight: 1
 
-  # Fallback: Single-phase implementation (no phases in task file)
-  - name: implement_no_phases
-    type: agent
-    agent: implementer
-    when: ${{ not inputs.dry_run and not steps.get_phases.output and steps.init.output.task_file_path }}
-    context:
-      task_file: ${{ inputs.task_file or steps.init.output.task_file_path }}
-      branch: ${{ inputs.branch_name }}
-    metadata:
-      progress:
-        stage: "implementation"
-        weight: 40
-
-
   # ============================================================================
   # Checkpoint: After All Implementation
-  # ============================================================================
-  # Save workflow state after successful implementation to enable resumption
-  # from this point if the workflow is interrupted during validation or review.
   # ============================================================================
   - name: checkpoint_after_implementation
     type: checkpoint
@@ -312,61 +225,9 @@ steps:
         weight: 1
 
   # ============================================================================
-  # Stage 3: Final Validation (if not done per-phase)
-  # ============================================================================
-  # Run final validation if phases were not used (fallback path).
-  # When phases are used, validation happens per-phase above.
-  # ============================================================================
-  - name: validate_and_fix
-    type: subworkflow
-    workflow: validate-and-fix
-    when: ${{ not inputs.dry_run and not steps.get_phases.output }}
-    inputs:
-      stages:
-        - format
-        - lint
-        - typecheck
-        - test
-      max_attempts: 3
-      fixer_agent: validation_fixer
-    metadata:
-      progress:
-        stage: "validation"
-        weight: 25
-
-
-  # ============================================================================
-  # Checkpoint: After Validation
-  # ============================================================================
-  # Save workflow state after successful validation to enable resumption from
-  # this point if the workflow is interrupted during commit/review/PR.
-  # ============================================================================
-  - name: checkpoint_after_validation
-    type: checkpoint
-    when: ${{ not inputs.dry_run }}
-    checkpoint_id: validation_complete
-    metadata:
-      progress:
-        stage: "checkpoint"
-        weight: 1
-
-  # ============================================================================
   # Stage 4: Commit and Push
   # ============================================================================
-  # Generate a commit message based on changes and push to remote.
-  #
-  # This invokes the commit_and_push fragment, which:
-  # - Analyzes git diff and recent commits to understand changes
-  # - Generates a conventional commit message
-  # - Creates the commit with appropriate co-author attribution
-  # - Pushes to the remote branch
-  #
-  # The commit message generation considers:
-  # - Changed files and their context
-  # - Recent commit history for style consistency
-  # - Task list for understanding the "why" of changes
-  #
-  # Output: Commit SHA and push status
+  # Final commit (if any uncommitted changes) and push all phase commits to remote.
   # ============================================================================
   - name: commit_and_push
     type: subworkflow
@@ -377,28 +238,12 @@ steps:
         stage: "commit"
         weight: 10
 
-
   # ============================================================================
-  # Stage 5: Code Review (Optional)
+  # Stage 5: Code Review
   # ============================================================================
-  # Perform automated code review using two specialized agents:
+  # Dual-agent code review:
   # 1. Spec Reviewer - Reviews for spec compliance and completeness
   # 2. Technical Reviewer - Reviews for code quality and best practices
-  #
-  # This step is CONDITIONAL - it only runs when skip_review is false AND
-  # dry_run is false.
-  #
-  # The review workflow:
-  # - Gathers PR context including spec files
-  # - Runs both reviewers in parallel
-  # - Combines findings into a unified report
-  #
-  # To skip review for specific scenarios:
-  # - Small changes: maverick fly feature -i skip_review=true
-  # - Documentation updates: Often safe to skip
-  # - Emergency fixes: May need to skip and review post-merge
-  #
-  # Output: Combined review findings from both perspectives
   # ============================================================================
   - name: review
     type: subworkflow
@@ -411,31 +256,10 @@ steps:
         stage: "review"
         weight: 10
 
-
   # ============================================================================
   # Stage 6: Create Pull Request
   # ============================================================================
-  # Generate PR body and create the pull request.
-  #
-  # This invokes the create_pr_with_summary fragment, which:
-  # - Generates a comprehensive PR description summarizing changes
-  # - Includes links to related issues and specs
-  # - Creates the PR via GitHub CLI
-  # - Applies appropriate labels and reviewers (if configured)
-  #
-  # The PR body generation considers:
-  # - Commit history since branch divergence from base
-  # - Task list and spec artifacts
-  # - Review findings (if review was run)
-  #
-  # Default settings:
-  # - base_branch: "main"
-  # - draft: false (ready for review)
-  #
-  # To customize PR creation, override this step's inputs or override the
-  # create_pr_with_summary fragment in your project.
-  #
-  # Output: PR number and URL
+  # Generate PR body from spec artifacts and create the pull request.
   # ============================================================================
   - name: create_pr
     type: subworkflow
@@ -448,4 +272,3 @@ steps:
       progress:
         stage: "pr_creation"
         weight: 10
-

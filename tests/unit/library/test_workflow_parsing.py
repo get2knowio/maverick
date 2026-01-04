@@ -178,11 +178,17 @@ class TestSpecificWorkflows:
         assert "branch_name" in workflow.inputs
         assert workflow.inputs["branch_name"].required is True
 
-        # Check for key steps (feature workflow uses phased implementation)
+        # Check for key steps (speckit feature workflow uses phased implementation)
         step_names = [step.name for step in workflow.steps]
+        assert "preflight" in step_names
         assert "init" in step_names
-        assert "implement_by_phase" in step_names  # Phased implementation step
-        assert "validate_and_fix" in step_names
+        assert "get_phases" in step_names
+        assert (
+            "implement_by_phase" in step_names
+        )  # Phased implementation with validation
+        assert "commit_and_push" in step_names
+        assert "review" in step_names
+        assert "create_pr" in step_names
 
     def test_cleanup_workflow_structure(self) -> None:
         """Test that cleanup workflow has expected structure."""
