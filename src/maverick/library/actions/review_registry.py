@@ -942,7 +942,7 @@ async def _create_single_issue(
                     error=None,
                 )
 
-    except GitHubError as e:
+    except GitHubError as e:  # pragma: no cover
         last_error = str(e)
         logger.warning(
             "Failed to create issue for finding %s after retries: %s",
@@ -975,9 +975,10 @@ async def _create_single_issue(
             error=str(e),
         )
 
-    # This should never be reached - the retry loop always returns or raises
-    error_msg = last_error or "unknown error"
-    raise RuntimeError(f"Retry loop exited unexpectedly for '{title}': {error_msg}")
+    # Unreachable: retry loop always returns or raises
+    error_msg = last_error or "unknown error"  # pragma: no cover
+    msg = f"Retry loop exited unexpectedly for '{title}': {error_msg}"
+    raise RuntimeError(msg)  # pragma: no cover
 
 
 # =============================================================================
