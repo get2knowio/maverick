@@ -231,7 +231,7 @@ def _normalized_levenshtein(s1: str, s2: str) -> float:
     if not s1 and not s2:
         return 0.0
     max_len = max(len(s1), len(s2))
-    if max_len == 0:
+    if max_len == 0:  # pragma: no cover - defensive; unreachable if above check passes
         return 0.0
     return _levenshtein_distance(s1, s2) / max_len
 
@@ -708,7 +708,7 @@ async def check_fix_loop_exit(
                 reason = f"All actionable findings resolved. {stats['fixed']} fixed."
             else:
                 reason = "No actionable findings remaining."
-        else:
+        else:  # pragma: no cover - defensive; should not reach with normal exit logic
             reason = "Fix loop complete."
     else:
         reason = (
