@@ -313,6 +313,52 @@ class TestCreateIssueRegistry:
         assert len(registry.findings) == 0
         assert registry.current_iteration == 0
 
+    @pytest.mark.asyncio
+    async def test_invalid_severity_falls_back_to_minor(self) -> None:
+        """Test invalid severity values fall back to minor."""
+        findings = [
+            {
+                "id": "RS001",
+                "severity": "INVALID_SEVERITY",
+                "category": "correctness",
+                "title": "Test issue",
+                "description": "Test desc",
+                "file_path": "test.py",
+                "line_start": 1,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=findings,
+            tech_findings=[],
+        )
+
+        assert len(registry.findings) == 1
+        assert registry.findings[0].finding.severity == Severity.minor
+
+    @pytest.mark.asyncio
+    async def test_invalid_category_falls_back_to_correctness(self) -> None:
+        """Test invalid category values fall back to correctness."""
+        findings = [
+            {
+                "id": "RS001",
+                "severity": "major",
+                "category": "INVALID_CATEGORY",
+                "title": "Test issue",
+                "description": "Test desc",
+                "file_path": "test.py",
+                "line_start": 1,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=findings,
+            tech_findings=[],
+        )
+
+        assert len(registry.findings) == 1
+        assert registry.findings[0].finding.category == FindingCategory.correctness
+
 
 class TestPrepareFixerInput:
     """Tests for prepare_fixer_input action."""
