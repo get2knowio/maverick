@@ -320,7 +320,8 @@ class ReviewIssue:
     file_path: str | None  # File path affected (None if general issue)
     line_number: int | None  # Line number if applicable
     severity: str  # "critical", "major", "minor", "suggestion"
-    category: str  # "correctness", "security", "performance", "style", "spec"
+    category: str  # "security", "correctness", "performance", "maintainability"
+    # (continued): "spec_compliance", "style", "other"
     description: str
     suggested_fix: str | None
     reviewer: str  # "spec" or "technical"
@@ -508,4 +509,47 @@ class RefuelSummaryResult:
             "skipped_count": self.skipped_count,
             "issues": [issue.to_dict() for issue in self.issues],
             "pr_urls": list(self.pr_urls),
+        }
+
+
+# =============================================================================
+# Tech Debt Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class TechDebtIssueResult:
+    """Result of creating a tech debt issue.
+
+    Used to track the outcome of creating GitHub issues for findings
+    that cannot be fixed in the current PR (blocked, deferred, minor).
+
+    Attributes:
+        success: Whether the issue was created successfully.
+        issue_number: GitHub issue number if created.
+        issue_url: URL to the GitHub issue if created.
+        title: Title of the issue.
+        labels: Labels applied to the issue.
+        finding_id: ID of the finding this issue is for.
+        error: Error message if creation failed.
+    """
+
+    success: bool
+    issue_number: int | None
+    issue_url: str | None
+    title: str
+    labels: tuple[str, ...]
+    finding_id: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "issue_number": self.issue_number,
+            "issue_url": self.issue_url,
+            "title": self.title,
+            "labels": list(self.labels),
+            "finding_id": self.finding_id,
+            "error": self.error,
         }

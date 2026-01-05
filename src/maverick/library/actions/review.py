@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from maverick.git import AsyncGitRepository
 from maverick.library.actions.types import (
     AnalyzedFindingsResult,
     CombinedReviewResult,
@@ -25,9 +26,6 @@ from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
 
 logger = get_logger(__name__)
-
-# Shared runner instance for review actions
-_runner = CommandRunner(timeout=60.0)
 
 
 async def gather_pr_context(
@@ -48,20 +46,19 @@ async def gather_pr_context(
         ReviewContextResult with PR metadata, diff, and optionally spec files
     """
     try:
+        # Initialize git repository
+        repo = AsyncGitRepository()
+
+        # Create runner instance for GitHub CLI operations
+        runner = CommandRunner(timeout=60.0)
+
         # Auto-detect PR number if not provided
         current_branch = None
         if pr_number is None:
-            current_branch_result = await _runner.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            )
-            if not current_branch_result.success:
-                raise RuntimeError(
-                    f"Failed to get current branch: {current_branch_result.stderr}"
-                )
-            current_branch = current_branch_result.stdout.strip()
+            current_branch = await repo.current_branch()
 
             # Try to find PR for current branch
-            pr_list_result = await _runner.run(
+            pr_list_result = await runner.run(
                 [
                     "gh",
                     "pr",
@@ -100,7 +97,7 @@ async def gather_pr_context(
         )
 
         if pr_number is not None:
-            pr_view_result = await _runner.run(
+            pr_view_result = await runner.run(
                 [
                     "gh",
                     "pr",
@@ -121,38 +118,16 @@ async def gather_pr_context(
                     base_branch=base_branch,
                 )
 
-        # Get diff against base branch
-        diff_result = await _runner.run(
-            ["git", "diff", f"{base_branch}...HEAD"],
-        )
-        if not diff_result.success:
-            raise RuntimeError(f"Failed to get diff: {diff_result.stderr}")
-        diff = diff_result.stdout
+        # Get diff against base branch using three-dot syntax (base...HEAD)
+        diff = await repo.diff(base=f"{base_branch}...HEAD")
 
-        # Get changed files
-        files_result = await _runner.run(
-            ["git", "diff", "--name-only", f"{base_branch}...HEAD"],
-        )
-        if not files_result.success:
-            raise RuntimeError(f"Failed to get changed files: {files_result.stderr}")
-        changed_files = tuple(
-            f.strip() for f in files_result.stdout.strip().split("\n") if f.strip()
-        )
+        # Get changed files using three-dot syntax
+        changed_files_list = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
+        changed_files = tuple(changed_files_list)
 
-        # Get commit messages
-        log_result = await _runner.run(
-            [
-                "git",
-                "log",
-                "--oneline",
-                f"{base_branch}..HEAD",
-            ],
-        )
-        if not log_result.success:
-            raise RuntimeError(f"Failed to get commit log: {log_result.stderr}")
-        commits = tuple(
-            c.strip() for c in log_result.stdout.strip().split("\n") if c.strip()
-        )
+        # Get commit messages since base branch (two-dot syntax)
+        commit_messages = await repo.commit_messages_since(ref=base_branch)
+        commits = tuple(commit_messages)
 
         # Gather spec files if requested
         spec_files: dict[str, str] = {}
@@ -686,13 +661,21 @@ async def _run_dual_review(
             spec_task, technical_task, return_exceptions=True
         )
 
-        spec_review = results[0] if not isinstance(results[0], Exception) else None
-        technical_review = results[1] if not isinstance(results[1], Exception) else None
+        # Extract results with proper type narrowing
+        spec_result = results[0]
+        tech_result = results[1]
 
-        if isinstance(results[0], Exception):
-            logger.warning("Spec review failed: %s", results[0])
-        if isinstance(results[1], Exception):
-            logger.warning("Technical review failed: %s", results[1])
+        spec_review: dict[str, Any] | None = None
+        if isinstance(spec_result, Exception):
+            logger.warning("Spec review failed: %s", spec_result)
+        elif isinstance(spec_result, dict):
+            spec_review = spec_result
+
+        technical_review: dict[str, Any] | None = None
+        if isinstance(tech_result, Exception):
+            logger.warning("Technical review failed: %s", tech_result)
+        elif isinstance(tech_result, dict):
+            technical_review = tech_result
 
         # Combine results
         combined = await combine_review_results(
@@ -706,7 +689,7 @@ async def _run_dual_review(
             "review_report": combined.review_report,
             "has_critical": (
                 technical_review.get("has_critical", False)
-                if technical_review
+                if technical_review is not None
                 else False
             ),
         }
@@ -744,14 +727,17 @@ async def _run_review_fixer(
         Fix result dict
     """
     try:
-        from maverick.agents.reviewers.review_fixer import ReviewFixerAgent
+        from maverick.agents.reviewers.review_fixer import (
+            ReviewFixerAgent,
+            build_fixer_input_from_legacy,
+        )
 
         # Build context for fixer
         pr_metadata = pr_context.get("pr_metadata", {})
         if hasattr(pr_metadata, "to_dict"):
             pr_metadata = pr_metadata.to_dict()
 
-        fixer_context = {
+        legacy_context = {
             "review_report": review_result.get("review_report", ""),
             "recommendation": review_result.get("recommendation", "request_changes"),
             "changed_files": list(pr_context.get("changed_files", [])),
@@ -759,11 +745,15 @@ async def _run_review_fixer(
             "pr_metadata": pr_metadata,
         }
 
-        # Run fixer agent (it handles parallelization via subagents)
-        fixer_agent = ReviewFixerAgent()
-        result = await fixer_agent.execute(fixer_context)
+        # Convert legacy dict to typed FixerInput at boundary
+        fixer_input = build_fixer_input_from_legacy(legacy_context)
 
-        return result
+        # Run fixer agent with typed input
+        fixer_agent = ReviewFixerAgent()
+        result = await fixer_agent.execute(fixer_input)
+
+        # Convert typed output to dict for legacy callers
+        return result.to_dict()
 
     except ImportError as e:
         logger.warning("Failed to import ReviewFixerAgent: %s", e)

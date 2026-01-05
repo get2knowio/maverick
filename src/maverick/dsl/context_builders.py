@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+#: Maximum length for PR diff before truncation
+MAX_PR_DIFF_LENGTH = 10_000
 
 # =============================================================================
 # TypedDict Definitions for Inputs
@@ -772,6 +774,56 @@ async def issue_analyzer_context(
     }
 
 
+async def review_fixer_context(
+    inputs: dict[str, Any],
+    step_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build context for the review fixer agent.
+
+    Used by: review-and-fix workflow
+
+    The context includes:
+    - findings: List of findings to fix
+    - pr_diff: The PR diff for context
+    - iteration: Current fix loop iteration
+    - base_branch: Base branch for diff context
+
+    Args:
+        inputs: Workflow inputs containing:
+            - findings: List of finding dicts
+            - iteration: Current iteration number
+            - base_branch: Base branch (defaults to "main")
+        step_results: Results from prior steps (unused)
+
+    Returns:
+        Dict with fixer context
+    """
+    findings = inputs.get("findings", [])
+    iteration = inputs.get("iteration", 1)
+    base_branch = inputs.get("base_branch", "main")
+
+    # Get PR diff for context
+    pr_diff = await _get_diff(ref=base_branch)
+
+    # Build context string from findings and diff
+    context_parts: list[str] = []
+
+    if pr_diff:
+        # Truncate diff if too long
+        if len(pr_diff) > MAX_PR_DIFF_LENGTH:
+            pr_diff = pr_diff[:MAX_PR_DIFF_LENGTH] + "\n... [diff truncated]"
+        context_parts.append(f"## PR Diff\n```diff\n{pr_diff}\n```")
+
+    context_str = "\n\n".join(context_parts)
+
+    return {
+        "findings": findings,
+        "pr_diff": pr_diff,
+        "iteration": iteration,
+        "context": context_str,
+    }
+
+
 def register_all_context_builders(registry: ComponentRegistry) -> None:
     """Register all built-in context builders with the component registry.
 
@@ -786,3 +838,4 @@ def register_all_context_builders(registry: ComponentRegistry) -> None:
     registry.context_builders.register("pr_body_context", pr_body_context)
     registry.context_builders.register("pr_title_context", pr_title_context)
     registry.context_builders.register("issue_analyzer_context", issue_analyzer_context)
+    registry.context_builders.register("review_fixer_context", review_fixer_context)

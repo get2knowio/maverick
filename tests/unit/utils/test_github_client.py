@@ -196,6 +196,70 @@ class TestGitHubClient:
         mock_issue.create_comment.assert_called_once_with("Test comment")
 
     @pytest.mark.asyncio
+    async def test_create_issue(self, client, mock_github):
+        """Test creating an issue."""
+        mock_repo = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.number = 123
+        mock_issue.html_url = "https://github.com/owner/repo/issues/123"
+        mock_repo.create_issue.return_value = mock_issue
+        mock_github.get_repo.return_value = mock_repo
+
+        issue = await client.create_issue(
+            "owner/repo",
+            title="Test Issue",
+            body="Issue description",
+            labels=["bug", "priority"],
+        )
+
+        assert issue == mock_issue
+        assert issue.number == 123
+        mock_repo.create_issue.assert_called_once_with(
+            title="Test Issue",
+            body="Issue description",
+            labels=["bug", "priority"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_issue_without_labels(self, client, mock_github):
+        """Test creating an issue without labels."""
+        mock_repo = MagicMock()
+        mock_issue = MagicMock()
+        mock_repo.create_issue.return_value = mock_issue
+        mock_github.get_repo.return_value = mock_repo
+
+        issue = await client.create_issue(
+            "owner/repo",
+            title="Test Issue",
+            body="Issue description",
+        )
+
+        assert issue == mock_issue
+        mock_repo.create_issue.assert_called_once_with(
+            title="Test Issue",
+            body="Issue description",
+            labels=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_issue_error(self, client, mock_github):
+        """Test creating an issue with API error."""
+        from github import GithubException
+
+        mock_repo = MagicMock()
+        mock_repo.create_issue.side_effect = GithubException(
+            403, {"message": "Forbidden"}, None
+        )
+        mock_github.get_repo.return_value = mock_repo
+
+        with pytest.raises(GitHubError, match="Failed to create issue"):
+            await client.create_issue(
+                "owner/repo",
+                title="Test Issue",
+                body="Issue description",
+            )
+
+    @pytest.mark.asyncio
     async def test_create_pr(self, client, mock_github):
         """Test creating a pull request."""
         mock_repo = MagicMock()
@@ -437,6 +501,28 @@ class TestGitHubClientRateLimiting:
         # Should work with rate limiting
         await client.add_issue_comment("owner/repo", 42, "Test comment")
         mock_issue.create_comment.assert_called_once_with("Test comment")
+
+    @pytest.mark.asyncio
+    async def test_create_issue_with_rate_limiting(self):
+        """Test that create_issue respects rate limiting."""
+        mock_github = MagicMock()
+        mock_repo = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.number = 42
+        mock_repo.create_issue.return_value = mock_issue
+        mock_github.get_repo.return_value = mock_repo
+
+        client = GitHubClient(github=mock_github, rate_limit=10, rate_period=1.0)
+
+        # Should work with rate limiting
+        issue = await client.create_issue(
+            "owner/repo",
+            title="Test Issue",
+            body="Description",
+            labels=["bug"],
+        )
+        assert issue == mock_issue
+        mock_repo.create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_pr_with_rate_limiting(self):

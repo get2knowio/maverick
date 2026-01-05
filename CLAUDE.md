@@ -400,6 +400,28 @@ Tech-debt resolution workflow:
 4. **Review & Validation**: Same as FlyWorkflow
 5. **Finalize**: Mark PR ready, close issues
 
+### Review-and-Fix with Registry Fragment
+
+Accountability-tracked code review workflow fragment (`src/maverick/library/fragments/review-and-fix-with-registry.yaml`):
+
+1. **Gather Context**: Collect PR diff, changed files, and spec files
+2. **Parallel Reviews**: Run spec and technical reviewers concurrently
+3. **Create Registry**: Merge findings into IssueRegistry with deduplication
+4. **Detect Deleted Files**: Auto-block findings for deleted files
+5. **Fix Loop**: Iterate until all actionable items resolved or max iterations:
+   - Prepare fixer input with attempt history
+   - Run ReviewFixerAgent with accountability
+   - Update registry with outcomes
+   - Check exit conditions
+6. **Create Tech Debt Issues**: GitHub issues for blocked/deferred findings
+
+Key accountability features:
+- Fixer must report on EVERY issue (no silent skipping)
+- Deferred items with invalid justifications are re-sent
+- Blocked items require valid technical justification
+- Full attempt history preserved for debugging
+- Unresolved items become GitHub tech-debt issues
+
 ## Dependencies
 
 - [uv](https://docs.astral.sh/uv/) for dependency management (`uv sync`)

@@ -14,7 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
-from maverick.agents.prompts import render_prompt
+from maverick.agents.prompts.reviewer_output import (
+    REVIEWER_OUTPUT_SCHEMA,
+    TECH_REVIEWER_ID_PREFIX,
+)
+from maverick.agents.reviewers.utils import parse_findings, validate_findings
+from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 
@@ -69,12 +74,11 @@ $skill_guidance
 4. Prioritize by severity (critical > major > minor > suggestion)
 5. Provide specific, actionable feedback
 
-## Output Format
+## Review Analysis
 
-Provide your review as structured findings:
+Provide your review analysis including:
 
-```
-## Technical Review Summary
+### Technical Review Summary
 
 **Overall Quality**: [EXCELLENT | GOOD | NEEDS_WORK | POOR]
 
@@ -90,17 +94,19 @@ Provide your review as structured findings:
 - Issue description
 - Suggested improvement
 
-### Suggestions (optional improvements)
-- Enhancement ideas
-- Alternative approaches
-
 ### Positive Observations
 - Well-done aspects worth noting
-```
 
 Be specific and constructive. Reference exact file paths and line numbers.
 Explain WHY something is an issue, not just WHAT is wrong.
+
+{output_schema}
 """
+
+# Build the complete prompt template with structured output schema
+_TECH_REVIEWER_PROMPT_WITH_SCHEMA = TECHNICAL_REVIEWER_PROMPT_TEMPLATE.format(
+    output_schema=REVIEWER_OUTPUT_SCHEMA
+)
 
 
 class TechnicalReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
@@ -133,7 +139,7 @@ class TechnicalReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         """
         # Render prompt with skill guidance for this project type
         system_prompt = render_prompt(
-            TECHNICAL_REVIEWER_PROMPT_TEMPLATE,
+            _TECH_REVIEWER_PROMPT_WITH_SCHEMA,
             project_type=project_type,
         )
         super().__init__(
@@ -144,6 +150,7 @@ class TechnicalReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        self._id_prefix = TECH_REVIEWER_ID_PREFIX
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         """Execute technical quality review.
@@ -157,7 +164,7 @@ class TechnicalReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
                 - base_branch: Base branch name
 
         Returns:
-            Review result with quality assessment and findings.
+            Review result with quality assessment and structured findings.
         """
         # Build the review prompt from context
         prompt = self._build_review_prompt(context)
@@ -165,13 +172,49 @@ class TechnicalReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         # Execute the agent
         result = await self._run_agent(prompt)
 
+        # Parse structured findings from the response
+        structured_findings = self._extract_structured_findings(result)
+
         return {
             "reviewer": "technical",
             "quality": self._extract_quality(result),
             "has_critical": "CRITICAL" in result.upper(),
             "findings": result,
+            "structured_findings": structured_findings,
             "context_used": list(context.keys()),
         }
+
+    def _extract_structured_findings(self, response: str) -> list[dict[str, Any]]:
+        """Extract structured findings from reviewer response.
+
+        Parses the JSON findings block from the response and validates them.
+        Returns empty list if parsing fails (backward compatible).
+
+        Args:
+            response: Full reviewer response text.
+
+        Returns:
+            List of validated finding dictionaries.
+        """
+        try:
+            raw_findings = parse_findings(response, self._id_prefix)
+            valid_findings, errors = validate_findings(raw_findings)
+            if errors:
+                logger.warning(
+                    "findings_validation_errors",
+                    reviewer="technical",
+                    errors=errors,
+                    raw_count=len(raw_findings),
+                    valid_count=len(valid_findings),
+                )
+            return valid_findings
+        except ValueError as e:
+            logger.warning(
+                "findings_parse_failed",
+                reviewer="technical",
+                error=str(e),
+            )
+            return []
 
     def _build_review_prompt(self, context: dict[str, Any]) -> str:
         """Build the review prompt from context."""

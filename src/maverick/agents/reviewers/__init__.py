@@ -13,12 +13,21 @@ code review coverage with automatic issue resolution.
 
 from __future__ import annotations
 
-from maverick.agents.reviewers.review_fixer import ReviewFixerAgent
+from maverick.agents.reviewers.review_fixer import (
+    ReviewFixerAgent,
+    build_fixer_input,
+    build_fixer_input_from_legacy,
+)
 from maverick.agents.reviewers.spec_reviewer import SpecReviewerAgent
 from maverick.agents.reviewers.technical_reviewer import TechnicalReviewerAgent
+from maverick.agents.reviewers.utils import parse_findings, validate_findings
 
 __all__ = [
     "ReviewFixerAgent",
     "SpecReviewerAgent",
     "TechnicalReviewerAgent",
+    "build_fixer_input",
+    "build_fixer_input_from_legacy",
+    "parse_findings",
+    "validate_findings",
 ]

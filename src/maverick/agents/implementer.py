@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
-from maverick.agents.prompts import render_prompt
+from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.agents.utils import detect_file_changes
 from maverick.exceptions import TaskParseError
@@ -310,9 +310,9 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
                 errors=errors,
             )
 
-        except TaskParseError:
-            raise
         except Exception as e:
+            if isinstance(e, TaskParseError):
+                raise
             logger.exception("Implementation failed: %s", e)
             completed = sum(1 for r in task_results if r.succeeded)
             return ImplementationResult(
@@ -589,9 +589,9 @@ After completion, provide a summary of changes made.
                 },
             )
 
-        except TaskParseError:
-            raise
         except Exception as e:
+            if isinstance(e, TaskParseError):
+                raise
             logger.exception("Phase execution failed: %s", e)
             return ImplementationResult(
                 success=False,

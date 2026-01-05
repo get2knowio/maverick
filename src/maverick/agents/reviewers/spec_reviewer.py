@@ -14,6 +14,11 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts.reviewer_output import (
+    REVIEWER_OUTPUT_SCHEMA,
+    SPEC_REVIEWER_ID_PREFIX,
+)
+from maverick.agents.reviewers.utils import parse_findings, validate_findings
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 
@@ -53,12 +58,11 @@ they correctly implement the project specification.
 4. Identify gaps, deviations, and missing pieces
 5. Note any areas where the spec itself may need updates
 
-## Output Format
+## Review Analysis
 
-Provide your review as structured findings:
+Provide your review analysis including:
 
-```
-## Spec Compliance Summary
+### Spec Compliance Summary
 
 **Overall Assessment**: [COMPLIANT | PARTIAL | NON-COMPLIANT]
 
@@ -76,13 +80,16 @@ Provide your review as structured findings:
 - Intentional deviations with justification
 - Unintentional deviations needing attention
 
-### Recommendations
-- Specific actions to achieve full compliance
-```
-
 Be thorough but constructive. The goal is to ensure the implementation
 faithfully represents what was specified, not to find fault.
+
+{output_schema}
 """
+
+# Build the complete prompt with structured output schema
+SPEC_REVIEWER_PROMPT = SPEC_REVIEWER_PROMPT_TEMPLATE.format(
+    output_schema=REVIEWER_OUTPUT_SCHEMA
+)
 
 
 class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
@@ -112,12 +119,13 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         """
         super().__init__(
             name="spec-reviewer",
-            system_prompt=SPEC_REVIEWER_PROMPT_TEMPLATE,
+            system_prompt=SPEC_REVIEWER_PROMPT,
             allowed_tools=list(REVIEWER_TOOLS),
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        self._id_prefix = SPEC_REVIEWER_ID_PREFIX
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         """Execute spec compliance review.
@@ -131,7 +139,7 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
                 - base_branch: Base branch name
 
         Returns:
-            Review result with compliance assessment and findings.
+            Review result with compliance assessment and structured findings.
         """
         # Build the review prompt from context
         prompt = self._build_review_prompt(context)
@@ -139,12 +147,48 @@ class SpecReviewerAgent(MaverickAgent[dict[str, Any], dict[str, Any]]):
         # Execute the agent
         result = await self._run_agent(prompt)
 
+        # Parse structured findings from the response
+        structured_findings = self._extract_structured_findings(result)
+
         return {
             "reviewer": "spec",
             "assessment": self._extract_assessment(result),
             "findings": result,
+            "structured_findings": structured_findings,
             "context_used": list(context.keys()),
         }
+
+    def _extract_structured_findings(self, response: str) -> list[dict[str, Any]]:
+        """Extract structured findings from reviewer response.
+
+        Parses the JSON findings block from the response and validates them.
+        Returns empty list if parsing fails (backward compatible).
+
+        Args:
+            response: Full reviewer response text.
+
+        Returns:
+            List of validated finding dictionaries.
+        """
+        try:
+            raw_findings = parse_findings(response, self._id_prefix)
+            valid_findings, errors = validate_findings(raw_findings)
+            if errors:
+                logger.warning(
+                    "findings_validation_errors",
+                    reviewer="spec",
+                    errors=errors,
+                    raw_count=len(raw_findings),
+                    valid_count=len(valid_findings),
+                )
+            return valid_findings
+        except ValueError as e:
+            logger.warning(
+                "findings_parse_failed",
+                reviewer="spec",
+                error=str(e),
+            )
+            return []
 
     def _build_review_prompt(self, context: dict[str, Any]) -> str:
         """Build the review prompt from context."""
