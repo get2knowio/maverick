@@ -976,9 +976,9 @@ async def _create_single_issue(
         )
 
     # Unreachable: retry loop always returns or raises
-    error_msg = last_error or "unknown error"  # pragma: no cover
-    msg = f"Retry loop exited unexpectedly for '{title}': {error_msg}"
-    raise RuntimeError(msg)  # pragma: no cover
+    raise RuntimeError(  # pragma: no cover
+        f"Retry loop exited unexpectedly for '{title}': {last_error or 'unknown'}"
+    )
 
 
 # =============================================================================
