@@ -2454,3 +2454,34 @@ class TestCheckFixLoopExitEdgeCases:
         assert result["should_exit"] is True
         # When max iterations reached with actionable remaining
         assert "Maximum iterations" in result["reason"]
+
+
+class TestFixAttemptValidation:
+    """Tests for FixAttempt validation."""
+
+    def test_open_outcome_raises_error(self) -> None:
+        """Test that creating FixAttempt with 'open' outcome raises ValueError (line 157)."""
+        with pytest.raises(ValueError, match="outcome cannot be 'open'"):
+            FixAttempt(
+                iteration=1,
+                timestamp=datetime(2024, 1, 1, 10, 0, 0),
+                outcome=FindingStatus.open,
+                justification=None,
+                changes_made=None,
+            )
+
+    def test_from_dict_creates_attempt(self) -> None:
+        """Test FixAttempt.from_dict creates instance correctly (line 179)."""
+        data = {
+            "iteration": 2,
+            "timestamp": "2024-01-15T14:30:00",
+            "outcome": "fixed",
+            "justification": None,
+            "changes_made": "Refactored the code",
+        }
+
+        attempt = FixAttempt.from_dict(data)
+
+        assert attempt.iteration == 2
+        assert attempt.outcome == FindingStatus.fixed
+        assert attempt.changes_made == "Refactored the code"
