@@ -1568,6 +1568,69 @@ class TestRunAccountabilityFixLoop:
         assert result["iterations_run"] == 1
         assert result["stats"]["blocked"] == 1
 
+    @pytest.mark.asyncio
+    async def test_handles_fixer_returning_dict(self) -> None:
+        """Test handles fixer returning dict instead of FixerOutput gracefully."""
+        from unittest.mock import patch
+
+        run_accountability_fix_loop = review_registry_module.run_accountability_fix_loop
+
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Issue",
+            description="Needs fix",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        registry = IssueRegistry(
+            findings=[TrackedFinding(finding=finding)],
+            current_iteration=0,
+            max_iterations=2,
+        )
+
+        # First call returns dict (unexpected), second returns proper FixerOutput
+        call_count = 0
+
+        async def mock_execute_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Return dict - should trigger warning and continue
+                return {"items": [], "summary": "Dict response"}
+            else:
+                return FixerOutput(
+                    items=(
+                        FixerOutputItem(
+                            finding_id="RS001",
+                            status="fixed",
+                            justification=None,
+                            changes_made="Fixed",
+                        ),
+                    ),
+                    summary="Fixed",
+                )
+
+        with patch(
+            "maverick.agents.reviewers.review_fixer.ReviewFixerAgent"
+        ) as MockAgent:
+            mock_agent = MagicMock()
+            mock_agent.execute = mock_execute_side_effect
+            MockAgent.return_value = mock_agent
+
+            result = await run_accountability_fix_loop(
+                registry=registry,
+                max_iterations=2,
+            )
+
+        # Should have iterated twice: first with dict (skipped), second fixed
+        assert result["iterations_run"] == 2
+        assert result["stats"]["fixed"] == 1
+
 
 # =============================================================================
 # generate_registry_summary Tests
