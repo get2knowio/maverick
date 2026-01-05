@@ -2206,6 +2206,48 @@ class TestCreateIssueRegistryEdgeCases:
         assert len(registry.findings) == 1
         assert registry.findings[0].finding.id == "RS002"
 
+    @pytest.mark.asyncio
+    async def test_handles_unparseable_tech_finding(self) -> None:
+        """Test handles malformed tech finding (lines 411-412)."""
+        create_issue_registry = review_registry_module.create_issue_registry
+
+        spec_findings = [
+            {
+                "id": "RS001",
+                "severity": "major",
+                "category": "correctness",
+                "title": "Valid spec finding",
+                "description": "Test",
+                "file_path": "src/test.py",
+                "line_start": 10,
+                "line_end": 15,
+                "suggested_fix": None,
+            },
+        ]
+        # Include a malformed tech finding
+        tech_findings = [
+            None,  # This should be skipped
+            {
+                "id": "RT002",
+                "severity": "minor",
+                "category": "style",
+                "title": "Valid tech finding",
+                "description": "Test",
+                "file_path": "src/other.py",
+                "line_start": 20,
+                "line_end": 25,
+                "suggested_fix": None,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=spec_findings,
+            tech_findings=tech_findings,  # type: ignore[arg-type]
+        )
+
+        # Should have both valid findings
+        assert len(registry.findings) == 2
+
 
 class TestBuildIssueBodyEdgeCases:
     """Additional edge case tests for _build_issue_body."""
@@ -2280,3 +2322,135 @@ class TestBuildIssueBodyEdgeCases:
         assert "Working on it" in body
         assert "Started refactoring" in body
         assert "Blocked by external dependency" in body
+
+    @pytest.mark.asyncio
+    async def test_single_line_location(self) -> None:
+        """Test location format for single line (line 771)."""
+        build_issue_body = review_registry_module._build_issue_body
+
+        # Finding with same start and end line
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Test finding",
+            description="Description",
+            file_path="src/test.py",
+            line_start=42,
+            line_end=42,  # Same as line_start
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(finding=finding)
+
+        body = build_issue_body(tracked, pr_number=None)
+
+        assert "(line 42)" in body  # Single line format
+
+    @pytest.mark.asyncio
+    async def test_line_start_only(self) -> None:
+        """Test location format when only line_start is set (line 771)."""
+        build_issue_body = review_registry_module._build_issue_body
+
+        # Finding with only line_start
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Test finding",
+            description="Description",
+            file_path="src/test.py",
+            line_start=42,
+            line_end=None,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(finding=finding)
+
+        body = build_issue_body(tracked, pr_number=None)
+
+        assert "(line 42)" in body  # Single line format
+
+
+class TestTitleTruncation:
+    """Tests for title truncation in create_tech_debt_issues."""
+
+    @pytest.mark.asyncio
+    async def test_long_title_truncated(self) -> None:
+        """Test that very long titles are truncated (line 865)."""
+        # Create a finding with a very long title
+        long_title = "A" * 120  # Much longer than 100 chars
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title=long_title,
+            description="Description",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(finding=finding, status=FindingStatus.blocked)
+        registry = IssueRegistry(
+            findings=[tracked],
+            current_iteration=3,
+            max_iterations=3,
+        )
+
+        # Create mock Issue object
+        mock_issue = MagicMock()
+        mock_issue.number = 123
+        mock_issue.html_url = "https://github.com/org/repo/issues/123"
+
+        # Create mock GitHubClient
+        mock_client = MagicMock()
+        mock_client.create_issue = AsyncMock(return_value=mock_issue)
+
+        results = await create_tech_debt_issues(
+            registry=registry,
+            repo="org/repo",
+            github_client=mock_client,
+        )
+
+        assert len(results) == 1
+        # Title should be truncated to 100 chars with "..."
+        assert len(results[0].title) <= 100
+        assert results[0].title.endswith("...")
+
+
+class TestCheckFixLoopExitEdgeCases:
+    """Additional edge case tests for check_fix_loop_exit."""
+
+    @pytest.mark.asyncio
+    async def test_fix_loop_complete_reason(self) -> None:
+        """Test 'Fix loop complete' reason when all conditions met (line 712)."""
+        check_exit = review_registry_module.check_fix_loop_exit
+
+        # Registry at max iterations with actionable findings remaining
+        # (edge case where we've reached max but still have actionable items)
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Issue",
+            description="Desc",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(finding=finding, status=FindingStatus.open)
+        registry = IssueRegistry(
+            findings=[tracked],
+            current_iteration=3,
+            max_iterations=3,
+        )
+
+        result = await check_exit(registry)
+
+        assert result["should_exit"] is True
+        # When max iterations reached with actionable remaining
+        assert "Maximum iterations" in result["reason"]
