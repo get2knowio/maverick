@@ -3,6 +3,7 @@
 This module defines the public interface for accessing built-in workflows.
 Implementation will be in maverick.library.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -19,20 +20,24 @@ if TYPE_CHECKING:
 # =============================================================================
 
 # Core workflows (FR-001)
-BUILTIN_WORKFLOWS = frozenset({
-    "fly",       # FR-004: Full spec-based development
-    "refuel",    # FR-005: Tech-debt resolution
-    "review",    # FR-006: Code review orchestration
-    "validate",  # FR-007: Validation with optional fixes
-    "quick_fix", # FR-008: Quick issue fix
-})
+BUILTIN_WORKFLOWS = frozenset(
+    {
+        "fly",  # FR-004: Full spec-based development
+        "refuel",  # FR-005: Tech-debt resolution
+        "review",  # FR-006: Code review orchestration
+        "validate",  # FR-007: Validation with optional fixes
+        "quick_fix",  # FR-008: Quick issue fix
+    }
+)
 
 # Reusable fragments (FR-009)
-BUILTIN_FRAGMENTS = frozenset({
-    "validate_and_fix",       # FR-010: Validation-with-retry loop
-    "commit_and_push",        # FR-011: Generate commit, commit, push
-    "create_pr_with_summary", # FR-012: Generate PR body, create PR
-})
+BUILTIN_FRAGMENTS = frozenset(
+    {
+        "validate_and_fix",  # FR-010: Validation-with-retry loop
+        "commit_and_push",  # FR-011: Generate commit, commit, push
+        "create_pr_with_summary",  # FR-012: Generate PR body, create PR
+    }
+)
 
 
 # =============================================================================
@@ -238,9 +243,7 @@ VALIDATE_WORKFLOW_INFO = BuiltinWorkflowInfo(
 QUICK_FIX_WORKFLOW_INFO = BuiltinWorkflowInfo(
     name="quick_fix",
     description="Quick issue fix workflow",
-    inputs=(
-        ("issue_number", "integer", True, "GitHub issue number"),
-    ),
+    inputs=(("issue_number", "integer", True, "GitHub issue number"),),
     step_summary="fetch_issue → branch → fix → validate → commit → pr",
 )
 
@@ -254,7 +257,12 @@ VALIDATE_AND_FIX_FRAGMENT_INFO = BuiltinFragmentInfo(
     name="validate_and_fix",
     description="Validation-with-retry loop",
     inputs=(
-        ("stages", "array", False, "Validation stages (default: format, lint, typecheck, test)"),
+        (
+            "stages",
+            "array",
+            False,
+            "Validation stages (default: format, lint, typecheck, test)",
+        ),
         ("max_attempts", "integer", False, "Maximum retry attempts (default: 3)"),
         ("fixer_agent", "string", False, "Agent for fixes (default: validation_fixer)"),
     ),

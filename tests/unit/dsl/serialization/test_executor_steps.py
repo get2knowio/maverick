@@ -701,7 +701,9 @@ class TestValidateStepExecution:
         assert len(result.final_output["stages"]) == 2
 
     @pytest.mark.asyncio
-    async def test_validate_step_multiple_stages(self, registry, mock_validation_runner):
+    async def test_validate_step_multiple_stages(
+        self, registry, mock_validation_runner
+    ):
         """Test validate step with multiple stages."""
         workflow = WorkflowFile(
             version="1.0",

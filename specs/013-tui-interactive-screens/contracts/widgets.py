@@ -3,6 +3,7 @@
 This module defines the Protocol interfaces for new widgets needed by
 the interactive screens feature.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -421,6 +422,7 @@ class ResultSummaryWidgetProtocol(Protocol):
 
 # These are type stubs to satisfy the Protocol definitions above
 # In actual implementation, import from textual
+
 
 class ComposeResult:
     """Stub for textual.app.ComposeResult."""

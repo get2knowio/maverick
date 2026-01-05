@@ -7,6 +7,7 @@ These protocols serve as the interface specification that implementations must f
 Feature: 002-base-agent
 Date: 2025-12-12
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod

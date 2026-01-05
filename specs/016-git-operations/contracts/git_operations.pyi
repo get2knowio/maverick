@@ -3,6 +3,7 @@
 This file defines the public API contract for the GitOperations class.
 Implementation must match these signatures exactly.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from pathlib import Path
 @dataclass(frozen=True, slots=True)
 class GitStatus:
     """Repository status snapshot."""
+
     staged: tuple[str, ...]
     unstaged: tuple[str, ...]
     untracked: tuple[str, ...]
@@ -25,6 +27,7 @@ class GitStatus:
 @dataclass(frozen=True, slots=True)
 class CommitInfo:
     """Single commit metadata."""
+
     hash: str
     short_hash: str
     message: str
@@ -34,6 +37,7 @@ class CommitInfo:
 @dataclass(frozen=True, slots=True)
 class DiffStats:
     """Diff statistics between refs."""
+
     files_changed: int
     insertions: int
     deletions: int
@@ -45,29 +49,34 @@ class DiffStats:
 
 class GitNotFoundError(Exception):
     """Git CLI not installed or not in PATH."""
+
     message: str
     ...
 
 class NotARepositoryError(Exception):
     """Not inside a git repository."""
+
     message: str
     path: Path
     ...
 
 class BranchExistsError(Exception):
     """Branch already exists."""
+
     message: str
     branch_name: str
     ...
 
 class MergeConflictError(Exception):
     """Pull resulted in merge conflicts."""
+
     message: str
     conflicted_files: tuple[str, ...]
     ...
 
 class PushRejectedError(Exception):
     """Remote rejected push."""
+
     message: str
     reason: str
     ...

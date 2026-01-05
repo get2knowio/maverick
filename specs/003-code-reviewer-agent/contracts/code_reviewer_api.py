@@ -8,6 +8,7 @@ It serves as the authoritative reference for:
 
 Implementation must conform to this contract.
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod

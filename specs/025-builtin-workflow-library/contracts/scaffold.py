@@ -3,6 +3,7 @@
 This module defines the public interface for template-based workflow scaffolding.
 Implementation will be in maverick.library.scaffold.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

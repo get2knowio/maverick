@@ -174,9 +174,7 @@ def test_list_templates_has_correct_descriptions(service: ScaffoldService):
     assert all("validation" in t.description.lower() for t in full_templates)
 
     # Find loop template
-    loop_templates = [
-        t for t in templates if t.template_type == TemplateType.LOOP
-    ]
+    loop_templates = [t for t in templates if t.template_type == TemplateType.LOOP]
     assert len(loop_templates) == 2
     assert all("loop" in t.description.lower() for t in loop_templates)
 

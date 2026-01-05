@@ -98,7 +98,9 @@ def _download_repo_zip(owner: str, repo: str, ref: str, dest_dir: str) -> str:
 
 
 def _run_git(args: list[str]) -> None:
-    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     if result.returncode != 0:
         raise InstallError(result.stderr.strip() or "Git command failed.")
 
@@ -126,7 +128,9 @@ def _validate_skill_name(name: str) -> None:
         raise InstallError("Invalid skill name.")
 
 
-def _git_sparse_checkout(repo_url: str, ref: str, paths: list[str], dest_dir: str) -> str:
+def _git_sparse_checkout(
+    repo_url: str, ref: str, paths: list[str], dest_dir: str
+) -> str:
     repo_dir = os.path.join(dest_dir, "repo")
     clone_cmd = [
         "git",

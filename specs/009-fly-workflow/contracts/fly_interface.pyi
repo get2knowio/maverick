@@ -21,7 +21,6 @@ from maverick.models.validation import ValidationWorkflowResult
 # Enums (FR-001, FR-002)
 # =============================================================================
 
-
 class WorkflowStage(str, Enum):
     """Eight workflow stages with string representation."""
 
@@ -34,11 +33,9 @@ class WorkflowStage(str, Enum):
     COMPLETE: str
     FAILED: str
 
-
 # =============================================================================
 # Configuration Models (FR-003 to FR-005, FR-021 to FR-023)
 # =============================================================================
-
 
 class FlyInputs(BaseModel):
     """Validated inputs for fly workflow execution."""
@@ -50,7 +47,6 @@ class FlyInputs(BaseModel):
     draft_pr: bool
     base_branch: str
 
-
 class FlyConfig(BaseModel):
     """Configuration for fly workflow execution."""
 
@@ -60,11 +56,9 @@ class FlyConfig(BaseModel):
     auto_merge: bool
     notification_on_complete: bool
 
-
 # =============================================================================
 # State Models (FR-006 to FR-008)
 # =============================================================================
-
 
 class WorkflowState(BaseModel):
     """Mutable state tracking workflow progress."""
@@ -80,11 +74,9 @@ class WorkflowState(BaseModel):
     started_at: datetime
     completed_at: datetime | None
 
-
 # =============================================================================
 # Result Models (FR-009 to FR-011)
 # =============================================================================
-
 
 class FlyResult(BaseModel):
     """Immutable workflow execution result."""
@@ -95,11 +87,9 @@ class FlyResult(BaseModel):
     token_usage: AgentUsage
     total_cost_usd: float  # >= 0.0
 
-
 # =============================================================================
 # Progress Events (FR-012 to FR-016)
 # =============================================================================
-
 
 @dataclass(frozen=True, slots=True)
 class FlyWorkflowStarted:
@@ -108,14 +98,12 @@ class FlyWorkflowStarted:
     inputs: FlyInputs
     timestamp: float
 
-
 @dataclass(frozen=True, slots=True)
 class FlyStageStarted:
     """Event emitted when a stage starts."""
 
     stage: WorkflowStage
     timestamp: float
-
 
 @dataclass(frozen=True, slots=True)
 class FlyStageCompleted:
@@ -125,14 +113,12 @@ class FlyStageCompleted:
     result: Any
     timestamp: float
 
-
 @dataclass(frozen=True, slots=True)
 class FlyWorkflowCompleted:
     """Event emitted when workflow completes successfully."""
 
     result: FlyResult
     timestamp: float
-
 
 @dataclass(frozen=True, slots=True)
 class FlyWorkflowFailed:
@@ -141,7 +127,6 @@ class FlyWorkflowFailed:
     error: str
     state: WorkflowState
     timestamp: float
-
 
 # Union type for event handling
 FlyProgressEvent = (
@@ -152,11 +137,9 @@ FlyProgressEvent = (
     | FlyWorkflowFailed
 )
 
-
 # =============================================================================
 # Workflow Class (FR-017 to FR-020)
 # =============================================================================
-
 
 class FlyWorkflow:
     """Fly workflow orchestrator."""
@@ -172,7 +155,6 @@ class FlyWorkflow:
             NotImplementedError: Always - implementation in Spec 26.
         """
         ...
-
 
 # =============================================================================
 # Public API

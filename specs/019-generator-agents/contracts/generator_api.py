@@ -7,6 +7,7 @@ must implement.
 Note: This is a contract definition, not implementation. Implementations
 reside in src/maverick/agents/generators/.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -3,6 +3,7 @@
 This module defines the public interface for multi-location workflow discovery.
 Implementation will be in maverick.dsl.discovery.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -170,9 +171,7 @@ class WorkflowConflictError(WorkflowDiscoveryError):
         self.source = source
         self.conflicting_paths = conflicting_paths
         paths_str = ", ".join(str(p) for p in conflicting_paths)
-        message = (
-            f"Multiple workflows named '{name}' at {source} level: {paths_str}"
-        )
+        message = f"Multiple workflows named '{name}' at {source} level: {paths_str}"
         super().__init__(message)
 
 

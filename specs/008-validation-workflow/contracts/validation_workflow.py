@@ -6,6 +6,7 @@ These are type stubs and protocol definitions that document the expected API.
 Note: This is a contract file, not implementation. It serves as the specification
 for the actual implementation in src/maverick/workflows/validation.py.
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod

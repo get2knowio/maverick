@@ -3,6 +3,7 @@
 This package contains Protocol definitions for screens and widgets
 in the interactive screens feature.
 """
+
 from __future__ import annotations
 
 from .screens import (

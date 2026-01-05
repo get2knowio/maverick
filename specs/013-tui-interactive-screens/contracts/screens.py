@@ -3,6 +3,7 @@
 This module defines the Protocol interfaces for all screens in the Maverick TUI.
 These protocols define the expected methods and properties for each screen type.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

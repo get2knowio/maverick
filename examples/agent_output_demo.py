@@ -62,7 +62,7 @@ class AgentOutputDemo(App[None]):
                 agent_name="Implementer",
                 message_type=MessageType.CODE,
                 content=(
-                    'def hello_world():\n'
+                    "def hello_world():\n"
                     '    """Print a greeting."""\n'
                     '    print("Hello, World!")'
                 ),

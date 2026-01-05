@@ -3,6 +3,7 @@
 This file defines the public interface for the context builder module.
 All functions are synchronous and return plain dictionaries.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,45 +14,45 @@ ContextDict = dict[str, Any]
 
 class TruncationMetadata(TypedDict):
     """Metadata about content truncation."""
+
     truncated: bool
     original_lines: int
     kept_lines: int
     sections_affected: list[str]
 
-
 class CommitDict(TypedDict):
     """Commit information in dict form."""
+
     hash: str
     message: str
     author: str
     date: str
 
-
 class ErrorDict(TypedDict):
     """Structured error information."""
+
     file: str
     line: int
     message: str
     severity: str
     code: str | None
 
-
 class DiffStatsDict(TypedDict):
     """Diff statistics."""
+
     files_changed: int
     insertions: int
     deletions: int
 
-
 class IssueDict(TypedDict):
     """GitHub issue in dict form."""
+
     number: int
     title: str
     body: str
     labels: list[str]
     state: str
     url: str
-
 
 # Main context builder functions
 
@@ -76,7 +77,6 @@ def build_implementation_context(
     """
     ...
 
-
 def build_review_context(
     git: Any,  # GitOperations
     base_branch: str,
@@ -97,7 +97,6 @@ def build_review_context(
     """
     ...
 
-
 def build_fix_context(
     validation_output: Any,  # ValidationOutput
     files: list[Path],
@@ -116,7 +115,6 @@ def build_fix_context(
     """
     ...
 
-
 def build_issue_context(
     issue: Any,  # GitHubIssue
     git: Any,  # GitOperations
@@ -134,7 +132,6 @@ def build_issue_context(
         Dict with keys: issue, related_files, recent_changes, _metadata.
     """
     ...
-
 
 # Utility functions
 
@@ -158,7 +155,6 @@ def truncate_file(
     """
     ...
 
-
 def estimate_tokens(text: str) -> int:
     """Estimate token count for text.
 
@@ -171,7 +167,6 @@ def estimate_tokens(text: str) -> int:
         Approximate token count.
     """
     ...
-
 
 def fit_to_budget(
     sections: dict[str, str],
@@ -191,7 +186,6 @@ def fit_to_budget(
     """
     ...
 
-
 # Internal utilities (exported for testing)
 
 def detect_secrets(content: str) -> list[tuple[int, str]]:
@@ -205,7 +199,6 @@ def detect_secrets(content: str) -> list[tuple[int, str]]:
     """
     ...
 
-
 def truncate_line(line: str, max_chars: int = 2000) -> str:
     """Truncate a single line if too long.
 
@@ -217,7 +210,6 @@ def truncate_line(line: str, max_chars: int = 2000) -> str:
         Line truncated to max_chars with "..." appended if truncated.
     """
     ...
-
 
 def extract_file_paths(text: str) -> list[str]:
     """Extract file path references from text.
