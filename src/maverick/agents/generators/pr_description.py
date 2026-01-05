@@ -111,24 +111,25 @@ class PRDescriptionGenerator(GeneratorAgent):
         sections_list = "\n".join(f"- {section}" for section in self._sections)
 
         return dedent(f"""
-            You are a PR description generator. Generate clear,
-            comprehensive pull request descriptions in markdown format.
+            You are a PR description generator. Your ONLY output is a markdown
+            PR description. Do NOT include any preamble, explanation, or
+            conversational text. Start directly with the first markdown header.
 
-            Your output MUST follow this structure using markdown headers (##):
+            Your output MUST follow this exact structure:
 
             {sections_list}
 
             Guidelines:
+            - Start immediately with "## Summary" - no intro text
             - Use ## markdown headers for each section
-            - Summary: Provide a high-level overview of what this PR accomplishes
+            - Summary: High-level overview of what this PR accomplishes
             - Changes: List key changes, grouped logically if needed
             - Testing: Describe validation status, any failures, and test coverage
             - Be concise but thorough
             - Focus on WHY changes were made, not just WHAT changed
-            - If validation failed, clearly state failures and their impact
 
-            Format the output as a markdown document that can be used directly
-            as a PR description.
+            CRITICAL: Output ONLY the markdown. No "I'll analyze...", no "Here is...",
+            no explanations. Just the raw markdown starting with ## Summary.
         """).strip()
 
     async def generate(
@@ -238,7 +239,8 @@ class PRDescriptionGenerator(GeneratorAgent):
 
         sections_str = ", ".join(self._sections)
         prompt_parts.append(
-            f"\n\nGenerate a PR description with these sections: {sections_str}"
+            f"\n\nGenerate a PR description with these sections: {sections_str}\n"
+            "Output ONLY the markdown, starting with ## Summary. No preamble."
         )
 
         return "\n".join(prompt_parts)

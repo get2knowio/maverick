@@ -22,9 +22,9 @@ _runner = CommandRunner(timeout=60.0)
 async def create_github_pr(
     base_branch: str,
     draft: bool,
-    title: str | None,
-    generated_title: str | None,
     generated_body: str,
+    title: str | None = None,
+    generated_title: str | None = None,
 ) -> PRCreationResult:
     """Create a pull request via GitHub CLI.
 

@@ -88,6 +88,7 @@ async def _execute_loop_tasks(
 
     async def run_step(index: int, step: Any) -> None:
         """Execute a step and store result at the correct index."""
+
         async def _execute() -> None:
             try:
                 results[index] = await execute_step_fn(step, context)
@@ -148,6 +149,7 @@ async def _execute_loop_for_each(
 
     async def run_iteration(index: int, item: Any) -> None:
         """Execute all steps for a single iteration."""
+
         async def _execute() -> None:
             # Create a copy of the context with iteration variables
             item_context = replace(

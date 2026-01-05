@@ -14,6 +14,7 @@ Non-git shell commands (e.g., `tree`) use CommandRunner from maverick.runners.co
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -286,6 +287,91 @@ async def _get_commits_on_branch(base_branch: str = "main") -> list[str]:
     """
     repo = AsyncGitRepository(Path.cwd())
     return await repo.commit_messages_since(ref=base_branch)
+
+
+async def _derive_task_summary(commits: list[str]) -> str:
+    """Derive a task summary from spec artifacts or commits.
+
+    Tries to extract a meaningful summary from:
+    1. spec.md motivation/description section
+    2. tasks.md completed tasks
+    3. Commit messages (fallback)
+
+    Args:
+        commits: List of commit messages to use as fallback.
+
+    Returns:
+        Task summary string (never empty).
+    """
+    # Try to read spec artifacts first
+    spec_artifacts = await _get_spec_artifacts()
+    summary_parts = []
+
+    # Try to get motivation/description from spec.md
+    if "spec.md" in spec_artifacts:
+        spec_content = spec_artifacts["spec.md"]
+        lines = spec_content.strip().split("\n")
+
+        # Look for Motivation section first
+        in_motivation = False
+        motivation_lines = []
+        for line in lines:
+            if line.startswith("## Motivation"):
+                in_motivation = True
+                continue
+            elif in_motivation:
+                if line.startswith("## "):
+                    break
+                stripped = line.strip()
+                if stripped and not stripped.startswith("**"):
+                    motivation_lines.append(stripped)
+                    if len(motivation_lines) >= 3:
+                        break
+
+        if motivation_lines:
+            summary_parts.append(" ".join(motivation_lines)[:400])
+
+    # Extract completed tasks from tasks.md
+    if "tasks.md" in spec_artifacts:
+        tasks_content = spec_artifacts["tasks.md"]
+        lines = tasks_content.strip().split("\n")
+
+        completed_tasks = []
+        for line in lines:
+            # Look for checked task items: - [x] Txxx
+            if line.strip().startswith("- [x]"):
+                # Extract task description (remove the checkbox and task ID)
+                task_text = line.strip()[5:].strip()  # Remove "- [x]"
+                # Remove task ID like "T001" or "T005a"
+                task_text = re.sub(r"^\[?T\d+[a-z]?\]?\s*", "", task_text)
+                # Remove [P] marker if present
+                task_text = re.sub(r"^\[P\]\s*", "", task_text)
+                if task_text:
+                    completed_tasks.append(task_text)
+
+        if completed_tasks:
+            # Include up to 10 completed tasks
+            tasks_summary = "Completed tasks: " + "; ".join(completed_tasks[:10])
+            if len(completed_tasks) > 10:
+                tasks_summary += f" (+{len(completed_tasks) - 10} more)"
+            summary_parts.append(tasks_summary)
+
+    if summary_parts:
+        return "\n\n".join(summary_parts)
+
+    # Fall back to commits summary
+    if commits:
+        # Use first commit message as summary, or combine first few
+        if len(commits) == 1:
+            return commits[0]
+        # Combine first 3 commits for a summary
+        combined = "; ".join(commits[:3])
+        if len(commits) > 3:
+            combined += f" (+{len(commits) - 3} more commits)"
+        return combined
+
+    # Ultimate fallback
+    return "Implementation changes"
 
 
 async def _find_related_files(issue_body: str, issue_title: str) -> list[str]:
@@ -587,10 +673,15 @@ async def pr_body_context(
     # Get diff statistics
     diff_stats = await _get_file_stats(base_branch)
 
+    # Get task_summary from inputs or derive from spec artifacts
+    task_summary = inputs.get("task_summary")
+    if not task_summary:
+        task_summary = await _derive_task_summary(commits)
+
     return {
         "commits": commits,
         "diff_stats": diff_stats,
-        "task_summary": inputs.get("task_summary"),
+        "task_summary": task_summary,
         "validation_results": step_results.get("validate_and_fix", {}).get("output"),
     }
 
@@ -640,10 +731,15 @@ async def pr_title_context(
     else:
         diff_overview = "No changes"
 
+    # Get task_summary from inputs or derive from spec artifacts
+    task_summary = inputs.get("task_summary")
+    if not task_summary:
+        task_summary = await _derive_task_summary(commits)
+
     return {
         "commits": commits,
         "branch_name": branch_name,
-        "task_summary": inputs.get("task_summary"),
+        "task_summary": task_summary,
         "diff_overview": diff_overview,
     }
 

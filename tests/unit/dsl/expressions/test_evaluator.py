@@ -1230,9 +1230,7 @@ class TestBooleanOrReturnsValue:
             inputs={"task_file": None},
             step_outputs={"init": {"output": {"task_file_path": "/path/to/file.md"}}},
         )
-        expr = parse_expression(
-            "inputs.task_file or steps.init.output.task_file_path"
-        )
+        expr = parse_expression("inputs.task_file or steps.init.output.task_file_path")
         result = evaluator.evaluate(expr)
         assert result == "/path/to/file.md"
 

@@ -24,10 +24,10 @@ logger = get_logger(__name__)
 # System Prompt
 # =============================================================================
 
-PR_TITLE_SYSTEM_PROMPT = """You are a PR title generator that creates \
-concise pull request titles following conventional commit format.
+PR_TITLE_SYSTEM_PROMPT = """You generate PR titles in conventional commit format.
 
-You MUST follow the conventional commit format exactly:
+CRITICAL: Output ONLY the title. No explanation, no preamble, no "Based on...",
+no "The title is...", no "Here's the title:". Just the raw title text.
 
 **Format**: type(scope): description
 
@@ -45,23 +45,18 @@ You MUST follow the conventional commit format exactly:
 - revert: Reverts a previous commit
 
 **Rules**:
-1. Use imperative mood ("add feature" not "added feature" or "adds feature")
+1. Use imperative mood ("add feature" not "added feature")
 2. Keep description lowercase
 3. No period at the end
 4. Total length under 72 characters
-5. Choose the most appropriate type based on the changes
-6. Scope should reflect the component/module being changed
-7. Description should be concise and clear
-8. The title should summarize the main purpose of the PR
+5. Scope should reflect the component/module being changed
 
-**Examples**:
-- feat(library): add builtin workflow library
-- fix(api): handle null user in login endpoint
-- docs(readme): update installation instructions
-- refactor(agents): simplify error handling logic
-- test(auth): add password validation tests
+**Examples** (output exactly like this, nothing else):
+feat(library): add builtin workflow library
+fix(api): handle null user in login endpoint
+docs(readme): update installation instructions
 
-Your response should ONLY contain the PR title, nothing else.
+IMPORTANT: Your entire response must be ONLY the title, like the examples above.
 """
 
 # =============================================================================
@@ -207,8 +202,8 @@ class PRTitleGenerator(GeneratorAgent):
             prompt_parts.append(f"\n**Changes:** {diff_overview}")
 
         prompt_parts.append(
-            "\nGenerate a PR title that summarizes the main purpose of these changes "
-            "in conventional commit format."
+            "\nOutput a single PR title in conventional commit format. "
+            "No preamble, no explanation - just the title."
         )
 
         return "\n".join(prompt_parts)
