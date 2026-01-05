@@ -2044,3 +2044,239 @@ class TestGenerateRegistrySummary:
         assert result["stats"]["total"] == 0
         assert result["stats"]["fixed"] == 0
         assert "All findings resolved" in result["summary"]
+
+
+class TestUpdateRegistryEdgeCases:
+    """Additional edge case tests for update_issue_registry."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_status_treated_as_deferred(self) -> None:
+        """Test that invalid status string is treated as deferred (lines 573-579)."""
+        update_registry = review_registry_module.update_issue_registry
+
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Test finding",
+            description="Test",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        registry = IssueRegistry(
+            findings=[TrackedFinding(finding=finding)],
+            current_iteration=1,
+            max_iterations=3,
+        )
+
+        # Create output with invalid status
+        fixer_output = FixerOutput(
+            items=(
+                FixerOutputItem(
+                    finding_id="RS001",
+                    status="INVALID_STATUS_VALUE",
+                    justification="Test",
+                    changes_made=None,
+                ),
+            ),
+            summary=None,
+        )
+
+        result = await update_registry(registry, fixer_output)
+
+        # Should be treated as deferred due to invalid status
+        assert result.findings[0].status == FindingStatus.deferred
+
+
+class TestCreateIssueRegistryEdgeCases:
+    """Additional edge case tests for create_issue_registry."""
+
+    @pytest.mark.asyncio
+    async def test_deduplication_keeps_higher_severity(self) -> None:
+        """Test deduplication keeps the finding with higher severity (line 429)."""
+        create_issue_registry = review_registry_module.create_issue_registry
+
+        # Two findings that are duplicates but with different severities
+        spec_findings = [
+            {
+                "id": "RS001",
+                "severity": "major",
+                "category": "correctness",
+                "title": "Same issue",
+                "description": "Same description",
+                "file_path": "src/test.py",
+                "line_start": 10,
+                "line_end": 15,
+                "suggested_fix": None,
+            },
+        ]
+        tech_findings = [
+            {
+                "id": "RT001",
+                "severity": "critical",  # Higher severity
+                "category": "correctness",
+                "title": "Same issue",  # Same title
+                "description": "Same description",
+                "file_path": "src/test.py",  # Same file
+                "line_start": 10,  # Same lines
+                "line_end": 15,
+                "suggested_fix": None,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=spec_findings,
+            tech_findings=tech_findings,
+        )
+
+        # Should keep only one (the critical one)
+        assert len(registry.findings) == 1
+        assert registry.findings[0].finding.severity == Severity.critical
+
+    @pytest.mark.asyncio
+    async def test_non_overlapping_lines_not_duplicates(self) -> None:
+        """Test findings with non-overlapping lines are not duplicates (line 311)."""
+        create_issue_registry = review_registry_module.create_issue_registry
+
+        spec_findings = [
+            {
+                "id": "RS001",
+                "severity": "major",
+                "category": "correctness",
+                "title": "Same issue",
+                "description": "Same description",
+                "file_path": "src/test.py",
+                "line_start": 10,
+                "line_end": 15,
+                "suggested_fix": None,
+            },
+        ]
+        tech_findings = [
+            {
+                "id": "RT001",
+                "severity": "major",
+                "category": "correctness",
+                "title": "Same issue",
+                "description": "Same description",
+                "file_path": "src/test.py",
+                "line_start": 100,  # Different lines - no overlap
+                "line_end": 110,
+                "suggested_fix": None,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=spec_findings,
+            tech_findings=tech_findings,
+        )
+
+        # Should keep both since lines don't overlap
+        assert len(registry.findings) == 2
+
+    @pytest.mark.asyncio
+    async def test_handles_unparseable_finding(self) -> None:
+        """Test handles malformed finding that raises exception (lines 402-403)."""
+        create_issue_registry = review_registry_module.create_issue_registry
+
+        # Include a finding with None where string is expected
+        spec_findings = [
+            None,  # This should be skipped
+            {
+                "id": "RS002",
+                "severity": "major",
+                "category": "correctness",
+                "title": "Valid finding",
+                "description": "Test",
+                "file_path": "src/test.py",
+                "line_start": 10,
+                "line_end": 15,
+                "suggested_fix": None,
+            },
+        ]
+
+        registry = await create_issue_registry(
+            spec_findings=spec_findings,  # type: ignore[arg-type]
+            tech_findings=[],
+        )
+
+        # Should only have the valid finding
+        assert len(registry.findings) == 1
+        assert registry.findings[0].finding.id == "RS002"
+
+
+class TestBuildIssueBodyEdgeCases:
+    """Additional edge case tests for _build_issue_body."""
+
+    @pytest.mark.asyncio
+    async def test_includes_suggested_fix(self) -> None:
+        """Test issue body includes suggested fix section (lines 783-786)."""
+        build_issue_body = review_registry_module._build_issue_body
+
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Test finding",
+            description="Description",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix="Use XYZ instead of ABC for better performance.",
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(finding=finding)
+
+        body = build_issue_body(tracked, pr_number=123)
+
+        assert "## Suggested Fix" in body
+        assert "Use XYZ instead of ABC for better performance." in body
+
+    @pytest.mark.asyncio
+    async def test_includes_attempt_history(self) -> None:
+        """Test issue body includes attempt history section (lines 790-803)."""
+        build_issue_body = review_registry_module._build_issue_body
+
+        finding = ReviewFinding(
+            id="RS001",
+            severity=Severity.major,
+            category=FindingCategory.correctness,
+            title="Test finding",
+            description="Description",
+            file_path="src/test.py",
+            line_start=10,
+            line_end=15,
+            suggested_fix=None,
+            source="spec_reviewer",
+        )
+        tracked = TrackedFinding(
+            finding=finding,
+            status=FindingStatus.blocked,
+            attempts=[
+                FixAttempt(
+                    iteration=1,
+                    timestamp=datetime(2024, 1, 1, 10, 0, 0),
+                    outcome=FindingStatus.deferred,
+                    justification="Working on it",
+                    changes_made="Started refactoring",
+                ),
+                FixAttempt(
+                    iteration=2,
+                    timestamp=datetime(2024, 1, 1, 11, 0, 0),
+                    outcome=FindingStatus.blocked,
+                    justification="Blocked by external dependency",
+                    changes_made=None,
+                ),
+            ],
+        )
+
+        body = build_issue_body(tracked, pr_number=123)
+
+        assert "## Fix Attempt History" in body
+        assert "Iteration 1" in body
+        assert "Iteration 2" in body
+        assert "Working on it" in body
+        assert "Started refactoring" in body
+        assert "Blocked by external dependency" in body
