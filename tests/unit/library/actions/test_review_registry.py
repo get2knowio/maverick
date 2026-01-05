@@ -2198,7 +2198,7 @@ class TestCreateIssueRegistryEdgeCases:
         ]
 
         registry = await create_issue_registry(
-            spec_findings=spec_findings,  # type: ignore[arg-type]
+            spec_findings=spec_findings,
             tech_findings=[],
         )
 
@@ -2242,7 +2242,7 @@ class TestCreateIssueRegistryEdgeCases:
 
         registry = await create_issue_registry(
             spec_findings=spec_findings,
-            tech_findings=tech_findings,  # type: ignore[arg-type]
+            tech_findings=tech_findings,
         )
 
         # Should have both valid findings
@@ -2460,7 +2460,7 @@ class TestFixAttemptValidation:
     """Tests for FixAttempt validation."""
 
     def test_open_outcome_raises_error(self) -> None:
-        """Test that creating FixAttempt with 'open' outcome raises ValueError (line 157)."""
+        """Test FixAttempt with 'open' outcome raises ValueError (line 157)."""
         with pytest.raises(ValueError, match="outcome cannot be 'open'"):
             FixAttempt(
                 iteration=1,
