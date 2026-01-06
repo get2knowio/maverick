@@ -218,8 +218,7 @@ class WorkflowWriter:
             self._serialize_branch_step(step, result)
         elif isinstance(step, LoopStepRecord):
             self._serialize_parallel_step(step, result)
-        else:
-            # This should never happen due to discriminated union validation
+        else:  # pragma: no cover - unreachable; discriminated union validation
             raise ValueError(f"Unknown step type: {type(step)}")
 
         return result
