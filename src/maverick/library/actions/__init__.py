@@ -10,7 +10,6 @@ Actions are organized by domain:
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
 - review: Code review operations
-- review_registry: Review-fix accountability loop registry management
 - cleanup: Cleanup workflow-specific operations
 - dry_run: Dry-run mode support
 """
@@ -47,16 +46,6 @@ from maverick.library.actions.review import (
     generate_review_fix_report,
     run_review_fix_loop,
 )
-from maverick.library.actions.review_registry import (
-    check_fix_loop_exit,
-    create_issue_registry,
-    create_tech_debt_issues,
-    detect_deleted_files,
-    generate_registry_summary,
-    prepare_fixer_input,
-    run_accountability_fix_loop,
-    update_issue_registry,
-)
 from maverick.library.actions.tasks import get_phase_names
 from maverick.library.actions.validation import (
     generate_validation_report,
@@ -87,15 +76,6 @@ __all__ = [
     "analyze_review_findings",
     "run_review_fix_loop",
     "generate_review_fix_report",
-    # Review registry actions
-    "create_issue_registry",
-    "prepare_fixer_input",
-    "update_issue_registry",
-    "check_fix_loop_exit",
-    "create_tech_debt_issues",
-    "detect_deleted_files",
-    "run_accountability_fix_loop",
-    "generate_registry_summary",
     # Cleanup actions
     "process_selected_issues",
     "generate_cleanup_summary",
@@ -158,43 +138,6 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
-
-    # Review registry actions
-    registry.actions.register("create_issue_registry", create_issue_registry)
-    registry.actions.register("prepare_fixer_input", prepare_fixer_input)
-    registry.actions.register("update_issue_registry", update_issue_registry)
-    registry.actions.register("check_fix_loop_exit", check_fix_loop_exit)
-    registry.actions.register("create_tech_debt_issues", create_tech_debt_issues)
-    registry.actions.register("detect_deleted_files", detect_deleted_files)
-    # Also register with prefixed names for namespacing
-    registry.actions.register(
-        "review_registry.create_issue_registry", create_issue_registry
-    )
-    registry.actions.register(
-        "review_registry.prepare_fixer_input", prepare_fixer_input
-    )
-    registry.actions.register(
-        "review_registry.update_issue_registry", update_issue_registry
-    )
-    registry.actions.register(
-        "review_registry.check_fix_loop_exit", check_fix_loop_exit
-    )
-    registry.actions.register(
-        "review_registry.create_tech_debt_issues", create_tech_debt_issues
-    )
-    registry.actions.register(
-        "review_registry.detect_deleted_files", detect_deleted_files
-    )
-    registry.actions.register(
-        "run_accountability_fix_loop", run_accountability_fix_loop
-    )
-    registry.actions.register(
-        "review_registry.run_accountability_fix_loop", run_accountability_fix_loop
-    )
-    registry.actions.register("generate_registry_summary", generate_registry_summary)
-    registry.actions.register(
-        "review_registry.generate_registry_summary", generate_registry_summary
-    )
 
     # Dry-run actions
     registry.actions.register("log_dry_run", log_dry_run)

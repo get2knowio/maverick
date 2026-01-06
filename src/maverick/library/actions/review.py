@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
@@ -14,7 +13,6 @@ from maverick.git import AsyncGitRepository
 from maverick.library.actions.types import (
     AnalyzedFindingsResult,
     CombinedReviewResult,
-    IssueFixResult,
     IssueGroup,
     PRMetadata,
     ReviewAndFixReport,
@@ -622,21 +620,19 @@ async def _run_dual_review(
     pr_context: dict[str, Any],
     base_branch: str,
 ) -> dict[str, Any]:
-    """Run both reviewers in parallel and combine results.
+    """Run unified reviewer (spawns parallel expert subagents).
 
     Args:
         pr_context: PR context dict
         base_branch: Base branch for comparison
 
     Returns:
-        Combined review result with recommendation and report
+        Review result with recommendation and report
     """
     try:
-        # Import reviewer agents
-        from maverick.agents.reviewers.spec_reviewer import SpecReviewerAgent
-        from maverick.agents.reviewers.technical_reviewer import TechnicalReviewerAgent
+        from maverick.agents.reviewers import UnifiedReviewerAgent
 
-        # Build context dict for reviewers
+        # Build context dict for reviewer
         pr_metadata = pr_context.get("pr_metadata", {})
         if hasattr(pr_metadata, "to_dict"):
             pr_metadata = pr_metadata.to_dict()
@@ -645,64 +641,54 @@ async def _run_dual_review(
             "pr_metadata": pr_metadata,
             "changed_files": list(pr_context.get("changed_files", [])),
             "diff": pr_context.get("diff", ""),
-            "commits": list(pr_context.get("commits", [])),
-            "spec_files": pr_context.get("spec_files", {}),
-            "base_branch": base_branch,
+            "cwd": pr_context.get("cwd"),
         }
 
-        # Run both reviewers in parallel
-        spec_agent = SpecReviewerAgent()
-        technical_agent = TechnicalReviewerAgent()
+        # Run unified reviewer (spawns subagents internally)
+        reviewer = UnifiedReviewerAgent()
+        result = await reviewer.execute(review_context)
 
-        spec_task = spec_agent.execute(review_context)
-        technical_task = technical_agent.execute(review_context)
+        # Check for critical/major issues
+        has_critical = any(f.severity == "critical" for f in result.all_findings)
+        has_major = any(f.severity == "major" for f in result.all_findings)
 
-        results = await asyncio.gather(
-            spec_task, technical_task, return_exceptions=True
-        )
+        # Determine recommendation
+        if result.total_count == 0:
+            recommendation = "approve"
+        elif has_critical:
+            recommendation = "request_changes"
+        elif has_major:
+            recommendation = "comment"
+        else:
+            recommendation = "approve"
 
-        # Extract results with proper type narrowing
-        spec_result = results[0]
-        tech_result = results[1]
-
-        spec_review: dict[str, Any] | None = None
-        if isinstance(spec_result, Exception):
-            logger.warning("Spec review failed: %s", spec_result)
-        elif isinstance(spec_result, dict):
-            spec_review = spec_result
-
-        technical_review: dict[str, Any] | None = None
-        if isinstance(tech_result, Exception):
-            logger.warning("Technical review failed: %s", tech_result)
-        elif isinstance(tech_result, dict):
-            technical_review = tech_result
-
-        # Combine results
-        combined = await combine_review_results(
-            spec_review=spec_review,
-            technical_review=technical_review,
-            pr_metadata=pr_metadata,
-        )
+        # Build report from findings
+        report_lines = ["# Code Review Report", ""]
+        for group in result.groups:
+            report_lines.append(f"## {group.description}")
+            for finding in group.findings:
+                report_lines.append(
+                    f"- **{finding.severity.upper()}** [{finding.category}] "
+                    f"`{finding.file}:{finding.line}`: {finding.issue}"
+                )
+            report_lines.append("")
 
         return {
-            "recommendation": combined.recommendation,
-            "review_report": combined.review_report,
-            "has_critical": (
-                technical_review.get("has_critical", False)
-                if technical_review is not None
-                else False
-            ),
+            "recommendation": recommendation,
+            "review_report": "\n".join(report_lines),
+            "has_critical": has_critical,
+            "review_result": result,  # Pass through for fixer
         }
 
     except ImportError as e:
-        logger.warning("Failed to import reviewer agents: %s", e)
+        logger.warning("Failed to import UnifiedReviewerAgent: %s", e)
         return {
             "recommendation": "request_changes",
             "review_report": "",
             "has_critical": False,
         }
     except Exception as e:
-        logger.warning("Dual review failed: %s", e)
+        logger.warning("Review failed: %s", e)
         return {
             "recommendation": "request_changes",
             "review_report": "",
@@ -724,281 +710,53 @@ async def _run_review_fixer(
         pr_context: PR context dict
 
     Returns:
-        Fix result dict
+        Fix result dict with outcomes for each finding
     """
     try:
-        from maverick.agents.reviewers.review_fixer import (
-            ReviewFixerAgent,
-            build_fixer_input_from_legacy,
+        from maverick.agents.reviewers import SimpleFixerAgent
+
+        # Get the ReviewResult from unified reviewer
+        result_obj = review_result.get("review_result")
+        if result_obj is None:
+            logger.warning("No review_result in review_result dict")
+            return {"success": False, "error": "No findings to fix"}
+
+        # Extract findings from all groups
+        all_findings = list(result_obj.all_findings)
+        if not all_findings:
+            logger.info("No findings to fix")
+            return {"success": True, "outcomes": [], "message": "No findings to fix"}
+
+        # Get working directory
+        cwd = pr_context.get("cwd") or Path.cwd()
+
+        # Run simple fixer (spawns subagents internally for parallel fixes)
+        fixer = SimpleFixerAgent()
+        outcomes = await fixer.execute(
+            {
+                "findings": all_findings,
+                "cwd": cwd,
+            }
         )
 
-        # Build context for fixer
-        pr_metadata = pr_context.get("pr_metadata", {})
-        if hasattr(pr_metadata, "to_dict"):
-            pr_metadata = pr_metadata.to_dict()
-
-        legacy_context = {
-            "review_report": review_result.get("review_report", ""),
-            "recommendation": review_result.get("recommendation", "request_changes"),
-            "changed_files": list(pr_context.get("changed_files", [])),
-            "diff": pr_context.get("diff", ""),
-            "pr_metadata": pr_metadata,
+        # Convert outcomes to dict for legacy callers
+        return {
+            "success": True,
+            "outcomes": [
+                {
+                    "id": o.id,
+                    "outcome": o.outcome,
+                    "explanation": o.explanation,
+                }
+                for o in outcomes
+            ],
         }
 
-        # Convert legacy dict to typed FixerInput at boundary
-        fixer_input = build_fixer_input_from_legacy(legacy_context)
-
-        # Run fixer agent with typed input
-        fixer_agent = ReviewFixerAgent()
-        result = await fixer_agent.execute(fixer_input)
-
-        # Convert typed output to dict for legacy callers
-        return result.to_dict()
-
     except ImportError as e:
-        logger.warning("Failed to import ReviewFixerAgent: %s", e)
+        logger.warning("Failed to import SimpleFixerAgent: %s", e)
         return {"success": False, "error": str(e)}
     except Exception as e:
         logger.warning("Review fixer failed: %s", e)
-        return {"success": False, "error": str(e)}
-
-
-def _flatten_issue_groups(
-    issue_groups: list[dict[str, Any]],
-) -> tuple[ReviewIssue, ...]:
-    """Flatten issue groups into a tuple of ReviewIssue objects.
-
-    Args:
-        issue_groups: List of issue group dicts
-
-    Returns:
-        Tuple of ReviewIssue objects
-    """
-    issues: list[ReviewIssue] = []
-    for group in issue_groups:
-        for issue_dict in group.get("issues", []):
-            issues.append(
-                ReviewIssue(
-                    id=issue_dict.get("id", "unknown"),
-                    file_path=issue_dict.get("file_path"),
-                    line_number=issue_dict.get("line_number"),
-                    severity=issue_dict.get("severity", "minor"),
-                    category=issue_dict.get("category", "correctness"),
-                    description=issue_dict.get("description", ""),
-                    suggested_fix=issue_dict.get("suggested_fix"),
-                    reviewer=issue_dict.get("reviewer", "technical"),
-                )
-            )
-    return tuple(issues)
-
-
-async def _fix_issue_groups_parallel(
-    issue_groups: list[dict[str, Any]],
-    fixer_agent: str,
-) -> list[IssueFixResult]:
-    """Fix issue groups in parallel where possible.
-
-    Groups affecting different files are fixed in parallel.
-    Issues within the same file group are fixed sequentially.
-
-    Args:
-        issue_groups: List of issue group dicts
-        fixer_agent: Name of fixer agent to use
-
-    Returns:
-        List of IssueFixResult for each issue
-    """
-    # Separate parallelizable and sequential groups
-    parallel_groups = [g for g in issue_groups if g.get("can_parallelize", False)]
-    sequential_groups = [g for g in issue_groups if not g.get("can_parallelize", False)]
-
-    all_results: list[IssueFixResult] = []
-
-    # Process parallel groups concurrently
-    if parallel_groups:
-        parallel_tasks = [
-            _fix_single_group(group, fixer_agent) for group in parallel_groups
-        ]
-        parallel_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-
-        for result in parallel_results:
-            if isinstance(result, Exception):
-                logger.warning("Parallel fix group failed: %s", result)
-            elif isinstance(result, list):
-                all_results.extend(result)
-
-    # Process sequential groups one at a time
-    for group in sequential_groups:
-        try:
-            results = await _fix_single_group(group, fixer_agent)
-            all_results.extend(results)
-        except Exception as e:
-            logger.warning("Sequential fix group failed: %s", e)
-
-    return all_results
-
-
-async def _fix_single_group(
-    group: dict[str, Any],
-    fixer_agent: str,
-) -> list[IssueFixResult]:
-    """Fix all issues in a single group.
-
-    Args:
-        group: Issue group dict
-        fixer_agent: Name of fixer agent to use
-
-    Returns:
-        List of IssueFixResult for issues in this group
-    """
-    results: list[IssueFixResult] = []
-    file_path = group.get("file_path", "unknown")
-    issues = group.get("issues", [])
-
-    for issue in issues:
-        issue_id = issue.get("id", "unknown")
-        description = issue.get("description", "")
-        severity = issue.get("severity", "minor")
-
-        try:
-            # Build fix prompt for this issue
-            fix_prompt = _build_review_fix_prompt(
-                file_path=file_path,
-                issue_description=description,
-                severity=severity,
-                suggested_fix=issue.get("suggested_fix"),
-            )
-
-            # Invoke fixer agent
-            fix_result = await _invoke_review_fixer_agent(
-                fix_prompt=fix_prompt,
-                fixer_agent=fixer_agent,
-            )
-
-            results.append(
-                IssueFixResult(
-                    issue_id=issue_id,
-                    fixed=fix_result.get("success", False),
-                    fix_description=fix_result.get("changes_made"),
-                    error=fix_result.get("error"),
-                )
-            )
-
-        except Exception as e:
-            logger.warning("Failed to fix issue %s: %s", issue_id, e)
-            results.append(
-                IssueFixResult(
-                    issue_id=issue_id,
-                    fixed=False,
-                    fix_description=None,
-                    error=str(e),
-                )
-            )
-
-    return results
-
-
-def _build_review_fix_prompt(
-    file_path: str | None,
-    issue_description: str,
-    severity: str,
-    suggested_fix: str | None,
-) -> str:
-    """Build a prompt for the fixer agent based on review issue.
-
-    Args:
-        file_path: File path affected
-        issue_description: Description of the issue
-        severity: Issue severity
-        suggested_fix: Suggested fix if available
-
-    Returns:
-        Formatted prompt string for fixer agent
-    """
-    parts = [f"Fix the following {severity} review issue:"]
-
-    if file_path:
-        parts.append(f"\nFile: {file_path}")
-
-    parts.append(f"\nIssue: {issue_description}")
-
-    if suggested_fix:
-        parts.append(f"\nSuggested fix: {suggested_fix}")
-
-    parts.append(
-        "\n\nPlease apply a minimal fix to resolve this issue. "
-        "Focus only on the specific problem described."
-    )
-
-    return "\n".join(parts)
-
-
-async def _invoke_review_fixer_agent(
-    fix_prompt: str,
-    fixer_agent: str,
-) -> dict[str, Any]:
-    """Invoke the fixer agent to apply a fix.
-
-    Args:
-        fix_prompt: The prompt describing the fix to apply
-        fixer_agent: Name of the fixer agent
-
-    Returns:
-        Dict with success status and fix details or error message
-    """
-    try:
-        # Import here to avoid circular imports
-        from maverick.agents.context import AgentContext
-        from maverick.agents.fixer import FixerAgent
-        from maverick.config import MaverickConfig
-
-        # Create agent instance
-        agent = FixerAgent()
-
-        # Build context with the fix prompt
-        context = AgentContext.from_cwd(
-            cwd=Path.cwd(),
-            config=MaverickConfig(),
-            extra={"prompt": fix_prompt},
-        )
-
-        # Execute the agent
-        result = await agent.execute(context)
-
-        if result.success:
-            output = result.output or ""
-            try:
-                parsed = json.loads(output)
-                return {
-                    "success": True,
-                    "changes_made": parsed.get("changes_made", "Fix applied"),
-                }
-            except (json.JSONDecodeError, TypeError):
-                return {
-                    "success": True,
-                    "changes_made": output[:200] if output else "Fix applied",
-                }
-        else:
-            error_messages = []
-            for error in result.errors or []:
-                if hasattr(error, "message"):
-                    error_messages.append(error.message)
-                else:
-                    error_messages.append(str(error))
-
-            return {
-                "success": False,
-                "error": "; ".join(error_messages) if error_messages else "Fix failed",
-            }
-
-    except ImportError as e:
-        logger.error("Failed to import agent modules: %s", e)
-        return {"success": False, "error": f"Import error: {e}"}
-    except ValueError as e:
-        logger.error("Invalid context configuration: %s", e)
-        return {"success": False, "error": f"Context error: {e}"}
-    except Exception as e:
-        logger.exception("Unexpected error invoking fixer agent: %s", e)
         return {"success": False, "error": str(e)}
 
 
@@ -1006,7 +764,7 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
     """Re-run the review to check if issues are resolved.
 
     This performs a lightweight review check by gathering PR context
-    and re-running the reviewers, without invoking the full workflow.
+    and re-running the unified reviewer.
 
     Args:
         base_branch: Base branch for comparison
@@ -1026,51 +784,17 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
             logger.warning("Failed to gather PR context: %s", context_result.error)
             return {"recommendation": "request_changes"}
 
-        # Import reviewer agents
-        from maverick.agents.reviewers.spec_reviewer import SpecReviewerAgent
-        from maverick.agents.reviewers.technical_reviewer import TechnicalReviewerAgent
-
-        # Build context dict for reviewers
-        review_context = {
+        # Re-use _run_dual_review which now uses UnifiedReviewerAgent
+        pr_context = {
             "pr_metadata": context_result.pr_metadata.to_dict(),
             "changed_files": list(context_result.changed_files),
             "diff": context_result.diff,
             "commits": list(context_result.commits),
             "spec_files": context_result.spec_files,
-            "base_branch": base_branch,
         }
 
-        # Run both reviewers (simplified - not in parallel to avoid overwhelming)
-        spec_review = None
-        technical_review = None
+        return await _run_dual_review(pr_context, base_branch)
 
-        try:
-            spec_agent = SpecReviewerAgent()
-            spec_review = await spec_agent.execute(review_context)
-        except Exception as e:
-            logger.warning("Spec review failed in re-check: %s", e)
-
-        try:
-            technical_agent = TechnicalReviewerAgent()
-            technical_review = await technical_agent.execute(review_context)
-        except Exception as e:
-            logger.warning("Technical review failed in re-check: %s", e)
-
-        # Combine results
-        combined = await combine_review_results(
-            spec_review=spec_review,
-            technical_review=technical_review,
-            pr_metadata=context_result.pr_metadata.to_dict(),
-        )
-
-        return {
-            "recommendation": combined.recommendation,
-            "review_report": combined.review_report,
-        }
-
-    except ImportError as e:
-        logger.warning("Failed to import reviewer agents: %s", e)
-        return {"recommendation": "request_changes"}
     except Exception as e:
         logger.warning("Re-review failed: %s, assuming issues remain", e)
         return {"recommendation": "request_changes"}

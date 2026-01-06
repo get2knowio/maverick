@@ -85,8 +85,8 @@ class FindingGroup:
     can be worked on in parallel.
 
     Attributes:
-        description: Brief description of the group (e.g., "Independent fixes - batch 1")
-        findings: Tuple of findings in this group
+        description: Brief description of the group (e.g., "Batch 1").
+        findings: Tuple of findings in this group.
     """
 
     description: str
