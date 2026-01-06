@@ -368,6 +368,48 @@ class TestBuildOptions:
         assert call_args is not None
         assert call_args.kwargs["cwd"] == "/workspace/project"
 
+    def test_passes_max_tokens_in_extra_args(self) -> None:
+        """Test passes max_tokens in extra_args when specified (line 226)."""
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+            max_tokens=4096,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_args = mock_options_class.call_args
+        assert call_args is not None
+        assert call_args.kwargs["extra_args"]["max_tokens"] == "4096"
+
+    def test_passes_temperature_in_extra_args(self) -> None:
+        """Test passes temperature in extra_args when specified (line 228)."""
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+            temperature=0.7,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_args = mock_options_class.call_args
+        assert call_args is not None
+        assert call_args.kwargs["extra_args"]["temperature"] == "0.7"
+
 
 # =============================================================================
 # _wrap_sdk_error Tests
@@ -454,6 +496,28 @@ class TestWrapSDKError:
         assert isinstance(result, MalformedResponseError)
         assert result.raw_response == '{"invalid": json}'
         assert "Invalid JSON" in result.message
+
+    def test_wraps_timeout_error_to_maverick_timeout_error(self) -> None:
+        """Test wraps TimeoutError to MaverickTimeoutError (line 271)."""
+        from maverick.exceptions import MaverickTimeoutError
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+        )
+
+        # Create a mock TimeoutError
+        sdk_error = MagicMock()
+        sdk_error.__class__.__name__ = "TimeoutError"
+        sdk_error.timeout_seconds = 30
+        sdk_error.__str__ = MagicMock(return_value="Operation timed out")
+
+        result = agent._wrap_sdk_error(sdk_error)
+
+        assert isinstance(result, MaverickTimeoutError)
+        assert result.timeout_seconds == 30
+        assert "Operation timed out" in result.message
 
     def test_wraps_generic_errors_to_agent_error(self) -> None:
         """Test wraps generic errors to AgentError."""

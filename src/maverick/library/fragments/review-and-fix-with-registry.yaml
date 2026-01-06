@@ -1,0 +1,282 @@
+# =============================================================================
+# Review and Fix Fragment with Issue Registry
+# =============================================================================
+#
+# Purpose:
+#   Orchestrates code review with automatic issue resolution using a full
+#   accountability loop via the IssueRegistry. Runs dual-agent review (spec
+#   compliance + technical quality), consolidates findings into a registry,
+#   and invokes the fixer agent with accountability tracking until all
+#   actionable issues are resolved or max iterations reached.
+#
+# Architecture:
+#   ┌─────────────────────────────────────────────────────────┐
+#   │                    Review-and-Fix Loop                  │
+#   │                                                         │
+#   │  ┌──────────────────┐    ┌──────────────────┐          │
+#   │  │  Spec Reviewer   │    │ Technical Reviewer│  ← parallel
+#   │  │     Agent        │    │      Agent        │          │
+#   │  └────────┬─────────┘    └────────┬─────────┘          │
+#   │           │                       │                     │
+#   │           └───────────┬───────────┘                     │
+#   │                       ▼                                 │
+#   │              ┌────────────────┐                         │
+#   │              │  Create Issue  │                         │
+#   │              │   Registry     │                         │
+#   │              └────────┬───────┘                         │
+#   │                       │                                 │
+#   │                       ▼                                 │
+#   │              ┌────────────────┐                         │
+#   │              │ Detect Deleted │  ← auto-block deleted   │
+#   │              │     Files      │    file references      │
+#   │              └────────┬───────┘                         │
+#   │                       │                                 │
+#   │                       ▼                                 │
+#   │              ┌────────────────┐                         │
+#   │              │   Fix Loop     │── Exit when:            │
+#   │              │  (iterations)  │   - no actionable items │
+#   │              └────────┬───────┘   - max iterations hit  │
+#   │                       │                                 │
+#   │                       ▼                                 │
+#   │              ┌────────────────┐                         │
+#   │              │  Create Tech   │  ← GitHub issues for    │
+#   │              │  Debt Issues   │    blocked/deferred     │
+#   │              └────────────────┘                         │
+#   │                                                         │
+#   └─────────────────────────────────────────────────────────┘
+#
+# Accountability Features:
+#   - IssueRegistry tracks every finding with status history
+#   - Fixer agent must report on ALL issues (no silent skipping)
+#   - Deferred items with invalid justifications are re-sent
+#   - Blocked items require valid technical justification
+#   - Unresolved items become GitHub tech-debt issues
+#
+# Inputs:
+#   - base_branch (string, optional, default: "main")
+#     Base branch for PR comparison.
+#
+#   - max_iterations (integer, optional, default: 3)
+#     Maximum fix loop iterations. Each iteration:
+#     1. Prepares actionable findings for fixer
+#     2. Runs fixer agent with accountability
+#     3. Updates registry with outcomes
+#     4. Checks exit condition
+#
+#   - skip_if_approved (boolean, optional, default: true)
+#     Skip fix loop if initial review has no critical/major issues.
+#
+#   - create_issues_for_remaining (boolean, optional, default: true)
+#     Create GitHub issues for blocked/deferred findings at end.
+#
+# Output:
+#   - registry: Final IssueRegistry state with all findings
+#   - issues_created: List of GitHub issue numbers created
+#   - summary: Human-readable summary of the review-fix process
+#
+# Used By:
+#   - feature workflow (review stage with accountability)
+#
+# Customization:
+#   To override this fragment, create a file with the same name in:
+#   - .maverick/workflows/review-and-fix-with-registry.yaml (project-level)
+#   - ~/.config/maverick/workflows/ (user-level)
+#
+# =============================================================================
+
+version: "1.0"
+name: review-and-fix-with-registry
+description: Code review with accountability-tracked issue resolution
+
+inputs:
+  base_branch:
+    type: string
+    required: false
+    default: "main"
+    description: Base branch for PR comparison
+
+  max_iterations:
+    type: integer
+    required: false
+    default: 3
+    description: Maximum fix loop iterations (0 disables fixes)
+
+  skip_if_approved:
+    type: boolean
+    required: false
+    default: true
+    description: Skip fix loop if review finds no critical/major issues
+
+  create_issues_for_remaining:
+    type: boolean
+    required: false
+    default: true
+    description: Create GitHub issues for unresolved findings
+
+steps:
+  # ===========================================================================
+  # Step 1: Gather PR Context
+  # ===========================================================================
+  # Collect diff, changed files, spec files, and PR metadata for reviewers.
+  # This reuses the existing gather_pr_context action from review.py.
+  # ===========================================================================
+  - name: gather_context
+    type: python
+    action: gather_pr_context
+    kwargs:
+      pr_number: null
+      base_branch: ${{ inputs.base_branch }}
+      include_spec_files: true
+    metadata:
+      progress:
+        stage: "gathering"
+        weight: 5
+
+  # ===========================================================================
+  # Step 2: Parallel Reviews (Spec + Technical)
+  # ===========================================================================
+  # Run both review agents in parallel for efficiency:
+  # - spec_reviewer: Checks spec compliance and completeness
+  # - technical_reviewer: Checks code quality and best practices
+  #
+  # Each reviewer returns structured_findings as a list of finding dicts.
+  # ===========================================================================
+  - name: parallel_reviews
+    type: loop
+    for_each: ${{ ['spec', 'technical'] }}
+    max_concurrency: 2
+    steps:
+      - name: run_review
+        type: agent
+        agent: ${{ item }}_reviewer
+        context:
+          pr_metadata: ${{ steps.gather_context.output.pr_metadata }}
+          changed_files: ${{ steps.gather_context.output.changed_files }}
+          diff: ${{ steps.gather_context.output.diff }}
+          commits: ${{ steps.gather_context.output.commits }}
+          spec_files: ${{ steps.gather_context.output.spec_files }}
+          base_branch: ${{ inputs.base_branch }}
+        metadata:
+          progress:
+            stage: "review"
+            reviewer: ${{ item }}
+            weight: 30
+
+  # ===========================================================================
+  # Step 3: Create Issue Registry
+  # ===========================================================================
+  # Merge findings from both reviewers into a single IssueRegistry.
+  # Applies deduplication logic:
+  # - Same file + overlapping line range (within 5 lines)
+  # - Similar title (normalized Levenshtein distance < 0.3)
+  # - Keeps higher severity when merging duplicates
+  # ===========================================================================
+  - name: create_registry
+    type: python
+    action: create_issue_registry
+    kwargs:
+      spec_findings: ${{ steps.parallel_reviews.output[0].structured_findings or [] }}
+      tech_findings: ${{ steps.parallel_reviews.output[1].structured_findings or [] }}
+      max_iterations: ${{ inputs.max_iterations }}
+    metadata:
+      progress:
+        stage: "registry_creation"
+        weight: 5
+
+  # ===========================================================================
+  # Step 4: Detect Deleted Files
+  # ===========================================================================
+  # Auto-block findings that reference files that no longer exist.
+  # This prevents the fixer from attempting to fix deleted code.
+  # ===========================================================================
+  - name: detect_deleted
+    type: python
+    action: detect_deleted_files
+    kwargs:
+      registry: ${{ steps.create_registry.output }}
+      repo_root: "."
+    metadata:
+      progress:
+        stage: "file_detection"
+        weight: 2
+
+  # ===========================================================================
+  # Step 5: Fix Loop with Accountability
+  # ===========================================================================
+  # Iterative fix loop that continues until:
+  # 1. No actionable findings remain (all fixed, blocked, or minor)
+  # 2. Max iterations reached
+  #
+  # Each iteration:
+  # - prepare_input: Convert actionable findings to FixerInput
+  # - run_fixer: Execute ReviewFixerAgent with full context
+  # - update_registry: Apply fixer outcomes to registry
+  # - check_exit: Determine if loop should continue
+  #
+  # The loop uses Python action run_fix_loop_iteration which handles
+  # the iteration logic since YAML DSL loops don't support break_when.
+  # ===========================================================================
+  - name: fix_loop
+    type: python
+    action: run_accountability_fix_loop
+    when: ${{ inputs.max_iterations > 0 }}
+    kwargs:
+      registry: ${{ steps.detect_deleted.output }}
+      base_branch: ${{ inputs.base_branch }}
+      max_iterations: ${{ inputs.max_iterations }}
+    metadata:
+      progress:
+        stage: "fixing"
+        weight: 50
+
+  # ===========================================================================
+  # Step 6: Create Tech Debt Issues
+  # ===========================================================================
+  # Create GitHub issues for findings that couldn't be fixed:
+  # - Blocked findings (valid technical blockers)
+  # - Deferred findings after max iterations
+  # - Minor findings (not worth fixing in current PR)
+  #
+  # Issues are labeled with severity and linked to the PR.
+  # ===========================================================================
+  - name: create_issues
+    type: python
+    action: create_tech_debt_issues
+    when: ${{ inputs.create_issues_for_remaining }}
+    kwargs:
+      registry: ${{ steps.fix_loop.output.registry or steps.detect_deleted.output }}
+      repo: ${{ steps.gather_context.output.pr_metadata.repo or 'owner/repo' }}
+      base_labels:
+        - tech-debt
+        - review-finding
+      pr_number: ${{ steps.gather_context.output.pr_metadata.number }}
+    metadata:
+      progress:
+        stage: "issue_creation"
+        weight: 5
+
+  # ===========================================================================
+  # Step 7: Generate Summary
+  # ===========================================================================
+  # Produce final summary with:
+  # - Total findings by severity
+  # - Fix outcomes (fixed, blocked, deferred)
+  # - GitHub issues created
+  # - Final recommendation (approve, comment, request_changes)
+  # ===========================================================================
+  - name: generate_summary
+    type: python
+    action: generate_registry_summary
+    kwargs:
+      registry: ${{ steps.fix_loop.output.registry or steps.detect_deleted.output }}
+      issues_created: ${{ steps.create_issues.output or [] }}
+      max_iterations: ${{ inputs.max_iterations }}
+    metadata:
+      progress:
+        stage: "summary"
+        weight: 3
+
+outputs:
+  registry: ${{ steps.fix_loop.output.registry or steps.detect_deleted.output }}
+  issues_created: ${{ steps.create_issues.output or [] }}
+  summary: ${{ steps.generate_summary.output }}

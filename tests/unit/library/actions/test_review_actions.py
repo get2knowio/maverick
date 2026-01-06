@@ -44,30 +44,41 @@ class TestGatherPRContext:
         pr_number = 123
         base_branch = "main"
 
-        with patch("maverick.library.actions.review._runner") as mock_runner:
-            # Mock PR view - order matches implementation:
-            # PR view, diff, changed files, commits
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_class,
+        ):
+            # Mock the CommandRunner instance and its run method (for GitHub CLI)
+            mock_runner = AsyncMock()
+            mock_runner_class.return_value = mock_runner
+
+            # Mock PR view
             mock_runner.run = AsyncMock(
-                side_effect=[
-                    # PR view result
-                    make_result(
-                        stdout=json.dumps(
-                            {
-                                "number": 123,
-                                "title": "Test PR",
-                                "body": "Test description",
-                                "author": {"login": "testuser"},
-                                "labels": [{"name": "enhancement"}],
-                            }
-                        )
-                    ),
-                    # Diff result (git diff base...HEAD)
-                    make_result(stdout="diff content"),
-                    # Changed files result (git diff --name-only)
-                    make_result(stdout="file1.py\nfile2.py"),
-                    # Commits result (git log)
-                    make_result(stdout="commit1\ncommit2"),
-                ]
+                return_value=make_result(
+                    stdout=json.dumps(
+                        {
+                            "number": 123,
+                            "title": "Test PR",
+                            "body": "Test description",
+                            "author": {"login": "testuser"},
+                            "labels": [{"name": "enhancement"}],
+                        }
+                    )
+                )
+            )
+
+            # Mock the AsyncGitRepository instance (for git operations)
+            mock_repo = AsyncMock()
+            mock_git_class.return_value = mock_repo
+            mock_repo.current_branch = AsyncMock(return_value="feature-branch")
+            mock_repo.diff = AsyncMock(return_value="diff content")
+            mock_repo.get_changed_files = AsyncMock(
+                return_value=["file1.py", "file2.py"]
+            )
+            mock_repo.commit_messages_since = AsyncMock(
+                return_value=["commit1", "commit2"]
             )
 
             result = await gather_pr_context(pr_number, base_branch)
@@ -82,11 +93,18 @@ class TestGatherPRContext:
         """Test auto-detects PR number from current branch."""
         base_branch = "main"
 
-        with patch("maverick.library.actions.review._runner") as mock_runner:
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_class,
+        ):
+            mock_runner = AsyncMock()
+            mock_runner_class.return_value = mock_runner
+
+            # Mock PR list and view calls
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    # Current branch
-                    make_result(stdout="feature-branch"),
                     # PR list
                     make_result(stdout=json.dumps([{"number": 456}])),
                     # PR view
@@ -101,14 +119,16 @@ class TestGatherPRContext:
                             }
                         )
                     ),
-                    # Diff (git diff base...HEAD)
-                    make_result(stdout="diff"),
-                    # Changed files (git diff --name-only)
-                    make_result(stdout="file.py"),
-                    # Commits (git log)
-                    make_result(stdout="commit"),
                 ]
             )
+
+            # Mock git repo
+            mock_repo = AsyncMock()
+            mock_git_class.return_value = mock_repo
+            mock_repo.current_branch = AsyncMock(return_value="feature-branch")
+            mock_repo.diff = AsyncMock(return_value="diff")
+            mock_repo.get_changed_files = AsyncMock(return_value=["file.py"])
+            mock_repo.commit_messages_since = AsyncMock(return_value=["commit"])
 
             result = await gather_pr_context(None, base_branch)
 
@@ -119,21 +139,25 @@ class TestGatherPRContext:
         """Test handles case when no PR found for branch."""
         base_branch = "main"
 
-        with patch("maverick.library.actions.review._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                side_effect=[
-                    # Current branch
-                    make_result(stdout="local-branch"),
-                    # PR list (empty)
-                    make_result(stdout=json.dumps([])),
-                    # Diff from base (git diff base...HEAD)
-                    make_result(stdout="local diff"),
-                    # Changed files (git diff --name-only)
-                    make_result(stdout="local.py"),
-                    # Commits (git log)
-                    make_result(stdout="local commit"),
-                ]
-            )
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_class,
+        ):
+            mock_runner = AsyncMock()
+            mock_runner_class.return_value = mock_runner
+
+            # Mock PR list (empty)
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps([])))
+
+            # Mock git repo
+            mock_repo = AsyncMock()
+            mock_git_class.return_value = mock_repo
+            mock_repo.current_branch = AsyncMock(return_value="local-branch")
+            mock_repo.diff = AsyncMock(return_value="local diff")
+            mock_repo.get_changed_files = AsyncMock(return_value=["local.py"])
+            mock_repo.commit_messages_since = AsyncMock(return_value=["local commit"])
 
             result = await gather_pr_context(None, base_branch)
 
@@ -147,33 +171,39 @@ class TestGatherPRContext:
         base_branch = "main"
 
         with (
-            patch("maverick.library.actions.review._runner") as mock_runner,
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_class,
             patch(
                 "maverick.library.actions.review._gather_spec_files"
             ) as mock_gather_specs,
         ):
+            mock_runner = AsyncMock()
+            mock_runner_class.return_value = mock_runner
+
             mock_runner.run = AsyncMock(
-                side_effect=[
-                    # PR view
-                    make_result(
-                        stdout=json.dumps(
-                            {
-                                "number": 123,
-                                "title": "Test",
-                                "body": "",
-                                "author": {"login": "u"},
-                                "labels": [],
-                            }
-                        )
-                    ),
-                    # Diff (git diff base...HEAD)
-                    make_result(stdout="diff"),
-                    # Changed files (git diff --name-only)
-                    make_result(stdout="f.py"),
-                    # Commits (git log)
-                    make_result(stdout="commit"),
-                ]
+                return_value=make_result(
+                    stdout=json.dumps(
+                        {
+                            "number": 123,
+                            "title": "Test",
+                            "body": "",
+                            "author": {"login": "u"},
+                            "labels": [],
+                        }
+                    )
+                )
             )
+
+            # Mock git repo
+            mock_repo = AsyncMock()
+            mock_git_class.return_value = mock_repo
+            mock_repo.current_branch = AsyncMock(return_value="feature")
+            mock_repo.diff = AsyncMock(return_value="diff")
+            mock_repo.get_changed_files = AsyncMock(return_value=["f.py"])
+            mock_repo.commit_messages_since = AsyncMock(return_value=["commit"])
+
             mock_gather_specs.return_value = {
                 "spec.md": "# Spec",
                 "tasks.md": "# Tasks",

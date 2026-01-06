@@ -120,7 +120,9 @@ def get_project_type(config_path: Path | None = None) -> str:
         config_path = Path("maverick.yaml")
 
     if not config_path.exists():
-        logger.debug(f"Config not found at {config_path}, using 'unknown' project type")
+        logger.debug(
+            "Config not found at %s, using 'unknown' project type", config_path
+        )
         return "unknown"
 
     try:
@@ -129,10 +131,10 @@ def get_project_type(config_path: Path | None = None) -> str:
             logger.debug("Config is not a dict, using 'unknown' project type")
             return "unknown"
         project_type: str = config.get("project_type", "unknown")
-        logger.debug(f"Detected project type: {project_type}")
+        logger.debug("Detected project type: %s", project_type)
         return project_type
     except Exception as e:
-        logger.warning(f"Failed to read project type from {config_path}: {e}")
+        logger.warning("Failed to read project type from %s: %s", config_path, e)
         return "unknown"
 
 

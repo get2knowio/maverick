@@ -36,6 +36,7 @@
     "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.coderabbit,target=/home/vscode/.coderabbit,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.coderabbit,target=/home/vscode/.coderabbit,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/GitHub/remo,target=/workspaces/remo,type=bind,consistency=cached"
   ]
 }

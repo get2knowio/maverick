@@ -109,55 +109,45 @@ class TestReviewWorkflowIntegration:
             "labels": [{"name": "enhancement"}],
         }
 
-        # Create sequence of CommandResult responses
-        responses = [
-            # gh pr view
-            CommandResult(
+        # Create CommandResult response for gh pr view
+        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
+            return CommandResult(
                 returncode=0,
                 stdout=json.dumps(pr_data),
                 stderr="",
                 duration_ms=100,
                 timed_out=False,
-            ),
-            # git diff --name-only
-            CommandResult(
-                returncode=0,
-                stdout="src/review.py\ntests/test_review.py\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            # git diff
-            CommandResult(
-                returncode=0,
-                stdout=(
-                    "diff --git a/src/review.py b/src/review.py\n"
-                    "+def new_function():\n+    pass\n"
-                ),
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            # git log
-            CommandResult(
-                returncode=0,
-                stdout="abc123 feat: add review workflow\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-        ]
-        response_iter = iter(responses)
+            )
 
-        async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
-            return next(response_iter)
+        # Mock AsyncGitRepository for git operations
+        mock_repo = AsyncMock()
+        mock_repo.diff = AsyncMock(
+            return_value=(
+                "diff --git a/src/review.py b/src/review.py\n"
+                "+def new_function():\n+    pass\n"
+            )
+        )
+        mock_repo.get_changed_files = AsyncMock(
+            return_value=["src/review.py", "tests/test_review.py"]
+        )
+        mock_repo.commit_messages_since = AsyncMock(
+            return_value=["feat: add review workflow"]
+        )
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
 
-        # Mock subprocess calls
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
-        ) as mock_runner:
+        # Mock subprocess calls via CommandRunner class
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
+        ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             # Execute workflow (skip semantic validation due to dynamic agent names)
             executor = WorkflowFileExecutor(registry=registry, validate_semantic=False)
             events = []
@@ -176,8 +166,8 @@ class TestReviewWorkflowIntegration:
             # Verify final event is workflow completion
             assert isinstance(events[-1], WorkflowCompleted)
 
-            # Verify runner calls were made
-            assert mock_runner.call_count >= 4  # PR view + files + diff + log
+            # Verify runner was called for gh pr view
+            assert mock_runner.run.call_count >= 1  # PR view
 
     @pytest.mark.asyncio
     async def test_review_workflow_auto_detect_pr(
@@ -194,16 +184,8 @@ class TestReviewWorkflowIntegration:
         with open(workflow_path) as f:
             workflow = parse_workflow(f.read())
 
-        # Create sequence of CommandResult responses
+        # Create sequence of CommandResult responses for GitHub CLI calls
         responses = [
-            # git rev-parse --abbrev-ref HEAD
-            CommandResult(
-                returncode=0,
-                stdout="feature/test\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
             # gh pr list
             CommandResult(
                 returncode=0,
@@ -228,41 +210,31 @@ class TestReviewWorkflowIntegration:
                 duration_ms=100,
                 timed_out=False,
             ),
-            # git diff --name-only
-            CommandResult(
-                returncode=0,
-                stdout="file.py\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            # git diff
-            CommandResult(
-                returncode=0,
-                stdout="diff content\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            # git log
-            CommandResult(
-                returncode=0,
-                stdout="sha1 message\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
         ]
         response_iter = iter(responses)
 
         async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
             return next(response_iter)
 
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
+        # Mock AsyncGitRepository for git operations
+        mock_repo = AsyncMock()
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
+        mock_repo.diff = AsyncMock(return_value="diff content\n")
+        mock_repo.get_changed_files = AsyncMock(return_value=["file.py"])
+        mock_repo.commit_messages_since = AsyncMock(return_value=["sha1 message"])
+
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
         ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             # Execute workflow without pr_number (skip validation for dynamic agents)
             executor = WorkflowFileExecutor(registry=registry, validate_semantic=False)
             events = []
@@ -287,55 +259,45 @@ class TestReviewWorkflowActions:
         """Test gather_context action executes and returns expected output."""
         from maverick.library.actions.review import gather_pr_context
 
-        # Create sequence of CommandResult responses
-        responses = [
-            CommandResult(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "number": 123,
-                        "title": "Test",
-                        "body": "Description",
-                        "author": {"login": "user"},
-                        "labels": [],
-                    }
-                ),
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
+        # CommandResult for gh pr view
+        pr_view_response = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "number": 123,
+                    "title": "Test",
+                    "body": "Description",
+                    "author": {"login": "user"},
+                    "labels": [],
+                }
             ),
-            CommandResult(
-                returncode=0,
-                stdout="file.py\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="diff\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="sha1 msg\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-        ]
-        response_iter = iter(responses)
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
 
         async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
-            return next(response_iter)
+            return pr_view_response
 
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
+        # Mock AsyncGitRepository for git operations
+        mock_repo = AsyncMock()
+        mock_repo.diff = AsyncMock(return_value="diff\n")
+        mock_repo.get_changed_files = AsyncMock(return_value=["file.py"])
+        mock_repo.commit_messages_since = AsyncMock(return_value=["sha1 msg"])
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
+
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
         ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             result = await gather_pr_context(123, "main")
 
             # Result is a ReviewContextResult dataclass
@@ -411,55 +373,45 @@ class TestReviewWorkflowEdgeCases:
         """Test workflow handles PR with no changes gracefully."""
         from maverick.library.actions.review import gather_pr_context
 
-        # Create sequence of CommandResult responses
-        responses = [
-            CommandResult(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "number": 123,
-                        "title": "Empty",
-                        "body": "",
-                        "author": {"login": "user"},
-                        "labels": [],
-                    }
-                ),
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
+        # CommandResult for gh pr view
+        pr_view_response = CommandResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "number": 123,
+                    "title": "Empty",
+                    "body": "",
+                    "author": {"login": "user"},
+                    "labels": [],
+                }
             ),
-            CommandResult(
-                returncode=0,
-                stdout="",  # No files
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="",  # Empty diff
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="",  # No commits
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-        ]
-        response_iter = iter(responses)
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
 
         async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
-            return next(response_iter)
+            return pr_view_response
 
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
+        # Mock AsyncGitRepository for git operations - returning empty results
+        mock_repo = AsyncMock()
+        mock_repo.diff = AsyncMock(return_value="")
+        mock_repo.get_changed_files = AsyncMock(return_value=[])
+        mock_repo.commit_messages_since = AsyncMock(return_value=[])
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
+
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
         ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             result = await gather_pr_context(123, "main")
 
             # Workflow should handle empty diff gracefully
@@ -470,7 +422,11 @@ class TestReviewWorkflowEdgeCases:
 
     @pytest.mark.asyncio
     async def test_workflow_handles_pr_fetch_failure(self) -> None:
-        """Test workflow handles PR fetch failures gracefully."""
+        """Test workflow handles PR fetch failures gracefully.
+
+        When the GitHub CLI fails to fetch PR info, the workflow should
+        still return partial results with available git data.
+        """
         from maverick.library.actions.review import gather_pr_context
 
         async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
@@ -483,18 +439,36 @@ class TestReviewWorkflowEdgeCases:
                 timed_out=False,
             )
 
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
+        # Mock AsyncGitRepository for git operations
+        mock_repo = AsyncMock()
+        mock_repo.diff = AsyncMock(return_value="some diff")
+        mock_repo.get_changed_files = AsyncMock(return_value=["file.py"])
+        mock_repo.commit_messages_since = AsyncMock(return_value=["commit"])
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
+
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
         ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             result = await gather_pr_context(999, "main")
 
-            # Error should be captured in result
-            # Result is a ReviewContextResult dataclass
-            assert result.error is not None
-            assert result.changed_files == ()
-            assert result.diff == ""
+            # PR fetch failure should not block the entire workflow.
+            # The result should contain the PR number but with minimal metadata
+            # (no title, description, etc.) and the error should be None since
+            # the overall operation succeeded (just the PR metadata fetch failed).
+            assert result.pr_metadata.number == 999
+            assert result.pr_metadata.title is None
+            # Git operations should still succeed
+            assert result.diff == "some diff"
+            assert result.changed_files == ("file.py",)
 
     @pytest.mark.asyncio
     async def test_workflow_with_unicode_in_pr(self) -> None:
@@ -510,47 +484,36 @@ class TestReviewWorkflowEdgeCases:
             "labels": [],
         }
 
-        # Create sequence of CommandResult responses
-        responses = [
-            CommandResult(
-                returncode=0,
-                stdout=json.dumps(pr_data),
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="file.py\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="diff\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-            CommandResult(
-                returncode=0,
-                stdout="msg\n",
-                stderr="",
-                duration_ms=100,
-                timed_out=False,
-            ),
-        ]
-        response_iter = iter(responses)
+        pr_view_response = CommandResult(
+            returncode=0,
+            stdout=json.dumps(pr_data),
+            stderr="",
+            duration_ms=100,
+            timed_out=False,
+        )
 
         async def mock_run(cmd: list[str], **kwargs: Any) -> CommandResult:
-            return next(response_iter)
+            return pr_view_response
 
-        with patch(
-            "maverick.library.actions.review._runner.run",
-            new_callable=AsyncMock,
-            side_effect=mock_run,
+        # Mock AsyncGitRepository for git operations
+        mock_repo = AsyncMock()
+        mock_repo.diff = AsyncMock(return_value="diff\n")
+        mock_repo.get_changed_files = AsyncMock(return_value=["file.py"])
+        mock_repo.commit_messages_since = AsyncMock(return_value=["msg"])
+        mock_repo.current_branch = AsyncMock(return_value="feature/test")
+
+        with (
+            patch("maverick.library.actions.review.CommandRunner") as mock_runner_class,
+            patch(
+                "maverick.library.actions.review.AsyncGitRepository"
+            ) as mock_git_repo_class,
         ):
+            mock_runner = AsyncMock()
+            mock_runner.run = AsyncMock(side_effect=mock_run)
+            mock_runner_class.return_value = mock_runner
+
+            mock_git_repo_class.return_value = mock_repo
+
             result = await gather_pr_context(123, "main")
 
             # Result is a ReviewContextResult dataclass

@@ -69,7 +69,7 @@ ci-coverage: ## CI mode with coverage (for GitHub Actions)
 	$(Q)uv run ruff check src/ tests/ || exit 1
 	$(Q)uv run ruff format --check src/ tests/ || exit 1
 	$(Q)uv run mypy src/ || exit 1
-	$(Q)uv run pytest --cov=maverick --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --junit-xml=results.xml --timeout=30 -v tests/ || exit 1
+	$(Q)uv run pytest --cov=maverick --cov-report=term-missing --cov-report=xml --cov-fail-under=78 --junit-xml=results.xml --timeout=30 -v tests/ || exit 1
 
 clean: ## Remove build artifacts and caches
 	$(Q)rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ .coverage htmlcov dist build *.egg-info

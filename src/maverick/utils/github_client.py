@@ -277,6 +277,44 @@ class GitHubClient:
                 return
         await asyncio.to_thread(_add_comment)
 
+    async def create_issue(
+        self,
+        repo_name: str,
+        title: str,
+        body: str,
+        labels: Sequence[str] | None = None,
+    ) -> Issue:
+        """Create a new issue in a repository.
+
+        Args:
+            repo_name: Full repository name (owner/repo).
+            title: Issue title.
+            body: Issue body/description (markdown supported).
+            labels: Optional list of label names to apply.
+
+        Returns:
+            Created Issue object.
+
+        Raises:
+            GitHubError: On API errors.
+        """
+
+        def _create_issue() -> Issue:
+            try:
+                repo = self._get_repo(repo_name)
+                return repo.create_issue(
+                    title=title,
+                    body=body,
+                    labels=list(labels) if labels else [],
+                )
+            except GithubException as e:
+                raise GitHubError(f"Failed to create issue: {e}") from e
+
+        if self._rate_limiter is not None:
+            async with self._rate_limiter:
+                return await asyncio.to_thread(_create_issue)
+        return await asyncio.to_thread(_create_issue)
+
     # =========================================================================
     # Pull Request Operations
     # =========================================================================

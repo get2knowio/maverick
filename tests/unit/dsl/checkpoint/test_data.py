@@ -81,3 +81,16 @@ class TestCheckpointData:
         assert len(hash2) == 16
         assert all(c in "0123456789abcdef" for c in hash1)
         assert all(c in "0123456789abcdef" for c in hash2)
+
+    def test_compute_inputs_hash_non_serializable_raises(self) -> None:
+        """Non-JSON-serializable inputs should raise TypeError (lines 33-34)."""
+        import pytest
+
+        # Create inputs with a non-JSON-serializable object
+        class CustomObject:
+            pass
+
+        inputs = {"key": "value", "obj": CustomObject()}
+
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            compute_inputs_hash(inputs)
