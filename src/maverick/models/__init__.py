@@ -108,53 +108,35 @@ except ImportError as e:
         raise  # Re-raise unexpected import errors
 
 try:
-    from maverick.models.review_registry import (
-        FindingCategory,
-        FindingStatus,
-        FixAttempt,
-        IssueRegistry,
-        Severity,
-        TrackedFinding,
+    from maverick.models.review_models import (
+        Finding,
+        FindingGroup,
+        FindingTracker,
+        FixOutcome,
     )
-    from maverick.models.review_registry import (
-        ReviewFinding as RegistryReviewFinding,
+    from maverick.models.review_models import (
+        FixAttempt as SimpleFixAttempt,
     )
-
-    __all__.extend(
-        [
-            "Severity",
-            "FindingStatus",
-            "FindingCategory",
-            "RegistryReviewFinding",
-            "FixAttempt",
-            "TrackedFinding",
-            "IssueRegistry",
-        ]
+    from maverick.models.review_models import (
+        ReviewResult as SimpleReviewResult,
     )
-except ImportError as e:
-    if "review_registry" in str(e).lower():
-        logger.debug("Review registry models not yet available")
-    else:
-        raise  # Re-raise unexpected import errors
-
-try:
-    from maverick.models.fixer_io import (
-        FixerInput,
-        FixerInputItem,
-        FixerOutput,
-        FixerOutputItem,
+    from maverick.models.review_models import (
+        TrackedFinding as SimpleTrackedFinding,
     )
 
     __all__.extend(
         [
-            "FixerInputItem",
-            "FixerInput",
-            "FixerOutputItem",
-            "FixerOutput",
+            "Finding",
+            "FindingGroup",
+            "SimpleReviewResult",
+            "FixOutcome",
+            "SimpleFixAttempt",
+            "SimpleTrackedFinding",
+            "FindingTracker",
         ]
     )
 except ImportError as e:
-    if "fixer_io" in str(e).lower():
-        logger.debug("Fixer I/O models not yet available")
+    if "review_models" in str(e).lower():
+        logger.debug("Simple review models not yet available")
     else:
         raise  # Re-raise unexpected import errors

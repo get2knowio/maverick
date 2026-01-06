@@ -10,8 +10,8 @@ Registration Functions:
 Registered Agents:
     implementer: ImplementerAgent - Executes tasks from task files
     code_reviewer: CodeReviewerAgent - Performs general code review
-    spec_reviewer: SpecReviewerAgent - Reviews for spec compliance
-    technical_reviewer: TechnicalReviewerAgent - Reviews for technical quality
+    unified_reviewer: UnifiedReviewerAgent - Reviews code with parallel subagents
+    simple_fixer: SimpleFixerAgent - Fixes review findings
     issue_fixer: IssueFixerAgent - Fixes GitHub issues
     validation_fixer: FixerAgent - Applies validation fixes
 """
@@ -28,7 +28,7 @@ from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.fixer import FixerAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.issue_fixer import IssueFixerAgent
-from maverick.agents.reviewers import SpecReviewerAgent, TechnicalReviewerAgent
+from maverick.agents.reviewers import SimpleFixerAgent, UnifiedReviewerAgent
 
 __all__ = [
     "register_all_agents",
@@ -44,8 +44,8 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     Registered agents:
     - implementer: ImplementerAgent (executes tasks from task files)
     - code_reviewer: CodeReviewerAgent (performs general code review)
-    - spec_reviewer: SpecReviewerAgent (reviews for spec compliance)
-    - technical_reviewer: TechnicalReviewerAgent (reviews for technical quality)
+    - unified_reviewer: UnifiedReviewerAgent (reviews code with parallel subagents)
+    - simple_fixer: SimpleFixerAgent (fixes review findings)
     - issue_fixer: IssueFixerAgent (fixes GitHub issues)
     - validation_fixer: FixerAgent (applies validation fixes)
 
@@ -69,9 +69,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     # Register code reviewer agent (legacy, still available)
     registry.agents.register("code_reviewer", CodeReviewerAgent)
 
-    # Register specialized review agents (used in review.yaml)
-    registry.agents.register("spec_reviewer", SpecReviewerAgent)
-    registry.agents.register("technical_reviewer", TechnicalReviewerAgent)
+    # Register unified review agents (used in review.yaml)
+    registry.agents.register("unified_reviewer", UnifiedReviewerAgent)
+    registry.agents.register("simple_fixer", SimpleFixerAgent)
 
     # Register issue fixer agent (used in quick_fix.yaml, cleanup.yaml)
     registry.agents.register("issue_fixer", IssueFixerAgent)
