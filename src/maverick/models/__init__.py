@@ -158,3 +158,37 @@ except ImportError as e:
         logger.debug("Fixer I/O models not yet available")
     else:
         raise  # Re-raise unexpected import errors
+
+try:
+    from maverick.models.review_models import (
+        Finding,
+        FindingGroup,
+        FindingTracker,
+        FixOutcome,
+    )
+    from maverick.models.review_models import (
+        FixAttempt as SimpleFixAttempt,
+    )
+    from maverick.models.review_models import (
+        ReviewResult as SimpleReviewResult,
+    )
+    from maverick.models.review_models import (
+        TrackedFinding as SimpleTrackedFinding,
+    )
+
+    __all__.extend(
+        [
+            "Finding",
+            "FindingGroup",
+            "SimpleReviewResult",
+            "FixOutcome",
+            "SimpleFixAttempt",
+            "SimpleTrackedFinding",
+            "FindingTracker",
+        ]
+    )
+except ImportError as e:
+    if "review_models" in str(e).lower():
+        logger.debug("Simple review models not yet available")
+    else:
+        raise  # Re-raise unexpected import errors
