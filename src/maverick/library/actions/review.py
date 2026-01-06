@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import re
@@ -25,12 +26,97 @@ from maverick.runners.command import CommandRunner
 
 logger = get_logger(__name__)
 
+# Default patterns to exclude from review scope
+# These are typically tooling/spec files, not implementation code
+DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
+    "specs/**",
+    ".specify/**",
+    ".claude/**",
+    ".github/**",
+)
+
+
+def _matches_any_pattern(path: str, patterns: tuple[str, ...]) -> bool:
+    """Check if a path matches any of the given glob patterns.
+
+    Args:
+        path: File path to check
+        patterns: Tuple of glob patterns (e.g., "specs/**", "*.md")
+
+    Returns:
+        True if path matches any pattern
+    """
+    for pattern in patterns:
+        # Handle ** patterns by checking if path starts with the prefix
+        if "**" in pattern:
+            prefix = pattern.split("**")[0].rstrip("/")
+            if path.startswith(prefix) or path.startswith(prefix + "/"):
+                return True
+        # Standard fnmatch for other patterns
+        elif fnmatch.fnmatch(path, pattern):
+            return True
+    return False
+
+
+def _filter_changed_files(
+    files: tuple[str, ...],
+    exclude_patterns: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Filter changed files list to exclude matching patterns.
+
+    Args:
+        files: Tuple of file paths
+        exclude_patterns: Patterns to exclude
+
+    Returns:
+        Filtered tuple of file paths
+    """
+    if not exclude_patterns:
+        return files
+    return tuple(f for f in files if not _matches_any_pattern(f, exclude_patterns))
+
+
+def _filter_diff(diff: str, exclude_patterns: tuple[str, ...]) -> str:
+    """Filter diff to remove hunks for excluded files.
+
+    Args:
+        diff: Full diff string
+        exclude_patterns: Patterns to exclude
+
+    Returns:
+        Filtered diff string
+    """
+    if not exclude_patterns or not diff:
+        return diff
+
+    # Split diff into file sections (each starts with "diff --git")
+    sections = re.split(r"(?=^diff --git )", diff, flags=re.MULTILINE)
+
+    filtered_sections = []
+    for section in sections:
+        if not section.strip():
+            continue
+
+        # Extract the file path from the diff header
+        # Format: "diff --git a/path/to/file b/path/to/file"
+        match = re.match(r"diff --git a/(.+?) b/", section)
+        if match:
+            file_path = match.group(1)
+            if _matches_any_pattern(file_path, exclude_patterns):
+                logger.debug(f"Excluding from diff: {file_path}")
+                continue
+
+        filtered_sections.append(section)
+
+    return "".join(filtered_sections)
+
 
 async def gather_pr_context(
     pr_number: int | None,
     base_branch: str,
     include_spec_files: bool = False,
     spec_dir: str | None = None,
+    exclude_patterns: tuple[str, ...] | list[str] | None = None,
 ) -> ReviewContextResult:
     """Gather PR context for code review.
 
@@ -39,10 +125,18 @@ async def gather_pr_context(
         base_branch: Base branch for comparison
         include_spec_files: Whether to include spec files in context
         spec_dir: Directory containing spec files (auto-detect if None)
+        exclude_patterns: Glob patterns for files to exclude from review scope.
+            Defaults to DEFAULT_EXCLUDE_PATTERNS (specs/**, .specify/**, etc.)
+            Pass empty tuple to include all files.
 
     Returns:
         ReviewContextResult with PR metadata, diff, and optionally spec files
     """
+    # Apply default exclusions if not specified
+    if exclude_patterns is None:
+        exclude_patterns = DEFAULT_EXCLUDE_PATTERNS
+    elif isinstance(exclude_patterns, list):
+        exclude_patterns = tuple(exclude_patterns)
     try:
         # Initialize git repository
         repo = AsyncGitRepository()
@@ -117,11 +211,26 @@ async def gather_pr_context(
                 )
 
         # Get diff against base branch using three-dot syntax (base...HEAD)
-        diff = await repo.diff(base=f"{base_branch}...HEAD")
+        raw_diff = await repo.diff(base=f"{base_branch}...HEAD")
 
         # Get changed files using three-dot syntax
         changed_files_list = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
-        changed_files = tuple(changed_files_list)
+        raw_changed_files = tuple(changed_files_list)
+
+        # Apply exclusion filters to scope the review
+        if exclude_patterns:
+            changed_files = _filter_changed_files(raw_changed_files, exclude_patterns)
+            diff = _filter_diff(raw_diff, exclude_patterns)
+            excluded_count = len(raw_changed_files) - len(changed_files)
+            if excluded_count > 0:
+                logger.info(
+                    "Excluded %d files from review scope",
+                    excluded_count,
+                    patterns=exclude_patterns,
+                )
+        else:
+            changed_files = raw_changed_files
+            diff = raw_diff
 
         # Get commit messages since base branch (two-dot syntax)
         commit_messages = await repo.commit_messages_since(ref=base_branch)

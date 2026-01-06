@@ -49,6 +49,11 @@
 #   - skip_if_approved (boolean, optional, default: true)
 #     Skip fix loop if initial review recommends "approve".
 #
+#   - exclude_patterns (array, optional)
+#     Glob patterns for files to exclude from review scope.
+#     Default: ["specs/**", ".specify/**", ".claude/**", ".github/**"]
+#     These patterns exclude tooling/spec files from code review.
+#
 # Output:
 #   ReviewAndFixResult with:
 #   - review_report: Final consolidated review report
@@ -85,6 +90,15 @@ inputs:
     default: true
     description: Skip fix loop if initial review recommends approve
 
+  exclude_patterns:
+    type: array
+    required: false
+    default: ["specs/**", ".specify/**", ".claude/**", ".github/**"]
+    description: |
+      Glob patterns for files to exclude from review scope.
+      Default patterns exclude tooling and spec files that shouldn't be
+      modified by the fixer agent. Pass empty array [] to include all files.
+
 steps:
   # ===========================================================================
   # Step 1: Gather PR Context
@@ -98,6 +112,7 @@ steps:
       pr_number: null
       base_branch: ${{ inputs.base_branch }}
       include_spec_files: true
+      exclude_patterns: ${{ inputs.exclude_patterns }}
     metadata:
       progress:
         stage: "gathering"
