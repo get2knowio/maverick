@@ -2,8 +2,10 @@
 
 This module exports all screen classes for the Maverick TUI application.
 
-NOTE: FlyScreen and RefuelScreen have been removed. Workflows are now
-executed through the unified DSL-based workflow system via WorkflowScreen.
+The workflow system uses three screens:
+- WorkflowBrowserScreen: Discover and select workflows
+- WorkflowInputScreen: Configure workflow inputs
+- WorkflowExecutionScreen: Execute and monitor workflow progress
 """
 
 from __future__ import annotations
@@ -15,6 +17,9 @@ from maverick.tui.screens.home import HomeScreen
 from maverick.tui.screens.review import ReviewScreen
 from maverick.tui.screens.settings import SettingsScreen
 from maverick.tui.screens.workflow import WorkflowScreen
+from maverick.tui.screens.workflow_browser import WorkflowBrowserScreen
+from maverick.tui.screens.workflow_execution import WorkflowExecutionScreen
+from maverick.tui.screens.workflow_input import WorkflowInputScreen
 
 __all__ = [
     "MaverickScreen",
@@ -24,4 +29,7 @@ __all__ = [
     "ReviewScreen",
     "SettingsScreen",
     "WorkflowScreen",
+    "WorkflowBrowserScreen",
+    "WorkflowExecutionScreen",
+    "WorkflowInputScreen",
 ]

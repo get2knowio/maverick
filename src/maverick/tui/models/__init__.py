@@ -41,9 +41,7 @@ from maverick.tui.models.navigation import (
 )
 from maverick.tui.models.screen_state import (
     ConfigScreenState,
-    FlyScreenState,
     HomeScreenState,
-    RefuelScreenState,
     ReviewScreenActionState,
     ReviewScreenState,
     ScreenState,
@@ -125,13 +123,11 @@ __all__ = [
     # Screen state models
     "ConfigOption",
     "ConfigScreenState",
-    "FlyScreenState",
     "HomeScreenState",
     "LogEntry",
     "LogPanelState",
     "NavigationItem",
     "RecentWorkflowEntry",
-    "RefuelScreenState",
     "ReviewIssue",
     "ReviewScreenActionState",
     "ReviewScreenState",

@@ -29,11 +29,9 @@ class HomeScreen(MaverickScreen):
 
     BINDINGS = [
         Binding("enter", "select_workflow", "Select", show=True),
-        Binding("f", "navigate_fly", "Fly", show=True),
-        Binding("r", "navigate_refuel", "Refuel", show=True),
+        Binding("w", "start_workflow", "Workflows", show=True),
         Binding("s", "navigate_settings", "Settings", show=True),
         Binding("shift+r", "refresh", "Refresh", show=True),
-        Binding("w", "start_workflow", "Start Workflow", show=True),
         Binding("h", "view_history_entry", "View History", show=False),
         Binding("j", "move_down", "Down", show=False),
         Binding("k", "move_up", "Up", show=False),
@@ -85,12 +83,10 @@ class HomeScreen(MaverickScreen):
         workflow_list.action_confirm_selection()
 
     def action_start_workflow(self) -> None:
-        """Start a new workflow."""
-        from maverick.tui.screens.workflow import WorkflowScreen
+        """Navigate to workflow browser to select and run a workflow."""
+        from maverick.tui.screens.workflow_browser import WorkflowBrowserScreen
 
-        self.app.push_screen(
-            WorkflowScreen(workflow_name="New Workflow", branch_name="main")
-        )
+        self.app.push_screen(WorkflowBrowserScreen())
 
     def action_refresh(self) -> None:
         """Refresh recent workflows list."""
@@ -187,36 +183,6 @@ class HomeScreen(MaverickScreen):
         """
         workflow_list = self.query_one(WorkflowList)
         workflow_list.select(index)
-
-    def action_navigate_fly(self) -> None:
-        """Navigate to FlyScreen.
-
-        Bound to 'f' key. Starts a new Fly workflow by navigating to the
-        FlyScreen where the user can configure and launch the workflow.
-        """
-        try:
-            self.navigate_to("fly")
-        except (ImportError, ModuleNotFoundError):
-            # FlyScreen not yet implemented
-            self.show_error(
-                "FlyScreen not available",
-                details="The Fly workflow screen has not been implemented yet.",
-            )
-
-    def action_navigate_refuel(self) -> None:
-        """Navigate to RefuelScreen.
-
-        Bound to 'r' key. Starts a new Refuel workflow by navigating to the
-        RefuelScreen where the user can select and process tech debt issues.
-        """
-        try:
-            self.navigate_to("refuel")
-        except (ImportError, ModuleNotFoundError):
-            # RefuelScreen not yet implemented
-            self.show_error(
-                "RefuelScreen not available",
-                details="The Refuel workflow screen has not been implemented yet.",
-            )
 
     def action_navigate_settings(self) -> None:
         """Navigate to SettingsScreen.

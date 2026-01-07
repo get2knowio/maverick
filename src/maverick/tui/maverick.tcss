@@ -964,17 +964,153 @@ SelectField {
     margin-bottom: 1;
 }
 
-/* Fly Screen */
-FlyScreen .form-container {
-    height: auto;
-    width: 100%;
-    max-width: 80;
+/* Workflow Browser Screen */
+WorkflowBrowserScreen {
+    layout: vertical;
+    padding: 1 2;
 }
 
-/* Refuel Screen */
-RefuelScreen .issue-list-container {
+WorkflowBrowserScreen #browser-title {
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+WorkflowBrowserScreen #browser-help {
+    margin-bottom: 1;
+}
+
+WorkflowBrowserScreen #search-input {
+    margin-bottom: 1;
+}
+
+WorkflowBrowserScreen #source-filter-label {
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+WorkflowBrowserScreen #workflow-table-container {
+    height: 1fr;
+    border: solid $border;
+}
+
+WorkflowBrowserScreen #workflow-table {
+    height: 100%;
+}
+
+WorkflowBrowserScreen #workflow-count {
+    margin-top: 1;
+    text-align: right;
+}
+
+/* Workflow Input Screen */
+WorkflowInputScreen {
+    layout: vertical;
+    padding: 1 2;
+}
+
+WorkflowInputScreen #input-title {
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+WorkflowInputScreen #input-description {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+WorkflowInputScreen #form-container {
     height: 1fr;
     overflow-y: auto;
+    border: solid $border;
+    padding: 1;
+}
+
+WorkflowInputScreen .input-field {
+    margin-bottom: 1;
+}
+
+WorkflowInputScreen .field-label {
+    text-style: bold;
+}
+
+WorkflowInputScreen .field-description {
+    color: $text-muted;
+    margin-bottom: 0;
+}
+
+WorkflowInputScreen .field-error {
+    color: $error;
+}
+
+WorkflowInputScreen .required-marker {
+    color: $error;
+}
+
+WorkflowInputScreen #button-bar {
+    height: auto;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+WorkflowInputScreen #button-bar Button {
+    margin-right: 1;
+}
+
+/* Workflow Execution Screen */
+WorkflowExecutionScreen {
+    layout: vertical;
+    padding: 1 2;
+}
+
+WorkflowExecutionScreen #execution-title {
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+WorkflowExecutionScreen #execution-description {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+WorkflowExecutionScreen #progress-bar {
+    height: auto;
+    margin-bottom: 1;
+}
+
+WorkflowExecutionScreen #step-list {
+    height: 1fr;
+    overflow-y: auto;
+    border: solid $border;
+    padding: 1;
+}
+
+WorkflowExecutionScreen .step-item {
+    height: auto;
+    margin-bottom: 0;
+}
+
+WorkflowExecutionScreen .step-running {
+    color: $warning;
+}
+
+WorkflowExecutionScreen .step-completed {
+    color: $success;
+}
+
+WorkflowExecutionScreen .step-failed {
+    color: $error;
+}
+
+WorkflowExecutionScreen #status-bar {
+    height: auto;
+    margin-top: 1;
+    padding: 1;
+    border: solid $border;
+}
+
+WorkflowExecutionScreen #error-display {
+    color: $error;
+    margin-top: 1;
 }
 
 /* Review Screen */
@@ -1220,74 +1356,3 @@ ConnectivityIndicator .status-text {
     text-style: bold;
 }
 
-/* === RefuelScreen === */
-RefuelScreen {
-    layout: vertical;
-}
-
-#title {
-    height: 3;
-    content-align: center middle;
-    background: $surface;
-    border-bottom: solid $primary;
-    text-style: bold;
-}
-
-#config-section {
-    height: auto;
-    padding: 1 2;
-    background: $surface;
-    border-bottom: solid $primary;
-}
-
-#config-section .label {
-    margin-top: 1;
-    color: $text-muted;
-}
-
-#label-input {
-    margin-bottom: 1;
-}
-
-#fetch-btn {
-    margin-bottom: 1;
-}
-
-#issue-section {
-    height: 1fr;
-    padding: 1 2;
-}
-
-#issue-list {
-    height: 1fr;
-    margin-top: 1;
-}
-
-#result-section {
-    height: auto;
-    max-height: 15;
-    padding: 1 2;
-    border-top: solid $primary;
-}
-
-#results {
-    height: auto;
-}
-
-#buttons {
-    height: 3;
-    align: center middle;
-    background: $surface;
-    border-top: solid $primary;
-}
-
-#buttons Button {
-    margin: 0 1;
-}
-
-.status-message {
-    height: auto;
-    padding: 1;
-    text-align: center;
-    color: $text-muted;
-}

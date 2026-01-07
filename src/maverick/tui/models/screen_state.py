@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
 from maverick.tui.models.enums import (
     IssueSeverity,
-    ProcessingMode,
     ReviewAction,
     StageStatus,
 )
 from maverick.tui.models.findings import FixResult, ReviewIssue
-from maverick.tui.models.github import GitHubIssue, IssueSelectionItem
 from maverick.tui.models.settings import ConfigOption, SettingsSection, SettingValue
 from maverick.tui.models.workflow import (
-    BranchValidation,
     RecentWorkflowEntry,
-    RefuelResultItem,
     StageState,
 )
 
@@ -116,91 +111,6 @@ class ConfigScreenState(ScreenState):
         if 0 <= self.selected_option_index < len(self.options):
             return self.options[self.selected_option_index]
         return None
-
-
-@dataclass(frozen=True, slots=True)
-class FlyScreenState:
-    """State for the FlyScreen workflow launcher.
-
-    Attributes:
-        branch_name: Current branch name input value.
-        branch_validation: Validation result for branch name.
-        task_file: Optional path to task file.
-        is_starting: Whether workflow is being started.
-        error_message: Error to display (if any).
-    """
-
-    branch_name: str = ""
-    branch_validation: BranchValidation = field(default_factory=BranchValidation.empty)
-    task_file: Path | None = None
-    is_starting: bool = False
-    error_message: str | None = None
-
-    @property
-    def can_start(self) -> bool:
-        """Whether the Start button should be enabled."""
-        return self.branch_validation.is_valid and not self.is_starting
-
-    @property
-    def start_button_label(self) -> str:
-        """Label for the start button."""
-        if self.is_starting:
-            return "Starting..."
-        return "Start"
-
-
-@dataclass(frozen=True, slots=True)
-class RefuelScreenState:
-    """State for the RefuelScreen issue processor.
-
-    Attributes:
-        label_filter: Current label filter input.
-        issue_limit: Maximum issues to process (1-10).
-        processing_mode: Parallel or sequential.
-        issues: Fetched issues with selection state.
-        focused_index: Currently focused issue index.
-        is_fetching: Whether issues are being fetched.
-        is_processing: Whether workflow is running.
-        results: Processing results (after completion).
-        error_message: Error to display (if any).
-    """
-
-    label_filter: str = ""
-    issue_limit: int = 3
-    processing_mode: ProcessingMode = ProcessingMode.PARALLEL
-    issues: tuple[IssueSelectionItem, ...] = ()
-    focused_index: int = 0
-    is_fetching: bool = False
-    is_processing: bool = False
-    results: tuple[RefuelResultItem, ...] | None = None
-    error_message: str | None = None
-
-    @property
-    def selected_issues(self) -> tuple[GitHubIssue, ...]:
-        """Get all selected issues."""
-        return tuple(item.issue for item in self.issues if item.selected)
-
-    @property
-    def selected_count(self) -> int:
-        """Count of selected issues."""
-        return sum(1 for item in self.issues if item.selected)
-
-    @property
-    def can_start(self) -> bool:
-        """Whether the Start button should be enabled."""
-        return (
-            self.selected_count > 0 and not self.is_processing and not self.is_fetching
-        )
-
-    @property
-    def is_empty(self) -> bool:
-        """Check if no issues are loaded."""
-        return len(self.issues) == 0 and not self.is_fetching
-
-    @property
-    def has_results(self) -> bool:
-        """Check if results are available."""
-        return self.results is not None
 
 
 @dataclass(frozen=True, slots=True)

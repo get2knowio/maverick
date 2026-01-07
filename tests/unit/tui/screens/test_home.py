@@ -145,23 +145,30 @@ class TestHomeScreenActions:
         mock_workflow_list.action_confirm_selection.assert_called_once()
 
     def test_action_start_workflow(self) -> None:
-        """Test action_start_workflow pushes WorkflowScreen."""
+        """Test action_start_workflow pushes WorkflowBrowserScreen."""
         screen = HomeScreen()
         mock_app = MagicMock()
-        mock_workflow_screen = MagicMock()
+        mock_browser_screen_class = MagicMock()
+        mock_browser_screen_instance = MagicMock()
+        mock_browser_screen_class.return_value = mock_browser_screen_instance
+
+        # Create a mock module for workflow_browser
+        mock_module = MagicMock()
+        mock_module.WorkflowBrowserScreen = mock_browser_screen_class
 
         with (
             patch.object(
                 type(screen), "app", new_callable=PropertyMock, return_value=mock_app
             ),
-            patch(
-                "maverick.tui.screens.workflow.WorkflowScreen",
-                return_value=mock_workflow_screen,
+            patch.dict(
+                "sys.modules",
+                {"maverick.tui.screens.workflow_browser": mock_module},
             ),
         ):
             screen.action_start_workflow()
 
-        mock_app.push_screen.assert_called_once_with(mock_workflow_screen)
+        mock_browser_screen_class.assert_called_once()
+        mock_app.push_screen.assert_called_once_with(mock_browser_screen_instance)
 
     def test_action_refresh(self) -> None:
         """Test action_refresh calls refresh_recent_workflows."""
