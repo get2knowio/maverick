@@ -418,18 +418,18 @@ class TestRunFixRetryLoopRecordsAttempts:
         """Uses default description when changes_made not provided."""
         validation_result = create_validation_result(
             success=False,
-            stages=[
-                {
-                    "stage": "lint",
-                    "success": False,
-                    "error": "E501: line too long",
+            stage_results={
+                "lint": {
+                    "passed": False,
+                    "output": "",
+                    "errors": [{"message": "E501: line too long"}],
                 },
-                {
-                    "stage": "test",
-                    "success": False,
-                    "error": "AssertionError",
+                "test": {
+                    "passed": False,
+                    "output": "",
+                    "errors": [{"message": "AssertionError"}],
                 },
-            ],
+            },
         )
 
         with (

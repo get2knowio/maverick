@@ -35,21 +35,25 @@ class TestBuildFixPrompt:
         """Prompt includes validation errors."""
         result = create_validation_result(
             success=False,
-            stages=[
-                {"stage": "lint", "success": False, "error": "E501: line too long"},
-                {"stage": "test", "success": True, "error": None},
-            ],
+            stage_results={
+                "lint": {
+                    "passed": False,
+                    "output": "",
+                    "errors": [{"message": "E501: line too long"}],
+                },
+                "test": {"passed": True, "output": "", "errors": []},
+            },
         )
         prompt = _build_fix_prompt(result, ["lint", "test"], attempt_number=1)
 
         assert "lint" in prompt
         assert "E501: line too long" in prompt
         # Passing stages shouldn't have errors in prompt
-        assert "test:" not in prompt or "success" not in prompt.lower()
+        assert "test:" not in prompt or "passed" not in prompt.lower()
 
     def test_build_fix_prompt_handles_empty_stages(self) -> None:
         """Handles validation result with no stage errors."""
-        result = {"success": False, "stages": []}
+        result = {"success": False, "stages": [], "stage_results": {}}
         prompt = _build_fix_prompt(result, ["lint"], attempt_number=1)
 
         assert "No specific errors provided" in prompt

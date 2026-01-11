@@ -367,11 +367,19 @@ def _build_fix_prompt(
         Formatted prompt string for fixer agent
     """
     errors = []
-    stage_results = validation_result.get("stages", [])
-    for stage_result in stage_results:
-        if not stage_result.get("success", True):
-            stage_name = stage_result.get("stage", "unknown")
-            error_msg = stage_result.get("error", "unknown error")
+    stage_results = validation_result.get("stage_results", {})
+    for stage_name, stage_result in stage_results.items():
+        if not stage_result.get("passed", True):
+            # Get error details from output or errors list
+            error_output = stage_result.get("output", "")
+            error_list = stage_result.get("errors", [])
+            if error_list:
+                error_msgs = [e.get("message", str(e)) for e in error_list]
+                error_msg = "; ".join(error_msgs)
+            elif error_output:
+                error_msg = error_output[:500]  # Truncate long output
+            else:
+                error_msg = "unknown error"
             errors.append(f"- {stage_name}: {error_msg}")
 
     errors_text = "\n".join(errors) if errors else "No specific errors provided"
@@ -397,9 +405,11 @@ def _summarize_errors(validation_result: dict[str, Any]) -> str:
     Returns:
         Brief summary of errors
     """
-    stage_results = validation_result.get("stages", [])
+    stage_results = validation_result.get("stage_results", {})
     failed_stages = [
-        s.get("stage", "unknown") for s in stage_results if not s.get("success", True)
+        stage_name
+        for stage_name, result in stage_results.items()
+        if not result.get("passed", True)
     ]
     if failed_stages:
         return f"{len(failed_stages)} stage(s): {', '.join(failed_stages)}"

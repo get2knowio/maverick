@@ -10,31 +10,31 @@ from typing import Any
 
 def create_validation_result(
     success: bool,
-    stages: list[dict[str, Any]] | None = None,
+    stage_results: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Create a mock validation result for testing.
 
     Args:
         success: Whether validation passed
-        stages: Optional list of stage results
+        stage_results: Optional dict mapping stage name to result dict
 
     Returns:
-        Validation result dict
+        Validation result dict matching ValidationResult.to_dict() format
     """
-    if stages is None:
-        stages = [
-            {
-                "stage": "lint",
-                "success": success,
+    if stage_results is None:
+        stage_results = {
+            "lint": {
+                "passed": success,
                 "output": "" if success else "E501: line too long",
                 "duration_ms": 100,
-                "error": None if success else "E501: line too long",
+                "errors": [] if success else [{"message": "E501: line too long"}],
             }
-        ]
+        }
     return {
         "success": success,
-        "stages": stages,
-        "total_duration_ms": 100,
+        "stages": list(stage_results.keys()),
+        "passed": success,
+        "stage_results": stage_results,
     }
 
 

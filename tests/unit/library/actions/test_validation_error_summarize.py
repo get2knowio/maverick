@@ -17,11 +17,11 @@ class TestSummarizeErrors:
         """Summarizes failed stages."""
         result = create_validation_result(
             success=False,
-            stages=[
-                {"stage": "lint", "success": False},
-                {"stage": "test", "success": True},
-                {"stage": "typecheck", "success": False},
-            ],
+            stage_results={
+                "lint": {"passed": False, "output": "error", "errors": []},
+                "test": {"passed": True, "output": "", "errors": []},
+                "typecheck": {"passed": False, "output": "error", "errors": []},
+            },
         )
         summary = _summarize_errors(result)
 
@@ -32,18 +32,21 @@ class TestSummarizeErrors:
 
     def test_summarize_errors_handles_no_failures(self) -> None:
         """Handles case with no failed stages."""
-        result = {"success": True, "stages": []}
+        result = {"success": True, "stages": [], "stage_results": {}}
         summary = _summarize_errors(result)
 
         assert "validation failures" in summary
 
-    def test_summarize_errors_handles_missing_stage_name(self) -> None:
-        """Handles stages without name field."""
+    def test_summarize_errors_handles_all_passing(self) -> None:
+        """Handles case where all stages pass."""
         result = {
-            "success": False,
-            "stages": [{"success": False}],  # No "stage" field
+            "success": True,
+            "stages": ["lint", "test"],
+            "stage_results": {
+                "lint": {"passed": True, "output": "", "errors": []},
+                "test": {"passed": True, "output": "", "errors": []},
+            },
         }
         summary = _summarize_errors(result)
 
-        assert "1 stage(s)" in summary
-        assert "unknown" in summary
+        assert "validation failures" in summary

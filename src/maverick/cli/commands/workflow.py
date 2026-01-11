@@ -1213,7 +1213,25 @@ async def _execute_workflow_run(
             click.echo("\nNo actions performed (dry run mode).")
             raise SystemExit(ExitCode.SUCCESS)
 
-        # Execute workflow using WorkflowFileExecutor
+        # Check if TUI mode should be used
+        cli_ctx = ctx.obj.get("cli_ctx")
+        use_tui = cli_ctx.use_tui if cli_ctx else False
+
+        if use_tui:
+            # Execute in TUI mode
+            from maverick.tui.workflow_runner import run_workflow_in_tui
+
+            exit_code = run_workflow_in_tui(
+                workflow_file=workflow_file,
+                workflow_name=workflow_obj.name,
+                inputs=input_dict,
+                resume=resume,
+                validate=not no_validate,
+                only_step=only_step_index,
+            )
+            raise SystemExit(exit_code)
+
+        # Execute workflow using WorkflowFileExecutor (CLI mode)
         from maverick.dsl.events import (
             StepCompleted,
             StepStarted,
