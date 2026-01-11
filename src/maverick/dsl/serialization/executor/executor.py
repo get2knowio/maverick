@@ -122,6 +122,8 @@ class WorkflowFileExecutor:
         self._validate_semantic = validate_semantic
         self._result: WorkflowResult | None = None
         self._cancelled = False
+        # Resume state for nested checkpoint handling
+        self._checkpoint_location: checkpointing.CheckpointLocation | None = None
 
     async def execute(
         self,
@@ -227,12 +229,16 @@ class WorkflowFileExecutor:
         (
             checkpoint_data,
             resume_after_step,
+            checkpoint_location,
         ) = await checkpointing.load_checkpoint_if_resuming(
             workflow, inputs, resume_from_checkpoint, self._checkpoint_store
         )
 
         # Build execution context
         exec_context = context.create_execution_context(workflow.name, inputs)
+
+        # Store checkpoint location for nested checkpoint handling
+        self._checkpoint_location = checkpoint_location
 
         # Restore step results from checkpoint if resuming
         checkpointing.restore_context_from_checkpoint(checkpoint_data, exec_context)
@@ -254,7 +260,11 @@ class WorkflowFileExecutor:
             # Skip steps before resume checkpoint
             if not past_resume_point:
                 should_skip, past_resume_point = checkpointing.should_skip_step(
-                    step_record, resume_after_step, past_resume_point
+                    step_record,
+                    resume_after_step,
+                    past_resume_point,
+                    step_index=step_index,
+                    checkpoint_location=checkpoint_location,
                 )
                 if should_skip:
                     continue
@@ -430,6 +440,29 @@ class WorkflowFileExecutor:
         if step_type in (StepType.BRANCH, StepType.LOOP):
             # Branch and parallel steps need execute_step_fn for nested execution
             handler_kwargs["execute_step_fn"] = self._execute_step
+
+            # Pass resume info to loop handler if this step contains the checkpoint
+            if (
+                step_type == StepType.LOOP
+                and self._checkpoint_location is not None
+                and self._checkpoint_location.is_nested
+                and self._checkpoint_location.step_name == step.name
+            ):
+                handler_kwargs["resume_iteration_index"] = (
+                    self._checkpoint_location.iteration_index
+                )
+                handler_kwargs["resume_after_nested_step_index"] = (
+                    self._checkpoint_location.nested_step_index
+                )
+                logger.debug(
+                    f"Passing resume context to loop handler: "
+                    f"iteration={self._checkpoint_location.iteration_index}, "
+                    f"after_step_index={self._checkpoint_location.nested_step_index}"
+                )
+                # Clear checkpoint location after passing to handler
+                # to avoid affecting subsequent executions
+                self._checkpoint_location = None
+
         elif step_type == StepType.CHECKPOINT:
             # Checkpoint step needs checkpoint_store
             handler_kwargs["checkpoint_store"] = self._checkpoint_store
