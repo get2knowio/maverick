@@ -211,8 +211,6 @@ class TestShortcutFooterDeduplication:
 
     def test_collect_shortcuts_deduplicates_by_key(self) -> None:
         """Test _collect_shortcuts deduplicates by key."""
-        footer = ShortcutFooter()
-
         # Simulate manual collection with duplicates
         # (In real use, screen and app might have same binding)
         shortcuts = [
