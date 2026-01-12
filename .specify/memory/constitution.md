@@ -1,20 +1,23 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.4.0 → 1.5.0
+Version change: 1.5.0 → 1.6.0
 Modified principles:
-  - V. Test-First → Enhanced with "including failures that predate your change"
+  - VI. Type Safety → Added Pydantic Field description requirement
+  - IX. Hardening by Default → Added explicit tenacity requirement, prohibited manual retry loops
+  - X. Architectural Guardrails → Added Guardrail #8 for canonical third-party libraries
 Added sections:
-  - XII. Ownership & Follow-Through (new principle from CLAUDE.md/GEMINI.md Operating Standard)
+  - Appendix B: Canonical Third-Party Libraries
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
   - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
 Propagation:
-  - CLAUDE.md: ✅ Source of Operating Standard (already contains detailed rules)
-  - GEMINI.md: ✅ Source of Operating Standard (already contains detailed rules)
+  - CLAUDE.md: ✅ Source of canonical library standards (already contains detailed rules)
 Follow-up TODOs: None
+Source: Code review session 2026-01-12 - identified violations of library standards and missing
+Field descriptions that should be codified as explicit rules.
 -->
 
 # Maverick Constitution
@@ -132,6 +135,9 @@ All workflow actions MUST have a single, typed contract.
   contract: preferred is frozen dataclasses (with `to_dict()` for DSL serialization),
   or acceptable is `TypedDict` + validation at boundaries.
 - **Keep action outputs stable across versions**; treat them as public interfaces.
+- **Pydantic Field descriptions**: All required `Field(...)` declarations in Pydantic
+  models SHOULD include a `description` parameter for API documentation. This enables
+  auto-generated schemas and improves developer experience.
 
 **Rationale**: Static typing catches errors at development time, improves IDE support,
 and serves as inline documentation. Named constants prevent "magic value" bugs and
@@ -191,6 +197,9 @@ Never assume external calls will succeed on the first attempt.
   - Explicit timeouts (no infinite waits)
   - Retry logic with exponential backoff for network operations
   - Specific exception handling (no bare `except Exception`)
+- **Retry logic MUST use tenacity**: Use `@retry` decorator or `AsyncRetrying` for all
+  retry logic. Do NOT write manual `for attempt in range(retries):` loops. Tenacity
+  provides proper exponential backoff, retry statistics, and consistent behavior.
 - Validate at system boundaries (user input, external APIs) but trust internal code
 - Documentation examples MUST be treated as code—add tests that validate code snippets
   in `README.md` or `docs/quickstart.md` to ensure they remain executable
@@ -235,6 +244,17 @@ the design before proceeding.
    `asyncio.run()` internally. Prefer lazy prerequisite verification on first tool use,
    or provide an explicit async `verify_prerequisites()` API. Return concrete types;
    avoid `Any` on public APIs. (Enforces Principles I and VI)
+
+8. **Use canonical third-party libraries**: Do NOT introduce alternatives to the
+   established libraries. Specifically:
+   - **Git operations**: Use `maverick.git.GitRepository` or `AsyncGitRepository`,
+     NOT `subprocess.run("git ...")`
+   - **GitHub API**: Use `maverick.utils.github_client.GitHubClient`, NOT subprocess
+     calls to `gh` CLI (except for auth token retrieval)
+   - **Logging**: Use `maverick.logging.get_logger()`, NOT stdlib `logging.getLogger()`
+   - **Retry logic**: Use `tenacity`, NOT manual `for attempt in range()` loops
+   - **Secret detection**: Use `maverick.utils.secrets.detect_secrets`, NOT custom regex
+   (Enforces Principles VII and IX. See Appendix B for complete library list.)
 
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
@@ -417,7 +437,48 @@ MUST comply with these principles.
 - Complexity deviations MUST be justified in PR descriptions
 - Use `.specify/memory/constitution.md` as the authoritative reference
 - Architectural guardrails (Principle X) MUST be checked in code review
+- Canonical library usage (Guardrail #8, Appendix B) MUST be verified in code review
 - Module size thresholds (Principle XI) MUST be checked before merging large files
 - Ownership expectations (Principle XII) apply to all contributors including AI agents
 
-**Version**: 1.5.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2025-12-23
+**Version**: 1.6.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-12
+
+## Appendix B: Canonical Third-Party Libraries
+
+These libraries are the canonical choices for their domains. Do NOT introduce alternatives
+or custom implementations. Violations found in code review MUST be refactored.
+
+| Domain | Library | Maverick Wrapper | Do NOT Use |
+|--------|---------|------------------|------------|
+| Git Operations | GitPython | `maverick.git.GitRepository`, `AsyncGitRepository` | `subprocess.run("git ...")` |
+| GitHub API | PyGithub | `maverick.utils.github_client.GitHubClient` | `subprocess.run("gh ...")` except auth |
+| Logging | structlog | `maverick.logging.get_logger()` | stdlib `logging.getLogger()` |
+| Retry Logic | tenacity | `@retry`, `AsyncRetrying` | Manual `for attempt in range()` |
+| Secret Detection | detect-secrets | `maverick.utils.secrets.detect_secrets` | Custom regex patterns |
+
+**Usage Examples**:
+
+```python
+# Git operations - CORRECT
+from maverick.git import GitRepository, AsyncGitRepository
+repo = GitRepository(path)
+branch = repo.current_branch()
+
+# Logging - CORRECT
+from maverick.logging import get_logger
+logger = get_logger(__name__)
+logger.info("operation_started", item_id=item_id)
+
+# Retry logic - CORRECT
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
+async for attempt in AsyncRetrying(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+):
+    with attempt:
+        result = await risky_operation()
+```
+
+**Rationale**: Canonical libraries ensure consistent behavior, centralized configuration,
+proper error handling, and easier testing. Multiple implementations of the same capability
+lead to subtle bugs and maintenance burden (learned from code review 2026-01-12).
