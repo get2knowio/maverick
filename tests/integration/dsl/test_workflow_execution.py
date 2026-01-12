@@ -11,6 +11,7 @@ import asyncio
 import pytest
 
 from maverick.dsl.events import (
+    AgentStreamChunk,
     StepCompleted,
     StepStarted,
     ValidationCompleted,
@@ -455,6 +456,49 @@ class TestUserStory2AgentWorkflow:
 
         step_started = [e for e in events if isinstance(e, StepStarted)][0]
         assert step_started.step_type == StepType.AGENT
+
+    @pytest.mark.asyncio
+    async def test_agent_step_emits_streaming_events(self, registry) -> None:
+        """Test that agent step emits AgentStreamChunk events (T027/T028)."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="agent-streaming-workflow",
+            steps=[
+                AgentStepRecord(
+                    name="review",
+                    type=StepType.AGENT,
+                    agent="mock_reviewer",
+                    context={"files": ["main.py", "utils.py"]},
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+        events = []
+
+        async for event in executor.execute(workflow):
+            events.append(event)
+
+        result = executor.get_result()
+        assert result.success is True
+
+        # T028: Verify thinking indicator is emitted at agent start
+        stream_chunks = [e for e in events if isinstance(e, AgentStreamChunk)]
+        assert len(stream_chunks) >= 1, "Expected at least one AgentStreamChunk event"
+
+        # First chunk should be thinking indicator
+        thinking_chunks = [c for c in stream_chunks if c.chunk_type == "thinking"]
+        assert len(thinking_chunks) >= 1, "Expected at least one thinking chunk"
+        assert thinking_chunks[0].step_name == "review"
+        # Agent name comes from the agent instance's name property
+        assert thinking_chunks[0].agent_name == "mock-reviewer"
+
+        # T027: Verify output chunk is emitted with agent output
+        output_chunks = [c for c in stream_chunks if c.chunk_type == "output"]
+        assert len(output_chunks) >= 1, "Expected at least one output chunk"
+        assert output_chunks[0].step_name == "review"
+        # The output text should contain some representation of the agent result
+        assert output_chunks[0].text != ""
 
     @pytest.mark.asyncio
     async def test_agent_step_with_callable_context(self, registry) -> None:

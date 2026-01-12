@@ -10,6 +10,13 @@ import asyncio
 import time
 from pathlib import Path
 
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    stop_after_attempt,
+    wait_fixed,
+)
+
 from maverick.logging import get_logger
 from maverick.models.implementation import ValidationResult, ValidationStep
 
@@ -164,41 +171,57 @@ async def run_validation_pipeline(
     for step in steps:
         is_fixable = step in AUTO_FIXABLE_STEPS
         retries = max_retries if is_fixable else 1
+        result: ValidationResult | None = None
 
-        for attempt in range(retries):
-            result = await run_validation_step(step, cwd)
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(retries),
+                wait=wait_fixed(0),  # Immediate retry for auto-fix steps
+                reraise=False,
+            ):
+                with attempt:
+                    result = await run_validation_step(step, cwd)
 
-            if result.success:
+                    if result.success:
+                        results.append(result)
+                        logger.info(
+                            "Validation %s passed%s (%.1fs)",
+                            step.value,
+                            " (auto-fixed)" if result.auto_fixed else "",
+                            result.duration_ms / 1000,
+                        )
+                    elif is_fixable:
+                        # Raise to trigger retry for fixable steps
+                        logger.warning(
+                            "Validation %s failed (attempt %d/%d), retrying...",
+                            step.value,
+                            attempt.retry_state.attempt_number,
+                            retries,
+                        )
+                        raise ValueError(f"Validation {step.value} failed, retrying")
+                    else:
+                        # Non-fixable step failed, don't retry
+                        results.append(result)
+                        logger.error(
+                            "Validation %s failed: %s",
+                            step.value,
+                            result.output[:200] if result.output else "No output",
+                        )
+                        if stop_on_failure:
+                            return results
+
+        except RetryError:
+            # All retries exhausted for fixable step
+            if result:
                 results.append(result)
-                logger.info(
-                    "Validation %s passed%s (%.1fs)",
+                logger.error(
+                    "Validation %s failed after %d attempts: %s",
                     step.value,
-                    " (auto-fixed)" if result.auto_fixed else "",
-                    result.duration_ms / 1000,
-                )
-                break
-
-            # Retry fixable steps
-            if is_fixable and attempt < retries - 1:
-                logger.warning(
-                    "Validation %s failed (attempt %d/%d), retrying with auto-fix...",
-                    step.value,
-                    attempt + 1,
                     retries,
+                    result.output[:200] if result.output else "No output",
                 )
-                continue
-
-            # Final failure
-            results.append(result)
-            logger.error(
-                "Validation %s failed: %s",
-                step.value,
-                result.output[:200] if result.output else "No output",
-            )
-
-            if stop_on_failure:
-                return results
-            break
+                if stop_on_failure:
+                    return results
 
     return results
 

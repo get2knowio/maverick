@@ -1,6 +1,7 @@
 """Agent step handler for executing agent-based steps.
 
-This module handles execution of AgentStepRecord steps.
+This module handles execution of AgentStepRecord steps with streaming events.
+Implements T027 (AgentStreamChunk emission) and T028 (thinking indicator).
 """
 
 from __future__ import annotations
@@ -11,10 +12,12 @@ from typing import Any
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
+from maverick.dsl.events import AgentStreamChunk
 from maverick.dsl.serialization.executor import context as context_module
 from maverick.dsl.serialization.executor.context_resolution import (
     resolve_context_builder,
 )
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import AgentStepRecord
 from maverick.logging import get_logger
@@ -29,8 +32,12 @@ async def execute_agent_step(
     context: WorkflowContext,
     registry: ComponentRegistry,
     config: Any = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
-    """Execute an agent step.
+    """Execute an agent step with streaming event emission.
+
+    Implements T027 (AgentStreamChunk emission during execution) and
+    T028 (thinking indicator at agent start).
 
     Args:
         step: AgentStepRecord containing agent reference and context.
@@ -40,11 +47,16 @@ async def execute_agent_step(
         config: Optional configuration (unused).
 
     Returns:
-        Agent execution result.
+        Dictionary containing:
+        - result: Agent execution result
+        - events: List of AgentStreamChunk events emitted during execution
 
     Raises:
         ReferenceResolutionError: If agent not found in registry.
     """
+    # Collect streaming events during execution
+    emitted_events: list[AgentStreamChunk] = []
+
     # Check if agent exists in the agents registry
     if not registry.agents.has(step.agent):
         raise ReferenceResolutionError(
@@ -98,8 +110,10 @@ async def execute_agent_step(
         agent_instance = agent_class()  # type: ignore[call-arg]
     except TypeError as e:
         logger.error(
-            f"Failed to instantiate agent '{step.agent}': {e}. "
-            f"Agent classes must be instantiable without arguments."
+            "failed_to_instantiate_agent",
+            agent=step.agent,
+            error=str(e),
+            hint="Agent classes must be instantiable without arguments",
         )
         raise
 
@@ -109,19 +123,77 @@ async def execute_agent_step(
             f"Agent instance '{step.agent}' does not have an 'execute' method"
         )
 
-    # Call execute method (runtime validated above)
-    result = agent_instance.execute(agent_context)
+    # Get agent name for events (use class name or configured name)
+    agent_name = getattr(agent_instance, "name", step.agent)
 
-    # If result is a coroutine, await it
-    if inspect.iscoroutine(result):
-        result = await result
+    # T028: Emit thinking indicator at agent start
+    thinking_event = AgentStreamChunk(
+        step_name=step.name,
+        agent_name=agent_name,
+        text="",
+        chunk_type="thinking",
+    )
+    if event_callback:
+        await event_callback(thinking_event)
+    else:
+        emitted_events.append(thinking_event)
+
+    logger.debug(
+        "agent_step_starting",
+        step_name=step.name,
+        agent_name=agent_name,
+    )
+
+    try:
+        # Call execute method (runtime validated above)
+        result = agent_instance.execute(agent_context)
+
+        # If result is a coroutine, await it
+        if inspect.iscoroutine(result):
+            result = await result
+
+        # T027: Extract text output from result and emit OUTPUT chunk
+        # The result may contain an 'output' attribute or be a structured result
+        output_text = _extract_output_text(result)
+        if output_text:
+            output_event = AgentStreamChunk(
+                step_name=step.name,
+                agent_name=agent_name,
+                text=output_text,
+                chunk_type="output",
+            )
+            if event_callback:
+                await event_callback(output_event)
+            else:
+                emitted_events.append(output_event)
+
+    except Exception as e:
+        # T027: Emit ERROR chunk on exception
+        error_event = AgentStreamChunk(
+            step_name=step.name,
+            agent_name=agent_name,
+            text=str(e),
+            chunk_type="error",
+        )
+        if event_callback:
+            await event_callback(error_event)
+        else:
+            emitted_events.append(error_event)
+        logger.error(
+            "agent_step_failed",
+            step_name=step.name,
+            error=str(e),
+        )
+        raise
 
     # Register rollback if specified
     if step.rollback:
         if not registry.actions.has(step.rollback):
             logger.warning(
-                f"Rollback action '{step.rollback}' not found in registry "
-                f"for agent step '{step.name}'. Skipping rollback registration."
+                "rollback_action_not_found",
+                rollback_action=step.rollback,
+                step_name=step.name,
+                hint="Skipping rollback registration",
             )
         else:
             rollback_action = registry.actions.get(step.rollback)
@@ -136,4 +208,48 @@ async def execute_agent_step(
 
             context_module.register_rollback(context, step.name, rollback_wrapper)
 
-    return result
+    # Return result with events (matches loop handler pattern)
+    return {"result": result, "events": emitted_events}
+
+
+def _extract_output_text(result: Any) -> str:
+    """Extract text output from an agent result.
+
+    Attempts to extract meaningful text content from various agent result
+    formats for streaming display.
+
+    Args:
+        result: The result returned by agent.execute().
+
+    Returns:
+        Extracted text content, or empty string if no text found.
+    """
+    if result is None:
+        return ""
+
+    # Check for AgentResult-style objects with 'output' attribute
+    if hasattr(result, "output"):
+        output = result.output
+        if isinstance(output, str):
+            return output
+        if output is not None:
+            return str(output)
+
+    # Check for dict with 'output' key
+    if isinstance(result, dict) and "output" in result:
+        output = result["output"]
+        if isinstance(output, str):
+            return output
+        if output is not None:
+            return str(output)
+
+    # Check for string result
+    if isinstance(result, str):
+        return result
+
+    # Fallback: convert to string if meaningful
+    result_str = str(result)
+    # Avoid unhelpful string representations
+    if result_str.startswith("<") and result_str.endswith(">"):
+        return ""
+    return result_str

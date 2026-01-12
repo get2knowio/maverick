@@ -440,6 +440,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 ## Active Technologies
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Pydantic, PyYAML, GitPython (028-maverick-init)
 - YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`) (028-maverick-init)
+- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Claude Agent SDK (`claude-agent-sdk`), Click, Pydantic, PyYAML (030-tui-execution-visibility)
+- N/A (in-memory state during workflow execution; streaming buffer with 100KB FIFO limit) (030-tui-execution-visibility)
 
 - Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic (001-maverick-foundation)
 - YAML config files (project: `maverick.yaml`, user: `~/.config/maverick/config.yaml`) (001-maverick-foundation)

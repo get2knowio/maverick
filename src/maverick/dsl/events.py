@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from maverick.dsl.results import RollbackError
 from maverick.dsl.types import StepType
+
+# Type alias for AgentStreamChunk chunk types
+ChunkType = Literal["output", "thinking", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +41,7 @@ class StepCompleted:
         step_type: Type of step that completed.
         success: Whether the step completed successfully.
         duration_ms: Execution duration in milliseconds.
+        error: Error message if the step failed (None if successful).
         timestamp: Unix timestamp when step completed (defaults to current time).
     """
 
@@ -45,6 +49,7 @@ class StepCompleted:
     step_type: StepType
     success: bool
     duration_ms: int
+    error: str | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -168,6 +173,67 @@ class ValidationFailed:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass(frozen=True, slots=True)
+class LoopIterationStarted:
+    """Event emitted when a loop iteration begins.
+
+    Attributes:
+        step_name: Name of the loop step (e.g., "implement_by_phase").
+        iteration_index: 0-based index of current iteration.
+        total_iterations: Total number of iterations in the loop.
+        item_label: Display label for iteration (e.g., "Phase 1: Core Data").
+        parent_step_name: Parent loop step name for nested loops.
+        timestamp: Unix timestamp when iteration started (defaults to current time).
+    """
+
+    step_name: str
+    iteration_index: int
+    total_iterations: int
+    item_label: str
+    parent_step_name: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class LoopIterationCompleted:
+    """Event emitted when a loop iteration completes (success or failure).
+
+    Attributes:
+        step_name: Name of the loop step.
+        iteration_index: 0-based index of completed iteration.
+        success: Whether iteration completed successfully.
+        duration_ms: Execution time in milliseconds.
+        error: Error message if failed.
+        timestamp: Unix timestamp when iteration completed (defaults to current time).
+    """
+
+    step_name: str
+    iteration_index: int
+    success: bool
+    duration_ms: int
+    error: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentStreamChunk:
+    """Event emitted when agent produces streaming output.
+
+    Attributes:
+        step_name: Name of the step running the agent.
+        agent_name: Name/type of the agent (e.g., "ImplementerAgent").
+        text: Text content of the chunk.
+        chunk_type: Type of chunk - "output", "thinking", or "error".
+        timestamp: Unix timestamp when chunk was received (defaults to current time).
+    """
+
+    step_name: str
+    agent_name: str
+    text: str
+    chunk_type: ChunkType
+    timestamp: float = field(default_factory=time.time)
+
+
 # Type alias for all progress events
 ProgressEvent = (
     StepStarted
@@ -181,4 +247,7 @@ ProgressEvent = (
     | ValidationStarted
     | ValidationCompleted
     | ValidationFailed
+    | LoopIterationStarted
+    | LoopIterationCompleted
+    | AgentStreamChunk
 )

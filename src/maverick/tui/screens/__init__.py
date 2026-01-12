@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.screens.config import ConfigScreen
+from maverick.tui.screens.dashboard import DashboardScreen
 from maverick.tui.screens.history_review import HistoricalReviewScreen
 from maverick.tui.screens.home import HomeScreen
 from maverick.tui.screens.review import ReviewScreen
@@ -24,6 +25,7 @@ from maverick.tui.screens.workflow_input import WorkflowInputScreen
 __all__ = [
     "MaverickScreen",
     "ConfigScreen",
+    "DashboardScreen",
     "HistoricalReviewScreen",
     "HomeScreen",
     "ReviewScreen",

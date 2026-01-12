@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -121,26 +121,17 @@ def test_verbose_single_flag_info_level(
     """Test that -v sets INFO logging level."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-v"])
 
         assert result.exit_code == 0
         # Should set INFO level (20)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.INFO
 
 
 def test_verbose_double_flag_debug_level(
@@ -152,26 +143,17 @@ def test_verbose_double_flag_debug_level(
     """Test that -vv sets DEBUG logging level."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-vv"])
 
         assert result.exit_code == 0
         # Should set DEBUG level (10)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.DEBUG
 
 
 def test_verbose_triple_flag_debug_level(
@@ -183,26 +165,17 @@ def test_verbose_triple_flag_debug_level(
     """Test that -vvv sets DEBUG logging level (same as -vv)."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-vvv"])
 
         assert result.exit_code == 0
         # Should set DEBUG level (10) - max detail
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.DEBUG
 
 
 def test_verbose_long_flag(
@@ -214,26 +187,17 @@ def test_verbose_long_flag(
     """Test that --verbose works same as -v."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["--verbose"])
 
         assert result.exit_code == 0
         # Should set INFO level (20)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.INFO
 
 
 # =============================================================================
@@ -250,26 +214,17 @@ def test_quiet_flag_sets_error_level(
     """Test that --quiet sets ERROR logging level."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["--quiet"])
 
         assert result.exit_code == 0
         # Should set ERROR level (40)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.ERROR
 
 
 def test_quiet_short_flag(
@@ -281,26 +236,17 @@ def test_quiet_short_flag(
     """Test that -q short flag works for quiet option."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-q"])
 
         assert result.exit_code == 0
         # Should set ERROR level (40)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.ERROR
 
 
 # =============================================================================
@@ -420,26 +366,17 @@ def test_quiet_takes_precedence_over_verbose(
     """
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-v", "-q"])
 
         assert result.exit_code == 0
         # Quiet should win - ERROR level (40)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.ERROR
 
 
 def test_quiet_precedence_with_multiple_verbose(
@@ -451,26 +388,17 @@ def test_quiet_precedence_with_multiple_verbose(
     """Test that --quiet takes precedence even with -vv."""
     import os
 
-    import maverick.main
-
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-    # Mock logging.basicConfig
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-vv", "--quiet"])
 
         assert result.exit_code == 0
         # Quiet should win - ERROR level (40)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.ERROR
-        )
-    finally:
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.ERROR
 
 
 # =============================================================================

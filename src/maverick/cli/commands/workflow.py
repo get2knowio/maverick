@@ -999,10 +999,10 @@ def workflow_new(
     help="Show execution plan without running.",
 )
 @click.option(
-    "--resume",
+    "--restart",
     is_flag=True,
     default=False,
-    help="Resume workflow from latest checkpoint.",
+    help="Ignore existing checkpoint and restart workflow from the beginning.",
 )
 @click.option(
     "--no-validate",
@@ -1018,7 +1018,7 @@ async def workflow_run(
     inputs: tuple[str, ...],
     input_file: Path | None,
     dry_run: bool,
-    resume: bool,
+    restart: bool,
     no_validate: bool,
 ) -> None:
     """Execute workflow from file or discovered workflow.
@@ -1028,9 +1028,9 @@ async def workflow_run(
 
     Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
 
-    The --resume flag attempts to resume from the latest checkpoint, validating
-    that inputs match the saved checkpoint state. If no checkpoint exists,
-    the workflow executes normally from the start.
+    By default, workflows resume from the latest checkpoint if one exists,
+    validating that inputs match the saved checkpoint state. Use --restart
+    to ignore checkpoints and start fresh.
 
     By default, workflows are validated before execution. Use --no-validate
     to skip semantic validation (not recommended).
@@ -1040,12 +1040,12 @@ async def workflow_run(
         maverick workflow run my-workflow -i branch=main -i dry_run=true
         maverick workflow run my-workflow.yaml --input-file inputs.json
         maverick workflow run my-workflow --dry-run
-        maverick workflow run fly --resume  # Resume from checkpoint
+        maverick workflow run fly --restart  # Ignore checkpoint and start fresh
         maverick workflow run my-workflow --no-validate  # Skip validation
     """
     # Delegate to helper function
     await _execute_workflow_run(
-        ctx, name_or_file, inputs, input_file, dry_run, resume, no_validate
+        ctx, name_or_file, inputs, input_file, dry_run, restart, no_validate
     )
 
 
@@ -1055,7 +1055,7 @@ async def _execute_workflow_run(
     inputs: tuple[str, ...],
     input_file: Path | None,
     dry_run: bool,
-    resume: bool,
+    restart: bool,
     no_validate: bool = False,
     list_steps: bool = False,
     only_step: str | None = None,
@@ -1068,7 +1068,7 @@ async def _execute_workflow_run(
         inputs: Tuple of KEY=VALUE input strings.
         input_file: Optional path to JSON/YAML input file.
         dry_run: If True, show execution plan without running.
-        resume: If True, resume from latest checkpoint.
+        restart: If True, ignore checkpoint and restart from beginning.
         no_validate: If True, skip semantic validation before execution.
         list_steps: If True, list workflow steps and exit.
         only_step: If provided, run only this step (name or number).
@@ -1221,11 +1221,11 @@ async def _execute_workflow_run(
             # Execute in TUI mode
             from maverick.tui.workflow_runner import run_workflow_in_tui
 
-            exit_code = run_workflow_in_tui(
+            exit_code = await run_workflow_in_tui(
                 workflow_file=workflow_file,
                 workflow_name=workflow_obj.name,
                 inputs=input_dict,
-                resume=resume,
+                restart=restart,
                 validate=not no_validate,
                 only_step=only_step_index,
             )
@@ -1256,9 +1256,41 @@ async def _execute_workflow_run(
         click.echo()
 
         # Create registry with all built-in components registered and executor
+        from maverick.dsl.checkpoint.store import FileCheckpointStore
+
         registry = create_registered_registry()
+        checkpoint_store = FileCheckpointStore()
+
+        # Handle checkpoint: check for existing checkpoint and handle restart
+        existing_checkpoint = await checkpoint_store.load_latest(workflow_obj.name)
+
+        if restart and existing_checkpoint:
+            # Clear checkpoint when restarting
+            await checkpoint_store.clear(workflow_obj.name)
+            restart_msg = click.style(
+                "Restarting workflow (cleared existing checkpoint)",
+                fg="yellow",
+            )
+            click.echo(restart_msg)
+            click.echo()
+            resume_from_checkpoint = False
+        elif existing_checkpoint:
+            # Resume from checkpoint (default behavior)
+            resume_msg = click.style(
+                f"Resuming from checkpoint '{existing_checkpoint.checkpoint_id}' "
+                f"(saved at {existing_checkpoint.saved_at})",
+                fg="cyan",
+            )
+            click.echo(resume_msg)
+            click.echo()
+            resume_from_checkpoint = True
+        else:
+            # No checkpoint exists, start fresh
+            resume_from_checkpoint = False
+
         executor = WorkflowFileExecutor(
             registry=registry,
+            checkpoint_store=checkpoint_store,
             validate_semantic=not no_validate,
         )
 
@@ -1287,7 +1319,7 @@ async def _execute_workflow_run(
         async for event in executor.execute(
             workflow_obj,
             inputs=input_dict,
-            resume_from_checkpoint=resume,
+            resume_from_checkpoint=resume_from_checkpoint,
             only_step=only_step_index,
         ):
             if isinstance(event, ValidationStarted):

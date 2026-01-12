@@ -301,29 +301,30 @@ def should_skip_step(
         return False, True
 
     # If we have a checkpoint location for a nested checkpoint, use it
-    if checkpoint_location is not None and checkpoint_location.is_nested:
-        if step_index is not None:
-            # Skip steps before the container step
-            if step_index < checkpoint_location.step_index:
-                logger.debug(
-                    f"Skipping step '{step.name}' (before container step "
-                    f"'{checkpoint_location.step_name}')"
-                )
-                return True, False
+    if (
+        checkpoint_location is not None
+        and checkpoint_location.is_nested
+        and step_index is not None
+    ):
+        # Skip steps before the container step
+        if step_index < checkpoint_location.step_index:
+            logger.debug(
+                f"Skipping step '{step.name}' (before container step "
+                f"'{checkpoint_location.step_name}')"
+            )
+            return True, False
 
-            # This is the container step (loop) - execute it with resume info
-            # The loop handler will skip to the right iteration
-            if step_index == checkpoint_location.step_index:
-                logger.info(
-                    f"Resuming into step '{step.name}' which contains checkpoint"
-                )
-                # Don't skip this step, but also don't mark past resume yet
-                # The loop handler will handle internal skipping
-                return False, False
+        # This is the container step (loop) - execute it with resume info
+        # The loop handler will skip to the right iteration
+        if step_index == checkpoint_location.step_index:
+            logger.info(f"Resuming into step '{step.name}' which contains checkpoint")
+            # Don't skip this step, but also don't mark past resume yet
+            # The loop handler will handle internal skipping
+            return False, False
 
-            # Steps after the container step should run normally
-            # past_resume_point should be True after the loop completes
-            return False, True
+        # Steps after the container step should run normally
+        # past_resume_point should be True after the loop completes
+        return False, True
 
     # Check if this is a checkpoint step that matches our resume point
     if isinstance(step, CheckpointStepRecord):

@@ -6,13 +6,16 @@ for structured concurrency with configurable max_concurrency.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import anyio
 
 from maverick.dsl.context import WorkflowContext
+from maverick.dsl.events import LoopIterationCompleted, LoopIterationStarted
 from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import LoopStepRecord
 from maverick.logging import get_logger
@@ -21,6 +24,43 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
 logger = get_logger(__name__)
+
+# Key used in iteration_context to track parent loop for nested loop events
+_CURRENT_LOOP_STEP_KEY = "_current_loop_step"
+
+
+def _extract_item_label(item: Any, index: int) -> str:
+    """Extract display label from loop item for UI visibility.
+
+    Attempts to extract a human-readable label from the loop item.
+    Tries common dictionary keys first, then falls back to string
+    representation or generic index-based label.
+
+    Args:
+        item: The loop iteration item (can be dict, str, or any type).
+        index: The 0-based iteration index.
+
+    Returns:
+        A human-readable label for the item, suitable for TUI display.
+
+    Examples:
+        >>> _extract_item_label({"name": "build"}, 0)
+        'build'
+        >>> _extract_item_label({"phase": "Phase 1: Core"}, 0)
+        'Phase 1: Core'
+        >>> _extract_item_label("simple_string", 0)
+        'simple_string'
+        >>> _extract_item_label(12345, 0)
+        'Item 1'
+    """
+    if isinstance(item, dict):
+        # Try common label keys in order of preference
+        for key in ("label", "name", "title", "phase", "id"):
+            if key in item:
+                return str(item[key])
+    if isinstance(item, str):
+        return item
+    return f"Item {index + 1}"
 
 
 async def execute_loop_step(
@@ -32,6 +72,7 @@ async def execute_loop_step(
     execute_step_fn: Callable[..., Coroutine[Any, Any, Any]] | None = None,
     resume_iteration_index: int | None = None,
     resume_after_nested_step_index: int | None = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
     """Execute a loop step with concurrency control.
 
@@ -66,11 +107,17 @@ async def execute_loop_step(
             execute_step_fn,
             resume_iteration_index=resume_iteration_index,
             resume_after_nested_step_index=resume_after_nested_step_index,
+            event_callback=event_callback,
         )
     else:
         # Execute steps once with concurrency control
         return await _execute_loop_tasks(
-            step.steps, context, execute_step_fn, step.max_concurrency
+            step.steps,
+            context,
+            execute_step_fn,
+            step.max_concurrency,
+            step_name=step.name,
+            event_callback=event_callback,
         )
 
 
@@ -79,35 +126,111 @@ async def _execute_loop_tasks(
     context: WorkflowContext,
     execute_step_fn: Callable[..., Coroutine[Any, Any, Any]],
     max_concurrency: int = 1,
+    step_name: str = "loop",
+    event_callback: EventCallback | None = None,
 ) -> dict[str, Any]:
     """Execute a list of steps with concurrency control.
+
+    Emits LoopIterationStarted and LoopIterationCompleted events for each
+    step execution. Note that for parallel execution, events may arrive
+    out of order.
 
     Args:
         steps: List of step records to execute.
         context: Execution context.
         execute_step_fn: Function to execute nested steps.
         max_concurrency: Max concurrent executions (1=sequential, 0=unlimited).
+        step_name: Name of the loop step (for event emission).
 
     Returns:
-        Dictionary with results list preserving step order.
+        Dictionary with results list preserving step order and emitted events.
     """
     if not steps:
-        return {"results": []}
+        return {"results": [], "events": []}
+
+    total_steps = len(steps)
 
     # Pre-allocate results to maintain order
-    results: list[Any] = [None] * len(steps)
+    results: list[Any] = [None] * total_steps
+
+    # Collect emitted events (thread-safe for parallel execution)
+    emitted_events: list[LoopIterationStarted | LoopIterationCompleted] = []
+    events_lock = anyio.Lock()
 
     # Create semaphore for concurrency control (0 means unlimited)
     semaphore = anyio.Semaphore(max_concurrency) if max_concurrency > 0 else None
 
-    async def run_step(index: int, step: Any) -> None:
+    # Track parent loop for nested loop visibility
+    parent_step_name = context.iteration_context.get(_CURRENT_LOOP_STEP_KEY)
+    # Set current loop as parent for any nested loops
+    context.iteration_context[_CURRENT_LOOP_STEP_KEY] = step_name
+
+    async def run_step(index: int, step_record: Any) -> None:
         """Execute a step and store result at the correct index."""
 
         async def _execute() -> None:
+            # Extract label from step name if available
+            item_label = getattr(step_record, "name", None) or f"Task {index + 1}"
+
+            # Emit LoopIterationStarted event
+            start_event = LoopIterationStarted(
+                step_name=step_name,
+                iteration_index=index,
+                total_iterations=total_steps,
+                item_label=item_label,
+                parent_step_name=parent_step_name,
+            )
+            if event_callback:
+                await event_callback(start_event)
+            else:
+                async with events_lock:
+                    emitted_events.append(start_event)
+
+            logger.debug(
+                "loop_task_started",
+                step_name=step_name,
+                index=index,
+                total_steps=total_steps,
+                item_label=item_label,
+            )
+
+            # Track timing
+            start_time = time.time()
+            success = True
+            error_msg: str | None = None
+
             try:
-                results[index] = await execute_step_fn(step, context)
+                results[index] = await execute_step_fn(step_record, context)
             except BaseException as exc:
                 results[index] = exc
+                success = False
+                error_msg = str(exc)
+
+            # Calculate duration
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Emit LoopIterationCompleted event
+            completed_event = LoopIterationCompleted(
+                step_name=step_name,
+                iteration_index=index,
+                success=success,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+            if event_callback:
+                await event_callback(completed_event)
+            else:
+                async with events_lock:
+                    emitted_events.append(completed_event)
+
+            logger.debug(
+                "loop_task_completed",
+                step_name=step_name,
+                index=index,
+                total_steps=total_steps,
+                success=success,
+                duration_ms=duration_ms,
+            )
 
         if semaphore:
             async with semaphore:
@@ -117,13 +240,19 @@ async def _execute_loop_tasks(
 
     try:
         async with anyio.create_task_group() as tg:
-            for idx, step in enumerate(steps):
-                tg.start_soon(run_step, idx, step)
+            for idx, step_record in enumerate(steps):
+                tg.start_soon(run_step, idx, step_record)
     except ExceptionGroup:
         # Exceptions are captured in results array; continue to return them
         pass
+    finally:
+        # Restore parent loop context for proper nesting
+        if parent_step_name is not None:
+            context.iteration_context[_CURRENT_LOOP_STEP_KEY] = parent_step_name
+        else:
+            context.iteration_context.pop(_CURRENT_LOOP_STEP_KEY, None)
 
-    return {"results": results}
+    return {"results": results, "events": emitted_events}
 
 
 async def _execute_loop_for_each(
@@ -132,11 +261,13 @@ async def _execute_loop_for_each(
     execute_step_fn: Callable[..., Coroutine[Any, Any, Any]],
     resume_iteration_index: int | None = None,
     resume_after_nested_step_index: int | None = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
     """Execute loop steps for each item in a list with concurrency control.
 
     Supports resuming from a checkpoint by skipping iterations and steps
-    that were completed before the checkpoint.
+    that were completed before the checkpoint. Emits LoopIterationStarted
+    and LoopIterationCompleted events for each iteration.
 
     Args:
         step: LoopStepRecord with for_each expression.
@@ -147,7 +278,7 @@ async def _execute_loop_for_each(
             this index within the resume iteration.
 
     Returns:
-        Dictionary with results from all iterations.
+        Dictionary with results from all iterations and emitted events.
 
     Raises:
         ValueError: If for_each is None.
@@ -160,10 +291,21 @@ async def _execute_loop_for_each(
     items = evaluate_for_each_expression(step.for_each, context)
 
     if not items:
-        return {"results": []}
+        return {"results": [], "events": []}
+
+    total_iterations = len(items)
 
     # Pre-allocate results to maintain order
-    iteration_results: list[Any] = [None] * len(items)
+    iteration_results: list[Any] = [None] * total_iterations
+
+    # Collect emitted events (thread-safe for parallel execution)
+    emitted_events: list[LoopIterationStarted | LoopIterationCompleted] = []
+    events_lock = anyio.Lock()
+
+    # Track parent loop for nested loop visibility
+    parent_step_name = context.iteration_context.get(_CURRENT_LOOP_STEP_KEY)
+    # Set current loop as parent for any nested loops
+    context.iteration_context[_CURRENT_LOOP_STEP_KEY] = step.name
 
     # Log resume info if resuming
     if resume_iteration_index is not None:
@@ -190,33 +332,100 @@ async def _execute_loop_for_each(
         """
 
         async def _execute() -> None:
+            # Extract label for TUI display
+            item_label = _extract_item_label(item, index)
+
+            # Emit LoopIterationStarted event
+            start_event = LoopIterationStarted(
+                step_name=step.name,
+                iteration_index=index,
+                total_iterations=total_iterations,
+                item_label=item_label,
+                parent_step_name=parent_step_name,
+            )
+            if event_callback:
+                await event_callback(start_event)
+            else:
+                async with events_lock:
+                    emitted_events.append(start_event)
+
+            logger.debug(
+                "loop_iteration_started",
+                step_name=step.name,
+                index=index,
+                total_iterations=total_iterations,
+                item_label=item_label,
+            )
+
+            # Track timing
+            start_time = time.time()
+            success = True
+            error_msg: str | None = None
+
             # Create a copy of the context with iteration variables
+            # Preserve the current loop key for nested loop tracking
             item_context = replace(
                 context,
-                iteration_context={"item": item, "index": index},
+                iteration_context={
+                    "item": item,
+                    "index": index,
+                    _CURRENT_LOOP_STEP_KEY: step.name,
+                },
             )
 
             # Execute all steps in this iteration sequentially
             # (nested steps within an iteration run in sequence)
             step_results: list[Any] = []
-            for step_idx, s in enumerate(step.steps):
-                # Skip steps before resume point in the resume iteration
-                if skip_steps_before is not None and step_idx <= skip_steps_before:
-                    logger.debug(
-                        f"Skipping step index {step_idx} in iteration {index} "
-                        f"(before resume point)"
-                    )
-                    step_results.append(None)  # Placeholder for skipped step
-                    continue
+            try:
+                for step_idx, s in enumerate(step.steps):
+                    # Skip steps before resume point in the resume iteration
+                    if skip_steps_before is not None and step_idx <= skip_steps_before:
+                        logger.debug(
+                            f"Skipping step index {step_idx} in iteration {index} "
+                            f"(before resume point)"
+                        )
+                        step_results.append(None)  # Placeholder for skipped step
+                        continue
 
-                try:
-                    result = await execute_step_fn(s, item_context)
-                    step_results.append(result)
-                except BaseException as exc:
-                    step_results.append(exc)
-                    break  # Stop iteration on error
+                    try:
+                        result = await execute_step_fn(s, item_context)
+                        step_results.append(result)
+                    except BaseException as exc:
+                        step_results.append(exc)
+                        success = False
+                        error_msg = str(exc)
+                        break  # Stop iteration on error
+            except BaseException as exc:
+                success = False
+                error_msg = str(exc)
 
             iteration_results[index] = step_results
+
+            # Calculate duration
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Emit LoopIterationCompleted event
+            completed_event = LoopIterationCompleted(
+                step_name=step.name,
+                iteration_index=index,
+                success=success,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+            if event_callback:
+                await event_callback(completed_event)
+            else:
+                async with events_lock:
+                    emitted_events.append(completed_event)
+
+            logger.debug(
+                "loop_iteration_completed",
+                step_name=step.name,
+                index=index,
+                total_iterations=total_iterations,
+                success=success,
+                duration_ms=duration_ms,
+            )
 
         if semaphore:
             async with semaphore:
@@ -249,5 +458,11 @@ async def _execute_loop_for_each(
     except ExceptionGroup:
         # Exceptions captured in iteration_results
         pass
+    finally:
+        # Restore parent loop context for proper nesting
+        if parent_step_name is not None:
+            context.iteration_context[_CURRENT_LOOP_STEP_KEY] = parent_step_name
+        else:
+            context.iteration_context.pop(_CURRENT_LOOP_STEP_KEY, None)
 
-    return {"results": iteration_results}
+    return {"results": iteration_results, "events": emitted_events}

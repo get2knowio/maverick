@@ -7,11 +7,36 @@ fix results, and agent context.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from maverick.models.implementation import FileChange
+
+
+class IssueData(TypedDict, total=False):
+    """Typed structure for pre-fetched GitHub issue data.
+
+    Required keys:
+        number: GitHub issue number
+        title: Issue title
+        body: Issue body/description
+
+    Optional keys:
+        labels: List of label names
+        state: Issue state (open/closed)
+        url: GitHub URL for the issue
+        assignees: List of assignee usernames
+    """
+
+    number: int
+    title: str
+    body: str
+    labels: list[str]
+    state: str
+    url: str
+    assignees: list[str]
+
 
 # =============================================================================
 # Result Objects (T045)
@@ -103,7 +128,8 @@ class IssueFixerContext(BaseModel):
         default=None, ge=1, description="GitHub issue number"
     )
     issue_data: dict[str, Any] | None = Field(
-        default=None, description="Pre-fetched issue data"
+        default=None,
+        description="Pre-fetched issue data (see IssueData TypedDict for keys)",
     )
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")

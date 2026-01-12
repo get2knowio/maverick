@@ -64,9 +64,7 @@ def test_default_verbosity_warning_level(
     """Test that default verbosity is WARNING level (no -v flags)."""
     import logging
     import os
-    from unittest.mock import MagicMock
-
-    import maverick.main
+    from unittest.mock import patch
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -74,24 +72,15 @@ def test_default_verbosity_warning_level(
 
     from maverick.main import cli
 
-    # Replace logging.basicConfig in the maverick.main module
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         # Run CLI without -v flag (no --help, as that short-circuits)
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
-        # basicConfig should have been called with WARNING level (30)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"]
-            == logging.WARNING
-        )
-    finally:
-        # Restore original
-        maverick.main.logging.basicConfig = original_basicConfig
+        # configure_logging should have been called with WARNING level (30)
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.WARNING
 
 
 def test_single_verbose_info_level(
@@ -103,9 +92,7 @@ def test_single_verbose_info_level(
     """Test that -v flag sets INFO level logging."""
     import logging
     import os
-    from unittest.mock import MagicMock
-
-    import maverick.main
+    from unittest.mock import patch
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -113,22 +100,14 @@ def test_single_verbose_info_level(
 
     from maverick.main import cli
 
-    # Replace logging.basicConfig in the maverick.main module
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-v"])
 
         assert result.exit_code == 0
         # With -v, level should be INFO (20)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.INFO
-        )
-    finally:
-        # Restore original
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.INFO
 
 
 def test_double_verbose_debug_level(
@@ -140,9 +119,7 @@ def test_double_verbose_debug_level(
     """Test that -vv flag sets DEBUG level logging."""
     import logging
     import os
-    from unittest.mock import MagicMock
-
-    import maverick.main
+    from unittest.mock import patch
 
     # Setup clean environment
     os.chdir(temp_dir)
@@ -150,22 +127,14 @@ def test_double_verbose_debug_level(
 
     from maverick.main import cli
 
-    # Replace logging.basicConfig in the maverick.main module
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, ["-vv"])
 
         assert result.exit_code == 0
         # With -vv, level should be DEBUG (10)
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
-        )
-    finally:
-        # Restore original
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.DEBUG
 
 
 def test_verbosity_from_config(
@@ -177,9 +146,7 @@ def test_verbosity_from_config(
     """Test that verbosity can be set via config file."""
     import logging
     import os
-    from unittest.mock import MagicMock
-
-    import maverick.main
+    from unittest.mock import patch
 
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -190,19 +157,11 @@ def test_verbosity_from_config(
 
     from maverick.main import cli
 
-    # Replace logging.basicConfig in the maverick.main module
-    original_basicConfig = maverick.main.logging.basicConfig
-    maverick.main.logging.basicConfig = MagicMock()
-
-    try:
+    # Mock configure_logging from maverick.logging
+    with patch("maverick.main.configure_logging") as mock_configure:
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
         # Config sets debug level
-        maverick.main.logging.basicConfig.assert_called_once()
-        assert (
-            maverick.main.logging.basicConfig.call_args.kwargs["level"] == logging.DEBUG
-        )
-    finally:
-        # Restore original
-        maverick.main.logging.basicConfig = original_basicConfig
+        mock_configure.assert_called_once()
+        assert mock_configure.call_args.kwargs["level"] == logging.DEBUG

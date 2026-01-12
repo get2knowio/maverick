@@ -8,6 +8,7 @@ components. It yields progress events compatible with the TUI/CLI interfaces.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -15,6 +16,9 @@ from typing import Any
 from maverick.dsl.checkpoint.store import CheckpointStore, FileCheckpointStore
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.events import (
+    AgentStreamChunk,
+    LoopIterationCompleted,
+    LoopIterationStarted,
     ProgressEvent,
     RollbackCompleted,
     RollbackStarted,
@@ -29,6 +33,7 @@ from maverick.dsl.events import (
 from maverick.dsl.results import RollbackError, StepResult, WorkflowResult
 from maverick.dsl.serialization.executor import checkpointing, conditions, context
 from maverick.dsl.serialization.executor.handlers import get_handler
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
@@ -57,6 +62,59 @@ StepRecordType = (
     | LoopStepRecord
     | CheckpointStepRecord
 )
+
+# Event types that can be embedded in step outputs
+EmbeddedEventType = AgentStreamChunk | LoopIterationStarted | LoopIterationCompleted
+
+
+def _extract_embedded_events(
+    output: Any,
+) -> tuple[Any, list[EmbeddedEventType]]:
+    """Extract embedded events from step output.
+
+    Step handlers (like loop_step and agent_step) may return outputs
+    containing embedded events in the format:
+    - {"result": <actual_result>, "events": [<events>]} for agent steps
+    - {"results": <actual_results>, "events": [<events>]} for loop steps
+
+    This function extracts the events for streaming and returns the
+    actual result for storage.
+
+    Args:
+        output: Raw output from step handler.
+
+    Returns:
+        Tuple of (actual_output, list_of_events).
+        If no events are embedded, returns (output, []).
+    """
+    if not isinstance(output, dict):
+        return output, []
+
+    events: list[EmbeddedEventType] = []
+
+    # Check for events key
+    if "events" in output:
+        raw_events = output.get("events", [])
+        if isinstance(raw_events, list):
+            for event in raw_events:
+                # Validate event is a known embedded event type
+                if isinstance(
+                    event,
+                    (AgentStreamChunk, LoopIterationStarted, LoopIterationCompleted),
+                ):
+                    events.append(event)
+
+    # Extract actual result based on output format
+    if "result" in output and "events" in output:
+        # Agent step format: {"result": ..., "events": [...]}
+        return output["result"], events
+    elif "results" in output and "events" in output:
+        # Loop step format: {"results": [...], "events": [...]}
+        # Keep the results structure for backward compatibility
+        return {"results": output["results"]}, events
+
+    # No embedded events or unknown format - return as-is
+    return output, []
 
 
 class WorkflowFileExecutor:
@@ -315,8 +373,43 @@ class WorkflowFileExecutor:
             yield StepStarted(step_name=step_record.name, step_type=step_record.type)
 
             step_start = time.perf_counter()
+            embedded_events: list[EmbeddedEventType] = []
+
+            # Create event queue for real-time streaming from handlers
+            event_queue: asyncio.Queue[ProgressEvent] = asyncio.Queue()
+
+            async def event_callback(
+                event: ProgressEvent,
+                queue: asyncio.Queue[ProgressEvent] = event_queue,
+            ) -> None:
+                """Callback for handlers to emit events in real-time."""
+                await queue.put(event)
+
+            handler_task: asyncio.Task[Any] | None = None
             try:
-                output = await self._execute_step(step_record, exec_context)
+                # Run handler in background task for concurrent event streaming
+                handler_task = asyncio.create_task(
+                    self._execute_step(step_record, exec_context, event_callback)
+                )
+
+                # Yield events as they arrive while handler runs
+                while not handler_task.done():
+                    try:
+                        # Short timeout to check task completion frequently
+                        event = await asyncio.wait_for(event_queue.get(), timeout=0.05)
+                        yield event
+                    except TimeoutError:
+                        continue
+
+                # Get handler result (may raise exception)
+                raw_output = await handler_task
+
+                # Yield any remaining queued events
+                while not event_queue.empty():
+                    yield event_queue.get_nowait()
+
+                # Extract embedded events from step output (backward compat)
+                output, embedded_events = _extract_embedded_events(raw_output)
                 step_result = StepResult(
                     name=step_record.name,
                     step_type=step_record.type,
@@ -325,6 +418,12 @@ class WorkflowFileExecutor:
                     duration_ms=int((time.perf_counter() - step_start) * 1000),
                 )
             except Exception as e:
+                # Cancel handler task if still running
+                if handler_task is not None and not handler_task.done():
+                    handler_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await handler_task
+
                 logger.exception(f"Step '{step_record.name}' failed")
                 step_result = StepResult(
                     name=step_record.name,
@@ -334,6 +433,10 @@ class WorkflowFileExecutor:
                     duration_ms=int((time.perf_counter() - step_start) * 1000),
                     error=str(e),
                 )
+
+            # Yield embedded events (for backward compat with non-streaming handlers)
+            for embedded_event in embedded_events:
+                yield embedded_event
 
             step_results.append(step_result)
             # Store step output in context for subsequent expressions
@@ -352,6 +455,7 @@ class WorkflowFileExecutor:
                 step_type=step_record.type,
                 success=step_result.success,
                 duration_ms=step_result.duration_ms,
+                error=step_result.error,
             )
 
             if not step_result.success:
@@ -402,6 +506,7 @@ class WorkflowFileExecutor:
         self,
         step: StepRecordType,
         exec_context: WorkflowContext,
+        event_callback: EventCallback | None = None,
     ) -> Any:
         """Execute a single step.
 
@@ -412,6 +517,9 @@ class WorkflowFileExecutor:
         Args:
             step: Step record to execute.
             exec_context: Workflow execution context with inputs and step results.
+            event_callback: Optional callback for real-time event streaming.
+                If provided, handlers will emit events immediately via this
+                callback instead of collecting them in the return value.
 
         Returns:
             Step output value.
@@ -441,6 +549,10 @@ class WorkflowFileExecutor:
             # Branch and parallel steps need execute_step_fn for nested execution
             handler_kwargs["execute_step_fn"] = self._execute_step
 
+            # Pass event_callback to loop handler for real-time streaming
+            if step_type == StepType.LOOP and event_callback:
+                handler_kwargs["event_callback"] = event_callback
+
             # Pass resume info to loop handler if this step contains the checkpoint
             if (
                 step_type == StepType.LOOP
@@ -462,6 +574,11 @@ class WorkflowFileExecutor:
                 # Clear checkpoint location after passing to handler
                 # to avoid affecting subsequent executions
                 self._checkpoint_location = None
+
+        elif step_type == StepType.AGENT:
+            # Pass event_callback to agent handler for real-time streaming
+            if event_callback:
+                handler_kwargs["event_callback"] = event_callback
 
         elif step_type == StepType.CHECKPOINT:
             # Checkpoint step needs checkpoint_store

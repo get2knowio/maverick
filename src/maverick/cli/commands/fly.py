@@ -39,10 +39,10 @@ from maverick.cli.context import async_command
     help="Preview workflow steps without executing.",
 )
 @click.option(
-    "--resume",
+    "--restart",
     is_flag=True,
     default=False,
-    help="Resume workflow from latest checkpoint.",
+    help="Ignore existing checkpoint and restart workflow from the beginning.",
 )
 @click.option(
     "--no-validate",
@@ -70,7 +70,7 @@ async def fly(
     inputs: tuple[str, ...],
     input_file: Path | None,
     dry_run: bool,
-    resume: bool,
+    restart: bool,
     no_validate: bool,
     list_steps: bool,
     only_step: str | None,
@@ -84,6 +84,9 @@ async def fly(
     NAME_OR_FILE can be:
     - A workflow name from the library (e.g., "feature", "cleanup")
     - A path to a workflow file (e.g., "./my-workflow.yaml")
+
+    By default, workflows resume from the last checkpoint if one exists.
+    Use --restart to ignore checkpoints and start fresh.
 
     By default, workflows are validated before execution. Use --no-validate
     to skip semantic validation (not recommended).
@@ -104,8 +107,8 @@ async def fly(
         # Preview without executing
         maverick fly feature -i branch_name=001-foo --dry-run
 
-        # Resume from checkpoint
-        maverick fly feature --resume
+        # Restart from the beginning (ignore checkpoint)
+        maverick fly feature --restart
 
         # Skip validation (not recommended)
         maverick fly feature --no-validate
@@ -124,7 +127,7 @@ async def fly(
         inputs,
         input_file,
         dry_run,
-        resume,
+        restart,
         no_validate,
         list_steps,
         only_step,

@@ -6,23 +6,45 @@ This module defines the Click-based command-line interface for Maverick.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 
-from maverick import __version__
-from maverick.cli.commands.config import config
-from maverick.cli.commands.fly import fly
-from maverick.cli.commands.init import init
-from maverick.cli.commands.review import review
-from maverick.cli.commands.status import status
-from maverick.cli.commands.uninstall import uninstall
-from maverick.cli.commands.workflow import workflow
-from maverick.cli.context import CLIContext, ExitCode
-from maverick.cli.output import format_error
-from maverick.cli.validators import check_dependencies
-from maverick.config import load_config
-from maverick.exceptions import ConfigError
+from maverick.logging import configure_logging
+
+# Load environment variables from .env file in current directory
+# This must happen early, before any code reads environment variables
+# Use explicit path and verbose mode to debug loading issues
+_dotenv_path = Path.cwd() / ".env"
+_dotenv_loaded = load_dotenv(dotenv_path=_dotenv_path, override=False)
+if _dotenv_loaded:
+    # Verify key variables are set
+    _has_key = bool(
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    )
+    if not _has_key:
+        import sys
+
+        print(
+            f"Warning: .env loaded from {_dotenv_path} but no API key found",
+            file=sys.stderr,
+        )
+
+from maverick import __version__  # noqa: E402
+from maverick.cli.commands.config import config  # noqa: E402
+from maverick.cli.commands.fly import fly  # noqa: E402
+from maverick.cli.commands.init import init  # noqa: E402
+from maverick.cli.commands.review import review  # noqa: E402
+from maverick.cli.commands.status import status  # noqa: E402
+from maverick.cli.commands.uninstall import uninstall  # noqa: E402
+from maverick.cli.commands.workflow import workflow  # noqa: E402
+from maverick.cli.context import CLIContext, ExitCode  # noqa: E402
+from maverick.cli.output import format_error  # noqa: E402
+from maverick.cli.validators import check_dependencies  # noqa: E402
+from maverick.config import load_config  # noqa: E402
+from maverick.exceptions import ConfigError  # noqa: E402
 
 
 @click.group(invoke_without_command=True)
@@ -118,11 +140,7 @@ def cli(
         # Use config file setting
         level = verbosity_map.get(config.verbosity, logging.WARNING)
 
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-        force=True,  # Reconfigure if already configured
-    )
+    configure_logging(level=level)
 
     # FR-013: Validate required dependencies at startup
     # Only validate when a command is being invoked (not for --help/--version)
