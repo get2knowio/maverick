@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # Re-export WorkflowHistoryEntry for backwards compatibility
 from maverick.tui.history import WorkflowHistoryEntry
 from maverick.tui.models.dialogs import (
@@ -10,6 +12,7 @@ from maverick.tui.models.enums import (
     CheckStatus,
     FindingSeverity,
     IssueSeverity,
+    IterationStatus,
     MessageType,
     ProcessingMode,
     PRState,
@@ -17,6 +20,7 @@ from maverick.tui.models.enums import (
     SettingType,
     SidebarMode,
     StageStatus,
+    StreamChunkType,
     ValidationStepStatus,
 )
 from maverick.tui.models.findings import (
@@ -54,13 +58,29 @@ from maverick.tui.models.settings import (
     SettingsSection,
     SettingValue,
 )
-from maverick.tui.models.theme import DARK_THEME, LIGHT_THEME, ThemeColors
+from maverick.tui.models.theme import (
+    ACCENT_COLORS,
+    DARK_THEME,
+    LIGHT_THEME,
+    THEMES,
+    AccentColor,
+    ThemeColors,
+    ThemeManager,
+    ThemeMode,
+    ThemePreferences,
+    get_current_theme,
+    get_theme_manager,
+)
 from maverick.tui.models.widget_state import (
     AgentOutputState,
+    AgentStreamEntry,
     LogEntry,
     LogPanelState,
+    LoopIterationItem,
+    LoopIterationState,
     PRSummaryState,
     ReviewFindingsState,
+    StreamingPanelState,
     ValidationStatusState,
     WorkflowProgressState,
 )
@@ -81,6 +101,7 @@ __all__ = [
     "CheckStatus",
     "FindingSeverity",
     "IssueSeverity",
+    "IterationStatus",
     "MessageType",
     "PRState",
     "ProcessingMode",
@@ -88,6 +109,7 @@ __all__ = [
     "SettingType",
     "SidebarMode",
     "StageStatus",
+    "StreamChunkType",
     "ValidationStepStatus",
     # Helper dataclasses
     "AgentMessage",
@@ -115,6 +137,10 @@ __all__ = [
     "WorkflowStage",
     # Widget state models
     "AgentOutputState",
+    "AgentStreamEntry",
+    "LoopIterationItem",
+    "LoopIterationState",
+    "StreamingPanelState",
     "NavigationContext",
     "PRSummaryState",
     "ReviewFindingsState",
@@ -137,7 +163,15 @@ __all__ = [
     "StageState",
     "WorkflowScreenState",
     # Theme models
+    "ACCENT_COLORS",
+    "AccentColor",
     "DARK_THEME",
     "LIGHT_THEME",
+    "THEMES",
     "ThemeColors",
+    "ThemeManager",
+    "ThemeMode",
+    "ThemePreferences",
+    "get_current_theme",
+    "get_theme_manager",
 ]

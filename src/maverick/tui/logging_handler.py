@@ -7,12 +7,17 @@ to the TUI's LogPanel widget when running in TUI mode.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from maverick.tui.app import MaverickApp
+__all__ = ["LoggableApp", "TUILoggingHandler", "configure_tui_logging"]
 
-__all__ = ["TUILoggingHandler", "configure_tui_logging"]
+
+class LoggableApp(Protocol):
+    """Protocol for apps that can receive log messages."""
+
+    def add_log(self, message: str, level: str, source: str) -> None:
+        """Add a log entry to the app's log panel."""
+        ...
 
 
 class TUILoggingHandler(logging.Handler):
@@ -22,7 +27,7 @@ class TUILoggingHandler(logging.Handler):
     log panel, providing real-time logging visibility in the TUI.
     """
 
-    def __init__(self, app: MaverickApp) -> None:
+    def __init__(self, app: LoggableApp) -> None:
         """Initialize the TUI logging handler.
 
         Args:
@@ -62,7 +67,7 @@ class TUILoggingHandler(logging.Handler):
             self.handleError(record)
 
 
-def configure_tui_logging(app: MaverickApp, level: int = logging.INFO) -> None:
+def configure_tui_logging(app: LoggableApp, level: int = logging.INFO) -> None:
     """Configure logging to route to the TUI.
 
     This replaces the default stderr handler with a TUI handler,

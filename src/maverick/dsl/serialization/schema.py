@@ -101,7 +101,7 @@ class StepRecord(BaseModel):
     the discriminator for the union of step subtypes.
     """
 
-    name: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, description="Unique step identifier")
     type: StepType
     when: str | None = Field(None, description="Optional condition expression")
 
@@ -127,7 +127,9 @@ class PythonStepRecord(StepRecord):
     """
 
     type: Literal[StepType.PYTHON] = StepType.PYTHON
-    action: str = Field(..., min_length=1)
+    action: str = Field(
+        ..., min_length=1, description="Registered action name or dotted path"
+    )
     args: list[Any] = Field(default_factory=list)
     kwargs: dict[str, Any] = Field(default_factory=dict)
     rollback: str | None = Field(
@@ -148,7 +150,7 @@ class AgentStepRecord(StepRecord):
     """
 
     type: Literal[StepType.AGENT] = StepType.AGENT
-    agent: str = Field(..., min_length=1)
+    agent: str = Field(..., min_length=1, description="Registered agent name")
     context: dict[str, Any] | str = Field(default_factory=dict)
     rollback: str | None = Field(
         None,
@@ -168,7 +170,7 @@ class GenerateStepRecord(StepRecord):
     """
 
     type: Literal[StepType.GENERATE] = StepType.GENERATE
-    generator: str = Field(..., min_length=1)
+    generator: str = Field(..., min_length=1, description="Registered generator name")
     context: dict[str, Any] | str = Field(default_factory=dict)
     rollback: str | None = Field(
         None,
@@ -205,7 +207,7 @@ class SubWorkflowStepRecord(StepRecord):
     """
 
     type: Literal[StepType.SUBWORKFLOW] = StepType.SUBWORKFLOW
-    workflow: str = Field(..., min_length=1)
+    workflow: str = Field(..., min_length=1, description="Workflow name or file path")
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -219,7 +221,9 @@ class BranchOptionRecord(BaseModel):
         step: Step to execute if condition evaluates to true
     """
 
-    when: str = Field(..., min_length=1)
+    when: str = Field(
+        ..., min_length=1, description="Condition expression for this branch"
+    )
     # Forward reference - resolved via model_rebuild after StepRecordUnion is defined
     step: StepRecordUnion
 
@@ -234,7 +238,9 @@ class BranchStepRecord(StepRecord):
     """
 
     type: Literal[StepType.BRANCH] = StepType.BRANCH
-    options: list[BranchOptionRecord] = Field(..., min_length=1)
+    options: list[BranchOptionRecord] = Field(
+        ..., min_length=1, description="Ordered list of condition-step pairs"
+    )
 
 
 class LoopStepRecord(StepRecord):
@@ -275,7 +281,9 @@ class LoopStepRecord(StepRecord):
     """
 
     type: Literal[StepType.LOOP] = StepType.LOOP
-    steps: list[StepRecordUnion] = Field(..., min_length=1)
+    steps: list[StepRecordUnion] = Field(
+        ..., min_length=1, description="Steps to execute for each iteration"
+    )
     for_each: str | None = Field(
         None, description="Optional expression evaluating to a list for iteration"
     )
@@ -377,11 +385,21 @@ class WorkflowFile(BaseModel):
         - from_yaml(): Create workflow from YAML string (FR-004)
     """
 
-    version: str = Field(..., pattern=r"^\d+\.\d+$")
-    name: str = Field(..., pattern=r"^[a-z][a-z0-9-]{0,63}$")
+    version: str = Field(
+        ..., pattern=r"^\d+\.\d+$", description="Schema version (e.g., '1.0')"
+    )
+    name: str = Field(
+        ...,
+        pattern=r"^[a-z][a-z0-9-]{0,63}$",
+        description="Workflow identifier (lowercase, hyphens allowed)",
+    )
     description: str = ""
-    inputs: dict[str, InputDefinition] = Field(default_factory=dict)
-    steps: list[StepRecordUnion] = Field(..., min_length=1)
+    inputs: dict[str, InputDefinition] = Field(
+        default_factory=dict, description="Input parameter definitions"
+    )
+    steps: list[StepRecordUnion] = Field(
+        ..., min_length=1, description="Ordered list of workflow steps"
+    )
 
     @field_validator("steps")
     @classmethod

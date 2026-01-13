@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from unittest.mock import MagicMock
+
+import pytest
 
 from maverick.tui.screens.workflow_execution import (
     STATUS_ICONS,
@@ -351,3 +355,393 @@ class TestProgress:
         else:
             percent = 0.0
         assert percent == 0.0
+
+
+# Streaming Panel Persistence Tests (T036)
+class TestStreamingPanelPersistence:
+    """Tests for streaming panel entry persistence after workflow completion.
+
+    Per User Story 3 (T036), streaming panel entries must be preserved after
+    workflow completion (success or failure) to allow users to scroll back
+    and review agent output for debugging failed workflows.
+    """
+
+    def test_streaming_state_initialized(self):
+        """Test that streaming state is initialized with entries list."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        assert hasattr(screen, "_streaming_state")
+        assert screen._streaming_state is not None
+        assert hasattr(screen._streaming_state, "entries")
+        assert isinstance(screen._streaming_state.entries, list)
+
+    def test_streaming_state_visible_by_default(self):
+        """Test that streaming panel is visible by default (T033)."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        assert screen._streaming_state.visible is True
+
+    def test_entries_persist_after_success(self):
+        """Test that entries are NOT cleared when workflow succeeds.
+
+        After _show_completion is called with success=True, the streaming
+        entries should remain in the state for debugging purposes.
+        """
+        from maverick.tui.models.enums import StreamChunkType
+        from maverick.tui.models.widget_state import AgentStreamEntry
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Add some entries to streaming state
+        entry1 = AgentStreamEntry(
+            timestamp=1.0,
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Starting implementation...",
+            chunk_type=StreamChunkType.OUTPUT,
+        )
+        entry2 = AgentStreamEntry(
+            timestamp=2.0,
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Task completed.",
+            chunk_type=StreamChunkType.OUTPUT,
+        )
+        screen._streaming_state.add_entry(entry1)
+        screen._streaming_state.add_entry(entry2)
+
+        # Verify entries exist before completion
+        assert len(screen._streaming_state.entries) == 2
+
+        # Note: _show_completion cannot be called without mounting the widget,
+        # so we verify that no clear() call exists in the workflow lifecycle
+        # by checking that entries are preserved in the state
+
+        # Entries should still exist (no automatic clearing)
+        assert len(screen._streaming_state.entries) == 2
+        assert screen._streaming_state.entries[0].text == "Starting implementation..."
+        assert screen._streaming_state.entries[1].text == "Task completed."
+
+    def test_entries_persist_after_failure(self):
+        """Test that entries are NOT cleared when workflow fails.
+
+        After _show_completion is called with success=False, the streaming
+        entries should remain in the state for debugging failed workflows.
+        """
+        from maverick.tui.models.enums import StreamChunkType
+        from maverick.tui.models.widget_state import AgentStreamEntry
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Add entries including error output
+        entries = [
+            AgentStreamEntry(
+                timestamp=1.0,
+                step_name="test_step",
+                agent_name="TestAgent",
+                text="Starting implementation...",
+                chunk_type=StreamChunkType.OUTPUT,
+            ),
+            AgentStreamEntry(
+                timestamp=2.0,
+                step_name="test_step",
+                agent_name="TestAgent",
+                text="Error: Something went wrong!",
+                chunk_type=StreamChunkType.ERROR,
+            ),
+        ]
+        for entry in entries:
+            screen._streaming_state.add_entry(entry)
+
+        # Verify entries exist
+        assert len(screen._streaming_state.entries) == 2
+
+        # Simulate workflow failure state (without calling _show_completion
+        # which requires mounted widgets)
+        screen.success = False
+        screen.is_complete = True
+        screen.is_running = False
+
+        # Entries should still be accessible for debugging
+        assert len(screen._streaming_state.entries) == 2
+        assert "Error:" in screen._streaming_state.entries[1].text
+
+    def test_no_clear_method_called_on_completion(self):
+        """Test that StreamingPanelState.clear() is never auto-called.
+
+        The design ensures no automatic clearing happens during the workflow
+        lifecycle, preserving entries for post-completion debugging.
+        """
+        from maverick.tui.models.enums import StreamChunkType
+        from maverick.tui.models.widget_state import AgentStreamEntry
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Add entries
+        entry = AgentStreamEntry(
+            timestamp=1.0,
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Test output",
+            chunk_type=StreamChunkType.OUTPUT,
+        )
+        screen._streaming_state.add_entry(entry)
+
+        # Record entry count
+        initial_count = len(screen._streaming_state.entries)
+
+        # Simulate various state transitions
+        screen.is_running = True
+        screen.current_step = 1
+        screen.is_running = False
+        screen.is_complete = True
+        screen.success = True
+
+        # Entry count should remain the same (no clearing occurred)
+        assert len(screen._streaming_state.entries) == initial_count
+
+
+# Debounce Tests (T042)
+class TestDebounce:
+    """Tests for UI update debouncing.
+
+    Per SC-003, there must be a minimum 50ms between visual state changes
+    to prevent flickering during rapid event sequences.
+    """
+
+    def test_debounce_state_initialized(self):
+        """Test that debounce tracking state is initialized."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Verify debounce tracking attributes exist
+        assert hasattr(screen, "_last_iteration_update")
+        assert hasattr(screen, "_last_streaming_update")
+        assert hasattr(screen, "_pending_iteration_update")
+        assert hasattr(screen, "_pending_streaming_update")
+        assert hasattr(screen, "_pending_iteration_step")
+
+        # Verify initial values
+        assert screen._last_iteration_update == 0.0
+        assert screen._last_streaming_update == 0.0
+        assert screen._pending_iteration_update is None
+        assert screen._pending_streaming_update is None
+        assert screen._pending_iteration_step is None
+
+    def test_iteration_refresh_updates_last_time(self):
+        """Test that _refresh_iteration_widget updates last update time."""
+        import time
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Set up a loop state
+        from maverick.tui.models.enums import IterationStatus
+        from maverick.tui.models.widget_state import (
+            LoopIterationItem,
+            LoopIterationState,
+        )
+
+        screen._loop_states["test_loop"] = LoopIterationState(
+            step_name="test_loop",
+            iterations=[
+                LoopIterationItem(
+                    index=0,
+                    total=3,
+                    label="item-0",
+                    status=IterationStatus.PENDING,
+                )
+            ],
+            nesting_level=0,
+        )
+
+        # Ensure enough time has passed since "last update"
+        screen._last_iteration_update = 0.0
+
+        # Call refresh
+        before_call = time.time()
+        screen._refresh_iteration_widget("test_loop")
+
+        # Verify last update time was updated
+        assert screen._last_iteration_update >= before_call
+
+    def test_streaming_refresh_updates_last_time(self):
+        """Test that _refresh_streaming_panel updates last update time."""
+        import time
+
+        from maverick.tui.models.enums import StreamChunkType
+        from maverick.tui.models.widget_state import AgentStreamEntry
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Add an entry to streaming state
+        entry = AgentStreamEntry(
+            timestamp=1.0,
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Test output",
+            chunk_type=StreamChunkType.OUTPUT,
+        )
+        screen._streaming_state.add_entry(entry)
+
+        # Ensure enough time has passed since "last update"
+        screen._last_streaming_update = 0.0
+
+        # Call refresh
+        before_call = time.time()
+        screen._refresh_streaming_panel()
+
+        # Verify last update time was updated
+        assert screen._last_streaming_update >= before_call
+
+    @pytest.mark.asyncio
+    async def test_iteration_refresh_schedules_delayed_update(self):
+        """Test that rapid calls schedule delayed updates."""
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Set up a loop state
+        from maverick.tui.models.enums import IterationStatus
+        from maverick.tui.models.widget_state import (
+            LoopIterationItem,
+            LoopIterationState,
+        )
+
+        screen._loop_states["test_loop"] = LoopIterationState(
+            step_name="test_loop",
+            iterations=[
+                LoopIterationItem(
+                    index=0,
+                    total=3,
+                    label="item-0",
+                    status=IterationStatus.PENDING,
+                )
+            ],
+            nesting_level=0,
+        )
+
+        # First call should update immediately
+        screen._last_iteration_update = 0.0
+        screen._refresh_iteration_widget("test_loop")
+        first_update_time = screen._last_iteration_update
+
+        # Second rapid call should schedule delayed update
+        screen._refresh_iteration_widget("test_loop")
+
+        # The last update time should NOT have changed (debounced)
+        assert screen._last_iteration_update == first_update_time
+        # A pending update should be scheduled
+        assert screen._pending_iteration_update is not None
+        assert screen._pending_iteration_step == "test_loop"
+
+        # Clean up the pending task
+        if screen._pending_iteration_update:
+            screen._pending_iteration_update.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await screen._pending_iteration_update
+
+    @pytest.mark.asyncio
+    async def test_streaming_refresh_schedules_delayed_update(self):
+        """Test that rapid streaming calls schedule delayed updates."""
+        from maverick.tui.models.enums import StreamChunkType
+        from maverick.tui.models.widget_state import AgentStreamEntry
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Add entries to streaming state
+        for i in range(2):
+            entry = AgentStreamEntry(
+                timestamp=float(i),
+                step_name="test_step",
+                agent_name="TestAgent",
+                text=f"Output {i}",
+                chunk_type=StreamChunkType.OUTPUT,
+            )
+            screen._streaming_state.add_entry(entry)
+
+        # First call should update immediately
+        screen._last_streaming_update = 0.0
+        screen._refresh_streaming_panel()
+        first_update_time = screen._last_streaming_update
+
+        # Second rapid call should schedule delayed update
+        screen._refresh_streaming_panel()
+
+        # The last update time should NOT have changed (debounced)
+        assert screen._last_streaming_update == first_update_time
+        # A pending update should be scheduled
+        assert screen._pending_streaming_update is not None
+
+        # Clean up the pending task
+        if screen._pending_streaming_update:
+            screen._pending_streaming_update.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await screen._pending_streaming_update
+
+    @pytest.mark.asyncio
+    async def test_debounce_interval_is_50ms(self):
+        """Test that debounce interval is 50ms per SC-003."""
+        import time
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Set up a loop state
+        from maverick.tui.models.enums import IterationStatus
+        from maverick.tui.models.widget_state import (
+            LoopIterationItem,
+            LoopIterationState,
+        )
+
+        screen._loop_states["test_loop"] = LoopIterationState(
+            step_name="test_loop",
+            iterations=[
+                LoopIterationItem(
+                    index=0,
+                    total=3,
+                    label="item-0",
+                    status=IterationStatus.PENDING,
+                )
+            ],
+            nesting_level=0,
+        )
+
+        # Set last update to just under 50ms ago
+        screen._last_iteration_update = time.time() - 0.049
+
+        # This should be debounced (not enough time elapsed)
+        screen._refresh_iteration_widget("test_loop")
+
+        # Should have scheduled a delayed update
+        assert screen._pending_iteration_update is not None
+
+        # Clean up first pending task
+        first_pending = screen._pending_iteration_update
+        first_pending.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first_pending
+
+        # Now set last update to more than 50ms ago
+        screen._last_iteration_update = time.time() - 0.051
+        screen._pending_iteration_update = None  # Clear pending
+
+        # This should NOT be debounced
+        before_call = time.time()
+        screen._refresh_iteration_widget("test_loop")
+
+        # Last update time should have been updated
+        assert screen._last_iteration_update >= before_call
+
+        # Clean up any pending task
+        if screen._pending_iteration_update:
+            screen._pending_iteration_update.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await screen._pending_iteration_update

@@ -160,6 +160,32 @@ StageIndicator.failed {
     color: $error;
 }
 
+/* === Iteration Status Colors === */
+/* Used for loop iteration indicators in workflow execution */
+.iteration-pending {
+    color: $text-muted;
+}
+
+.iteration-running {
+    color: $accent;
+}
+
+.iteration-completed {
+    color: $success;
+}
+
+.iteration-failed {
+    color: $error;
+}
+
+.iteration-skipped {
+    color: $warning;
+}
+
+.iteration-cancelled {
+    color: $text-dim;
+}
+
 /* === Workflow List === */
 WorkflowList {
     height: auto;
@@ -329,13 +355,8 @@ Button:focus {
 }
 
 /* === Scrollbar Styling === */
-*::-webkit-scrollbar {
-    background: $surface;
-}
-
-*::-webkit-scrollbar-thumb {
-    background: $text-dim;
-}
+/* Note: Textual uses scrollbar-background and scrollbar-color for scrollbar styling */
+/* These are set on individual widgets or the app, not via pseudo-elements */
 
 /* === Workflow Screen === */
 .workflow-header {
@@ -777,7 +798,7 @@ ReviewFindings .severity-suggestion {
 
 /* Selected finding highlighting */
 ReviewFindings .finding-row.--selected {
-    border-left: solid $accent 2;
+    border-left: thick $accent;
 }
 
 /* File location link styling */
@@ -1054,6 +1075,17 @@ WorkflowInputScreen #button-bar {
 
 WorkflowInputScreen #button-bar Button {
     margin-right: 1;
+}
+
+WorkflowInputScreen .history-banner {
+    background: $surface-elevated;
+    padding: 0 1;
+    margin: 1 0;
+    border: solid $accent-muted;
+}
+
+WorkflowInputScreen .history-banner.hidden {
+    display: none;
 }
 
 /* Workflow Execution Screen */
@@ -1354,5 +1386,556 @@ ConnectivityIndicator .status-text {
 .workflow-resumed .resume-icon {
     color: $success;
     text-style: bold;
+}
+
+/* === IterationProgress Widget (030-tui-execution-visibility) === */
+IterationProgress {
+    height: auto;
+    min-height: 1;
+    width: 100%;
+}
+
+IterationProgress .iteration {
+    height: 1;
+    width: 100%;
+}
+
+IterationProgress .iteration-empty {
+    color: $text-muted;
+    text-style: italic;
+}
+
+IterationProgress .iteration-pending {
+    color: $text-muted;
+}
+
+IterationProgress .iteration-running {
+    color: $accent;
+    text-style: bold;
+}
+
+IterationProgress .iteration-completed {
+    color: $success;
+}
+
+IterationProgress .iteration-failed {
+    color: $error;
+}
+
+IterationProgress .iteration-skipped {
+    color: $text-dim;
+}
+
+IterationProgress .iteration-cancelled {
+    color: $warning;
+}
+
+/* Collapsed state for deeply nested loops (level 4+) */
+IterationProgress .iteration-collapsed {
+    color: $text-muted;
+    text-style: italic;
+    background: $surface-elevated;
+    padding: 0 1;
+}
+
+IterationProgress .iteration-collapsed:hover {
+    background: $accent-muted 30%;
+    color: $text;
+    text-style: bold italic;
+}
+
+/* === AgentStreamingPanel (030-tui-execution-visibility T031) === */
+/* Streaming panel for real-time agent output display */
+AgentStreamingPanel {
+    height: auto;
+    max-height: 15;
+    border: solid $accent;
+    margin: 1 0;
+}
+
+AgentStreamingPanel .header {
+    background: $surface;
+    padding: 0 1;
+    text-style: bold;
+}
+
+AgentStreamingPanel.collapsed {
+    height: 3;
+}
+
+AgentStreamingPanel.collapsed .content {
+    display: none;
+}
+
+/* Chunk type styling */
+.chunk-output {
+    color: $text;
+}
+
+.chunk-thinking {
+    color: $text-muted;
+    text-style: italic;
+}
+
+.chunk-error {
+    color: $error;
+}
+
+/* === Dashboard Screen (TUI Improvement) === */
+/* LazyGit-inspired 3-pane layout */
+
+#dashboard-container {
+    width: 100%;
+    height: 100%;
+}
+
+/* Pane base styles */
+.pane {
+    border: solid $border;
+    background: $surface;
+    padding: 0;
+}
+
+.pane.focused {
+    border: solid $accent;
+}
+
+.pane-header {
+    background: $surface-elevated;
+    padding: 0 1;
+    height: 1;
+    text-style: bold;
+    color: $accent;
+}
+
+/* Workflows pane (left, 25%) */
+#workflows-pane {
+    width: 25%;
+    min-width: 20;
+}
+
+#workflows-pane .search-input {
+    margin: 0 1;
+    height: 3;
+}
+
+#workflows-pane .filter-label {
+    padding: 0 1;
+    color: $text-muted;
+    height: 1;
+}
+
+#workflow-table-container {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#workflow-table {
+    height: 100%;
+}
+
+#workflows-pane .count-label {
+    padding: 0 1;
+    color: $text-dim;
+    height: 1;
+}
+
+/* Detail pane (center, 35%) */
+#detail-pane {
+    width: 35%;
+}
+
+#detail-content {
+    height: 1fr;
+    padding: 1;
+}
+
+#detail-text {
+    height: auto;
+}
+
+#detail-actions {
+    height: auto;
+    padding: 1;
+    border-top: solid $border;
+}
+
+#detail-actions Button {
+    margin-right: 1;
+}
+
+/* Output pane (right, 40%) */
+#output-pane {
+    width: 40%;
+}
+
+#output-pane .section-header {
+    background: $surface-elevated;
+    padding: 0 1;
+    margin-top: 1;
+    height: 1;
+    color: $text-muted;
+}
+
+#dashboard-streaming {
+    height: auto;
+    max-height: 50%;
+    margin: 0;
+    border: none;
+    border-bottom: solid $border;
+}
+
+#recent-container {
+    height: 1fr;
+    padding: 1;
+}
+
+#recent-list {
+    height: auto;
+}
+
+/* === Shortcut Footer Enhancement === */
+.shortcut-bar {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+}
+
+.shortcut-bar .key {
+    color: $accent;
+    text-style: bold;
+}
+
+.shortcut-bar .action {
+    color: $text-muted;
+    margin-right: 2;
+}
+
+/* === Help Panel Overlay === */
+HelpPanel {
+    layer: overlay;
+    align: center middle;
+    width: 60%;
+    max-width: 80;
+    max-height: 80%;
+    background: $surface;
+    border: solid $accent;
+    padding: 1 2;
+}
+
+HelpPanel .help-title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+HelpPanel .help-section {
+    margin-bottom: 1;
+}
+
+HelpPanel .help-section-title {
+    text-style: bold;
+    color: $text;
+    margin-bottom: 0;
+}
+
+HelpPanel .help-row {
+    height: 1;
+}
+
+HelpPanel .help-key {
+    width: 12;
+    color: $accent;
+}
+
+HelpPanel .help-description {
+    color: $text-muted;
+}
+
+/* === Split-View Execution Screen === */
+/* Side-by-side Steps + Agent Output layout */
+
+/* Progress header with ETA */
+#progress-header {
+    width: 100%;
+    height: 1;
+    margin: 0 0 1 0;
+}
+
+#progress-header #progress-text {
+    width: auto;
+}
+
+#progress-header #eta-display {
+    width: 1fr;
+    text-align: right;
+    padding-right: 1;
+}
+
+/* Progress timeline */
+#progress-timeline {
+    margin: 0 0 1 0;
+}
+
+#execution-split {
+    width: 100%;
+    height: 1fr;
+}
+
+.execution-pane {
+    border: solid $border;
+    background: $surface;
+}
+
+.execution-pane .pane-header {
+    background: $surface-elevated;
+    padding: 0 1;
+    height: 1;
+    color: $accent;
+}
+
+#execution-steps {
+    width: 40%;
+}
+
+#execution-steps #step-list {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#execution-output {
+    width: 60%;
+}
+
+#execution-output #streaming-panel {
+    height: 1fr;
+    max-height: 100%;
+    border: none;
+    margin: 0;
+}
+
+/* ============================================================================
+ * ANIMATION PLACEHOLDERS (Sprint 3 - TUI Dramatic Improvement)
+ * ============================================================================
+ * These classes provide hooks for future animations. Currently they are static
+ * but can be enhanced with Textual animations when needed. The infrastructure
+ * is in place for smooth transitions without breaking changes.
+ *
+ * Animation targets:
+ * - .animate-fade: Fade in/out transitions
+ * - .animate-slide: Slide in/out from edges
+ * - .animate-pulse: Attention-grabbing pulse effect
+ * - .animate-expand: Expand/collapse with height transition
+ * - .animate-highlight: Temporary highlight flash
+ * ============================================================================
+ */
+
+/* Fade animation placeholder (ready for opacity transitions) */
+.animate-fade {
+    /* Future: transition: opacity 150ms ease-in-out; */
+}
+
+.animate-fade.fade-in {
+    opacity: 1;
+}
+
+.animate-fade.fade-out {
+    opacity: 0;
+    display: none;
+}
+
+/* Slide animation placeholder (ready for transform transitions) */
+.animate-slide {
+    /* Future: transition: offset 200ms ease-out; */
+}
+
+.animate-slide.slide-left {
+    /* Future: transform: translateX(-100%); */
+}
+
+.animate-slide.slide-right {
+    /* Future: transform: translateX(100%); */
+}
+
+/* Pulse animation placeholder (for status indicators) */
+.animate-pulse {
+    /* Future: animation: pulse 1s infinite; */
+}
+
+.animate-pulse.pulse-running {
+    color: $accent;
+    /* Future: Will add pulsing glow effect */
+}
+
+.animate-pulse.pulse-warning {
+    color: $warning;
+    /* Future: Will add warning pulse */
+}
+
+.animate-pulse.pulse-error {
+    color: $error;
+    /* Future: Will add error pulse */
+}
+
+/* Expand animation placeholder (for collapsible sections) */
+.animate-expand {
+    /* Future: transition: height 200ms ease-in-out; */
+    height: auto;
+}
+
+.animate-expand.collapsed {
+    height: 0;
+    overflow: hidden;
+}
+
+.animate-expand.expanded {
+    height: auto;
+}
+
+/* Highlight animation placeholder (for focus/attention) */
+.animate-highlight {
+    /* Future: transition: background 100ms ease-in; */
+}
+
+.animate-highlight.highlight-active {
+    background: $accent-muted;
+}
+
+.animate-highlight.highlight-success {
+    background: $success;
+}
+
+.animate-highlight.highlight-error {
+    background: $error;
+}
+
+/* Status transition placeholders */
+.status-transition {
+    /* Ready for animated status changes */
+}
+
+.status-transition.from-pending-to-running {
+    /* Future: animate from dim to accent */
+}
+
+.status-transition.from-running-to-completed {
+    /* Future: animate from accent to success with checkmark */
+}
+
+.status-transition.from-running-to-failed {
+    /* Future: animate from accent to error with shake */
+}
+
+/* Loading spinner placeholder */
+.loading-spinner {
+    color: $accent;
+    /* Future: animation: spin 1s linear infinite; */
+}
+
+/* Progress bar animation placeholder */
+.progress-animated {
+    /* Future: smooth width transitions for progress updates */
+}
+
+/* ============================================================================
+ * RESPONSIVE LAYOUT HOOKS (Sprint 3 - TUI Dramatic Improvement)
+ * ============================================================================
+ * Infrastructure for graceful degradation on narrow terminals.
+ * Minimum supported size: 80x24 (enforced by app.py size check)
+ *
+ * Layout breakpoints (terminal width):
+ * - .layout-compact: < 100 columns (hide secondary panels)
+ * - .layout-normal: 100-150 columns (standard 3-pane)
+ * - .layout-wide: > 150 columns (extra detail panels)
+ *
+ * These classes should be added to the root container based on terminal size.
+ * The actual responsive detection will be implemented in the app.
+ * ============================================================================
+ */
+
+/* Compact layout (narrow terminals < 100 cols) */
+.layout-compact #sidebar {
+    width: 20;
+}
+
+.layout-compact .secondary-pane {
+    display: none;
+}
+
+.layout-compact .detail-pane {
+    width: 100%;
+}
+
+.layout-compact #execution-steps {
+    width: 35%;
+}
+
+.layout-compact #execution-output {
+    width: 65%;
+}
+
+/* Normal layout (100-150 cols) - default styles already defined */
+
+/* Wide layout (terminals > 150 cols) */
+.layout-wide #sidebar {
+    width: 35;
+}
+
+.layout-wide .detail-pane {
+    min-width: 50%;
+}
+
+.layout-wide #execution-steps {
+    width: 30%;
+}
+
+.layout-wide #execution-output {
+    width: 70%;
+}
+
+/* Stack layout (very narrow, single column) */
+.layout-stack .pane {
+    width: 100%;
+}
+
+.layout-stack #execution-split {
+    /* Future: Switch to vertical layout on very narrow terminals */
+}
+
+/* Visibility toggles for responsive components */
+.hide-on-compact {
+    /* Visible by default, hidden in compact mode */
+}
+
+.layout-compact .hide-on-compact {
+    display: none;
+}
+
+.show-on-compact {
+    display: none;
+}
+
+.layout-compact .show-on-compact {
+    display: block;
+}
+
+/* Text truncation helpers */
+.truncate-compact {
+    /* Default: full text */
+}
+
+.layout-compact .truncate-compact {
+    max-width: 15;
+    overflow: hidden;
+}
+
+/* Icon-only mode for compact sidebars */
+.icon-only-compact {
+    /* Default: show text + icon */
+}
+
+.layout-compact .icon-only-compact .button-label {
+    display: none;
 }
 

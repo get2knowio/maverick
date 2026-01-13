@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.cli.output import format_error
+from maverick.exceptions import GitError, NotARepositoryError
+from maverick.git import GitRepository
 
 if TYPE_CHECKING:
     from maverick.models.review import ReviewResult
@@ -35,6 +37,8 @@ __all__ = [
 def validate_branch(branch_name: str) -> tuple[bool, str | None]:
     """Validate that a git branch exists.
 
+    Uses GitRepository wrapper per CLAUDE.md canonical library standards.
+
     Args:
         branch_name: Name of the branch to validate.
 
@@ -48,56 +52,34 @@ def validate_branch(branch_name: str) -> tuple[bool, str | None]:
         ...     print(error)
     """
     try:
-        # Check if branch exists using git show-ref
-        result = subprocess.run(
-            ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        repo = GitRepository(Path.cwd())
 
-        if result.returncode != 0:
-            # Branch doesn't exist as a ref (no commits yet or doesn't exist at all)
-            # Check if we're currently on this branch using symbolic-ref
-            current_branch_result = subprocess.run(
-                ["git", "symbolic-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+        # Check if branch exists in local branches
+        branches = [b.name for b in repo._repo.branches]
+        if branch_name in branches:
+            return True, None
 
-            if current_branch_result.returncode == 0:
-                # Extract branch name from refs/heads/branch-name
-                current_ref = current_branch_result.stdout.strip()
-                current_branch = current_ref.replace("refs/heads/", "")
+        # Branch doesn't exist - check if we're on it (new branch, no commits)
+        current = repo.current_branch()
+        if current == branch_name:
+            return True, None
 
-                if current_branch != branch_name:
-                    # Branch doesn't exist and we're not on it
-                    suggestion = f"Create branch with 'git checkout -b {branch_name}'"
-                    error_msg = format_error(
-                        f"Branch '{branch_name}' does not exist",
-                        suggestion=suggestion,
-                    )
-                    return False, error_msg
-            else:
-                # Can't determine current branch
-                suggestion = f"Create branch with 'git checkout -b {branch_name}'"
-                error_msg = format_error(
-                    f"Branch '{branch_name}' does not exist",
-                    suggestion=suggestion,
-                )
-                return False, error_msg
-
-        return True, None
-
-    except subprocess.TimeoutExpired:
-        error_msg = format_error("Git command timed out")
-        return False, error_msg
-    except FileNotFoundError:
+        # Branch doesn't exist
+        suggestion = f"Create branch with 'git checkout -b {branch_name}'"
         error_msg = format_error(
-            "git is not installed",
-            suggestion="Install from https://git-scm.com/downloads",
+            f"Branch '{branch_name}' does not exist",
+            suggestion=suggestion,
         )
+        return False, error_msg
+
+    except NotARepositoryError:
+        error_msg = format_error(
+            "Not a git repository",
+            suggestion="Initialize with 'git init' or navigate to a git repository",
+        )
+        return False, error_msg
+    except GitError as e:
+        error_msg = format_error(f"Git error: {e}")
         return False, error_msg
 
 
@@ -137,6 +119,8 @@ def detect_task_file(branch_name: str | None = None) -> Path | None:
 def get_git_branch() -> tuple[str | None, str | None]:
     """Get the current git branch name.
 
+    Uses GitRepository wrapper per CLAUDE.md canonical library standards.
+
     Returns:
         Tuple of (branch_name, error_message). If successful, error_message is None.
         If error, branch_name may be None or a placeholder like "(detached HEAD)".
@@ -148,54 +132,25 @@ def get_git_branch() -> tuple[str | None, str | None]:
         >>> else:
         ...     print(f"On branch: {branch}")
     """
-    # First, check if we're in a git repository
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        repo = GitRepository(Path.cwd())
+        branch = repo.current_branch()
 
-        if result.returncode != 0:
-            # Not a git repository
-            suggestion = "Initialize with 'git init' or navigate to a git repository"
-            error_msg = format_error(
-                "Not a git repository",
-                suggestion=suggestion,
-            )
-            return None, error_msg
+        # current_branch returns commit SHA if detached
+        if len(branch) == 40 and all(c in "0123456789abcdef" for c in branch):
+            return "(detached HEAD)", None
 
-    except subprocess.TimeoutExpired:
-        error_msg = format_error("Git command timed out")
-        return None, error_msg
-    except FileNotFoundError:
+        return branch, None
+
+    except NotARepositoryError:
         error_msg = format_error(
-            "git is not installed",
-            suggestion="Install from https://git-scm.com/downloads",
+            "Not a git repository",
+            suggestion="Initialize with 'git init' or navigate to a git repository",
         )
         return None, error_msg
-
-    # Get current branch
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if not branch:
-                # In detached HEAD state
-                branch = "(detached HEAD)"
-            return branch, None
-        else:
-            return "(unknown)", None
-
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return "(unknown)", None
+    except GitError as e:
+        error_msg = format_error(f"Git error: {e}")
+        return None, error_msg
 
 
 def validate_pr(pr_number: int) -> tuple[bool, str | None, dict[str, str] | None]:

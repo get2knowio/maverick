@@ -5,8 +5,10 @@ from datetime import datetime
 
 from maverick.tui.models.enums import (
     FindingSeverity,
+    IterationStatus,
     MessageType,
     StageStatus,
+    StreamChunkType,
     ValidationStepStatus,
 )
 from maverick.tui.models.findings import CodeContext, ReviewFinding, ReviewFindingItem
@@ -224,3 +226,186 @@ class ReviewFindingsState:
     def is_empty(self) -> bool:
         """Check if there are no findings."""
         return len(self.findings) == 0
+
+
+@dataclass(slots=True)
+class LoopIterationItem:
+    """Display state for a single loop iteration.
+
+    Attributes:
+        index: 0-based iteration index.
+        total: Total iterations in loop.
+        label: Display label (e.g., "Phase 1: Setup").
+        status: Current status.
+        duration_ms: Execution time (None if not started).
+        error: Error message if failed.
+        started_at: Timestamp when started.
+        completed_at: Timestamp when completed.
+    """
+
+    index: int
+    total: int
+    label: str
+    status: IterationStatus
+    duration_ms: int | None = None
+    error: str | None = None
+    started_at: float | None = None
+    completed_at: float | None = None
+
+    @property
+    def display_text(self) -> str:
+        """Display format: '{index+1}/{total}: {label}'.
+
+        Example: '1/3: Phase 1: Setup'
+        """
+        return f"{self.index + 1}/{self.total}: {self.label}"
+
+
+@dataclass(slots=True)
+class LoopIterationState:
+    """Aggregate state for loop iteration progress display.
+
+    Attributes:
+        step_name: Name of the loop step.
+        iterations: All iterations.
+        nesting_level: Depth of nesting (0 = top-level).
+        expanded: Whether iterations are visible.
+    """
+
+    step_name: str
+    iterations: list[LoopIterationItem] = field(default_factory=list)
+    nesting_level: int = 0
+    expanded: bool = True
+
+    def get_iteration(self, index: int) -> LoopIterationItem | None:
+        """Get iteration by index.
+
+        Args:
+            index: Zero-based index of the iteration.
+
+        Returns:
+            The iteration item if found, None otherwise.
+        """
+        if 0 <= index < len(self.iterations):
+            return self.iterations[index]
+        return None
+
+    def update_iteration(self, index: int, **updates: object) -> None:
+        """Update iteration fields.
+
+        Args:
+            index: Zero-based index of the iteration to update.
+            **updates: Field names and values to update.
+        """
+        if item := self.get_iteration(index):
+            for key, value in updates.items():
+                setattr(item, key, value)
+
+    @property
+    def current_iteration(self) -> LoopIterationItem | None:
+        """Get the currently running iteration.
+
+        Returns:
+            The iteration with RUNNING status, or None if no iteration is running.
+        """
+        for item in self.iterations:
+            if item.status == IterationStatus.RUNNING:
+                return item
+        return None
+
+    @property
+    def progress_fraction(self) -> float:
+        """Progress as fraction 0.0-1.0.
+
+        Returns:
+            Fraction of completed iterations (including failed/skipped).
+        """
+        if not self.iterations:
+            return 0.0
+        terminal_statuses = (
+            IterationStatus.COMPLETED,
+            IterationStatus.FAILED,
+            IterationStatus.SKIPPED,
+        )
+        completed = sum(1 for i in self.iterations if i.status in terminal_statuses)
+        return completed / len(self.iterations)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentStreamEntry:
+    """A single streaming output entry.
+
+    Attributes:
+        timestamp: When the chunk was received.
+        step_name: Source step name.
+        agent_name: Source agent name.
+        text: Text content.
+        chunk_type: Type of chunk.
+    """
+
+    timestamp: float
+    step_name: str
+    agent_name: str
+    text: str
+    chunk_type: StreamChunkType
+
+    @property
+    def size_bytes(self) -> int:
+        """Approximate size in bytes for buffer management."""
+        return len(self.text.encode("utf-8"))
+
+
+@dataclass(slots=True)
+class StreamingPanelState:
+    """State for the agent streaming panel.
+
+    Attributes:
+        visible: Panel expanded/collapsed.
+        auto_scroll: Auto-scroll to latest.
+        entries: List of streaming output entries.
+        current_source: Current source identifier ("{step_name} - {agent_name}").
+        max_size_bytes: Maximum buffer size in bytes (default: 100KB).
+        _current_size_bytes: Tracked current size in bytes.
+    """
+
+    visible: bool = True
+    auto_scroll: bool = True
+    entries: list[AgentStreamEntry] = field(default_factory=list)
+    current_source: str | None = None
+    max_size_bytes: int = 100 * 1024  # 100KB limit
+    _current_size_bytes: int = 0
+
+    def __post_init__(self) -> None:
+        """Initialize size tracking from any pre-existing entries."""
+        if self.entries and self._current_size_bytes == 0:
+            self._current_size_bytes = sum(e.size_bytes for e in self.entries)
+
+    def add_entry(self, entry: AgentStreamEntry) -> None:
+        """Add entry, enforcing size limit with FIFO eviction.
+
+        Args:
+            entry: The streaming entry to add.
+        """
+        entry_size = entry.size_bytes
+
+        # Evict oldest entries if needed
+        while (
+            self._current_size_bytes + entry_size > self.max_size_bytes and self.entries
+        ):
+            removed = self.entries.pop(0)
+            self._current_size_bytes -= removed.size_bytes
+
+        self.entries.append(entry)
+        self._current_size_bytes += entry_size
+        self.current_source = f"{entry.step_name} - {entry.agent_name}"
+
+    def clear(self) -> None:
+        """Clear all entries."""
+        self.entries.clear()
+        self._current_size_bytes = 0
+        self.current_source = None
+
+    @property
+    def total_size_bytes(self) -> int:
+        """Current buffer size in bytes."""
+        return self._current_size_bytes

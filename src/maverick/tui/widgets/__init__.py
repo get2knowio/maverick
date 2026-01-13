@@ -7,6 +7,7 @@ Includes widgets and their Textual Message classes for inter-widget communicatio
 from __future__ import annotations
 
 from maverick.tui.widgets.agent_output import AgentOutput
+from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.diff_panel import DiffPanel
 from maverick.tui.widgets.form import (
     BranchInputField,
@@ -14,15 +15,23 @@ from maverick.tui.widgets.form import (
     SelectField,
     ToggleField,
 )
+from maverick.tui.widgets.help_panel import HelpPanel
 from maverick.tui.widgets.issue_list import IssueList, IssueListItem
+from maverick.tui.widgets.iteration_progress import (
+    STATUS_ICONS,
+    IterationProgress,
+)
 from maverick.tui.widgets.log_panel import LogPanel
 from maverick.tui.widgets.modal import ConfirmDialog, ErrorDialog, InputDialog
 from maverick.tui.widgets.pr_summary import PRSummary
 from maverick.tui.widgets.result_summary import ResultSummary
 from maverick.tui.widgets.review_findings import ReviewFindings
 from maverick.tui.widgets.settings import SettingField, SettingsSection
+from maverick.tui.widgets.shortcut_footer import ShortcutFooter
 from maverick.tui.widgets.sidebar import Sidebar
 from maverick.tui.widgets.stage_indicator import StageIndicator
+from maverick.tui.widgets.step_group import StepGroup, StepGroupStatus, StepSummary
+from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
 from maverick.tui.widgets.validation_status import ValidationStatus
 from maverick.tui.widgets.workflow_list import WorkflowList
 from maverick.tui.widgets.workflow_progress import (
@@ -59,7 +68,16 @@ ResultSummaryPRLinkClicked = ResultSummary.PRLinkClicked
 __all__ = [
     # Widgets
     "AgentOutput",
+    "AgentStreamingPanel",
     "DiffPanel",
+    "HelpPanel",
+    "IterationProgress",
+    "ProgressTimeline",
+    "ShortcutFooter",
+    "StepGroup",
+    "StepGroupStatus",
+    "StepSummary",
+    "TimelineStep",
     "IssueList",
     "IssueListItem",
     "LogPanel",
@@ -70,6 +88,7 @@ __all__ = [
     "SettingsSection",
     "Sidebar",
     "StageIndicator",
+    "STATUS_ICONS",
     "ValidationStatus",
     "WorkflowList",
     "WorkflowProgress",

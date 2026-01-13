@@ -2,6 +2,8 @@
 
 This screen dynamically generates a form based on the workflow's input schema,
 allowing users to configure required and optional parameters before execution.
+
+Supports input history for quick re-runs with previous values.
 """
 
 from __future__ import annotations
@@ -11,11 +13,12 @@ from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Input, Static, Switch, TextArea
 
 from maverick.dsl.serialization.schema import InputDefinition, InputType
+from maverick.tui.input_history import InputHistoryEntry, get_input_history_store
 from maverick.tui.screens.base import MaverickScreen
 
 if TYPE_CHECKING:
@@ -34,16 +37,19 @@ class WorkflowInputScreen(MaverickScreen):
 
     BINDINGS = [
         Binding("ctrl+enter", "run_workflow", "Run", show=True),
+        Binding("ctrl+l", "load_last_inputs", "Load Last", show=True),
         Binding("escape", "go_back", "Back", show=True),
     ]
 
     # Reactive state
     can_run: reactive[bool] = reactive(False)
+    has_history: reactive[bool] = reactive(False)
 
     def __init__(
         self,
         workflow: DiscoveredWorkflow,
         *,
+        prefill_inputs: dict[str, Any] | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
@@ -52,15 +58,19 @@ class WorkflowInputScreen(MaverickScreen):
 
         Args:
             workflow: The discovered workflow to configure.
+            prefill_inputs: Optional inputs to pre-fill the form with.
             name: Widget name.
             id: Widget ID.
             classes: CSS classes.
         """
         super().__init__(name=name, id=id, classes=classes)
         self._workflow = workflow
+        self._prefill_inputs = prefill_inputs
         self._input_values: dict[str, Any] = {}
         self._validation_errors: dict[str, str] = {}
         self._field_widgets: dict[str, Input | Switch | TextArea] = {}
+        self._history_store = get_input_history_store()
+        self._last_history_entry: InputHistoryEntry | None = None
 
     def compose(self) -> ComposeResult:
         """Create the input form layout."""
@@ -84,12 +94,25 @@ class WorkflowInputScreen(MaverickScreen):
 
                 yield from self._create_field(input_name, input_def)
 
-        with Vertical(id="button-bar"):
+        # History banner (shown if previous inputs exist)
+        yield Static(
+            "",
+            id="history-banner",
+            classes="history-banner hidden",
+        )
+
+        with Horizontal(id="button-bar"):
             yield Button(
                 "Run Workflow",
                 id="run-btn",
                 variant="primary",
                 disabled=True,
+            )
+            yield Button(
+                "Load Previous",
+                id="load-history-btn",
+                variant="default",
+                classes="hidden",
             )
             yield Button(
                 "Back",
@@ -202,6 +225,19 @@ class WorkflowInputScreen(MaverickScreen):
     def on_mount(self) -> None:
         """Initialize the screen and validate initial state."""
         super().on_mount()
+
+        # Check for input history
+        workflow_name = self._workflow.workflow.name
+        self._last_history_entry = self._history_store.get_last_inputs(workflow_name)
+        self.has_history = self._last_history_entry is not None
+
+        # Apply prefill inputs if provided
+        if self._prefill_inputs:
+            self._apply_inputs(self._prefill_inputs)
+        elif self._last_history_entry:
+            # Show history banner
+            self._show_history_banner()
+
         self._validate_all()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -312,6 +348,87 @@ class WorkflowInputScreen(MaverickScreen):
         run_btn = self.query_one("#run-btn", Button)
         run_btn.disabled = not can_run
 
+    def watch_has_history(self, has_history: bool) -> None:
+        """React to has_history state changes."""
+        try:
+            load_btn = self.query_one("#load-history-btn", Button)
+            if has_history:
+                load_btn.remove_class("hidden")
+            else:
+                load_btn.add_class("hidden")
+        except Exception:
+            pass
+
+    def _show_history_banner(self) -> None:
+        """Show the history availability banner."""
+        if not self._last_history_entry:
+            return
+
+        try:
+            banner = self.query_one("#history-banner", Static)
+            banner.update(
+                f"[dim]Previous inputs available from "
+                f"{self._last_history_entry.display_timestamp}. "
+                f"Press [cyan]Ctrl+L[/cyan] or click 'Load Previous' to use them.[/dim]"
+            )
+            banner.remove_class("hidden")
+        except Exception:
+            pass
+
+    def _apply_inputs(self, inputs: dict[str, Any]) -> None:
+        """Apply a set of inputs to the form fields.
+
+        Args:
+            inputs: Dictionary of input name to value.
+        """
+        for input_name, value in inputs.items():
+            if input_name not in self._field_widgets:
+                continue
+
+            widget = self._field_widgets[input_name]
+            input_def = self._workflow.workflow.inputs.get(input_name)
+            if not input_def:
+                continue
+
+            # Update the widget based on its type
+            if isinstance(widget, Switch):
+                widget.value = bool(value)
+                self._input_values[input_name] = bool(value)
+
+            elif isinstance(widget, TextArea):
+                # JSON input (array/object)
+                if isinstance(value, (list, dict)):
+                    text = json.dumps(value, indent=2)
+                else:
+                    text = str(value) if value is not None else ""
+                widget.text = text
+                self._input_values[input_name] = text
+
+            elif isinstance(widget, Input):
+                str_value = str(value) if value is not None else ""
+                widget.value = str_value
+                self._input_values[input_name] = str_value
+
+        # Revalidate after applying inputs
+        self._validate_all()
+
+    def action_load_last_inputs(self) -> None:
+        """Load the most recent inputs from history."""
+        if not self._last_history_entry:
+            return
+
+        self._apply_inputs(self._last_history_entry.inputs)
+
+        # Hide the banner after loading
+        try:
+            banner = self.query_one("#history-banner", Static)
+            banner.add_class("hidden")
+        except Exception:
+            pass
+
+        # Show confirmation
+        self.notify("Previous inputs loaded", severity="information")
+
     def _get_typed_inputs(self) -> dict[str, Any]:
         """Convert input values to their proper types.
 
@@ -361,6 +478,10 @@ class WorkflowInputScreen(MaverickScreen):
             self.show_error("Invalid input values", details=str(e))
             return
 
+        # Save inputs to history for future quick runs
+        workflow_name = self._workflow.workflow.name
+        self._history_store.save_inputs(workflow_name, typed_inputs)
+
         # Navigate to execution screen
         from maverick.tui.screens.workflow_execution import WorkflowExecutionScreen
 
@@ -379,5 +500,7 @@ class WorkflowInputScreen(MaverickScreen):
         """Handle button presses."""
         if event.button.id == "run-btn":
             self.action_run_workflow()
+        elif event.button.id == "load-history-btn":
+            self.action_load_last_inputs()
         elif event.button.id == "back-btn":
             self.action_go_back()

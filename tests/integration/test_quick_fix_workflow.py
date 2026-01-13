@@ -196,7 +196,12 @@ steps:
             original_execute = WorkflowFileExecutor._execute_step
             executed_steps = []
 
-            async def mock_execute_step(self: Any, step: Any, context: Any) -> Any:
+            async def mock_execute_step(
+                self: Any,
+                step: Any,
+                context: Any,
+                event_callback: Any = None,
+            ) -> Any:
                 """Track step execution and mock sub-workflows."""
                 executed_steps.append(step.name)
 
@@ -220,7 +225,7 @@ steps:
                             "pr_url": "https://github.com/org/repo/pull/456",
                         }
 
-                return await original_execute(self, step, context)
+                return await original_execute(self, step, context, event_callback)
 
             with patch.object(WorkflowFileExecutor, "_execute_step", mock_execute_step):
                 # Execute workflow

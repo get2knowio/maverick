@@ -95,6 +95,7 @@ steps:
         - format
         - lint
         - test
+      fail_on_error: true
     metadata:
       progress:
         stage: "preflight"
@@ -105,11 +106,14 @@ steps:
   # ============================================================================
   # Initialize the workspace by syncing the feature branch with the base branch,
   # ensuring we're starting from a clean, up-to-date state.
+  #
+  # Note: Preflight step now fails hard on errors (fail_on_error=true by default),
+  # so we only reach this step if preflight passed.
   # ============================================================================
   - name: init
     type: python
     action: init_workspace
-    when: ${{ not inputs.dry_run and steps.preflight.output.success }}
+    when: ${{ not inputs.dry_run }}
     kwargs:
       branch_name: ${{ inputs.branch_name }}
     metadata:
@@ -214,6 +218,9 @@ steps:
 
   # ============================================================================
   # Checkpoint: After All Implementation
+  # ============================================================================
+  # Note: Preflight step now fails hard on errors, so we only reach this
+  # checkpoint if all previous steps completed successfully.
   # ============================================================================
   - name: checkpoint_after_implementation
     type: checkpoint

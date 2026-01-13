@@ -11,10 +11,33 @@ from typing import Any, Protocol, runtime_checkable
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
+from maverick.dsl.events import ProgressEvent
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Type alias for event callbacks used by handlers to emit events in real-time
+EventCallback = Callable[[ProgressEvent], Coroutine[Any, Any, None]]
+"""Callback for streaming events during step execution.
+
+Handlers can optionally accept an event_callback parameter to emit
+events in real-time during execution. The executor provides this
+callback which queues events for immediate yielding to consumers.
+
+Example:
+    async def execute_loop_step(
+        step: LoopStepRecord,
+        resolved_inputs: dict[str, Any],
+        context: WorkflowContext,
+        registry: ComponentRegistry,
+        config: Any = None,
+        event_callback: EventCallback | None = None,
+    ) -> Any:
+        if event_callback:
+            await event_callback(LoopIterationStarted(...))
+        ...
+"""
 
 
 @runtime_checkable
@@ -140,6 +163,7 @@ async def with_error_handling(
 
 
 __all__ = [
+    "EventCallback",
     "StepHandler",
     "with_error_handling",
 ]

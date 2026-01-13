@@ -14,10 +14,11 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.command import Hit, Hits, Provider
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from maverick.tui.models import NavigationContext, NavigationEntry
 from maverick.tui.widgets.log_panel import LogPanel
+from maverick.tui.widgets.shortcut_footer import ShortcutFooter
 from maverick.tui.widgets.sidebar import Sidebar
 
 if TYPE_CHECKING:
@@ -107,7 +108,7 @@ class MaverickApp(App[None]):
         Binding("ctrl+l", "toggle_log", "Toggle Log", show=True),
         Binding("escape", "pop_screen", "Back", show=True),
         Binding("q", "quit", "Quit", show=True),
-        Binding("?", "show_help", "Help", show=False),
+        Binding("?", "show_help_panel", "Help", show=True),
         Binding("ctrl+comma", "show_config", "Settings", show=False),
         Binding("ctrl+h", "go_home", "Home", show=False),
     ]
@@ -126,14 +127,14 @@ class MaverickApp(App[None]):
 
         Yields:
             ComposeResult: Header, main container with sidebar and content,
-                          log panel, footer, and size warning overlay.
+                          log panel, shortcut footer, and size warning overlay.
         """
         yield Header()
         with Horizontal(id="main-container"):
             yield Sidebar(id="sidebar")
             yield Vertical(id="content-area")
         yield LogPanel(id="log-panel")
-        yield Footer()
+        yield ShortcutFooter(id="shortcut-footer")
         # Minimum size warning overlay (hidden by default)
         with Container(id="min-size-warning"):
             yield Static(
@@ -146,21 +147,44 @@ class MaverickApp(App[None]):
             )
 
     async def on_mount(self) -> None:
-        """Initialize the app with HomeScreen."""
-        from maverick.tui.screens.home import HomeScreen
+        """Initialize the app with DashboardScreen."""
+        from maverick.tui.screens.dashboard import DashboardScreen
 
-        # Check initial terminal size
+        # Check initial terminal size and set layout class
         self._check_terminal_size()
+        self._update_layout_class()
         # Set up timer interval to update header subtitle every second
         self.set_interval(1.0, self._update_header_subtitle)
-        await self.push_screen(HomeScreen())
+        await self.push_screen(DashboardScreen())
+
+    # Responsive layout breakpoints (terminal width in columns)
+    LAYOUT_COMPACT_THRESHOLD = 100
+    LAYOUT_WIDE_THRESHOLD = 150
 
     def on_resize(self) -> None:
         """Handle terminal resize events.
 
         Shows warning overlay if terminal is below minimum size (80x24).
+        Also updates responsive layout classes based on terminal width.
         """
         self._check_terminal_size()
+        self._update_layout_class()
+
+    def on_screen_resume(self) -> None:
+        """Handle screen resume (screen becomes active after pop).
+
+        Refreshes the shortcut footer to show current screen's shortcuts.
+        """
+        self._refresh_shortcut_footer()
+
+    def _refresh_shortcut_footer(self) -> None:
+        """Refresh the shortcut footer with current screen's bindings."""
+        try:
+            footer = self.query_one("#shortcut-footer", ShortcutFooter)
+            footer.refresh_shortcuts()
+        except Exception:
+            # Footer not mounted yet
+            pass
 
     def _check_terminal_size(self) -> None:
         """Check terminal size and show/hide warning overlay.
@@ -179,6 +203,30 @@ class MaverickApp(App[None]):
         except Exception:
             # Widget not yet mounted, skip size check
             pass
+
+    def _update_layout_class(self) -> None:
+        """Update responsive layout class based on terminal width.
+
+        Applies one of three layout modes:
+        - layout-compact: < 100 columns (narrower panels, hide secondary content)
+        - layout-normal: 100-150 columns (default 3-pane layout)
+        - layout-wide: > 150 columns (wider panels, more detail space)
+
+        The corresponding CSS classes adjust panel widths and visibility
+        to provide graceful degradation on narrow terminals.
+        """
+        width = self.size.width
+
+        # Remove existing layout classes
+        self.remove_class("layout-compact", "layout-normal", "layout-wide")
+
+        # Apply appropriate layout class based on width
+        if width < self.LAYOUT_COMPACT_THRESHOLD:
+            self.add_class("layout-compact")
+        elif width > self.LAYOUT_WIDE_THRESHOLD:
+            self.add_class("layout-wide")
+        else:
+            self.add_class("layout-normal")
 
     def action_toggle_log(self) -> None:
         """Toggle log panel visibility (Ctrl+L)."""
@@ -237,8 +285,14 @@ class MaverickApp(App[None]):
         """Quit the application (q)."""
         self.exit()
 
+    def action_show_help_panel(self) -> None:
+        """Show the help panel overlay (?)."""
+        from maverick.tui.widgets.help_panel import HelpPanel
+
+        self.push_screen(HelpPanel())
+
     def action_show_help(self) -> None:
-        """Show keybindings help (?)."""
+        """Show keybindings help in log (legacy)."""
         self.add_log("Help: Press Ctrl+P for command palette", "info", "app")
         self.add_log("  Ctrl+L: Toggle log panel", "info", "app")
         self.add_log("  Escape: Go back", "info", "app")

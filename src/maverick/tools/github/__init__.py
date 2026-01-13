@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from maverick.tools.github.prereqs import verify_github_prerequisites
 from maverick.tools.github.runner import (
     DEFAULT_TIMEOUT,

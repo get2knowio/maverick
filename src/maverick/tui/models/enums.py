@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 
 
@@ -103,3 +105,22 @@ class SettingType(str, Enum):
     BOOL = "bool"
     INT = "int"
     CHOICE = "choice"
+
+
+class IterationStatus(str, Enum):
+    """Status of a loop iteration."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
+class StreamChunkType(str, Enum):
+    """Type of agent streaming chunk."""
+
+    OUTPUT = "output"
+    THINKING = "thinking"
+    ERROR = "error"

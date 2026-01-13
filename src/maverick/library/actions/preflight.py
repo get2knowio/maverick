@@ -6,17 +6,30 @@ ensuring all required tools and credentials are available.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from maverick.config import MaverickConfig, load_config
+from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
 from maverick.runners.models import ValidationStage
 from maverick.runners.preflight import AnthropicAPIValidator
 from maverick.runners.validation import ValidationRunner
 
 logger = get_logger(__name__)
+
+
+class PreflightError(MaverickError):
+    """Raised when preflight checks fail and fail_on_error is True."""
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = errors
+        message = "Preflight checks failed:\n" + "\n".join(f"  - {e}" for e in errors)
+        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +73,7 @@ async def run_preflight_checks(
     check_github: bool = True,
     check_validation_tools: bool = True,
     validation_stages: list[str] | None = None,
+    fail_on_error: bool = True,
 ) -> PreflightCheckResult:
     """Run preflight validation checks before workflow execution.
 
@@ -74,22 +88,42 @@ async def run_preflight_checks(
         check_validation_tools: Whether to validate validation tools are installed.
         validation_stages: List of validation stages to check tools for.
             Defaults to ["format", "lint", "typecheck", "test"].
+        fail_on_error: If True (default), raise PreflightError when checks fail
+            instead of returning a result with success=False. This causes the
+            workflow to stop immediately with a clear error message.
 
     Returns:
         PreflightCheckResult with success status and any errors/warnings.
 
+    Raises:
+        PreflightError: If fail_on_error is True and any preflight checks fail.
+
     Example:
-        result = await run_preflight_checks(
-            check_api=True,
-            check_github=True,
-            check_validation_tools=True,
-            validation_stages=["format", "lint", "test"],
-        )
+        # Fail workflow on preflight errors (default)
+        result = await run_preflight_checks(check_api=True)
+        # Workflow stops here if API check fails
+
+        # Return result without failing (for conditional logic)
+        result = await run_preflight_checks(check_api=True, fail_on_error=False)
         if not result.success:
-            raise PreflightError(result.errors)
+            # Handle failure gracefully
+            ...
     """
+    import os
+
     if validation_stages is None:
         validation_stages = ["format", "lint", "typecheck", "test"]
+
+    # Debug: log env variable status
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+    logger.debug(
+        "Preflight environment check",
+        anthropic_key_set=bool(anthropic_key),
+        anthropic_key_len=len(anthropic_key) if anthropic_key else 0,
+        oauth_token_set=bool(oauth_token),
+        fail_on_error_param=fail_on_error,
+    )
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -101,8 +135,12 @@ async def run_preflight_checks(
     # Load config for validation commands
     try:
         config = load_config()
-    except Exception as e:
-        logger.warning(f"Failed to load config: {e}, using defaults")
+    except (ConfigError, ValidationError, FileNotFoundError, OSError) as e:
+        logger.warning(
+            "Failed to load config, using defaults",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
         config = MaverickConfig()
 
     # Check Anthropic API
@@ -143,17 +181,20 @@ async def run_preflight_checks(
             )
             logger.warning("GitHub CLI not found")
         else:
-            # Check if authenticated
-            import subprocess
-
+            # Check if authenticated using async subprocess
             try:
-                result = subprocess.run(
-                    ["gh", "auth", "status"],
-                    capture_output=True,
-                    text=True,
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "gh",
+                        "auth",
+                        "status",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
                     timeout=10,
                 )
-                if result.returncode != 0:
+                await proc.communicate()
+                if proc.returncode != 0:
                     github_cli_available = False
                     warnings.append(
                         "GitHub CLI is not authenticated. "
@@ -162,12 +203,16 @@ async def run_preflight_checks(
                     logger.warning("GitHub CLI not authenticated")
                 else:
                     logger.info("GitHub CLI is available and authenticated")
-            except subprocess.TimeoutExpired:
+            except TimeoutError:
                 warnings.append("GitHub CLI auth check timed out")
                 logger.warning("GitHub CLI auth check timed out")
-            except Exception as e:
+            except OSError as e:
                 warnings.append(f"GitHub CLI auth check failed: {e}")
-                logger.warning(f"GitHub CLI auth check failed: {e}")
+                logger.warning(
+                    "GitHub CLI auth check failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
     # Check validation tools
     if check_validation_tools:
@@ -230,6 +275,15 @@ async def run_preflight_checks(
             error_count=len(errors),
             errors=errors,
         )
+        # Fail immediately if fail_on_error is True
+        logger.debug(
+            "Preflight fail_on_error check",
+            fail_on_error=fail_on_error,
+            will_raise=fail_on_error,
+        )
+        if fail_on_error:
+            logger.info("Raising PreflightError to stop workflow")
+            raise PreflightError(errors)
 
     return PreflightCheckResult(
         success=success,
