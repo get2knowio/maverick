@@ -11,7 +11,11 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
-from maverick.agents.utils import detect_file_changes, extract_all_text
+from maverick.agents.utils import (
+    detect_file_changes,
+    extract_all_text,
+    extract_streaming_text,
+)
 from maverick.exceptions import GitHubError
 from maverick.logging import get_logger
 from maverick.models.issue_fix import FixResult, IssueFixerContext
@@ -248,6 +252,11 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         messages = []
         async for msg in self.query(prompt, cwd=context.cwd):
             messages.append(msg)
+            # Stream text to TUI if callback is set
+            if self.stream_callback:
+                text = extract_streaming_text(msg)
+                if text:
+                    await self.stream_callback(text)
 
         output = extract_all_text(messages)
 

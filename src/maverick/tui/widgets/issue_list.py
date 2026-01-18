@@ -39,7 +39,7 @@ class IssueListItem(Widget):
     }
 
     IssueListItem.focused {
-        background: $accent 20%;
+        background: #00aaff 20%;
     }
 
     IssueListItem Checkbox {
@@ -48,7 +48,7 @@ class IssueListItem(Widget):
 
     IssueListItem .issue-number {
         width: 8;
-        color: $text-muted;
+        color: #808080;
         content-align: right middle;
     }
 
@@ -59,7 +59,7 @@ class IssueListItem(Widget):
 
     IssueListItem .issue-labels {
         width: auto;
-        color: $text-dim;
+        color: #606060;
         padding: 0 1;
     }
     """
@@ -154,8 +154,8 @@ class IssueList(Widget):
     DEFAULT_CSS = """
     IssueList {
         height: 1fr;
-        border: solid $primary;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
     }
 
     IssueList Vertical {
@@ -164,7 +164,7 @@ class IssueList(Widget):
 
     IssueList .empty-message {
         padding: 2;
-        color: $text-muted;
+        color: #808080;
         text-align: center;
     }
     """

@@ -46,11 +46,11 @@ class SettingField(Widget):
 
     SettingField .setting-label {
         margin-bottom: 0;
-        color: $text;
+        color: #e0e0e0;
     }
 
     SettingField .setting-description {
-        color: $text-muted;
+        color: #808080;
         margin-bottom: 1;
     }
 
@@ -63,11 +63,11 @@ class SettingField(Widget):
     }
 
     SettingField .modified-indicator {
-        color: $warning;
+        color: #ff9800;
     }
 
     SettingField .validation-error {
-        color: $error;
+        color: #f44336;
         margin-top: 0;
     }
     """
@@ -249,7 +249,7 @@ class SettingsSection(Widget):
     SettingsSection .section-header {
         text-style: bold;
         margin-bottom: 1;
-        color: $text;
+        color: #e0e0e0;
     }
 
     SettingsSection #section-content {

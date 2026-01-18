@@ -14,7 +14,11 @@ from maverick.agents.base import MaverickAgent
 from maverick.agents.context import AgentContext
 from maverick.agents.result import AgentResult
 from maverick.agents.tools import FIXER_TOOLS
-from maverick.agents.utils import extract_all_text, get_zero_usage
+from maverick.agents.utils import (
+    extract_all_text,
+    extract_streaming_text,
+    get_zero_usage,
+)
 from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
@@ -155,10 +159,15 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
 
             logger.info("Applying fix with FixerAgent")
 
-            # Execute via Claude SDK
+            # Execute via Claude SDK with streaming
             messages = []
             async for msg in self.query(prompt, cwd=context.cwd):
                 messages.append(msg)
+                # Stream text to TUI if callback is set
+                if self.stream_callback:
+                    text = extract_streaming_text(msg)
+                    if text:
+                        await self.stream_callback(text)
 
             output = extract_all_text(messages)
             usage = self._extract_usage(messages)

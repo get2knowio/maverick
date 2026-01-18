@@ -1233,6 +1233,7 @@ async def _execute_workflow_run(
 
         # Execute workflow using WorkflowFileExecutor (CLI mode)
         from maverick.dsl.events import (
+            AgentStreamChunk,
             StepCompleted,
             StepStarted,
             WorkflowCompleted,
@@ -1391,6 +1392,20 @@ async def _execute_workflow_run(
                     status_msg = click.style("✗", fg="red", bold=True)
                     duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
                     click.echo(f"{status_msg} {duration_msg}")
+
+            elif isinstance(event, AgentStreamChunk):
+                # Stream agent output to console in real-time
+                if event.chunk_type == "output":
+                    # Regular agent output - stream directly
+                    click.echo(event.text, nl=False)
+                elif event.chunk_type == "thinking":
+                    # Thinking indicator - dim styling
+                    thinking_msg = click.style(event.text, dim=True)
+                    click.echo(thinking_msg)
+                elif event.chunk_type == "error":
+                    # Error output - red styling
+                    error_msg = click.style(event.text, fg="red")
+                    click.echo(error_msg, err=True)
 
             elif isinstance(event, WorkflowCompleted):
                 # Workflow summary

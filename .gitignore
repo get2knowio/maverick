@@ -37,3 +37,7 @@ Thumbs.db
 .claude/settings.local.json
 .codex/auth.json
 *.jsonl
+
+# Beads (local issue tracking state)
+.beads/
+test_bd.sh

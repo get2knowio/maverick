@@ -138,6 +138,10 @@ markers = [
     "integration: marks tests requiring external services",
     "tui: marks TUI-specific tests requiring Textual pilot",
     "benchmark: marks performance benchmark tests",
+    "e2e: marks end-to-end tests (slow, require MCP TUI driver or full app)",
+    "visual: marks visual regression tests with snapshot comparison",
+    "performance: marks performance benchmark tests for response times",
+    "accessibility: marks accessibility compliance tests (keyboard nav, focus)",
 ]
 timeout = 30  # 30-second default timeout for async tests (FR-026)
 

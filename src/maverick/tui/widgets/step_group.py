@@ -113,7 +113,7 @@ class StepGroup(Widget):
     }
 
     StepGroup .group-summary {
-        color: $text-muted;
+        color: #808080;
         margin-left: 2;
     }
 
@@ -128,23 +128,23 @@ class StepGroup(Widget):
 
     /* Status colors */
     StepGroup.status-pending .group-title {
-        color: $text-muted;
+        color: #808080;
     }
 
     StepGroup.status-running .group-title {
-        color: $accent;
+        color: #00aaff;
     }
 
     StepGroup.status-completed .group-title {
-        color: $success;
+        color: #4caf50;
     }
 
     StepGroup.status-failed .group-title {
-        color: $error;
+        color: #f44336;
     }
 
     StepGroup.status-mixed .group-title {
-        color: $warning;
+        color: #ff9800;
     }
     """
 

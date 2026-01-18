@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from maverick.agents.base import MaverickAgent
 from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import IMPLEMENTER_TOOLS
-from maverick.agents.utils import detect_file_changes
+from maverick.agents.utils import detect_file_changes, extract_streaming_text
 from maverick.exceptions import TaskParseError
 from maverick.logging import get_logger
 from maverick.models.implementation import (
@@ -349,10 +349,15 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             # Build prompt for Claude
             prompt = self._build_task_prompt(task, context)
 
-            # Execute via Claude SDK
+            # Execute via Claude SDK with streaming
             messages = []
             async for msg in self.query(prompt, cwd=context.cwd):
                 messages.append(msg)
+                # Stream text to TUI if callback is set
+                if self.stream_callback:
+                    text = extract_streaming_text(msg)
+                    if text:
+                        await self.stream_callback(text)
 
             # Parse result from output (simplified - full parsing in enhancement phase)
             files_changed = await detect_file_changes(context.cwd)
@@ -537,10 +542,16 @@ After completion, provide a summary of changes made.
             # Build phase prompt with all tasks
             prompt = self._build_phase_prompt(context.phase_name, phase_tasks, context)
 
-            # Execute via Claude SDK - Claude handles parallelization
+            # Execute via Claude SDK with streaming
+            # Claude handles parallelization of tasks within the phase
             messages = []
             async for msg in self.query(prompt, cwd=context.cwd):
                 messages.append(msg)
+                # Stream text to TUI if callback is set
+                if self.stream_callback:
+                    text = extract_streaming_text(msg)
+                    if text:
+                        await self.stream_callback(text)
 
             # Detect file changes after phase execution
             files_changed = await detect_file_changes(context.cwd)

@@ -325,6 +325,7 @@ class TestBuildOptions:
             mcp_servers={"github": {"url": "http://example.com"}},
             cwd="/workspace/test",
             extra_args={},
+            include_partial_messages=True,
         )
 
     def test_cwd_none_when_not_specified(self) -> None:

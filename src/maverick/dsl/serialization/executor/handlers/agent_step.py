@@ -126,11 +126,34 @@ async def execute_agent_step(
     # Get agent name for events (use class name or configured name)
     agent_name = getattr(agent_instance, "name", step.agent)
 
+    # Set up stream callback for real-time output streaming
+    has_event_callback = event_callback is not None
+    has_stream_attr = hasattr(agent_instance, "stream_callback")
+    logger.info(
+        "stream_callback_setup",
+        has_event_callback=has_event_callback,
+        has_stream_attr=has_stream_attr,
+        agent=step.agent,
+    )
+    if event_callback and has_stream_attr:
+
+        async def stream_text_callback(text: str) -> None:
+            """Forward agent output to event queue as AgentStreamChunk."""
+            chunk_event = AgentStreamChunk(
+                step_name=step.name,
+                agent_name=agent_name,
+                text=text,
+                chunk_type="output",
+            )
+            await event_callback(chunk_event)
+
+        agent_instance.stream_callback = stream_text_callback
+
     # T028: Emit thinking indicator at agent start
     thinking_event = AgentStreamChunk(
         step_name=step.name,
         agent_name=agent_name,
-        text="",
+        text="Agent is working...",
         chunk_type="thinking",
     )
     if event_callback:
@@ -227,21 +250,43 @@ def _extract_output_text(result: Any) -> str:
     if result is None:
         return ""
 
-    # Check for AgentResult-style objects with 'output' attribute
+    # Check for AgentResult-style objects with non-empty 'output' attribute
     if hasattr(result, "output"):
         output = result.output
-        if isinstance(output, str):
+        if isinstance(output, str) and output:
             return output
-        if output is not None:
+        if output is not None and not isinstance(output, str):
             return str(output)
 
-    # Check for dict with 'output' key
+    # Check for dict with non-empty 'output' key
     if isinstance(result, dict) and "output" in result:
         output = result["output"]
-        if isinstance(output, str):
+        if isinstance(output, str) and output:
             return output
-        if output is not None:
+        if output is not None and not isinstance(output, str):
             return str(output)
+
+    # Check for ImplementationResult-style objects and generate summary
+    if hasattr(result, "tasks_completed") and hasattr(result, "success"):
+        parts = []
+        completed = getattr(result, "tasks_completed", 0)
+        failed = getattr(result, "tasks_failed", 0)
+        skipped = getattr(result, "tasks_skipped", 0)
+        success = getattr(result, "success", False)
+
+        status = "Completed" if success else "Failed"
+        parts.append(f"{status}: {completed} task(s) completed")
+        if failed > 0:
+            parts.append(f"{failed} failed")
+        if skipped > 0:
+            parts.append(f"{skipped} skipped")
+
+        # Add file change info if available
+        files_changed = getattr(result, "files_changed", [])
+        if files_changed:
+            parts.append(f"{len(files_changed)} file(s) modified")
+
+        return ", ".join(parts)
 
     # Check for string result
     if isinstance(result, str):

@@ -10,7 +10,9 @@ from typing import Any
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
+from maverick.dsl.events import AgentStreamChunk
 from maverick.dsl.serialization.executor import context as context_module
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import PythonStepRecord
 from maverick.logging import get_logger
@@ -24,6 +26,7 @@ async def execute_python_step(
     context: WorkflowContext,
     registry: ComponentRegistry,
     config: Any = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
     """Execute a Python callable step.
 
@@ -49,6 +52,23 @@ async def execute_python_step(
         )
 
     action = registry.actions.get(step.action)
+
+    # Check if action accepts stream_callback parameter
+    # If so, create a callback wrapper that emits AgentStreamChunk events
+    action_sig = inspect.signature(action)
+    if "stream_callback" in action_sig.parameters and event_callback is not None:
+
+        async def stream_to_event(text: str) -> None:
+            """Convert stream callback to AgentStreamChunk event."""
+            chunk_event = AgentStreamChunk(
+                step_name=step.name,
+                agent_name="fixer",  # Actions typically use fixer agents
+                text=text,
+                chunk_type="output",
+            )
+            await event_callback(chunk_event)
+
+        resolved_inputs["stream_callback"] = stream_to_event
 
     # Call the action with resolved kwargs
     result = action(**resolved_inputs)

@@ -8,7 +8,7 @@ agent creation and execution.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
@@ -19,10 +19,14 @@ if TYPE_CHECKING:
 
     from maverick.agents.result import AgentUsage
 
+# Type alias for stream callbacks that receive text chunks
+StreamCallback = Callable[[str], Coroutine[Any, Any, None]]
+
 __all__ = [
     "MaverickAgent",
     "BUILTIN_TOOLS",
     "DEFAULT_MODEL",
+    "StreamCallback",
 ]
 
 # =============================================================================
@@ -144,6 +148,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         self._mcp_servers = mcp_servers or {}
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._stream_callback: StreamCallback | None = None
 
         # Validate tools at construction time (FR-002)
         self._validate_tools(self._allowed_tools, self._mcp_servers)
@@ -172,6 +177,16 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
     def mcp_servers(self) -> dict[str, Any]:
         """MCP server configurations."""
         return self._mcp_servers.copy()
+
+    @property
+    def stream_callback(self) -> StreamCallback | None:
+        """Optional callback for streaming text chunks to the TUI."""
+        return self._stream_callback
+
+    @stream_callback.setter
+    def stream_callback(self, callback: StreamCallback | None) -> None:
+        """Set the stream callback for real-time output streaming."""
+        self._stream_callback = callback
 
     def _validate_tools(
         self,
@@ -235,6 +250,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             mcp_servers=self._mcp_servers,
             cwd=str(cwd) if cwd else None,
             extra_args=extra_args,
+            include_partial_messages=True,  # Enable token-by-token streaming
         )
 
     def _wrap_sdk_error(self, error: Exception) -> Exception:

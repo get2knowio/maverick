@@ -73,30 +73,34 @@ class ProgressTimeline(Widget):
         width: 100%;
     }
 
-    /* Status colors for bars */
+    /* Status colors for bars
+     * Note: Using hardcoded colors because widget DEFAULT_CSS
+     * doesn't have access to app-level CSS variables.
+     * Colors match maverick.tcss theme definitions.
+     */
     ProgressTimeline .bar-pending {
-        background: $surface-elevated;
-        color: $text-dim;
+        background: #2d2d2d;
+        color: #606060;
     }
 
     ProgressTimeline .bar-running {
-        background: $accent;
-        color: $text;
+        background: #00aaff;
+        color: #e0e0e0;
     }
 
     ProgressTimeline .bar-completed {
-        background: $success;
-        color: $text;
+        background: #4caf50;
+        color: #e0e0e0;
     }
 
     ProgressTimeline .bar-failed {
-        background: $error;
-        color: $text;
+        background: #f44336;
+        color: #e0e0e0;
     }
 
     ProgressTimeline .bar-skipped {
-        background: $text-dim;
-        color: $text-muted;
+        background: #606060;
+        color: #808080;
     }
     """
 

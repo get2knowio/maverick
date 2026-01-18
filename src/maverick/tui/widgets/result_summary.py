@@ -29,14 +29,14 @@ class ResultSummary(Widget):
     DEFAULT_CSS = """
     ResultSummary {
         height: auto;
-        border: solid $primary;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
         padding: 1;
     }
 
     ResultSummary .title {
         text-align: center;
-        color: $text;
+        color: #e0e0e0;
         margin-bottom: 1;
     }
 
@@ -47,43 +47,43 @@ class ResultSummary(Widget):
     }
 
     ResultSummary .result-success {
-        color: $success;
+        color: #4caf50;
     }
 
     ResultSummary .result-failure {
-        color: $error;
+        color: #f44336;
     }
 
     ResultSummary .result-pr-link {
-        color: $accent;
+        color: #00aaff;
         text-style: underline;
     }
 
     ResultSummary .result-error {
-        color: $error;
+        color: #f44336;
         padding-left: 2;
     }
 
     ResultSummary .empty-message {
         padding: 2;
-        color: $text-muted;
+        color: #808080;
         text-align: center;
     }
 
     ResultSummary .summary-stats {
         margin-top: 1;
         padding-top: 1;
-        border-top: solid $primary;
+        border-top: solid #00aaff;
         text-align: center;
-        color: $text-muted;
+        color: #808080;
     }
 
     ResultSummary .success-count {
-        color: $success;
+        color: #4caf50;
     }
 
     ResultSummary .failure-count {
-        color: $error;
+        color: #f44336;
     }
     """
 

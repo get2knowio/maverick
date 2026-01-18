@@ -43,53 +43,53 @@ class DiffPanel(Widget):
     DiffPanel {
         height: 100%;
         width: 100%;
-        border-left: solid $border;
-        background: $surface;
+        border-left: solid #3a3a3a;
+        background: #242424;
     }
 
     DiffPanel VerticalScroll {
         height: 100%;
         width: 100%;
-        background: $surface;
+        background: #242424;
         padding: 1;
     }
 
     DiffPanel .panel-header {
         height: auto;
         padding: 0 0 1 0;
-        border-bottom: solid $border;
-        color: $text;
+        border-bottom: solid #3a3a3a;
+        color: #e0e0e0;
         text-style: bold;
         margin-bottom: 1;
     }
 
     DiffPanel .file-path {
-        color: $accent;
+        color: #00aaff;
         text-style: bold;
     }
 
     DiffPanel .line-number {
-        color: $text-muted;
+        color: #808080;
     }
 
     DiffPanel .empty-state {
         height: 100%;
         width: 100%;
         content-align: center middle;
-        color: $text-muted;
+        color: #808080;
         text-style: italic;
     }
 
     DiffPanel .error-state {
         padding: 1;
-        background: $error 20%;
-        border: solid $error;
-        color: $error;
+        background: #f44336 20%;
+        border: solid #f44336;
+        color: #f44336;
     }
 
     DiffPanel .code-content {
-        background: $surface-elevated;
-        border: solid $border;
+        background: #2d2d2d;
+        border: solid #3a3a3a;
         padding: 1;
     }
     """

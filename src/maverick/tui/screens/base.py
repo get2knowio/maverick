@@ -51,6 +51,9 @@ class MaverickScreen(Screen[None]):
         """Initialize the screen with connectivity monitoring."""
         super().__init__(*args, **kwargs)
         self._connectivity_monitor = ConnectivityMonitor()
+        # Track whether we've established a connectivity baseline
+        # Only show notifications after we've confirmed connectivity at least once
+        self._connectivity_baseline_established = False
 
     @property
     def can_go_back(self) -> bool:
@@ -81,12 +84,23 @@ class MaverickScreen(Screen[None]):
         _handle_connectivity_change() to allow screens to respond.
 
         The check runs asynchronously and does not block the UI.
+
+        Note:
+            Notifications are only shown after a connectivity baseline
+            has been established (i.e., after a successful check).
+            This prevents false notifications when the monitor starts
+            with an assumed-connected state.
         """
         was_connected = self._connectivity_monitor.is_connected()
         is_connected = await self._connectivity_monitor.check_connectivity()
 
-        # Only notify on state changes
-        if was_connected != is_connected:
+        # Establish baseline on first successful check
+        if is_connected and not self._connectivity_baseline_established:
+            self._connectivity_baseline_established = True
+            return  # Don't notify on initial baseline establishment
+
+        # Only notify on state changes after baseline is established
+        if self._connectivity_baseline_established and was_connected != is_connected:
             self._handle_connectivity_change(is_connected)
 
     async def confirm(self, title: str, message: str) -> bool:

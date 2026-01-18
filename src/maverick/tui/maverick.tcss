@@ -1133,13 +1133,6 @@ WorkflowExecutionScreen .step-failed {
     color: $error;
 }
 
-WorkflowExecutionScreen #status-bar {
-    height: auto;
-    margin-top: 1;
-    padding: 1;
-    border: solid $border;
-}
-
 WorkflowExecutionScreen #error-display {
     color: $error;
     margin-top: 1;

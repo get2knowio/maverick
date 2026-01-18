@@ -580,6 +580,16 @@ class WorkflowFileExecutor:
             if event_callback:
                 handler_kwargs["event_callback"] = event_callback
 
+        elif step_type == StepType.PYTHON:
+            # Pass event_callback to python handler for actions that need streaming
+            if event_callback:
+                handler_kwargs["event_callback"] = event_callback
+
+        elif step_type == StepType.SUBWORKFLOW:
+            # Pass event_callback to subworkflow handler for event propagation
+            if event_callback:
+                handler_kwargs["event_callback"] = event_callback
+
         elif step_type == StepType.CHECKPOINT:
             # Checkpoint step needs checkpoint_store
             handler_kwargs["checkpoint_store"] = self._checkpoint_store

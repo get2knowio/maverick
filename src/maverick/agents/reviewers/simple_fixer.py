@@ -137,7 +137,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         Raises:
             AgentError: On execution failure.
         """
-        from maverick.agents.utils import extract_all_text
+        from maverick.agents.utils import extract_all_text, extract_streaming_text
 
         findings: list[Finding] = context.get("findings", [])
         groups: list[FindingGroup] | None = context.get("groups")
@@ -155,6 +155,11 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         messages = []
         async for msg in self.query(prompt, cwd=cwd):
             messages.append(msg)
+            # Stream text to TUI if callback is set
+            if self.stream_callback:
+                text = extract_streaming_text(msg)
+                if text:
+                    await self.stream_callback(text)
 
         text = extract_all_text(messages)
 

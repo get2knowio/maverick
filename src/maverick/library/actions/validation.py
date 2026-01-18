@@ -43,6 +43,7 @@ async def run_fix_retry_loop(
     fixer_agent: str,
     validation_result: dict[str, Any],
     cwd: str | None = None,
+    stream_callback: Any | None = None,
 ) -> dict[str, Any]:
     """Execute fix-and-retry loop for validation failures.
 
@@ -57,6 +58,7 @@ async def run_fix_retry_loop(
         fixer_agent: Name of fixer agent to use (currently unused, FixerAgent is used)
         validation_result: Initial validation result from validate step
         cwd: Working directory for validation commands (defaults to Path.cwd())
+        stream_callback: Optional callback for streaming agent output
 
     Returns:
         Dict with:
@@ -121,6 +123,7 @@ async def run_fix_retry_loop(
                     fix_result = await _invoke_fixer_agent(
                         fix_prompt=fix_prompt,
                         cwd=working_dir,
+                        stream_callback=stream_callback,
                     )
 
                     if fix_result.get("success", False):
@@ -200,12 +203,14 @@ async def run_fix_retry_loop(
 async def _invoke_fixer_agent(
     fix_prompt: str,
     cwd: Path,
+    stream_callback: Any | None = None,
 ) -> dict[str, Any]:
     """Invoke the FixerAgent to apply fixes based on the prompt.
 
     Args:
         fix_prompt: The prompt describing fixes to apply
         cwd: Working directory for the agent
+        stream_callback: Optional callback for streaming agent output
 
     Returns:
         Dict with success status and fix details or error message
@@ -218,6 +223,10 @@ async def _invoke_fixer_agent(
 
         # Create agent instance
         agent = FixerAgent()
+
+        # Set stream callback if provided (for CLI/TUI output streaming)
+        if stream_callback is not None:
+            agent.stream_callback = stream_callback
 
         # Build context with the fix prompt
         context = AgentContext.from_cwd(

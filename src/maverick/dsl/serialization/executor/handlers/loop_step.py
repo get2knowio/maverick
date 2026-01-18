@@ -200,7 +200,9 @@ async def _execute_loop_tasks(
             error_msg: str | None = None
 
             try:
-                results[index] = await execute_step_fn(step_record, context)
+                results[index] = await execute_step_fn(
+                    step_record, context, event_callback
+                )
             except BaseException as exc:
                 results[index] = exc
                 success = False
@@ -388,7 +390,7 @@ async def _execute_loop_for_each(
                         continue
 
                     try:
-                        result = await execute_step_fn(s, item_context)
+                        result = await execute_step_fn(s, item_context, event_callback)
                         step_results.append(result)
                     except BaseException as exc:
                         step_results.append(exc)

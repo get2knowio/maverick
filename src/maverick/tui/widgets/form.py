@@ -46,7 +46,7 @@ class BranchInputField(Widget):
 
     BranchInputField .label {
         margin-bottom: 1;
-        color: $text;
+        color: #e0e0e0;
     }
 
     BranchInputField Input {
@@ -58,15 +58,15 @@ class BranchInputField(Widget):
     }
 
     BranchInputField .error {
-        color: $error;
+        color: #f44336;
     }
 
     BranchInputField .valid {
-        color: $success;
+        color: #4caf50;
     }
 
     BranchInputField .checking {
-        color: $warning;
+        color: #ff9800;
     }
     """
 
@@ -195,7 +195,7 @@ class NumericField(Widget):
 
     NumericField .label {
         margin-bottom: 1;
-        color: $text;
+        color: #e0e0e0;
     }
 
     NumericField .input-row {
@@ -216,11 +216,11 @@ class NumericField(Widget):
     }
 
     NumericField .error {
-        color: $error;
+        color: #f44336;
     }
 
     NumericField .valid {
-        color: $success;
+        color: #4caf50;
     }
     """
 
@@ -422,7 +422,7 @@ class ToggleField(Widget):
 
     ToggleField .toggle-description {
         width: auto;
-        color: $text-muted;
+        color: #808080;
     }
     """
 
@@ -514,7 +514,7 @@ class SelectField(Widget):
 
     SelectField .label {
         margin-bottom: 1;
-        color: $text;
+        color: #e0e0e0;
     }
 
     SelectField .select-container {
@@ -530,21 +530,21 @@ class SelectField(Widget):
     SelectField .select-display {
         width: 1fr;
         height: 3;
-        border: solid $primary;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
         padding: 0 1;
         content-align: left middle;
     }
 
     SelectField .select-display:focus {
-        border: solid $accent;
+        border: solid #00aaff;
     }
 
     SelectField .options-list {
         height: auto;
         max-height: 10;
-        border: solid $primary;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
         display: none;
     }
 
@@ -558,13 +558,13 @@ class SelectField(Widget):
     }
 
     SelectField .option-item.selected {
-        background: $primary;
-        color: $text;
+        background: #00aaff;
+        color: #e0e0e0;
     }
 
     SelectField .option-item.focused {
-        background: $accent;
-        color: $text;
+        background: #00aaff;
+        color: #e0e0e0;
     }
     """
 

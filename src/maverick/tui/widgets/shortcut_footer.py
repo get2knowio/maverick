@@ -43,7 +43,7 @@ class ShortcutFooter(Widget):
     ShortcutFooter {
         dock: bottom;
         height: 1;
-        background: $surface;
+        background: #242424;
         padding: 0 1;
     }
 
@@ -58,16 +58,16 @@ class ShortcutFooter(Widget):
     }
 
     ShortcutFooter .shortcut-key {
-        color: $accent;
+        color: #00aaff;
         text-style: bold;
     }
 
     ShortcutFooter .shortcut-action {
-        color: $text-muted;
+        color: #808080;
     }
 
     ShortcutFooter .shortcut-separator {
-        color: $text-dim;
+        color: #606060;
         margin: 0 1;
     }
     """

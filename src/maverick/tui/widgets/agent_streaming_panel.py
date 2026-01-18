@@ -58,11 +58,11 @@ class AgentStreamingPanel(Widget):
     AgentStreamingPanel {
         height: auto;
         max-height: 50%;
-        border: solid $accent;
+        border: solid #00aaff;
     }
 
     AgentStreamingPanel .header {
-        background: $surface;
+        background: #242424;
         padding: 0 1;
     }
 
@@ -80,16 +80,16 @@ class AgentStreamingPanel(Widget):
     }
 
     AgentStreamingPanel .chunk-output {
-        color: $text;
+        color: #e0e0e0;
     }
 
     AgentStreamingPanel .chunk-thinking {
-        color: $text-muted;
+        color: #808080;
         text-style: italic;
     }
 
     AgentStreamingPanel .chunk-error {
-        color: $error;
+        color: #f44336;
     }
     """
 

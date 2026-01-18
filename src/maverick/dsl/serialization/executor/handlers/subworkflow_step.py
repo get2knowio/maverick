@@ -19,6 +19,7 @@ async def execute_subworkflow_step(
     context: WorkflowContext,
     registry: ComponentRegistry,
     config: Any = None,
+    event_callback: Any = None,
 ) -> Any:
     """Execute a sub-workflow step.
 
@@ -63,9 +64,11 @@ async def execute_subworkflow_step(
         registry=registry,
         config=config,
     )
-    # Consume all events (for logging/monitoring)
-    async for _event in sub_executor.execute(workflow, inputs=sub_inputs):
-        pass  # Events are processed by the sub-executor
+    # Process and forward events to parent workflow
+    async for event in sub_executor.execute(workflow, inputs=sub_inputs):
+        # Forward events to parent for real-time streaming
+        if event_callback is not None:
+            await event_callback(event)
 
     # Get final result from sub-executor
     workflow_result = sub_executor.get_result()

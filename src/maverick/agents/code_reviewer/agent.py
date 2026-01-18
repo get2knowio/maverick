@@ -24,7 +24,7 @@ from maverick.agents.code_reviewer.diff_chunking import (
 from maverick.agents.code_reviewer.parsing import parse_findings
 from maverick.agents.code_reviewer.prompts import SYSTEM_PROMPT
 from maverick.agents.tools import REVIEWER_TOOLS
-from maverick.agents.utils import extract_all_text
+from maverick.agents.utils import extract_all_text, extract_streaming_text
 from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
@@ -268,6 +268,11 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                     chunk_messages: list[Any] = []
                     async for msg in self.query(chunk_prompt, cwd=review_context.cwd):
                         chunk_messages.append(msg)
+                        # Stream text to TUI if callback is set
+                        if self.stream_callback:
+                            text = extract_streaming_text(msg)
+                            if text:
+                                await self.stream_callback(text)
 
                     # Parse findings from chunk
                     chunk_response = extract_all_text(chunk_messages)
@@ -286,6 +291,11 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
                 messages = []
                 async for msg in self.query(prompt, cwd=review_context.cwd):
                     messages.append(msg)
+                    # Stream text to TUI if callback is set
+                    if self.stream_callback:
+                        text = extract_streaming_text(msg)
+                        if text:
+                            await self.stream_callback(text)
 
                 # 11. Collect and join the response text (T022)
                 response_text = extract_all_text(messages)

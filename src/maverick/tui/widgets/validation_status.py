@@ -81,38 +81,38 @@ class ValidationStatus(Widget):
 
     ValidationStatus .error-output {
         padding: 1;
-        background: $error 20%;
-        border: solid $error;
+        background: #f44336 20%;
+        border: solid #f44336;
         margin: 1 0;
     }
 
     ValidationStatus .empty-state {
         height: 3;
         content-align: center middle;
-        color: $text-muted;
+        color: #808080;
     }
 
     ValidationStatus .loading-state {
         height: 3;
         content-align: center middle;
-        color: $text-muted;
+        color: #808080;
     }
 
     /* Status-specific colors */
     ValidationStatus .status-pending {
-        color: $text-muted;
+        color: #808080;
     }
 
     ValidationStatus .status-running {
-        color: $accent;
+        color: #00aaff;
     }
 
     ValidationStatus .status-passed {
-        color: $success;
+        color: #4caf50;
     }
 
     ValidationStatus .status-failed {
-        color: $error;
+        color: #f44336;
     }
     """
 

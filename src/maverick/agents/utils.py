@@ -102,6 +102,149 @@ def extract_text(message: Any) -> str:
     return "\n".join(text_parts)
 
 
+def extract_streaming_text(message: Any) -> str:
+    """Extract text for streaming display, including partial tokens and tool activity.
+
+    This function handles both:
+    - StreamEvent messages (token-by-token streaming via include_partial_messages=True)
+    - AssistantMessage (complete messages with TextBlock and ToolUseBlock)
+
+    Args:
+        message: Message object from Claude SDK (StreamEvent, AssistantMessage, etc.)
+
+    Returns:
+        Formatted text suitable for streaming display. Includes:
+        - Token deltas from StreamEvent (character-by-character)
+        - Text content from TextBlock
+        - Tool activity from ToolUseBlock (e.g., "> Reading src/file.py")
+        - Empty string if no displayable content
+    """
+    if message is None:
+        return ""
+
+    msg_type = type(message).__name__
+
+    # Handle StreamEvent (partial messages from include_partial_messages=True)
+    # This provides true token-by-token streaming like a chat interface
+    # SDK types.py shows: StreamEvent.event is dict[str, Any]
+    if msg_type == "StreamEvent":
+        event = getattr(message, "event", None)
+        if not isinstance(event, dict):
+            return ""
+
+        event_type = event.get("type", "")
+
+        # content_block_delta contains the streaming token
+        if event_type == "content_block_delta":
+            delta = event.get("delta")
+            if not isinstance(delta, dict):
+                return ""
+            return str(delta.get("text", ""))
+
+        # content_block_start may contain initial text for text blocks
+        if event_type == "content_block_start":
+            content_block = event.get("content_block")
+            if not isinstance(content_block, dict):
+                return ""
+            # Only extract text from text blocks, not tool_use blocks
+            if content_block.get("type") == "text":
+                return str(content_block.get("text", ""))
+
+        # Other stream events (message_start, message_stop, etc.) don't have text
+        return ""
+
+    # Handle AssistantMessage with content blocks (complete messages)
+    if not hasattr(message, "content"):
+        return ""
+
+    text_parts = []
+    for block in message.content:
+        block_type = type(block).__name__
+
+        # TextBlock - include text directly
+        if block_type == "TextBlock" and hasattr(block, "text"):
+            text_parts.append(block.text)
+
+        # ToolUseBlock - format tool activity for display
+        elif block_type == "ToolUseBlock":
+            tool_name = getattr(block, "name", "unknown")
+            tool_input = getattr(block, "input", {})
+
+            # Format based on tool type
+            if tool_name == "Read":
+                file_path = tool_input.get("file_path", "")
+                if file_path:
+                    # Shorten path for display
+                    short_path = _shorten_path(file_path)
+                    text_parts.append(f"> Reading {short_path}")
+            elif tool_name == "Write":
+                file_path = tool_input.get("file_path", "")
+                if file_path:
+                    short_path = _shorten_path(file_path)
+                    text_parts.append(f"> Writing {short_path}")
+            elif tool_name == "Edit":
+                file_path = tool_input.get("file_path", "")
+                if file_path:
+                    short_path = _shorten_path(file_path)
+                    text_parts.append(f"> Editing {short_path}")
+            elif tool_name == "Glob":
+                pattern = tool_input.get("pattern", "")
+                text_parts.append(f"> Searching for {pattern}")
+            elif tool_name == "Grep":
+                pattern = tool_input.get("pattern", "")
+                text_parts.append(f"> Searching for '{pattern}'")
+            elif tool_name == "Bash":
+                command = tool_input.get("command", "")
+                # Truncate long commands
+                if len(command) > 60:
+                    command = command[:57] + "..."
+                text_parts.append(f"> Running: {command}")
+            elif tool_name == "Task":
+                description = tool_input.get("description", "")
+                text_parts.append(f"> Spawning agent: {description}")
+            else:
+                # Generic tool display
+                text_parts.append(f"> Using {tool_name}")
+
+    return "\n".join(text_parts)
+
+
+def _shorten_path(path: str, max_length: int = 50) -> str:
+    """Shorten a file path for display.
+
+    Args:
+        path: Full file path
+        max_length: Maximum length before truncation
+
+    Returns:
+        Shortened path, keeping the filename and truncating the middle
+    """
+    if len(path) <= max_length:
+        return path
+
+    # Keep the last part (filename) and truncate the beginning
+    parts = path.split("/")
+    if len(parts) <= 2:
+        return path
+
+    filename = parts[-1]
+    if len(filename) >= max_length - 4:
+        return "..." + filename[-(max_length - 3) :]
+
+    # Build path from end until we hit the limit
+    result_parts = [filename]
+    remaining = max_length - len(filename) - 4  # 4 for ".../""
+
+    for part in reversed(parts[:-1]):
+        if len(part) + 1 <= remaining:  # +1 for /
+            result_parts.insert(0, part)
+            remaining -= len(part) + 1
+        else:
+            break
+
+    return ".../" + "/".join(result_parts)
+
+
 def extract_all_text(messages: list[Any]) -> str:
     """Extract text from all AssistantMessage objects in a list.
 

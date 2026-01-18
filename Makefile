@@ -10,7 +10,9 @@
 #   make install       # Sync dependencies
 #   make VERBOSE=1 test  # Full pytest output
 
-.PHONY: help install sync test lint typecheck format format-fix check clean ci
+.PHONY: help install sync test lint typecheck format format-fix check clean ci \
+       test-tui test-tui-unit test-tui-widgets test-tui-screens test-tui-e2e \
+       test-tui-visual test-tui-perf test-tui-a11y update-snapshots
 
 # Default: show help
 .DEFAULT_GOAL := help
@@ -75,3 +77,34 @@ clean: ## Remove build artifacts and caches
 	$(Q)rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ .coverage htmlcov dist build *.egg-info
 	$(Q)find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	$(Q)echo "[clean] Done"
+
+# =============================================================================
+# TUI Testing Commands
+# =============================================================================
+
+test-tui: ## Run all TUI tests (widget, screen, integration)
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui tests/unit/tui -v --tb=short -m "tui"
+
+test-tui-unit: ## Run TUI widget and screen unit tests only
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/unit/tui/widgets tests/unit/tui/screens tests/unit/tui/models -v --tb=short
+
+test-tui-widgets: ## Run TUI widget tests only
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui/widgets tests/unit/tui/widgets -v --tb=short
+
+test-tui-screens: ## Run TUI screen tests only
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui/screens tests/unit/tui/screens -v --tb=short
+
+test-tui-e2e: ## Run E2E tests with MCP TUI driver (slow)
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui/e2e -v -m "e2e" --timeout=120
+
+test-tui-visual: ## Run visual regression tests
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui/visual -v -m "visual"
+
+test-tui-perf: ## Run performance benchmark tests
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui/performance -v -m "performance"
+
+test-tui-a11y: ## Run accessibility tests
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/tui -v -m "accessibility"
+
+update-snapshots: ## Update visual regression snapshots
+	$(Q)uv run pytest tests/tui/visual --snapshot-update -v

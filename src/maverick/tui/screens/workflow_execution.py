@@ -235,6 +235,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._pending_iteration_update: asyncio.Task[None] | None = None
         self._pending_streaming_update: asyncio.Task[None] | None = None
         self._pending_iteration_step: str | None = None
+        # Track which streaming entries have been displayed
+        self._last_displayed_entry_index: int = 0
 
         # Sprint 2: ETA tracking and step duration history
         self._duration_store = StepDurationStore()
@@ -315,11 +317,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                     self._streaming_state,
                     id="streaming-panel",
                 )
-
-        # Status bar
-        with Vertical(id="status-bar"):
-            yield Static("", id="status-message")
-            yield Static("", id="elapsed-time")
 
         # Error display
         yield Static("", id="error-display")
@@ -474,25 +471,29 @@ class WorkflowExecutionScreen(MaverickScreen):
             raise
 
     def _update_status(self, message: str) -> None:
-        """Update the status message.
+        """Log status message (UI status bar was removed for cleaner layout).
 
         Args:
-            message: Status message to display.
+            message: Status message to log.
         """
-        status_widget = self.query_one("#status-message", Static)
-        status_widget.update(message)
+        logger.debug("workflow_status", message=message)
 
     def _update_progress(self) -> None:
         """Update the progress display."""
-        progress_text = self.query_one("#progress-text", Static)
-        progress_bar = self.query_one("#progress-bar", ProgressBar)
+        try:
+            progress_text = self.query_one("#progress-text", Static)
+            progress_bar = self.query_one("#progress-bar", ProgressBar)
 
-        if self.total_steps > 0:
-            percent = self.current_step / self.total_steps * 100
-        else:
-            percent = 0.0
-        progress_text.update(f"[{self.current_step}/{self.total_steps}] {percent:.0f}%")
-        progress_bar.update(progress=percent)
+            if self.total_steps > 0:
+                percent = self.current_step / self.total_steps * 100
+            else:
+                percent = 0.0
+            text = f"[{self.current_step}/{self.total_steps}] {percent:.0f}%"
+            progress_text.update(text)
+            progress_bar.update(progress=percent)
+        except NoMatches:
+            # Screen is being unmounted, widgets no longer exist
+            pass
 
     def _mark_step_running(self, step_name: str) -> None:
         """Mark a step as running."""
@@ -505,9 +506,6 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         # Update timeline
         self._update_timeline_step(step_name, "running")
-
-        # Update ETA display
-        self._update_eta_display()
 
     def _mark_step_completed(self, step_name: str, duration_ms: int) -> None:
         """Mark a step as completed."""
@@ -530,9 +528,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             step_name, "completed", duration_seconds=duration_seconds
         )
 
-        # Update ETA display
-        self._update_eta_display()
-
     def _mark_step_failed(
         self, step_name: str, duration_ms: int, error: str | None = None
     ) -> None:
@@ -553,8 +548,12 @@ class WorkflowExecutionScreen(MaverickScreen):
 
     def _show_error(self, error: str) -> None:
         """Show an error message."""
-        error_widget = self.query_one("#error-display", Static)
-        error_widget.update(f"[red]{error}[/red]")
+        try:
+            error_widget = self.query_one("#error-display", Static)
+            error_widget.update(f"[red]{error}[/red]")
+        except NoMatches:
+            # Screen is being unmounted, widget no longer exists
+            pass
 
     def _show_completion(self, success: bool, total_duration_ms: int) -> None:
         """Show completion status.
@@ -564,38 +563,44 @@ class WorkflowExecutionScreen(MaverickScreen):
         output for debugging failed workflows. This is a deliberate design decision
         per User Story 3 (T036) of 030-tui-execution-visibility.
         """
-        # Update progress to 100%
-        progress_text = self.query_one("#progress-text", Static)
-        progress_bar = self.query_one("#progress-bar", ProgressBar)
+        try:
+            # Update progress to 100%
+            progress_text = self.query_one("#progress-text", Static)
+            progress_bar = self.query_one("#progress-bar", ProgressBar)
 
-        duration_sec = total_duration_ms / 1000
-        if success:
-            msg = f"[green]\u2713 Completed[/green] ({duration_sec:.1f}s)"
-        else:
-            msg = f"[red]\u2717 Failed[/red] ({duration_sec:.1f}s)"
-        progress_text.update(msg)
+            duration_sec = total_duration_ms / 1000
+            if success:
+                msg = f"[green]\u2713 Completed[/green] ({duration_sec:.1f}s)"
+            else:
+                msg = f"[red]\u2717 Failed[/red] ({duration_sec:.1f}s)"
+            progress_text.update(msg)
 
-        progress_bar.update(progress=100)
+            progress_bar.update(progress=100)
 
-        # Show completion buttons
-        buttons = self.query_one("#completion-buttons", Vertical)
-        buttons.remove_class("hidden")
+            # Show completion buttons
+            buttons = self.query_one("#completion-buttons", Vertical)
+            buttons.remove_class("hidden")
+        except NoMatches:
+            # Screen is being unmounted, widgets no longer exist
+            pass
 
     def _update_elapsed_time(self) -> None:
-        """Update the elapsed time display and ETA."""
+        """Update the elapsed time display in the top-right header."""
         if self._start_time is None:
             return
 
-        elapsed = datetime.now() - self._start_time
-        total_seconds = int(elapsed.total_seconds())
-        minutes = total_seconds // 60
-        seconds = total_seconds % 60
+        try:
+            elapsed = datetime.now() - self._start_time
+            total_seconds = int(elapsed.total_seconds())
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
 
-        elapsed_widget = self.query_one("#elapsed-time", Static)
-        elapsed_widget.update(f"[dim]Elapsed: {minutes:02d}:{seconds:02d}[/dim]")
-
-        # Also update ETA periodically
-        self._update_eta_display()
+            # Display elapsed time in the top-right header (eta-display element)
+            elapsed_widget = self.query_one("#eta-display", Static)
+            elapsed_widget.update(f"[dim]Elapsed: {minutes:02d}:{seconds:02d}[/dim]")
+        except NoMatches:
+            # Screen is being unmounted, widget no longer exists
+            pass
 
     def _update_timeline_step(
         self,
@@ -613,44 +618,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             timeline = self.query_one("#progress-timeline", ProgressTimeline)
             timeline.update_step(step_name, status, duration_seconds)
-        except Exception:
-            pass
-
-    def _update_eta_display(self) -> None:
-        """Update the ETA display based on remaining steps."""
-        if self.is_complete:
-            return
-
-        try:
-            eta_widget = self.query_one("#eta-display", Static)
-
-            # Get remaining steps (not yet completed)
-            all_step_names = [step.name for step in self._workflow.steps]
-            remaining = [s for s in all_step_names if s not in self._completed_steps]
-
-            if not remaining:
-                eta_widget.update("")
-                return
-
-            # Calculate elapsed time on current step
-            current_elapsed = 0.0
-            if (
-                self._current_running_step
-                and self._current_running_step in self._step_start_times
-            ):
-                start = self._step_start_times[self._current_running_step]
-                current_elapsed = (datetime.now() - start).total_seconds()
-
-            # Calculate ETA
-            eta_seconds = self._eta_calculator.calculate_eta(
-                remaining_steps=remaining,
-                current_step=self._current_running_step,
-                current_elapsed=current_elapsed,
-            )
-
-            eta_text = self._eta_calculator.format_eta(eta_seconds)
-            eta_widget.update(f"[cyan]{eta_text}[/cyan]")
-
         except Exception:
             pass
 
@@ -959,14 +926,31 @@ class WorkflowExecutionScreen(MaverickScreen):
     def _do_streaming_refresh(self) -> None:
         """Perform the actual streaming panel refresh.
 
-        Appends the latest entry from streaming state to the panel.
+        Appends all new entries since the last refresh to the panel.
+        This ensures no events are lost during debouncing.
         """
         try:
             panel = self.query_one("#streaming-panel", AgentStreamingPanel)
-            # Get the latest entry and append it to the panel
-            if self._streaming_state.entries:
-                latest = self._streaming_state.entries[-1]
-                panel.append_chunk(latest)
+            content = panel.query_one(".content", ScrollableContainer)
+
+            # Append all entries since last displayed
+            entries = self._streaming_state.entries
+            total = len(entries)
+            while self._last_displayed_entry_index < total:
+                entry = entries[self._last_displayed_entry_index]
+                # Mount directly instead of calling append_chunk to avoid
+                # double-adding to state
+                content.mount(
+                    Static(
+                        entry.text,
+                        classes=f"chunk chunk-{entry.chunk_type.value}",
+                    )
+                )
+                self._last_displayed_entry_index += 1
+
+            # Auto-scroll if enabled
+            if self._streaming_state.auto_scroll:
+                content.scroll_end(animate=False)
         except NoMatches:
             # Panel not found (widget not mounted yet)
             pass

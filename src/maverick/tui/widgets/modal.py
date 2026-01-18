@@ -49,8 +49,8 @@ class ConfirmDialog(ModalScreen[bool]):
     ConfirmDialog > Container {
         width: 60;
         height: auto;
-        border: solid $accent;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
         padding: 1 2;
     }
 
@@ -169,13 +169,13 @@ class ErrorDialog(ModalScreen[None]):
     ErrorDialog > Container {
         width: 70;
         height: auto;
-        border: solid $error;
-        background: $surface;
+        border: solid #f44336;
+        background: #242424;
         padding: 1 2;
     }
 
     ErrorDialog #title {
-        color: $error;
+        color: #f44336;
         margin-bottom: 1;
     }
 
@@ -184,7 +184,7 @@ class ErrorDialog(ModalScreen[None]):
     }
 
     ErrorDialog #details {
-        color: $text-muted;
+        color: #808080;
         margin-bottom: 1;
         max-height: 10;
         overflow-y: auto;
@@ -290,8 +290,8 @@ class InputDialog(ModalScreen[str | None]):
     InputDialog > Container {
         width: 60;
         height: auto;
-        border: solid $accent;
-        background: $surface;
+        border: solid #00aaff;
+        background: #242424;
         padding: 1 2;
     }
 

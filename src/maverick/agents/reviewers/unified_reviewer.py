@@ -172,7 +172,7 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
             AgentError: On review failure.
             MalformedResponseError: If JSON output cannot be parsed.
         """
-        from maverick.agents.utils import extract_all_text
+        from maverick.agents.utils import extract_all_text, extract_streaming_text
         from maverick.exceptions import MalformedResponseError
 
         # Build the review prompt
@@ -185,6 +185,11 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
         messages = []
         async for msg in self.query(prompt, cwd=cwd):
             messages.append(msg)
+            # Stream text to TUI if callback is set
+            if self.stream_callback:
+                text = extract_streaming_text(msg)
+                if text:
+                    await self.stream_callback(text)
 
         # Extract text and parse JSON output
         text = extract_all_text(messages)

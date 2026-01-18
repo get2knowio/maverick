@@ -1,0 +1,56 @@
+# ==============================================================================
+# E2E Streaming Test Workflow
+# ==============================================================================
+#
+# PURPOSE:
+#   A minimal workflow for E2E testing of agent streaming output in the TUI.
+#   This workflow uses the implementer agent with a simple task to verify
+#   that streaming output is correctly displayed in the TUI's AgentStreamingPanel.
+#
+# TEST FOCUS:
+#   - Agent streaming output appears in the TUI
+#   - "Agent is working..." thinking indicator appears at start
+#   - Content grows over time during execution
+#   - Workflow completes with visible output
+#
+# USAGE:
+#   This workflow is designed for automated E2E testing using the MCP TUI driver.
+#   It should NOT be used for actual development tasks.
+#
+# ==============================================================================
+
+version: "1.0"
+name: e2e-streaming-test
+description: E2E test workflow for verifying agent streaming output in TUI
+
+inputs:
+  task_description:
+    type: string
+    default: "Create a simple Python function called 'greet' that takes a name parameter and returns a greeting string in the format 'Hello, {name}!'. Add the function to a new file called 'greeting.py' in the src directory."
+
+steps:
+  # =============================================================================
+  # Single Agent Step for Streaming Test
+  # =============================================================================
+  # This step uses the implementer agent with a simple task that:
+  # - Produces visible streaming output
+  # - Completes in a reasonable time (<60s typically)
+  # - Makes minimal file changes (easy to verify/rollback)
+  #
+  # Key configuration:
+  # - dry_run: true - Don't create git commits
+  # - skip_validation: true - Skip validation to speed up test
+  # - branch: e2e-test - Use a test branch name
+  # =============================================================================
+  - name: implement_task
+    type: agent
+    agent: implementer
+    context:
+      task_description: ${{ inputs.task_description }}
+      branch: e2e-streaming-test
+      cwd: ${{ workflow.cwd }}
+      skip_validation: true
+      dry_run: true
+
+outputs:
+  result: ${{ steps.implement_task.output }}

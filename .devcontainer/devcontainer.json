@@ -32,11 +32,7 @@
   "forwardPorts": [],
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/git,target=/home/vscode/.config/git,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.coderabbit,target=/home/vscode/.coderabbit,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/GitHub/remo,target=/workspaces/remo,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/projects/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached"
   ]
 }

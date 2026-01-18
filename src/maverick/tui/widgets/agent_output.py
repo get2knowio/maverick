@@ -66,8 +66,8 @@ class AgentOutput(Widget):
     AgentOutput VerticalScroll {
         height: 100%;
         width: 100%;
-        background: $surface;
-        border: solid $border;
+        background: #242424;
+        border: solid #3a3a3a;
         padding: 1;
     }
 
@@ -75,7 +75,7 @@ class AgentOutput(Widget):
         height: 100%;
         width: 100%;
         content-align: center middle;
-        color: $text-muted;
+        color: #808080;
     }
 
     AgentOutput .message-container {
@@ -84,18 +84,18 @@ class AgentOutput(Widget):
     }
 
     AgentOutput .message-header {
-        color: $text-muted;
+        color: #808080;
         text-style: dim;
     }
 
     AgentOutput .message-content {
-        color: $text;
+        color: #e0e0e0;
         margin: 0 0 0 2;
     }
 
     AgentOutput .code-block {
-        background: $surface-elevated;
-        border: solid $border;
+        background: #2d2d2d;
+        border: solid #3a3a3a;
         padding: 1;
         margin: 0 0 0 2;
     }
@@ -105,26 +105,26 @@ class AgentOutput(Widget):
     }
 
     AgentOutput .tool-call-header {
-        color: $info;
+        color: #2196f3;
         text-style: bold;
     }
 
     AgentOutput .tool-call-content {
-        color: $text-muted;
+        color: #808080;
         margin: 0 0 0 2;
     }
 
     AgentOutput .search-match {
-        background: $warning 40%;
-        color: $text;
+        background: #ff9800 40%;
+        color: #e0e0e0;
     }
 
     AgentOutput .scroll-indicator {
         dock: bottom;
         height: 1;
         width: 100%;
-        background: $info 30%;
-        color: $text;
+        background: #2196f3 30%;
+        color: #e0e0e0;
         text-align: center;
         display: none;
     }
@@ -137,8 +137,8 @@ class AgentOutput(Widget):
         dock: top;
         height: 1;
         width: 100%;
-        background: $surface-elevated;
-        color: $text-muted;
+        background: #2d2d2d;
+        color: #808080;
         text-align: right;
         padding: 0 1;
         display: none;

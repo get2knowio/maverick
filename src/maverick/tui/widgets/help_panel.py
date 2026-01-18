@@ -59,20 +59,20 @@ class HelpPanel(ModalScreen[None]):
         width: 60%;
         max-width: 80;
         max-height: 80%;
-        background: $surface;
-        border: solid $accent;
+        background: #242424;
+        border: solid #00aaff;
         padding: 1 2;
     }
 
     HelpPanel .help-title {
         text-style: bold;
-        color: $accent;
+        color: #00aaff;
         text-align: center;
         margin-bottom: 1;
     }
 
     HelpPanel .help-subtitle {
-        color: $text-muted;
+        color: #808080;
         text-align: center;
         margin-bottom: 1;
     }
@@ -88,7 +88,7 @@ class HelpPanel(ModalScreen[None]):
 
     HelpPanel .help-section-title {
         text-style: bold;
-        color: $text;
+        color: #e0e0e0;
         margin-bottom: 0;
     }
 
@@ -98,16 +98,16 @@ class HelpPanel(ModalScreen[None]):
 
     HelpPanel .help-key {
         width: 15;
-        color: $accent;
+        color: #00aaff;
     }
 
     HelpPanel .help-description {
-        color: $text-muted;
+        color: #808080;
     }
 
     HelpPanel .help-footer {
         margin-top: 1;
-        color: $text-dim;
+        color: #606060;
         text-align: center;
     }
     """
