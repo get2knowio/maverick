@@ -18,7 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
 from textual.reactive import reactive
-from textual.widgets import Button, ProgressBar, Static
+from textual.widgets import Button, Static
 from textual.worker import Worker, WorkerState
 
 from maverick.logging import get_logger
@@ -35,7 +35,6 @@ from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.iteration_progress import IterationProgress
-from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
 if TYPE_CHECKING:
@@ -193,7 +192,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         Binding("q", "go_home", "Home", show=False),
         Binding("f", "toggle_follow", "Follow", show=True),
         Binding("s", "toggle_steps_panel", "Steps", show=True),
-        Binding("t", "toggle_timeline", "Timeline", show=True),
         Binding("l", "toggle_log_panel", "Logs", show=True),
         Binding("g", "scroll_top", "Top", show=False),
         Binding("G", "scroll_bottom", "Bottom", show=False),
@@ -264,53 +262,33 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         # UI toggle states
         self._steps_panel_visible: bool = False
-        self._timeline_visible: bool = True
 
     def compose(self) -> ComposeResult:
         """Create the streaming-first execution screen layout.
 
+        Minimal chrome, maximum content - follows constitution principles:
+        - Single-line compact header with workflow name, step, and elapsed time
+        - UnifiedStreamWidget as the sole primary content area
+        - No separate progress bar, timeline, or error display
+
         Layout:
             ┌───────────────────────────────────────────────────────────────┐
-            │ workflow-name               Step 3/8: review    [01:23]       │
+            │ workflow-name  Step 3/8: review  [01:23]                      │
             ├───────────────────────────────────────────────────────────────┤
-            │ [====implement====][=review=][validate][test]...              │
-            ├───────────────────────────────────────────────────────────────┤
-            │                                                               │
             │ 12:34:05 [STEP] implement_task started                        │
-            │                                                               │
             │ 12:34:06 [implementer] Analyzing task requirements...         │
             │          > Reading src/maverick/cli/main.py                   │
-            │                                                               │
             │ 12:34:22 [OK] implement_task completed (16.2s)                │
-            │                                                               │
+            │ 12:34:23 [STEP] review_code started                           │
+            │ ...                                                           │
             ├───────────────────────────────────────────────────────────────┤
-            │ [ESC] [F]Follow [S]Steps [T]Timeline [L]Logs [?]Help          │
+            │ [ESC] [F]Follow [S]Steps [L]Logs                              │
             └───────────────────────────────────────────────────────────────┘
         """
-        # Compact header with workflow info
+        # Single-line compact header: workflow-name | Step X/Y: step_name | [elapsed]
         yield Static(
-            f"[bold]{self._workflow.name}[/bold]",
-            id="execution-title",
-        )
-        if self._workflow.description:
-            yield Static(
-                f"[dim]{self._workflow.description}[/dim]",
-                id="execution-description",
-            )
-
-        # Compact progress indicator
-        with Horizontal(id="progress-header"):
-            yield Static(
-                "[dim]Preparing...[/dim]",
-                id="progress-text",
-            )
-        yield ProgressBar(id="progress-bar", total=100, show_eta=False)
-
-        # Progress timeline showing step durations (toggleable)
-        yield ProgressTimeline(
-            show_labels=True,
-            show_durations=True,
-            id="progress-timeline",
+            self._format_compact_header(),
+            id="compact-header",
         )
 
         # Main content area with optional steps panel
@@ -340,9 +318,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                 id="unified-stream",
             )
 
-        # Error display
-        yield Static("", id="error-display")
-
         # Action buttons (hidden during execution)
         with Vertical(id="completion-buttons", classes="hidden"):
             yield Button("Back to Home", id="home-btn", variant="primary")
@@ -358,32 +333,51 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._unified_state.workflow_name = self._workflow.name
         self._unified_state.total_steps = self.total_steps
 
-        # Initialize the progress timeline with workflow steps
-        self._initialize_timeline()
-
-        # Start elapsed time timer (also updates ETA and unified stream header)
+        # Start elapsed time timer (updates compact header and unified stream)
         self.set_interval(1.0, self._update_elapsed_time)
 
         # Start workflow execution
         self._start_execution()
 
-    def _initialize_timeline(self) -> None:
-        """Initialize the progress timeline with workflow steps."""
+    def _format_compact_header(self) -> str:
+        """Format the single-line compact header.
+
+        Format: workflow-name | Step X/Y: step_name | [MM:SS]
+
+        Returns:
+            Formatted header string.
+        """
+        name = self._workflow.name
+        step_info = f"Step {self.current_step}/{self.total_steps}"
+        if self._current_running_step:
+            step_info = (
+                f"Step {self.current_step}/{self.total_steps}: "
+                f"{self._current_running_step}"
+            )
+
+        # Calculate elapsed time
+        if self._start_time:
+            elapsed = datetime.now() - self._start_time
+            minutes = int(elapsed.total_seconds()) // 60
+            seconds = int(elapsed.total_seconds()) % 60
+            elapsed_str = f"[{minutes:02d}:{seconds:02d}]"
+        else:
+            elapsed_str = "[00:00]"
+
+        return f"[bold]{name}[/bold]  {step_info}  [dim]{elapsed_str}[/dim]"
+
+    def _update_compact_header(self) -> None:
+        """Update the compact header with current status.
+
+        Skips update if workflow is complete (completion status is shown).
+        """
+        if self.is_complete:
+            return
+
         try:
-            timeline = self.query_one("#progress-timeline", ProgressTimeline)
-            steps = []
-            for step in self._workflow.steps:
-                # Get estimated duration from history
-                estimated = self._eta_calculator.get_step_estimate(step.name)
-                steps.append(
-                    TimelineStep(
-                        name=step.name,
-                        status="pending",
-                        estimated_seconds=estimated,
-                    )
-                )
-            timeline.set_steps(steps)
-        except Exception:
+            header = self.query_one("#compact-header", Static)
+            header.update(self._format_compact_header())
+        except NoMatches:
             pass
 
     def _start_execution(self) -> None:
@@ -510,21 +504,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         logger.debug("workflow_status", message=message)
 
     def _update_progress(self) -> None:
-        """Update the progress display."""
-        try:
-            progress_text = self.query_one("#progress-text", Static)
-            progress_bar = self.query_one("#progress-bar", ProgressBar)
-
-            if self.total_steps > 0:
-                percent = self.current_step / self.total_steps * 100
-            else:
-                percent = 0.0
-            text = f"[{self.current_step}/{self.total_steps}] {percent:.0f}%"
-            progress_text.update(text)
-            progress_bar.update(progress=percent)
-        except NoMatches:
-            # Screen is being unmounted, widgets no longer exist
-            pass
+        """Update the progress display (compact header)."""
+        self._update_compact_header()
 
     def _mark_step_running(self, step_name: str) -> None:
         """Mark a step as running."""
@@ -535,8 +516,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._step_start_times[step_name] = datetime.now()
         self._current_running_step = step_name
 
-        # Update timeline
-        self._update_timeline_step(step_name, "running")
+        # Update compact header with current step
+        self._update_compact_header()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -563,11 +544,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._workflow.name, step_name, duration_seconds
         )
 
-        # Update timeline with actual duration
-        self._update_timeline_step(
-            step_name, "completed", duration_seconds=duration_seconds
-        )
-
         # Add to unified stream
         entry = UnifiedStreamEntry(
             timestamp=time.time(),
@@ -591,12 +567,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         if self._current_running_step == step_name:
             self._current_running_step = None
 
-        # Update timeline
-        duration_seconds = duration_ms / 1000.0
-        self._update_timeline_step(
-            step_name, "failed", duration_seconds=duration_seconds
-        )
-
         # Add to unified stream
         content = f"{step_name} failed"
         if error:
@@ -612,13 +582,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._add_unified_entry(entry)
 
     def _show_error(self, error: str) -> None:
-        """Show an error message."""
-        try:
-            error_widget = self.query_one("#error-display", Static)
-            error_widget.update(f"[red]{error}[/red]")
-        except NoMatches:
-            # Screen is being unmounted, widget no longer exists
-            pass
+        """Log an error message (errors are shown in the unified stream)."""
+        logger.error("workflow_error", error=error)
 
     def _show_completion(self, success: bool, total_duration_ms: int) -> None:
         """Show completion status.
@@ -629,18 +594,19 @@ class WorkflowExecutionScreen(MaverickScreen):
         per User Story 3 (T036) of 030-tui-execution-visibility.
         """
         try:
-            # Update progress to 100%
-            progress_text = self.query_one("#progress-text", Static)
-            progress_bar = self.query_one("#progress-bar", ProgressBar)
-
+            # Update header with completion status
+            header = self.query_one("#compact-header", Static)
             duration_sec = total_duration_ms / 1000
             if success:
-                msg = f"[green]\u2713 Completed[/green] ({duration_sec:.1f}s)"
+                header.update(
+                    f"[bold]{self._workflow.name}[/bold]  "
+                    f"[green]✓ Completed[/green] ({duration_sec:.1f}s)"
+                )
             else:
-                msg = f"[red]\u2717 Failed[/red] ({duration_sec:.1f}s)"
-            progress_text.update(msg)
-
-            progress_bar.update(progress=100)
+                header.update(
+                    f"[bold]{self._workflow.name}[/bold]  "
+                    f"[red]✗ Failed[/red] ({duration_sec:.1f}s)"
+                )
 
             # Show completion buttons
             buttons = self.query_one("#completion-buttons", Vertical)
@@ -650,9 +616,12 @@ class WorkflowExecutionScreen(MaverickScreen):
             pass
 
     def _update_elapsed_time(self) -> None:
-        """Update the elapsed time display in the unified stream header."""
+        """Update the elapsed time display in headers."""
         if self._start_time is None:
             return
+
+        # Update compact header
+        self._update_compact_header()
 
         try:
             # Update unified stream widget header
@@ -660,25 +629,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             stream_widget.update_elapsed()
         except NoMatches:
             # Screen is being unmounted, widget no longer exists
-            pass
-
-    def _update_timeline_step(
-        self,
-        step_name: str,
-        status: str,
-        duration_seconds: float | None = None,
-    ) -> None:
-        """Update a step's status in the progress timeline.
-
-        Args:
-            step_name: Name of the step to update.
-            status: New status (pending, running, completed, failed).
-            duration_seconds: Actual duration in seconds (if completed).
-        """
-        try:
-            timeline = self.query_one("#progress-timeline", ProgressTimeline)
-            timeline.update_step(step_name, status, duration_seconds)
-        except Exception:
             pass
 
     def action_cancel_workflow(self) -> None:
@@ -1077,9 +1027,14 @@ class WorkflowExecutionScreen(MaverickScreen):
                 and not self._pending_streaming_update.done()
             ):
                 self._pending_streaming_update.cancel()
-            self._pending_streaming_update = asyncio.create_task(
-                self._delayed_unified_refresh()
-            )
+            try:
+                self._pending_streaming_update = asyncio.create_task(
+                    self._delayed_unified_refresh()
+                )
+            except RuntimeError:
+                # No running event loop (e.g., in sync tests) - do immediate refresh
+                self._last_streaming_update = now
+                self._do_unified_refresh()
             return
 
         self._last_streaming_update = now
@@ -1116,18 +1071,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                 steps_panel.remove_class("hidden")
             else:
                 steps_panel.add_class("hidden")
-        except NoMatches:
-            pass
-
-    def action_toggle_timeline(self) -> None:
-        """Toggle the timeline visibility (bound to 't' key)."""
-        try:
-            timeline = self.query_one("#progress-timeline", ProgressTimeline)
-            self._timeline_visible = not self._timeline_visible
-            if self._timeline_visible:
-                timeline.remove_class("hidden")
-            else:
-                timeline.add_class("hidden")
         except NoMatches:
             pass
 

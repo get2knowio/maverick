@@ -640,12 +640,12 @@ class TestHandleStreamChunk:
         assert screen._streaming_state.entries[2].text == "Third chunk"
 
     @pytest.mark.asyncio
-    async def test_refreshes_streaming_panel(self) -> None:
-        """Test that handler calls _refresh_streaming_panel."""
+    async def test_adds_to_unified_stream(self) -> None:
+        """Test that handler adds entry to unified stream."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._refresh_streaming_panel = MagicMock()
+        screen._add_unified_entry = MagicMock()
 
         event = AgentStreamChunk(
             step_name="test_step",
@@ -656,7 +656,7 @@ class TestHandleStreamChunk:
 
         await screen._handle_stream_chunk(event)
 
-        screen._refresh_streaming_panel.assert_called_once()
+        screen._add_unified_entry.assert_called_once()
 
 
 # =============================================================================

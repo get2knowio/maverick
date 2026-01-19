@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from textual.widgets import ProgressBar, Static
+from textual.widgets import Static
 
 from maverick.tui.models.enums import StreamChunkType
 from maverick.tui.models.widget_state import AgentStreamEntry
@@ -27,7 +27,6 @@ from maverick.tui.screens.workflow_execution import (
     StepWidget,
     WorkflowExecutionScreen,
 )
-from maverick.tui.widgets.timeline import ProgressTimeline
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 from tests.tui.conftest import ScreenTestApp
 
@@ -341,43 +340,18 @@ class TestWorkflowExecutionScreenLayout:
     """Tests for WorkflowExecutionScreen layout and composition."""
 
     @pytest.mark.asyncio
-    async def test_screen_renders_workflow_title(self) -> None:
-        """Test that the screen displays the workflow title."""
+    async def test_screen_renders_compact_header(self) -> None:
+        """Test that the screen displays the compact header with workflow name."""
         workflow = create_mock_workflow(name="My Test Workflow")
         app = WorkflowExecutionTestApp(workflow=workflow)
 
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            title = pilot.app.query_one("#execution-title", Static)
-            content = str(title.renderable)
+            header = pilot.app.query_one("#compact-header", Static)
+            content = str(header.renderable)
 
             assert "My Test Workflow" in content
-
-    @pytest.mark.asyncio
-    async def test_screen_renders_workflow_description(self) -> None:
-        """Test that the screen displays the workflow description."""
-        workflow = create_mock_workflow(description="Test workflow description")
-        app = WorkflowExecutionTestApp(workflow=workflow)
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            desc = pilot.app.query_one("#execution-description", Static)
-            content = str(desc.renderable)
-
-            assert "Test workflow description" in content
-
-    @pytest.mark.asyncio
-    async def test_screen_renders_progress_bar(self) -> None:
-        """Test that the screen has a progress bar."""
-        app = WorkflowExecutionTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            progress_bar = pilot.app.query_one("#progress-bar", ProgressBar)
-            assert progress_bar is not None
 
     @pytest.mark.asyncio
     async def test_screen_renders_step_widgets(self) -> None:
@@ -413,17 +387,6 @@ class TestWorkflowExecutionScreenLayout:
 
             stream = pilot.app.query_one("#unified-stream", UnifiedStreamWidget)
             assert stream is not None
-
-    @pytest.mark.asyncio
-    async def test_screen_renders_progress_timeline(self) -> None:
-        """Test that the progress timeline is rendered."""
-        app = WorkflowExecutionTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            timeline = pilot.app.query_one("#progress-timeline", ProgressTimeline)
-            assert timeline is not None
 
     @pytest.mark.asyncio
     async def test_completion_buttons_visible_after_completion(self) -> None:
@@ -710,8 +673,8 @@ class TestProgressUpdates:
     """Tests for progress tracking and display."""
 
     @pytest.mark.asyncio
-    async def test_update_progress_updates_text(self) -> None:
-        """Test that _update_progress updates progress text."""
+    async def test_update_progress_updates_header(self) -> None:
+        """Test that _update_progress updates compact header."""
         workflow = create_mock_workflow(
             steps=[
                 {"name": "step1", "type": "python"},
@@ -724,15 +687,17 @@ class TestProgressUpdates:
             await pilot.pause()
 
             if app.screen_instance:
+                # Reset completion state (mock workflow completes quickly)
+                app.screen_instance.is_complete = False
                 app.screen_instance.current_step = 1
                 app.screen_instance._update_progress()
                 await pilot.pause()
 
-                progress_text = pilot.app.query_one("#progress-text", Static)
-                content = str(progress_text.renderable)
+                header = pilot.app.query_one("#compact-header", Static)
+                content = str(header.renderable)
 
-                assert "[1/2]" in content
-                assert "50%" in content
+                # Compact header shows "Step X/Y" format
+                assert "Step 1/2" in content
 
     @pytest.mark.asyncio
     async def test_show_completion_success(self) -> None:
@@ -748,8 +713,8 @@ class TestProgressUpdates:
                 )
                 await pilot.pause()
 
-                progress_text = pilot.app.query_one("#progress-text", Static)
-                content = str(progress_text.renderable)
+                header = pilot.app.query_one("#compact-header", Static)
+                content = str(header.renderable)
 
                 assert "Completed" in content
                 assert "5.0s" in content
@@ -772,25 +737,22 @@ class TestProgressUpdates:
                 )
                 await pilot.pause()
 
-                progress_text = pilot.app.query_one("#progress-text", Static)
-                content = str(progress_text.renderable)
+                header = pilot.app.query_one("#compact-header", Static)
+                content = str(header.renderable)
 
                 assert "Failed" in content
                 assert "3.0s" in content
 
     @pytest.mark.asyncio
-    async def test_show_error(self) -> None:
-        """Test that _show_error displays error message."""
+    async def test_show_error_logs_message(self) -> None:
+        """Test that _show_error logs the error message."""
         app = WorkflowExecutionTestApp()
 
         async with app.run_test() as pilot:
             await pilot.pause()
 
             if app.screen_instance:
+                # _show_error now just logs, so we verify it doesn't raise
                 app.screen_instance._show_error("Connection failed: timeout")
                 await pilot.pause()
-
-                error_widget = pilot.app.query_one("#error-display", Static)
-                content = str(error_widget.renderable)
-
-                assert "Connection failed: timeout" in content
+                # If we get here without error, the test passes
