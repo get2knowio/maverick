@@ -18,7 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
 from textual.reactive import reactive
-from textual.widgets import Button, Static
+from textual.widgets import Static
 from textual.worker import Worker, WorkerState
 
 from maverick.logging import get_logger
@@ -263,6 +263,12 @@ class WorkflowExecutionScreen(MaverickScreen):
         # UI toggle states
         self._steps_panel_visible: bool = False
 
+        # Word-boundary buffering for streaming text
+        # Buffers text until a word boundary is reached for readable display
+        self._stream_buffers: dict[str, str] = {}  # agent_name -> buffered text
+        self._stream_buffer_timestamps: dict[str, float] = {}  # agent_name -> timestamp
+        self._stream_buffer_flush_delay: float = 0.15  # Flush after 150ms of no input
+
     def compose(self) -> ComposeResult:
         """Create the streaming-first execution screen layout.
 
@@ -317,10 +323,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                 self._unified_state,
                 id="unified-stream",
             )
-
-        # Action buttons (hidden during execution)
-        with Vertical(id="completion-buttons", classes="hidden"):
-            yield Button("Back to Home", id="home-btn", variant="primary")
 
     def on_mount(self) -> None:
         """Start workflow execution when mounted."""
@@ -530,6 +532,9 @@ class WorkflowExecutionScreen(MaverickScreen):
 
     def _mark_step_completed(self, step_name: str, duration_ms: int) -> None:
         """Mark a step as completed."""
+        # Flush any remaining buffered streaming text for this step
+        self._flush_all_stream_buffers()
+
         if step_name in self._step_widgets:
             self._step_widgets[step_name].set_completed(duration_ms)
 
@@ -559,6 +564,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         self, step_name: str, duration_ms: int, error: str | None = None
     ) -> None:
         """Mark a step as failed."""
+        # Flush any remaining buffered streaming text for this step
+        self._flush_all_stream_buffers()
+
         if step_name in self._step_widgets:
             self._step_widgets[step_name].set_failed(duration_ms, error)
 
@@ -608,9 +616,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                     f"[red]✗ Failed[/red] ({duration_sec:.1f}s)"
                 )
 
-            # Show completion buttons
-            buttons = self.query_one("#completion-buttons", Vertical)
-            buttons.remove_class("hidden")
         except NoMatches:
             # Screen is being unmounted, widgets no longer exist
             pass
@@ -669,11 +674,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                 self.success = False
                 if event.worker.error:
                     self._show_error(str(event.worker.error))
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "home-btn":
-            self.action_go_home()
 
     async def _handle_iteration_started(
         self,
@@ -877,10 +877,18 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._mount_iteration_widget(step_name)
 
     async def _handle_stream_chunk(self, event: AgentStreamChunk) -> None:
-        """Handle agent stream chunk event.
+        """Handle agent stream chunk event with word-boundary buffering.
 
-        Creates a UnifiedStreamEntry from the event and adds it to the
-        unified stream, then refreshes the display.
+        Buffers incoming text chunks until a word boundary is reached,
+        then flushes readable phrases to the unified stream. This prevents
+        choppy, mid-word text display.
+
+        Word boundaries are detected when:
+        - Text ends with whitespace (space, newline, tab)
+        - Text ends with sentence-ending punctuation (. ! ?)
+        - Buffer timeout elapsed (150ms with no new input)
+        - A newline appears anywhere in the chunk (flush everything up to
+          and including the newline)
 
         Args:
             event: The AgentStreamChunk event containing streaming data.
@@ -889,9 +897,74 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             chunk_type = StreamChunkType(event.chunk_type)
         except ValueError:
-            # Default to OUTPUT for unknown chunk types
             chunk_type = StreamChunkType.OUTPUT
 
+        agent_key = f"{event.step_name}:{event.agent_name}"
+
+        # Append to buffer
+        current_buffer = self._stream_buffers.get(agent_key, "")
+        current_buffer += event.text
+        self._stream_buffers[agent_key] = current_buffer
+        self._stream_buffer_timestamps[agent_key] = event.timestamp
+
+        # Determine what to flush based on word boundaries
+        text_to_flush = self._extract_flushable_text(agent_key)
+
+        if text_to_flush:
+            await self._flush_stream_text(
+                text_to_flush,
+                event,
+                chunk_type,
+            )
+
+    def _extract_flushable_text(self, agent_key: str) -> str:
+        """Extract text that can be flushed from the buffer.
+
+        Returns text up to and including the last word boundary.
+        Keeps any partial word in the buffer.
+
+        Args:
+            agent_key: The buffer key (step_name:agent_name).
+
+        Returns:
+            Text to flush, or empty string if no word boundary found.
+        """
+        buffer = self._stream_buffers.get(agent_key, "")
+        if not buffer:
+            return ""
+
+        # Find the last word boundary (space, newline, or sentence punctuation)
+        last_boundary = -1
+
+        for i, char in enumerate(buffer):
+            # Word boundaries: newlines, whitespace after non-whitespace, or punctuation
+            is_newline = char == "\n"
+            is_word_end = char in " \t" and i > 0 and buffer[i - 1] not in " \t\n"
+            is_sentence_end = char in ".!?" and i > 0
+            if is_newline or is_word_end or is_sentence_end:
+                last_boundary = i
+
+        if last_boundary >= 0:
+            # Flush up to and including the boundary
+            text_to_flush = buffer[: last_boundary + 1]
+            self._stream_buffers[agent_key] = buffer[last_boundary + 1 :]
+            return text_to_flush
+
+        return ""
+
+    async def _flush_stream_text(
+        self,
+        text: str,
+        event: AgentStreamChunk,
+        chunk_type: StreamChunkType,
+    ) -> None:
+        """Flush buffered text to the unified stream.
+
+        Args:
+            text: The text to flush.
+            event: The original event (for metadata).
+            chunk_type: The type of chunk.
+        """
         # Map StreamChunkType to StreamEntryType
         if chunk_type == StreamChunkType.THINKING:
             entry_type = StreamEntryType.AGENT_THINKING
@@ -905,20 +978,54 @@ class WorkflowExecutionScreen(MaverickScreen):
             timestamp=event.timestamp,
             entry_type=entry_type,
             source=event.agent_name,
-            content=event.text,
+            content=text.rstrip(),  # Remove trailing whitespace for cleaner display
             level="error" if chunk_type == StreamChunkType.ERROR else "info",
         )
         self._add_unified_entry(unified_entry)
 
-        # Also add to legacy streaming state for backward compatibility
+        # Also add to legacy streaming state
         legacy_entry = AgentStreamEntry(
             timestamp=event.timestamp,
             step_name=event.step_name,
             agent_name=event.agent_name,
-            text=event.text,
+            text=text.rstrip(),
             chunk_type=chunk_type,
         )
         self._streaming_state.add_entry(legacy_entry)
+
+    def _flush_all_stream_buffers(self) -> None:
+        """Flush all remaining text in stream buffers.
+
+        Called when a step completes to ensure no text is left unbuffered.
+        """
+        for agent_key, buffer in list(self._stream_buffers.items()):
+            if buffer.strip():
+                # Create a minimal entry for the remaining text
+                parts = agent_key.split(":", 1)
+                step_name = parts[0] if len(parts) > 0 else "unknown"
+                agent_name = parts[1] if len(parts) > 1 else "unknown"
+
+                unified_entry = UnifiedStreamEntry(
+                    timestamp=time.time(),
+                    entry_type=StreamEntryType.AGENT_OUTPUT,
+                    source=agent_name,
+                    content=buffer.rstrip(),
+                    level="info",
+                )
+                self._add_unified_entry(unified_entry)
+
+                legacy_entry = AgentStreamEntry(
+                    timestamp=time.time(),
+                    step_name=step_name,
+                    agent_name=agent_name,
+                    text=buffer.rstrip(),
+                    chunk_type=StreamChunkType.OUTPUT,
+                )
+                self._streaming_state.add_entry(legacy_entry)
+
+        # Clear all buffers
+        self._stream_buffers.clear()
+        self._stream_buffer_timestamps.clear()
 
     async def _handle_step_output(self, event: StepOutput) -> None:
         """Handle generic step output event.

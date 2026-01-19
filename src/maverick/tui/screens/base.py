@@ -331,10 +331,9 @@ class MaverickScreen(Screen[None]):
         provides a hook for screens to respond to connectivity changes, such
         as pausing workflows when disconnected or resuming when reconnected.
 
-        This implementation displays notifications to inform the user of
-        connectivity changes. Subclasses should override this method to
-        implement additional connectivity-aware behavior such as pausing
-        or resuming workflows.
+        The base implementation is a no-op to avoid spurious notifications
+        from unreliable connectivity detection. Subclasses can override this
+        method to implement connectivity-aware behavior if needed.
 
         Args:
             connected: True if connected to GitHub, False if disconnected.
@@ -354,20 +353,10 @@ class MaverickScreen(Screen[None]):
             This method is called asynchronously and should not block.
             Long-running operations should be dispatched to workers.
         """
-        if not connected:
-            self.app.notify(
-                "Network connection lost. Workflow will pause.",
-                title="Connection Lost",
-                severity="warning",
-                timeout=8.0,
-            )
-        else:
-            self.app.notify(
-                "Network connection restored. Workflow will resume.",
-                title="Connection Restored",
-                severity="information",
-                timeout=5.0,
-            )
+        # No-op: connectivity notifications were removed because the
+        # underlying connectivity detection was unreliable and produced
+        # false positives. Subclasses can override if needed.
+        pass
 
 
 __all__ = [
