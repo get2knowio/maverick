@@ -38,6 +38,8 @@ Thumbs.db
 .codex/auth.json
 *.jsonl
 
+.env*
+
 # Beads (local issue tracking state)
 .beads/
 test_bd.sh
