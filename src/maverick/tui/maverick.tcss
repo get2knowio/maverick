@@ -1708,6 +1708,173 @@ HelpPanel .help-description {
     margin: 0;
 }
 
+/* === Unified Stream Layout (Streaming-First Design) === */
+/* Main execution area container */
+#execution-main {
+    width: 100%;
+    height: 1fr;
+}
+
+/* Steps panel - hidden by default, toggled with 's' key */
+#execution-main #execution-steps {
+    width: 30%;
+    border-right: solid $border;
+}
+
+#execution-main #execution-steps.hidden {
+    display: none;
+}
+
+/* Unified stream widget - primary content area */
+#unified-stream {
+    width: 1fr;
+    height: 100%;
+    border: none;
+}
+
+/* Unified stream compact header */
+#unified-stream .compact-header {
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+    border-bottom: solid $border;
+}
+
+#unified-stream .compact-header .workflow-name {
+    color: $accent;
+    text-style: bold;
+}
+
+#unified-stream .compact-header .step-indicator {
+    color: $text-muted;
+}
+
+#unified-stream .compact-header .elapsed {
+    color: $text-dim;
+}
+
+/* Stream content area */
+#unified-stream .stream-content {
+    height: 1fr;
+    padding: 0;
+    scrollbar-background: $surface;
+    scrollbar-color: $text-dim;
+    background: $background;
+}
+
+/* Individual stream entries */
+#unified-stream .stream-entry {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+}
+
+#unified-stream .stream-entry .timestamp {
+    width: 9;
+    color: $text-dim;
+}
+
+#unified-stream .stream-entry .badge {
+    min-width: 12;
+    margin-right: 1;
+}
+
+#unified-stream .stream-entry .content {
+    width: 1fr;
+}
+
+/* Entry type styling - step events */
+#unified-stream .stream-entry.step-start .badge {
+    color: $accent;
+    text-style: bold;
+}
+
+#unified-stream .stream-entry.step-complete .badge {
+    color: $success;
+    text-style: bold;
+}
+
+#unified-stream .stream-entry.step-failed .badge {
+    color: $error;
+    text-style: bold;
+}
+
+/* Entry type styling - agent output */
+#unified-stream .stream-entry.agent-output .badge {
+    color: $text;
+}
+
+#unified-stream .stream-entry.agent-thinking .badge {
+    color: $text-muted;
+    text-style: italic;
+}
+
+#unified-stream .stream-entry.agent-thinking .content {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Entry type styling - tool calls */
+#unified-stream .stream-entry.tool-call .badge {
+    color: $info;
+}
+
+#unified-stream .stream-entry.tool-result .badge {
+    color: $text-muted;
+}
+
+#unified-stream .stream-entry.tool-result .content {
+    color: $text-muted;
+}
+
+/* Entry type styling - loops */
+#unified-stream .stream-entry.loop-start .badge {
+    color: $warning;
+}
+
+#unified-stream .stream-entry.loop-complete .badge {
+    color: $warning;
+}
+
+/* Entry type styling - errors and info */
+#unified-stream .stream-entry.error .badge {
+    color: $error;
+    text-style: bold;
+}
+
+#unified-stream .stream-entry.error .content {
+    color: $error;
+}
+
+#unified-stream .stream-entry.info .badge {
+    color: $info;
+}
+
+/* Continuation lines for multi-line content */
+#unified-stream .continuation {
+    padding-left: 11;
+    color: $text-muted;
+}
+
+/* Auto-scroll paused indicator */
+#unified-stream .scroll-indicator {
+    dock: bottom;
+    height: 1;
+    background: $warning 30%;
+    color: $warning;
+    text-align: center;
+    display: none;
+}
+
+#unified-stream .scroll-indicator.paused {
+    display: block;
+}
+
+/* Progress timeline - toggleable with 't' key */
+#progress-timeline.hidden {
+    display: none;
+}
+
 /* ============================================================================
  * ANIMATION PLACEHOLDERS (Sprint 3 - TUI Dramatic Improvement)
  * ============================================================================

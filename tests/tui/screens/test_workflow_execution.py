@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Generator
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.widgets import ProgressBar, Static
@@ -27,8 +27,8 @@ from maverick.tui.screens.workflow_execution import (
     StepWidget,
     WorkflowExecutionScreen,
 )
-from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.timeline import ProgressTimeline
+from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 from tests.tui.conftest import ScreenTestApp
 
 if TYPE_CHECKING:
@@ -83,12 +83,8 @@ def mock_workflow_executor() -> Generator[MagicMock, None, None]:
 
     # Mock both the executor class and the registry function at their import sources
     with (
-        patch(
-            "maverick.dsl.serialization.WorkflowFileExecutor"
-        ) as mock_executor_class,
-        patch(
-            "maverick.cli.common.create_registered_registry"
-        ) as mock_registry,
+        patch("maverick.dsl.serialization.WorkflowFileExecutor") as mock_executor_class,
+        patch("maverick.cli.common.create_registered_registry") as mock_registry,
     ):
         mock_executor = MagicMock()
         # execute() returns an async generator
@@ -408,15 +404,15 @@ class TestWorkflowExecutionScreenLayout:
             assert step3 is not None
 
     @pytest.mark.asyncio
-    async def test_screen_renders_streaming_panel(self) -> None:
-        """Test that the streaming panel is rendered."""
+    async def test_screen_renders_unified_stream(self) -> None:
+        """Test that the unified stream widget is rendered."""
         app = WorkflowExecutionTestApp()
 
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            panel = pilot.app.query_one("#streaming-panel", AgentStreamingPanel)
-            assert panel is not None
+            stream = pilot.app.query_one("#unified-stream", UnifiedStreamWidget)
+            assert stream is not None
 
     @pytest.mark.asyncio
     async def test_screen_renders_progress_timeline(self) -> None:
@@ -541,23 +537,25 @@ class TestWorkflowExecutionScreenActions:
                 assert len(pilot.app.screen_stack) < initial_stack_size
 
     @pytest.mark.asyncio
-    async def test_s_key_toggles_streaming_panel(self) -> None:
-        """Test that 's' key toggles streaming panel visibility."""
+    async def test_s_key_toggles_steps_panel(self) -> None:
+        """Test that 's' key toggles steps panel visibility."""
         app = WorkflowExecutionTestApp()
 
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            panel = pilot.app.query_one("#streaming-panel", AgentStreamingPanel)
-            initial_visible = not panel.has_class("collapsed")
+            from textual.containers import Vertical
+
+            steps_panel = pilot.app.query_one("#execution-steps", Vertical)
+            initial_hidden = steps_panel.has_class("hidden")
 
             # Press 's' to toggle
             await pilot.press("s")
             await pilot.pause()
 
             # Check visibility changed
-            new_visible = not panel.has_class("collapsed")
-            assert new_visible != initial_visible
+            new_hidden = steps_panel.has_class("hidden")
+            assert new_hidden != initial_hidden
 
     @pytest.mark.asyncio
     async def test_home_button_navigates_home(self) -> None:

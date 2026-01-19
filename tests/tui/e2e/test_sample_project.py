@@ -57,6 +57,7 @@ class TestTUILaunch:
 
         # Verify it's valid YAML with expected structure
         import yaml
+
         with open(maverick_yaml) as f:
             config = yaml.safe_load(f)
 

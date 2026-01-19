@@ -124,3 +124,24 @@ class StreamChunkType(str, Enum):
     OUTPUT = "output"
     THINKING = "thinking"
     ERROR = "error"
+
+
+class StreamEntryType(str, Enum):
+    """Type of entry in the unified event stream.
+
+    Used by UnifiedStreamWidget to differentiate content types
+    and apply appropriate styling.
+    """
+
+    STEP_START = "step_start"
+    STEP_COMPLETE = "step_complete"
+    STEP_FAILED = "step_failed"
+    STEP_OUTPUT = "step_output"  # Generic output from any step type
+    AGENT_OUTPUT = "agent_output"
+    AGENT_THINKING = "agent_thinking"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    LOOP_START = "loop_start"
+    LOOP_COMPLETE = "loop_complete"
+    ERROR = "error"
+    INFO = "info"

@@ -234,6 +234,58 @@ class AgentStreamChunk:
     timestamp: float = field(default_factory=time.time)
 
 
+# Type alias for StepOutput level
+OutputLevel = Literal["info", "success", "warning", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class StepOutput:
+    """Event emitted when any step produces informational output.
+
+    This is the generic event type for workflow steps to contribute to the
+    unified stream widget. Unlike AgentStreamChunk (which is agent-specific),
+    StepOutput can be emitted by any step type: Python actions, validation
+    steps, GitHub operations, etc.
+
+    Use this event to emit:
+    - Progress messages ("Fetching PR #123...")
+    - Status updates ("3 files changed")
+    - Warnings ("Rate limit approaching")
+    - Errors that don't fail the step ("Retrying after timeout...")
+
+    Attributes:
+        step_name: Name of the step emitting output.
+        message: Human-readable message content.
+        level: Severity level for styling ("info", "success", "warning", "error").
+        source: Optional source identifier (e.g., "github", "git", "validation").
+        metadata: Optional structured data for rich display.
+        timestamp: Unix timestamp when output was emitted.
+
+    Example:
+        # In a Python action:
+        async def fetch_pr_details(
+            pr_number: int,
+            stream_callback: Callable[[str], Awaitable[None]] | None = None,
+            event_callback: EventCallback | None = None,
+        ) -> dict:
+            if event_callback:
+                await event_callback(StepOutput(
+                    step_name="fetch_pr",
+                    message=f"Fetching PR #{pr_number}...",
+                    level="info",
+                    source="github",
+                ))
+            # ... do work ...
+    """
+
+    step_name: str
+    message: str
+    level: OutputLevel = "info"
+    source: str | None = None
+    metadata: dict[str, Any] | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
 # Type alias for all progress events
 ProgressEvent = (
     StepStarted
@@ -250,4 +302,5 @@ ProgressEvent = (
     | LoopIterationStarted
     | LoopIterationCompleted
     | AgentStreamChunk
+    | StepOutput
 )

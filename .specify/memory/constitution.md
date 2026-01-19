@@ -1,23 +1,22 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.5.0 → 1.6.0
+Version change: 1.6.0 → 1.7.0
 Modified principles:
-  - VI. Type Safety → Added Pydantic Field description requirement
-  - IX. Hardening by Default → Added explicit tenacity requirement, prohibited manual retry loops
-  - X. Architectural Guardrails → Added Guardrail #8 for canonical third-party libraries
+  - II. Separation of Concerns → Added TUI streaming-first design philosophy
+  - X. Architectural Guardrails → Added Guardrail #9 for TUI streaming patterns
 Added sections:
-  - Appendix B: Canonical Third-Party Libraries
+  - Appendix C: TUI Streaming Architecture
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
   - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
 Propagation:
-  - CLAUDE.md: ✅ Source of canonical library standards (already contains detailed rules)
+  - CLAUDE.md: ✅ Updated - added streaming-first design and guardrail #8
 Follow-up TODOs: None
-Source: Code review session 2026-01-12 - identified violations of library standards and missing
-Field descriptions that should be codified as explicit rules.
+Source: TUI streaming-first redesign session 2026-01-18 - implemented UnifiedStreamWidget and
+StepOutput event pattern for workflow visualization.
 -->
 
 # Maverick Constitution
@@ -56,6 +55,16 @@ Components have distinct, non-overlapping responsibilities:
   `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`,
   `asyncio.create_subprocess_exec`) or make network calls. TUI code MUST delegate
   external interactions to runners/services and only update reactive state + render results.
+
+  **Streaming-First Design**: The TUI follows a streaming-first philosophy where the
+  primary content area is a unified, scrolling event stream. This pattern prioritizes:
+  - Single-column streaming output as the main focus (inspired by Claude Code's interface)
+  - Minimal chrome, maximum content—every pixel should convey information
+  - Subtle status indicators that inform without distracting
+  - Chronological workflow events (step starts, agent outputs, tool calls, completions)
+
+  All workflow step types contribute to this unified stream through the `StepOutput` event
+  or type-specific events like `AgentStreamChunk`. See Appendix C for architecture details.
 - **Tools**: Wrap external systems (GitHub CLI, git, notifications). Delegate execution
   to runners/utilities; do not re-implement subprocess logic.
 
@@ -256,6 +265,16 @@ the design before proceeding.
    - **Secret detection**: Use `maverick.utils.secrets.detect_secrets`, NOT custom regex
    (Enforces Principles VII and IX. See Appendix B for complete library list.)
 
+9. **TUI streaming follows the unified event pattern**: All workflow step types MUST
+   contribute to the unified stream via standardized events:
+   - **Agent steps**: Use `AgentStreamChunk` for streaming output and thinking
+   - **Python/deterministic steps**: Use `StepOutput` for progress and status messages
+   - **All steps**: Emit `StepStarted`/`StepCompleted` for lifecycle tracking
+   - The `UnifiedStreamWidget` is the canonical display component for workflow execution
+   - FIFO buffer management (100KB limit) prevents memory exhaustion
+   - 50ms debounced updates prevent UI flickering during rapid event bursts
+   (Enforces Principle II streaming-first design. See Appendix C for architecture.)
+
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
 the principle it operationalizes.
@@ -438,10 +457,11 @@ MUST comply with these principles.
 - Use `.specify/memory/constitution.md` as the authoritative reference
 - Architectural guardrails (Principle X) MUST be checked in code review
 - Canonical library usage (Guardrail #8, Appendix B) MUST be verified in code review
+- TUI streaming patterns (Guardrail #9, Appendix C) MUST be verified in TUI changes
 - Module size thresholds (Principle XI) MUST be checked before merging large files
 - Ownership expectations (Principle XII) apply to all contributors including AI agents
 
-**Version**: 1.6.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-12
+**Version**: 1.7.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-18
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -482,3 +502,81 @@ async for attempt in AsyncRetrying(
 **Rationale**: Canonical libraries ensure consistent behavior, centralized configuration,
 proper error handling, and easier testing. Multiple implementations of the same capability
 lead to subtle bugs and maintenance burden (learned from code review 2026-01-12).
+
+## Appendix C: TUI Streaming Architecture
+
+The TUI uses a streaming-first design where the primary content area is a unified, scrolling
+event stream. This pattern prioritizes workflow output visibility over complex layouts.
+
+### Core Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `UnifiedStreamWidget` | `src/maverick/tui/widgets/unified_stream.py` | Main stream display widget |
+| `UnifiedStreamEntry` | `src/maverick/tui/models/widget_state.py` | Single stream entry model |
+| `UnifiedStreamState` | `src/maverick/tui/models/widget_state.py` | Stream state management |
+| `StreamEntryType` | `src/maverick/tui/models/enums.py` | Entry type enumeration |
+
+### Event Types for Stream Contribution
+
+All workflow step types contribute to the unified stream through these event patterns:
+
+| Step Type | Event | Description |
+|-----------|-------|-------------|
+| All steps | `StepStarted` | Emitted when step begins execution |
+| All steps | `StepCompleted` | Emitted when step completes (success or failure) |
+| Agent steps | `AgentStreamChunk` | Streaming output, thinking, or errors from agents |
+| Python/deterministic | `StepOutput` | Progress messages, status updates, warnings |
+| Loop steps | `LoopIterationStarted/Completed` | Loop iteration lifecycle |
+
+### StepOutput Event Pattern
+
+The `StepOutput` event is the generic mechanism for any workflow step to contribute
+informational output to the unified stream:
+
+```python
+from maverick.dsl.events import StepOutput
+
+# In a Python action or workflow step:
+if event_callback:
+    await event_callback(StepOutput(
+        step_name="fetch_pr",
+        message=f"Fetching PR #{pr_number}...",
+        level="info",  # "info", "success", "warning", "error"
+        source="github",  # Optional source identifier
+    ))
+```
+
+### Stream Entry Styling
+
+Entries are styled by type for visual differentiation:
+
+| Entry Type | Badge | Color |
+|------------|-------|-------|
+| `STEP_START` | `[STEP]` | Primary (cyan) |
+| `STEP_COMPLETE` | `[OK]` | Success (green) |
+| `STEP_FAILED` | `[FAIL]` | Error (red) |
+| `STEP_OUTPUT` | `[source]` | Level-based (info/success/warning/error) |
+| `AGENT_OUTPUT` | `[agent]` | Text |
+| `AGENT_THINKING` | `[thinking]` | Muted italic |
+| `TOOL_CALL` | `[TOOL]` | Secondary (blue) |
+
+### Buffer Management
+
+The stream uses FIFO buffer management to prevent memory exhaustion:
+
+- **Max size**: 100KB default (configurable via `UnifiedStreamState.max_size_bytes`)
+- **Eviction**: Oldest entries are removed when buffer exceeds limit
+- **Size tracking**: Entries track `size_bytes` for efficient buffer management
+
+### UI Update Debouncing
+
+To prevent flickering during rapid event bursts:
+
+- **Debounce interval**: 50ms between UI refreshes
+- **Batch mounting**: Multiple entries mounted in single refresh cycle
+- **Auto-scroll**: Maintains scroll position unless user manually scrolls
+
+**Rationale**: Streaming-first design follows the proven pattern from Claude Code's terminal
+interface. Single-column output maximizes content visibility and reduces cognitive load.
+Standardized event types ensure all step types can contribute without custom UI code.

@@ -339,6 +339,14 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 - `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`, `asyncio.create_subprocess_exec`) or make network calls.
 - TUI code MUST delegate external interactions to runners/services and only update reactive state + render results.
 
+**Streaming-First Design**: The TUI follows a streaming-first philosophy where the primary
+content area is a unified, scrolling event stream (inspired by Claude Code's interface):
+
+- Single-column streaming output as the main focus
+- Minimal chrome, maximum content—every pixel should convey information
+- Chronological workflow events (step starts, agent outputs, tool calls, completions)
+- All workflow step types contribute via `StepOutput` or type-specific events
+
 ### 2. Async-first means “no blocking on the event loop”
 
 - Never call `subprocess.run` from an `async def` path.
@@ -376,6 +384,30 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 - Factory functions MUST NOT call `asyncio.run()` internally.
 - Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
 - Return concrete, correct types (avoid `Any` on public APIs).
+
+### 8. TUI streaming follows the unified event pattern
+
+All workflow step types MUST contribute to the unified stream via standardized events:
+
+- **Agent steps**: Use `AgentStreamChunk` for streaming output and thinking
+- **Python/deterministic steps**: Use `StepOutput` for progress and status messages
+- **All steps**: Emit `StepStarted`/`StepCompleted` for lifecycle tracking
+- The `UnifiedStreamWidget` is the canonical display component for workflow execution
+- FIFO buffer management (100KB limit) prevents memory exhaustion
+- 50ms debounced updates prevent UI flickering during rapid event bursts
+
+**StepOutput pattern**:
+```python
+from maverick.dsl.events import StepOutput
+
+if event_callback:
+    await event_callback(StepOutput(
+        step_name="fetch_pr",
+        message=f"Fetching PR #{pr_number}...",
+        level="info",  # "info", "success", "warning", "error"
+        source="github",  # Optional source identifier
+    ))
+```
 
 ## Workflows
 

@@ -9,6 +9,7 @@ from maverick.tui.models.enums import (
     MessageType,
     StageStatus,
     StreamChunkType,
+    StreamEntryType,
     ValidationStepStatus,
 )
 from maverick.tui.models.findings import CodeContext, ReviewFinding, ReviewFindingItem
@@ -409,3 +410,131 @@ class StreamingPanelState:
     def total_size_bytes(self) -> int:
         """Current buffer size in bytes."""
         return self._current_size_bytes
+
+
+@dataclass(frozen=True, slots=True)
+class UnifiedStreamEntry:
+    """A single entry in the unified event stream.
+
+    Used by UnifiedStreamWidget to display all workflow events in a
+    single chronological stream with type-specific styling.
+
+    Attributes:
+        timestamp: When the event occurred.
+        entry_type: Type of entry for styling.
+        source: Step name or agent name.
+        content: Primary text content.
+        level: Severity level for coloring (info, success, warning, error).
+        duration_ms: Duration in milliseconds (for completed steps).
+        metadata: Additional data for the entry (e.g., tool parameters).
+    """
+
+    timestamp: float
+    entry_type: StreamEntryType
+    source: str
+    content: str
+    level: str = "info"
+    duration_ms: int | None = None
+    metadata: dict[str, object] | None = None
+
+    @property
+    def formatted_time(self) -> str:
+        """Format timestamp as HH:MM:SS."""
+        dt = datetime.fromtimestamp(self.timestamp)
+        return dt.strftime("%H:%M:%S")
+
+    @property
+    def size_bytes(self) -> int:
+        """Approximate size in bytes for buffer management."""
+        return len(self.content.encode("utf-8"))
+
+    @property
+    def badge(self) -> str:
+        """Get the display badge for this entry type."""
+        badges = {
+            StreamEntryType.STEP_START: "[STEP]",
+            StreamEntryType.STEP_COMPLETE: "[OK]",
+            StreamEntryType.STEP_FAILED: "[FAIL]",
+            StreamEntryType.STEP_OUTPUT: f"[{self.source}]" if self.source else "[OUT]",
+            StreamEntryType.AGENT_OUTPUT: f"[{self.source}]",
+            StreamEntryType.AGENT_THINKING: "[thinking]",
+            StreamEntryType.TOOL_CALL: "[TOOL]",
+            StreamEntryType.TOOL_RESULT: "[RESULT]",
+            StreamEntryType.LOOP_START: "[LOOP]",
+            StreamEntryType.LOOP_COMPLETE: "[LOOP]",
+            StreamEntryType.ERROR: "[ERROR]",
+            StreamEntryType.INFO: "[INFO]",
+        }
+        return badges.get(self.entry_type, f"[{self.entry_type.value}]")
+
+
+@dataclass(slots=True)
+class UnifiedStreamState:
+    """State for the unified stream widget.
+
+    Attributes:
+        entries: List of stream entries.
+        auto_scroll: Whether to auto-scroll to latest.
+        max_size_bytes: Maximum buffer size in bytes (default: 100KB).
+        _current_size_bytes: Tracked current size in bytes.
+        current_step: Name of the currently running step.
+        current_step_number: 1-based index of current step.
+        total_steps: Total number of steps.
+        workflow_name: Name of the running workflow.
+        start_time: When the workflow started.
+    """
+
+    entries: list[UnifiedStreamEntry] = field(default_factory=list)
+    auto_scroll: bool = True
+    max_size_bytes: int = 100 * 1024  # 100KB limit
+    _current_size_bytes: int = 0
+    current_step: str | None = None
+    current_step_number: int = 0
+    total_steps: int = 0
+    workflow_name: str = ""
+    start_time: float | None = None
+
+    def __post_init__(self) -> None:
+        """Initialize size tracking from any pre-existing entries."""
+        if self.entries and self._current_size_bytes == 0:
+            self._current_size_bytes = sum(e.size_bytes for e in self.entries)
+
+    def add_entry(self, entry: UnifiedStreamEntry) -> None:
+        """Add entry, enforcing size limit with FIFO eviction.
+
+        Args:
+            entry: The stream entry to add.
+        """
+        entry_size = entry.size_bytes
+
+        # Evict oldest entries if needed
+        while (
+            self._current_size_bytes + entry_size > self.max_size_bytes and self.entries
+        ):
+            removed = self.entries.pop(0)
+            self._current_size_bytes -= removed.size_bytes
+
+        self.entries.append(entry)
+        self._current_size_bytes += entry_size
+
+    def clear(self) -> None:
+        """Clear all entries."""
+        self.entries.clear()
+        self._current_size_bytes = 0
+
+    @property
+    def elapsed_seconds(self) -> int:
+        """Get elapsed time since workflow started."""
+        if self.start_time is None:
+            return 0
+        import time
+
+        return int(time.time() - self.start_time)
+
+    @property
+    def elapsed_formatted(self) -> str:
+        """Get elapsed time formatted as MM:SS."""
+        total = self.elapsed_seconds
+        minutes = total // 60
+        seconds = total % 60
+        return f"{minutes:02d}:{seconds:02d}"

@@ -2,6 +2,8 @@
 
 This screen executes a workflow using the DSL executor and displays
 real-time progress updates for each step.
+
+Updated: 2026-01-17 - Streaming-first layout with unified event stream.
 """
 
 from __future__ import annotations
@@ -20,24 +22,28 @@ from textual.widgets import Button, ProgressBar, Static
 from textual.worker import Worker, WorkerState
 
 from maverick.logging import get_logger
-from maverick.tui.models.enums import IterationStatus, StreamChunkType
+from maverick.tui.models.enums import IterationStatus, StreamChunkType, StreamEntryType
 from maverick.tui.models.widget_state import (
     AgentStreamEntry,
     LoopIterationItem,
     LoopIterationState,
     StreamingPanelState,
+    UnifiedStreamEntry,
+    UnifiedStreamState,
 )
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.iteration_progress import IterationProgress
 from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
+from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
 if TYPE_CHECKING:
     from maverick.dsl.events import (
         AgentStreamChunk,
         LoopIterationCompleted,
         LoopIterationStarted,
+        StepOutput,
     )
     from maverick.dsl.results import WorkflowResult
     from maverick.dsl.serialization.schema import WorkflowFile
@@ -185,8 +191,12 @@ class WorkflowExecutionScreen(MaverickScreen):
     BINDINGS = [
         Binding("escape", "cancel_workflow", "Cancel", show=True),
         Binding("q", "go_home", "Home", show=False),
-        Binding("s", "toggle_streaming_panel", "Toggle streaming", show=True),
-        Binding("l", "toggle_log_panel", "Toggle logs", show=True),
+        Binding("f", "toggle_follow", "Follow", show=True),
+        Binding("s", "toggle_steps_panel", "Steps", show=True),
+        Binding("t", "toggle_timeline", "Timeline", show=True),
+        Binding("l", "toggle_log_panel", "Logs", show=True),
+        Binding("g", "scroll_top", "Top", show=False),
+        Binding("G", "scroll_bottom", "Bottom", show=False),
     ]
 
     # Reactive state
@@ -223,10 +233,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._executor_worker: Worker[WorkflowResult] | None = None
         self._result: WorkflowResult | None = None
         self._start_time: datetime | None = None
-        # T030/T033: Initialize streaming state with visible=True by default
-        # T036: Streaming entries persist after workflow completion for debugging.
-        # This state is never cleared during the workflow lifecycle, allowing users
-        # to scroll back and review agent output after completion or failure.
+
+        # Unified stream state for the streaming-first layout
+        self._unified_state = UnifiedStreamState(
+            workflow_name=workflow.name,
+            total_steps=len(workflow.steps),
+        )
+
+        # Legacy streaming state (kept for backward compatibility)
         self._streaming_state = StreamingPanelState(visible=True)
 
         # T042: Debounce tracking for UI updates (50ms minimum per SC-003)
@@ -248,51 +262,61 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._completed_steps: set[str] = set()
         self._current_running_step: str | None = None
 
+        # UI toggle states
+        self._steps_panel_visible: bool = False
+        self._timeline_visible: bool = True
+
     def compose(self) -> ComposeResult:
-        """Create the execution screen layout with split-view.
+        """Create the streaming-first execution screen layout.
 
         Layout:
-            ┌────────────────────────────┬────────────────────────────────────┐
-            │ Steps (40%)                │ Agent Output (60%)                 │
-            │ ─────                      │ ────────────                       │
-            │ ✓ validate      (1.2s)     │ [implementer] Analyzing task...    │
-            │ ● implement     (running)  │ > Reading src/maverick/cli/...     │
-            │ ○ review                   │ > Applying changes...              │
-            └────────────────────────────┴────────────────────────────────────┘
+            ┌───────────────────────────────────────────────────────────────┐
+            │ workflow-name               Step 3/8: review    [01:23]       │
+            ├───────────────────────────────────────────────────────────────┤
+            │ [====implement====][=review=][validate][test]...              │
+            ├───────────────────────────────────────────────────────────────┤
+            │                                                               │
+            │ 12:34:05 [STEP] implement_task started                        │
+            │                                                               │
+            │ 12:34:06 [implementer] Analyzing task requirements...         │
+            │          > Reading src/maverick/cli/main.py                   │
+            │                                                               │
+            │ 12:34:22 [OK] implement_task completed (16.2s)                │
+            │                                                               │
+            ├───────────────────────────────────────────────────────────────┤
+            │ [ESC] [F]Follow [S]Steps [T]Timeline [L]Logs [?]Help          │
+            └───────────────────────────────────────────────────────────────┘
         """
-        # Header with workflow info and progress
+        # Compact header with workflow info
         yield Static(
-            f"[bold]Workflow: {self._workflow.name}[/bold]",
+            f"[bold]{self._workflow.name}[/bold]",
             id="execution-title",
         )
-        yield Static(
-            self._workflow.description or "",
-            id="execution-description",
-        )
+        if self._workflow.description:
+            yield Static(
+                f"[dim]{self._workflow.description}[/dim]",
+                id="execution-description",
+            )
 
-        # Progress indicator with ETA
+        # Compact progress indicator
         with Horizontal(id="progress-header"):
             yield Static(
                 "[dim]Preparing...[/dim]",
                 id="progress-text",
             )
-            yield Static(
-                "",
-                id="eta-display",
-            )
         yield ProgressBar(id="progress-bar", total=100, show_eta=False)
 
-        # Progress timeline showing step durations
+        # Progress timeline showing step durations (toggleable)
         yield ProgressTimeline(
             show_labels=True,
             show_durations=True,
             id="progress-timeline",
         )
 
-        # Split-view: Steps (left) | Agent Output (right)
-        with Horizontal(id="execution-split"):
-            # Left pane: Steps list
-            with Vertical(id="execution-steps", classes="execution-pane"):
+        # Main content area with optional steps panel
+        with Horizontal(id="execution-main"):
+            # Steps panel (hidden by default, toggleable with 's')
+            with Vertical(id="execution-steps", classes="execution-pane hidden"):
                 yield Static("[bold]Steps[/bold]", classes="pane-header")
                 with ScrollableContainer(id="step-list"):
                     for step in self._workflow.steps:
@@ -310,13 +334,11 @@ class WorkflowExecutionScreen(MaverickScreen):
                         self._step_widgets[step.name] = step_widget
                         yield step_widget
 
-            # Right pane: Agent streaming output (always visible)
-            with Vertical(id="execution-output", classes="execution-pane"):
-                yield Static("[bold]Agent Output[/bold]", classes="pane-header")
-                yield AgentStreamingPanel(
-                    self._streaming_state,
-                    id="streaming-panel",
-                )
+            # Unified stream widget (primary content)
+            yield UnifiedStreamWidget(
+                self._unified_state,
+                id="unified-stream",
+            )
 
         # Error display
         yield Static("", id="error-display")
@@ -331,10 +353,15 @@ class WorkflowExecutionScreen(MaverickScreen):
         self.total_steps = len(self._workflow.steps)
         self._start_time = datetime.now()
 
+        # Initialize the unified stream state with start time
+        self._unified_state.start_time = time.time()
+        self._unified_state.workflow_name = self._workflow.name
+        self._unified_state.total_steps = self.total_steps
+
         # Initialize the progress timeline with workflow steps
         self._initialize_timeline()
 
-        # Start elapsed time timer (also updates ETA)
+        # Start elapsed time timer (also updates ETA and unified stream header)
         self.set_interval(1.0, self._update_elapsed_time)
 
         # Start workflow execution
@@ -380,6 +407,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             LoopIterationCompleted,
             LoopIterationStarted,
             StepCompleted,
+            StepOutput,
             StepStarted,
             ValidationCompleted,
             ValidationFailed,
@@ -448,6 +476,9 @@ class WorkflowExecutionScreen(MaverickScreen):
                 elif isinstance(event, AgentStreamChunk):
                     await self._handle_stream_chunk(event)
 
+                elif isinstance(event, StepOutput):
+                    await self._handle_step_output(event)
+
             return executor.get_result()
 
         except asyncio.CancelledError:
@@ -507,6 +538,15 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Update timeline
         self._update_timeline_step(step_name, "running")
 
+        # Add to unified stream
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.STEP_START,
+            source=step_name,
+            content=f"{step_name} started",
+        )
+        self._add_unified_entry(entry)
+
     def _mark_step_completed(self, step_name: str, duration_ms: int) -> None:
         """Mark a step as completed."""
         if step_name in self._step_widgets:
@@ -528,6 +568,17 @@ class WorkflowExecutionScreen(MaverickScreen):
             step_name, "completed", duration_seconds=duration_seconds
         )
 
+        # Add to unified stream
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.STEP_COMPLETE,
+            source=step_name,
+            content=f"{step_name} completed",
+            level="success",
+            duration_ms=duration_ms,
+        )
+        self._add_unified_entry(entry)
+
     def _mark_step_failed(
         self, step_name: str, duration_ms: int, error: str | None = None
     ) -> None:
@@ -545,6 +596,20 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._update_timeline_step(
             step_name, "failed", duration_seconds=duration_seconds
         )
+
+        # Add to unified stream
+        content = f"{step_name} failed"
+        if error:
+            content = f"{step_name} failed: {error}"
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.STEP_FAILED,
+            source=step_name,
+            content=content,
+            level="error",
+            duration_ms=duration_ms,
+        )
+        self._add_unified_entry(entry)
 
     def _show_error(self, error: str) -> None:
         """Show an error message."""
@@ -585,19 +650,14 @@ class WorkflowExecutionScreen(MaverickScreen):
             pass
 
     def _update_elapsed_time(self) -> None:
-        """Update the elapsed time display in the top-right header."""
+        """Update the elapsed time display in the unified stream header."""
         if self._start_time is None:
             return
 
         try:
-            elapsed = datetime.now() - self._start_time
-            total_seconds = int(elapsed.total_seconds())
-            minutes = total_seconds // 60
-            seconds = total_seconds % 60
-
-            # Display elapsed time in the top-right header (eta-display element)
-            elapsed_widget = self.query_one("#eta-display", Static)
-            elapsed_widget.update(f"[dim]Elapsed: {minutes:02d}:{seconds:02d}[/dim]")
+            # Update unified stream widget header
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.update_elapsed()
         except NoMatches:
             # Screen is being unmounted, widget no longer exists
             pass
@@ -869,8 +929,8 @@ class WorkflowExecutionScreen(MaverickScreen):
     async def _handle_stream_chunk(self, event: AgentStreamChunk) -> None:
         """Handle agent stream chunk event.
 
-        Creates an AgentStreamEntry from the event and adds it to the
-        streaming state, then refreshes the streaming panel.
+        Creates a UnifiedStreamEntry from the event and adds it to the
+        unified stream, then refreshes the display.
 
         Args:
             event: The AgentStreamChunk event containing streaming data.
@@ -882,15 +942,56 @@ class WorkflowExecutionScreen(MaverickScreen):
             # Default to OUTPUT for unknown chunk types
             chunk_type = StreamChunkType.OUTPUT
 
-        entry = AgentStreamEntry(
+        # Map StreamChunkType to StreamEntryType
+        if chunk_type == StreamChunkType.THINKING:
+            entry_type = StreamEntryType.AGENT_THINKING
+        elif chunk_type == StreamChunkType.ERROR:
+            entry_type = StreamEntryType.ERROR
+        else:
+            entry_type = StreamEntryType.AGENT_OUTPUT
+
+        # Create unified stream entry
+        unified_entry = UnifiedStreamEntry(
+            timestamp=event.timestamp,
+            entry_type=entry_type,
+            source=event.agent_name,
+            content=event.text,
+            level="error" if chunk_type == StreamChunkType.ERROR else "info",
+        )
+        self._add_unified_entry(unified_entry)
+
+        # Also add to legacy streaming state for backward compatibility
+        legacy_entry = AgentStreamEntry(
             timestamp=event.timestamp,
             step_name=event.step_name,
             agent_name=event.agent_name,
             text=event.text,
             chunk_type=chunk_type,
         )
-        self._streaming_state.add_entry(entry)
-        self._refresh_streaming_panel()
+        self._streaming_state.add_entry(legacy_entry)
+
+    async def _handle_step_output(self, event: StepOutput) -> None:
+        """Handle generic step output event.
+
+        Creates a UnifiedStreamEntry from the StepOutput event and adds it
+        to the unified stream. This allows any step type (Python actions,
+        validation steps, GitHub operations, etc.) to contribute to the
+        unified stream widget.
+
+        Args:
+            event: The StepOutput event containing step output data.
+        """
+        # Create unified stream entry with source from event
+        # The source can be a subsystem identifier like "github" or "git"
+        unified_entry = UnifiedStreamEntry(
+            timestamp=event.timestamp,
+            entry_type=StreamEntryType.STEP_OUTPUT,
+            source=event.source or event.step_name,
+            content=event.message,
+            level=event.level,
+            metadata=event.metadata,
+        )
+        self._add_unified_entry(unified_entry)
 
     def _refresh_streaming_panel(self) -> None:
         """Refresh the streaming panel with new content.
@@ -955,13 +1056,79 @@ class WorkflowExecutionScreen(MaverickScreen):
             # Panel not found (widget not mounted yet)
             pass
 
-    def action_toggle_streaming_panel(self) -> None:
-        """Toggle the streaming panel visibility (bound to 's' key)."""
+    def _add_unified_entry(self, entry: UnifiedStreamEntry) -> None:
+        """Add an entry to the unified stream with debounced refresh.
+
+        Args:
+            entry: The unified stream entry to add.
+        """
+        self._unified_state.add_entry(entry)
+        self._refresh_unified_stream()
+
+    def _refresh_unified_stream(self) -> None:
+        """Refresh the unified stream widget with debouncing."""
+        now = time.time()
+        elapsed = now - self._last_streaming_update
+
+        if elapsed < DEBOUNCE_INTERVAL_SECONDS:
+            # Cancel any pending update and schedule a new one
+            if (
+                self._pending_streaming_update is not None
+                and not self._pending_streaming_update.done()
+            ):
+                self._pending_streaming_update.cancel()
+            self._pending_streaming_update = asyncio.create_task(
+                self._delayed_unified_refresh()
+            )
+            return
+
+        self._last_streaming_update = now
+        self._do_unified_refresh()
+
+    async def _delayed_unified_refresh(self) -> None:
+        """Execute a delayed unified stream refresh after debounce period."""
+        await asyncio.sleep(DEBOUNCE_INTERVAL_SECONDS)
+        self._last_streaming_update = time.time()
+        self._do_unified_refresh()
+
+    def _do_unified_refresh(self) -> None:
+        """Perform the actual unified stream widget refresh."""
         try:
-            panel = self.query_one("#streaming-panel", AgentStreamingPanel)
-            panel.toggle_visibility()
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.refresh_entries()
         except NoMatches:
-            # Panel not found
+            pass
+
+    def action_toggle_follow(self) -> None:
+        """Toggle auto-scroll/follow mode (bound to 'f' key)."""
+        try:
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.toggle_auto_scroll()
+        except NoMatches:
+            pass
+
+    def action_toggle_steps_panel(self) -> None:
+        """Toggle the steps panel visibility (bound to 's' key)."""
+        try:
+            steps_panel = self.query_one("#execution-steps", Vertical)
+            self._steps_panel_visible = not self._steps_panel_visible
+            if self._steps_panel_visible:
+                steps_panel.remove_class("hidden")
+            else:
+                steps_panel.add_class("hidden")
+        except NoMatches:
+            pass
+
+    def action_toggle_timeline(self) -> None:
+        """Toggle the timeline visibility (bound to 't' key)."""
+        try:
+            timeline = self.query_one("#progress-timeline", ProgressTimeline)
+            self._timeline_visible = not self._timeline_visible
+            if self._timeline_visible:
+                timeline.remove_class("hidden")
+            else:
+                timeline.add_class("hidden")
+        except NoMatches:
             pass
 
     def action_toggle_log_panel(self) -> None:
@@ -977,5 +1144,20 @@ class WorkflowExecutionScreen(MaverickScreen):
             log_panel = self.app.query_one(LogPanel)
             log_panel.toggle()
         except NoMatches:
-            # Panel not found (widget not mounted yet)
+            pass
+
+    def action_scroll_top(self) -> None:
+        """Scroll to top of stream (bound to 'g' key)."""
+        try:
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.scroll_to_top()
+        except NoMatches:
+            pass
+
+    def action_scroll_bottom(self) -> None:
+        """Scroll to bottom of stream (bound to 'G' key)."""
+        try:
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.scroll_to_bottom()
+        except NoMatches:
             pass

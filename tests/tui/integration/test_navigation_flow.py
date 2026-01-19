@@ -224,7 +224,9 @@ class TestNavigationContext:
             await pilot.pause()
 
             # Context history should be reduced by 1
-            assert len(pilot.app.navigation_context.history) == history_len_after_push - 1
+            assert (
+                len(pilot.app.navigation_context.history) == history_len_after_push - 1
+            )
 
     @pytest.mark.asyncio
     async def test_navigation_context_can_go_back(self) -> None:
