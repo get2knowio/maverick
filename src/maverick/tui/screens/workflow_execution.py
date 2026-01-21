@@ -188,8 +188,8 @@ class WorkflowExecutionScreen(MaverickScreen):
     TITLE = "Running Workflow"
 
     BINDINGS = [
-        Binding("escape", "cancel_workflow", "Cancel", show=True),
-        Binding("q", "go_home", "Home", show=False),
+        Binding("escape", "cancel_workflow", "Cancel/Exit", show=True),
+        Binding("q", "exit_app", "Exit", show=True),
         Binding("f", "toggle_follow", "Follow", show=True),
         Binding("s", "toggle_steps_panel", "Steps", show=True),
         Binding("l", "toggle_log_panel", "Logs", show=True),
@@ -637,10 +637,10 @@ class WorkflowExecutionScreen(MaverickScreen):
             pass
 
     def action_cancel_workflow(self) -> None:
-        """Request workflow cancellation."""
+        """Request workflow cancellation or exit if complete."""
         if not self.is_running:
-            # If not running, go back
-            self.app.pop_screen()
+            # If not running (workflow complete or not started), exit the app
+            self.app.exit()
             return
 
         self._cancel_requested = True
@@ -649,11 +649,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         if self._executor_worker is not None:
             self._executor_worker.cancel()
 
-    def action_go_home(self) -> None:
-        """Navigate back to home screen."""
-        # Pop all workflow screens to get back to home
-        while len(self.app.screen_stack) > 1:
-            self.app.pop_screen()
+    def action_exit_app(self) -> None:
+        """Exit the application."""
+        self.app.exit()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Handle worker state changes."""
