@@ -1,22 +1,21 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.6.0 → 1.7.0
-Modified principles:
-  - II. Separation of Concerns → Added TUI streaming-first design philosophy
-  - X. Architectural Guardrails → Added Guardrail #9 for TUI streaming patterns
+Version change: 1.7.0 → 1.8.0
+Modified principles: None
 Added sections:
-  - Appendix C: TUI Streaming Architecture
+  - Appendix D: Repository and Branch Naming Conventions
+  - Guardrail #10 in Principle X (branch naming enforcement)
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
-  - .specify/templates/spec-template.md: ✅ Compatible (no constitution-specific references)
-  - .specify/templates/tasks-template.md: ✅ Compatible (checkpoint guidance aligns with principles)
+  - .specify/templates/spec-template.md: ✅ Compatible (branch naming already uses ### format)
+  - .specify/templates/tasks-template.md: ✅ Compatible (references feature branches correctly)
 Propagation:
-  - CLAUDE.md: ✅ Updated - added streaming-first design and guardrail #8
+  - CLAUDE.md: ✅ Updated - added Multi-Repository Development section
 Follow-up TODOs: None
-Source: TUI streaming-first redesign session 2026-01-18 - implemented UnifiedStreamWidget and
-StepOutput event pattern for workflow visualization.
+Source: Branch naming confusion incident 2026-01-21 - maverick repo had sample-project branch
+(001-greet-cli) that was merged and deleted. Added documentation to prevent recurrence.
 -->
 
 # Maverick Constitution
@@ -275,6 +274,17 @@ the design before proceeding.
    - 50ms debounced updates prevent UI flickering during rapid event bursts
    (Enforces Principle II streaming-first design. See Appendix C for architecture.)
 
+10. **Branch names MUST match the target repository**: When working with multiple
+    repositories (e.g., maverick core vs. sample-maverick-project), branch names MUST
+    use the appropriate prefix for the target repository:
+    - **Maverick core**: Use `###-feature-name` format (e.g., `030-tui-streaming`) where
+      `###` corresponds to a maverick feature spec number
+    - **Sample project**: Use `###-feature-name` format (e.g., `001-greet-cli`) where
+      `###` corresponds to a sample project feature spec number
+    - **Never push sample project branches to maverick core** (and vice versa)
+    - Verify `git remote -v` before pushing to ensure you're targeting the correct repo
+    (Enforces repository isolation. See Appendix D for multi-repo workflow.)
+
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
 the principle it operationalizes.
@@ -460,8 +470,9 @@ MUST comply with these principles.
 - TUI streaming patterns (Guardrail #9, Appendix C) MUST be verified in TUI changes
 - Module size thresholds (Principle XI) MUST be checked before merging large files
 - Ownership expectations (Principle XII) apply to all contributors including AI agents
+- Branch naming conventions (Guardrail #10, Appendix D) MUST be verified before pushing
 
-**Version**: 1.7.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-18
+**Version**: 1.8.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-21
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -580,3 +591,66 @@ To prevent flickering during rapid event bursts:
 **Rationale**: Streaming-first design follows the proven pattern from Claude Code's terminal
 interface. Single-column output maximizes content visibility and reduces cognitive load.
 Standardized event types ensure all step types can contribute without custom UI code.
+
+## Appendix D: Repository and Branch Naming Conventions
+
+Maverick development involves two distinct repositories with different purposes. Confusing
+them causes branch pollution, incorrect commits, and wasted cleanup effort.
+
+### Repository Overview
+
+| Repository | Purpose | Location | Branch Prefix Examples |
+|------------|---------|----------|------------------------|
+| **maverick** | Core Maverick CLI/TUI application | `/workspaces/maverick` | `030-tui-streaming`, `028-maverick-init` |
+| **sample-maverick-project** | Test project for E2E testing and demos | `/workspaces/sample-maverick-project` | `001-greet-cli`, `002-todo-app` |
+
+### Branch Naming Rules
+
+**Maverick Core Repository** (`get2knowio/maverick`):
+- Branch format: `###-descriptive-name` where `###` is a maverick feature spec number
+- Examples: `030-tui-execution-visibility`, `028-maverick-init`, `recursing-archimedes`
+- Spec location: `/workspaces/maverick/specs/###-feature-name/`
+- NEVER use low numbers (001-010) for maverick branches—these are reserved for sample projects
+
+**Sample Project Repository** (`get2knowio/sample-maverick-project`):
+- Branch format: `###-descriptive-name` where `###` starts from `001`
+- Examples: `001-greet-cli`, `002-todo-app`, `003-calculator`
+- Spec location: `/workspaces/sample-maverick-project/specs/###-feature-name/`
+- Used for testing maverick workflows against a real project
+
+### Pre-Push Verification Checklist
+
+Before pushing any branch, verify:
+
+```bash
+# 1. Check which repository you're in
+pwd
+git remote -v
+
+# 2. Verify branch name matches repository
+git branch --show-current
+
+# 3. Check that your commits belong to this repo
+git log --oneline -5
+```
+
+### Common Mistakes to Avoid
+
+| Mistake | How It Happens | Prevention |
+|---------|----------------|------------|
+| Sample branch in maverick | Working in wrong terminal/directory | Always check `git remote -v` before push |
+| Maverick branch in sample | Copy/paste branch name from wrong context | Verify spec directory exists in current repo |
+| Commits to wrong repo | Multiple terminals with similar prompts | Use distinct terminal titles or prompts per repo |
+
+### Recovery Procedure
+
+If you accidentally push a branch to the wrong repository:
+
+1. **Do NOT force-push or rewrite history** on shared branches
+2. Delete the incorrect remote branch: `git push origin --delete <branch-name>`
+3. If commits need preservation, cherry-pick to correct repo
+4. Document the incident to prevent recurrence
+
+**Rationale**: The 001-greet-cli incident (2026-01-21) demonstrated how easily branch
+confusion can occur when working across multiple repositories. Clear naming conventions
+and verification procedures prevent wasted effort and repository pollution.

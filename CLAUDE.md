@@ -462,6 +462,31 @@ Key accountability features:
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
 - Optional: [ntfy](https://ntfy.sh) for push notifications
 
+## Multi-Repository Development
+
+Maverick development involves two distinct repositories. **Never confuse them.**
+
+| Repository | Purpose | Remote URL |
+|------------|---------|------------|
+| **maverick** | Core CLI/TUI application | `get2knowio/maverick.git` |
+| **sample-maverick-project** | E2E test project | `get2knowio/sample-maverick-project.git` |
+
+### Branch Naming Conventions
+
+- **Maverick branches**: `###-feature-name` where `###` >= 020 (e.g., `030-tui-streaming`)
+- **Sample project branches**: `###-feature-name` where `###` starts at 001 (e.g., `001-greet-cli`)
+
+**CRITICAL**: Before pushing any branch, verify you're in the correct repository:
+
+```bash
+git remote -v  # Check remote URL
+pwd            # Check working directory
+```
+
+**Do NOT push sample project branches (001-xxx) to the maverick repository.** This causes
+confusion and requires cleanup. See `.specify/memory/constitution.md` Appendix D for full
+conventions and recovery procedures.
+
 ## Legacy Plugin Reference
 
 The `plugins/maverick/` directory contains the legacy Claude Code plugin implementation being migrated. Reference for workflow logic:
