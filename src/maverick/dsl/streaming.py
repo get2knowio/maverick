@@ -26,22 +26,22 @@ if TYPE_CHECKING:
 
 # Tool emoji mapping for visual scanning in streaming output
 _TOOL_EMOJIS: dict[str, str] = {
-    "Read": "\U0001F4D6",  # 📖
-    "Write": "\U0001F4DD",  # 📝
-    "Edit": "\u270F\uFE0F",  # ✏️
-    "Glob": "\U0001F50D",  # 🔍
-    "Grep": "\U0001F50D",  # 🔍
-    "Bash": "\U0001F4BB",  # 💻
-    "Task": "\U0001F916",  # 🤖
-    "WebFetch": "\U0001F310",  # 🌐
-    "WebSearch": "\U0001F310",  # 🌐
+    "Read": "\U0001f4d6",  # 📖
+    "Write": "\U0001f4dd",  # 📝
+    "Edit": "\u270f\ufe0f",  # ✏️
+    "Glob": "\U0001f50d",  # 🔍
+    "Grep": "\U0001f50d",  # 🔍
+    "Bash": "\U0001f4bb",  # 💻
+    "Task": "\U0001f916",  # 🤖
+    "WebFetch": "\U0001f310",  # 🌐
+    "WebSearch": "\U0001f310",  # 🌐
     # Validation stages
-    "format": "\U0001F3A8",  # 🎨
-    "lint": "\U0001F9F9",  # 🧹
-    "typecheck": "\U0001F50D",  # 🔍
-    "test": "\U0001F9EA",  # 🧪
+    "format": "\U0001f3a8",  # 🎨
+    "lint": "\U0001f9f9",  # 🧹
+    "typecheck": "\U0001f50d",  # 🔍
+    "test": "\U0001f9ea",  # 🧪
 }
-_DEFAULT_TOOL_EMOJI = "\U0001F527"  # 🔧
+_DEFAULT_TOOL_EMOJI = "\U0001f527"  # 🔧
 
 
 def _shorten_path(path: str, max_length: int = 50) -> str:
@@ -152,7 +152,7 @@ class SupportsStreaming(Protocol):
         context: Any,
         registry: Any,
         config: Any | None = None,
-        event_callback: "EventCallback | None" = None,
+        event_callback: EventCallback | None = None,
     ) -> Any: ...
 
 
@@ -172,7 +172,7 @@ class StreamingContext:
 
     def __init__(
         self,
-        event_callback: "EventCallback | None",
+        event_callback: EventCallback | None,
         step_name: str,
         source_name: str | None = None,
     ) -> None:
@@ -189,7 +189,7 @@ class StreamingContext:
         self._last_was_tool = False
         self._has_output = False
 
-    async def __aenter__(self) -> "StreamingContext":
+    async def __aenter__(self) -> StreamingContext:
         """Enter the streaming context."""
         return self
 

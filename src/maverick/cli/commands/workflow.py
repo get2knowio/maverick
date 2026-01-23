@@ -1295,9 +1295,10 @@ async def _execute_workflow_run(
             validate_semantic=not no_validate,
         )
 
-        # Track step progress
+        # Track step progress with nesting support
         step_index = 0
         total_steps = len(workflow_obj.steps)
+        workflow_depth = 0  # Track nesting: 1 = main workflow, 2+ = subworkflows
 
         # Show limited execution message if --step was used
         if only_step_index is not None:
@@ -1356,12 +1357,12 @@ async def _execute_workflow_run(
                 raise SystemExit(ExitCode.FAILURE)
 
             elif isinstance(event, WorkflowStarted):
-                # Already displayed header above
-                pass
+                # Track workflow nesting depth
+                workflow_depth += 1
+                # Main workflow header already displayed above (depth == 1)
+                # Subworkflow headers are shown as part of their parent step
 
             elif isinstance(event, StepStarted):
-                step_index += 1
-
                 # Step type icon mapping
                 type_icons = {
                     "python": "⚙",
@@ -1371,12 +1372,20 @@ async def _execute_workflow_run(
                     "checkpoint": "💾",
                 }
                 icon = type_icons.get(event.step_type.value, "●")
-
-                # Display step start with progress counter
                 step_name = event.step_name
-                step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
-                styled = click.style(step_header, fg="blue")
-                click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+
+                # Only count and number top-level steps (depth == 1)
+                if workflow_depth == 1:
+                    step_index += 1
+                    step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
+                    styled = click.style(step_header, fg="blue")
+                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+                else:
+                    # Nested steps: show indented without numbering
+                    indent = "  " * (workflow_depth - 1)
+                    step_header = f"{indent}{icon} {step_name}"
+                    styled = click.style(step_header, fg="cyan", dim=True)
+                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
 
             elif isinstance(event, StepCompleted):
                 # Calculate duration
@@ -1408,7 +1417,18 @@ async def _execute_workflow_run(
                     click.echo(error_msg, err=True)
 
             elif isinstance(event, WorkflowCompleted):
-                # Workflow summary
+                # Decrement nesting depth
+                workflow_depth -= 1
+
+                # Only show summary for main workflow (depth back to 0)
+                if workflow_depth > 0:
+                    # Subworkflow completed - show brief inline message
+                    total_sec = event.total_duration_ms / 1000
+                    duration_msg = click.style(f"({total_sec:.2f}s)", dim=True)
+                    click.echo(f"{duration_msg}")
+                    continue
+
+                # Main workflow summary
                 click.echo()
                 total_sec = event.total_duration_ms / 1000
 

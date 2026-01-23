@@ -141,14 +141,14 @@ async def execute_agent_step(
     if has_event_callback and has_stream_attr:
         # Tool emojis used to detect tool call output
         tool_emojis = {
-            "\U0001F4D6",  # 📖 Read
-            "\U0001F4DD",  # 📝 Write
-            "\u270F\uFE0F",  # ✏️ Edit
-            "\U0001F50D",  # 🔍 Glob/Grep
-            "\U0001F4BB",  # 💻 Bash
-            "\U0001F916",  # 🤖 Task
-            "\U0001F310",  # 🌐 WebFetch/WebSearch
-            "\U0001F527",  # 🔧 Generic
+            "\U0001f4d6",  # 📖 Read
+            "\U0001f4dd",  # 📝 Write
+            "\u270f\ufe0f",  # ✏️ Edit
+            "\U0001f50d",  # 🔍 Glob/Grep
+            "\U0001f4bb",  # 💻 Bash
+            "\U0001f916",  # 🤖 Task
+            "\U0001f310",  # 🌐 WebFetch/WebSearch
+            "\U0001f527",  # 🔧 Generic
         }
 
         async def stream_text_callback(text: str) -> None:
@@ -183,6 +183,8 @@ async def execute_agent_step(
                 text=output_text,
                 chunk_type="output",
             )
+            # event_callback is guaranteed non-None here (checked at line 141)
+            assert event_callback is not None  # for mypy
             await event_callback(chunk_event)
 
         agent_instance.stream_callback = stream_text_callback
