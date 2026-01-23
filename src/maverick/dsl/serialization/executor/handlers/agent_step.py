@@ -149,6 +149,7 @@ async def execute_agent_step(
             "\U0001F916",  # 🤖 Task
             "\U0001F310",  # 🌐 WebFetch/WebSearch
             "\U0001F527",  # 🔧 Generic
+            "\u2705",  # ✅ Done (tool result)
         }
 
         async def stream_text_callback(text: str) -> None:
@@ -169,10 +170,11 @@ async def execute_agent_step(
                 # Check single char emojis and multi-char emoji sequences
                 is_tool_call = first_char in tool_emojis or stripped[:2] in tool_emojis
 
-            # Add extra newline when switching from tool output to text
+            # Add extra newlines when switching between tool output and text
+            # This creates visual separation (blank line) between modes
             output_text = text
             if last_was_tool_call and not is_tool_call and text.strip():
-                output_text = "\n" + text
+                output_text = "\n\n" + text
 
             last_was_tool_call = is_tool_call
 
