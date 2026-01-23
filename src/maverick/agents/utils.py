@@ -154,6 +154,9 @@ def extract_streaming_text(message: Any) -> str:
         return ""
 
     # Handle AssistantMessage with content blocks (complete messages)
+    # NOTE: With include_partial_messages=True, text content is already streamed
+    # via StreamEvent deltas above. We only extract ToolUseBlock content here
+    # to avoid duplicate text output. TextBlock content is intentionally skipped.
     if not hasattr(message, "content"):
         return ""
 
@@ -161,12 +164,11 @@ def extract_streaming_text(message: Any) -> str:
     for block in message.content:
         block_type = type(block).__name__
 
-        # TextBlock - include text directly
-        if block_type == "TextBlock" and hasattr(block, "text"):
-            text_parts.append(block.text)
+        # Skip TextBlock - text was already streamed via StreamEvent deltas
+        # Including it here would cause duplicate output
 
         # ToolUseBlock - format tool activity for display
-        elif block_type == "ToolUseBlock":
+        if block_type == "ToolUseBlock":
             tool_name = getattr(block, "name", "unknown")
             tool_input = getattr(block, "input", {})
 
@@ -233,14 +235,16 @@ def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     """Format a tool call for streaming display with emoji prefix.
 
     Uses emoji prefixes for quick visual scanning of tool activity.
-    Format: "emoji ToolName: key_parameter"
+    Format: "\\nemoji ToolName: key_parameter" (newline prefix ensures own line)
 
     Args:
         tool_name: Name of the tool being called
         tool_input: Input parameters for the tool
 
     Returns:
-        Formatted tool call string, or empty string if no meaningful display
+        Formatted tool call string with leading newline, or empty string if
+        no meaningful display. The newline ensures tool calls always start
+        on their own line in streaming output.
     """
     emoji = _TOOL_EMOJIS.get(tool_name, _DEFAULT_TOOL_EMOJI)
 
@@ -248,41 +252,41 @@ def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{emoji} Read: {short_path}"
+            return f"\n{emoji} Read: {short_path}"
         return ""
 
     if tool_name == "Write":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{emoji} Write: {short_path}"
+            return f"\n{emoji} Write: {short_path}"
         return ""
 
     if tool_name == "Edit":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{emoji} Edit: {short_path}"
+            return f"\n{emoji} Edit: {short_path}"
         return ""
 
     if tool_name == "Glob":
         pattern = tool_input.get("pattern", "")
-        return f"{emoji} Glob: {pattern}"
+        return f"\n{emoji} Glob: {pattern}"
 
     if tool_name == "Grep":
         pattern = tool_input.get("pattern", "")
-        return f"{emoji} Grep: {pattern}"
+        return f"\n{emoji} Grep: {pattern}"
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
         # Truncate long commands (80 chars like claude-stream-format)
         if len(command) > 80:
             command = command[:77] + "..."
-        return f"{emoji} Bash: {command}"
+        return f"\n{emoji} Bash: {command}"
 
     if tool_name == "Task":
         description = tool_input.get("description", "")
-        return f"{emoji} Task: {description}"
+        return f"\n{emoji} Task: {description}"
 
     if tool_name in ("WebFetch", "WebSearch"):
         url = tool_input.get("url", "")
@@ -290,10 +294,10 @@ def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         param = url or query
         if len(param) > 60:
             param = param[:57] + "..."
-        return f"{emoji} {tool_name}: {param}"
+        return f"\n{emoji} {tool_name}: {param}"
 
     # Generic fallback for other tools
-    return f"{emoji} {tool_name}"
+    return f"\n{emoji} {tool_name}"
 
 
 def extract_all_text(messages: list[Any]) -> str:
