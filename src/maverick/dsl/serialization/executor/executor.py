@@ -590,6 +590,11 @@ class WorkflowFileExecutor:
             if event_callback:
                 handler_kwargs["event_callback"] = event_callback
 
+        elif step_type == StepType.VALIDATE:
+            # Pass event_callback to validate handler for stage progress streaming
+            if event_callback:
+                handler_kwargs["event_callback"] = event_callback
+
         elif step_type == StepType.CHECKPOINT:
             # Checkpoint step needs checkpoint_store
             handler_kwargs["checkpoint_store"] = self._checkpoint_store
