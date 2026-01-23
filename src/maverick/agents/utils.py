@@ -177,19 +177,9 @@ def extract_streaming_text(message: Any) -> str:
             if tool_text:
                 text_parts.append(tool_text)
 
-        # ToolResultBlock - format tool output for display (especially Task/subagent)
-        elif block_type == "ToolResultBlock":
-            tool_name = getattr(block, "tool_use_id", "")
-            content = getattr(block, "content", "")
-
-            # For Task results (subagent output), display a completion indicator
-            # The actual result content can be lengthy, so we summarize
-            if content:
-                # Truncate long results for display
-                result_preview = str(content)[:200]
-                if len(str(content)) > 200:
-                    result_preview += "..."
-                text_parts.append(f"\n✅ Done: {result_preview}")
+        # Skip ToolResultBlock - tool outputs (file contents, glob results, etc.)
+        # are processed internally by the agent and don't need to be displayed.
+        # Showing them creates noise with raw file contents and error messages.
 
     return "\n".join(text_parts)
 

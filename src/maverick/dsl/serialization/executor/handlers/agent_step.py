@@ -149,7 +149,6 @@ async def execute_agent_step(
             "\U0001F916",  # 🤖 Task
             "\U0001F310",  # 🌐 WebFetch/WebSearch
             "\U0001F527",  # 🔧 Generic
-            "\u2705",  # ✅ Done (tool result)
         }
 
         async def stream_text_callback(text: str) -> None:
