@@ -263,11 +263,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         # UI toggle states
         self._steps_panel_visible: bool = False
 
-        # Word-boundary buffering for streaming text
-        # Buffers text until a word boundary is reached for readable display
+        # Sentence-boundary buffering for streaming text
+        # Buffers text until a sentence boundary is reached for readable display
         self._stream_buffers: dict[str, str] = {}  # agent_name -> buffered text
-        self._stream_buffer_timestamps: dict[str, float] = {}  # agent_name -> timestamp
-        self._stream_buffer_flush_delay: float = 0.15  # Flush after 150ms of no input
+        self._stream_buffer_timestamps: dict[
+            str, float
+        ] = {}  # agent_name -> last update
+        self._stream_buffer_flush_delay: float = 0.3  # Flush stale buffers after 300ms
+        self._stream_buffer_flush_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Create the streaming-first execution screen layout.
@@ -875,18 +878,16 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._mount_iteration_widget(step_name)
 
     async def _handle_stream_chunk(self, event: AgentStreamChunk) -> None:
-        """Handle agent stream chunk event with word-boundary buffering.
+        """Handle agent stream chunk event with sentence-boundary buffering.
 
-        Buffers incoming text chunks until a word boundary is reached,
-        then flushes readable phrases to the unified stream. This prevents
-        choppy, mid-word text display.
+        Buffers incoming text chunks until a sentence boundary is reached,
+        then flushes complete sentences to the unified stream. This produces
+        readable, conversational output instead of choppy word-by-word display.
 
-        Word boundaries are detected when:
-        - Text ends with whitespace (space, newline, tab)
-        - Text ends with sentence-ending punctuation (. ! ?)
-        - Buffer timeout elapsed (150ms with no new input)
-        - A newline appears anywhere in the chunk (flush everything up to
-          and including the newline)
+        Sentence boundaries are detected when:
+        - A newline appears (flush everything up to and including the newline)
+        - Sentence-ending punctuation (. ! ? :) followed by whitespace
+        - Buffer timeout elapsed (300ms with no new input) - flushes partial text
 
         Args:
             event: The AgentStreamChunk event containing streaming data.
@@ -903,9 +904,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         current_buffer = self._stream_buffers.get(agent_key, "")
         current_buffer += event.text
         self._stream_buffers[agent_key] = current_buffer
-        self._stream_buffer_timestamps[agent_key] = event.timestamp
+        self._stream_buffer_timestamps[agent_key] = time.time()
 
-        # Determine what to flush based on word boundaries
+        # Determine what to flush based on sentence boundaries
         text_to_flush = self._extract_flushable_text(agent_key)
 
         if text_to_flush:
@@ -915,31 +916,35 @@ class WorkflowExecutionScreen(MaverickScreen):
                 chunk_type,
             )
 
+        # Schedule a timeout flush for any remaining buffered text
+        self._schedule_buffer_flush_timeout()
+
     def _extract_flushable_text(self, agent_key: str) -> str:
         """Extract text that can be flushed from the buffer.
 
-        Returns text up to and including the last word boundary.
-        Keeps any partial word in the buffer.
+        Returns text up to and including the last sentence boundary.
+        Keeps any incomplete sentence in the buffer for later flushing.
+
+        Sentence boundaries are:
+        - Newlines (always flush up to and including)
+        - Sentence-ending punctuation (. ! ? :) followed by whitespace
 
         Args:
             agent_key: The buffer key (step_name:agent_name).
 
         Returns:
-            Text to flush, or empty string if no word boundary found.
+            Text to flush, or empty string if no sentence boundary found.
         """
         buffer = self._stream_buffers.get(agent_key, "")
         if not buffer:
             return ""
 
-        # Find the last word boundary (space, newline, or sentence punctuation)
+        # Find the last sentence boundary
         last_boundary = -1
 
         for i, char in enumerate(buffer):
-            # Word boundaries: newlines, whitespace after non-whitespace, or punctuation
-            is_newline = char == "\n"
-            is_word_end = char in " \t" and i > 0 and buffer[i - 1] not in " \t\n"
-            is_sentence_end = char in ".!?" and i > 0
-            if is_newline or is_word_end or is_sentence_end:
+            # Newlines are always a flush point
+            if char == "\n" or char in " \t" and i > 0 and buffer[i - 1] in ".!?:":
                 last_boundary = i
 
         if last_boundary >= 0:
@@ -949,6 +954,71 @@ class WorkflowExecutionScreen(MaverickScreen):
             return text_to_flush
 
         return ""
+
+    def _schedule_buffer_flush_timeout(self) -> None:
+        """Schedule a timeout flush for stale buffers.
+
+        If no sentence boundary is reached within the flush delay,
+        this ensures buffered text is still displayed to the user.
+        Cancels any previously scheduled flush to avoid duplicates.
+        """
+        # Cancel any existing scheduled flush
+        if (
+            self._stream_buffer_flush_task is not None
+            and not self._stream_buffer_flush_task.done()
+        ):
+            self._stream_buffer_flush_task.cancel()
+
+        # Schedule a new flush after the delay
+        try:
+            self._stream_buffer_flush_task = asyncio.create_task(
+                self._delayed_buffer_flush()
+            )
+        except RuntimeError:
+            # Event loop not running - skip scheduling
+            pass
+
+    async def _delayed_buffer_flush(self) -> None:
+        """Flush stale buffers after a delay.
+
+        Waits for the configured flush delay, then flushes any buffers
+        that haven't been updated recently. This ensures text is displayed
+        even when no sentence boundary is reached (e.g., partial output).
+        """
+        await asyncio.sleep(self._stream_buffer_flush_delay)
+
+        now = time.time()
+        stale_threshold = self._stream_buffer_flush_delay
+
+        for agent_key, last_update in list(self._stream_buffer_timestamps.items()):
+            if now - last_update >= stale_threshold:
+                buffer = self._stream_buffers.get(agent_key, "")
+                if buffer.strip():
+                    # Flush the entire buffer as-is
+                    parts = agent_key.split(":", 1)
+                    step_name = parts[0] if len(parts) > 0 else "unknown"
+                    agent_name = parts[1] if len(parts) > 1 else "unknown"
+
+                    unified_entry = UnifiedStreamEntry(
+                        timestamp=now,
+                        entry_type=StreamEntryType.AGENT_OUTPUT,
+                        source=agent_name,
+                        content=buffer.rstrip(),
+                        level="info",
+                    )
+                    self._add_unified_entry(unified_entry)
+
+                    legacy_entry = AgentStreamEntry(
+                        timestamp=now,
+                        step_name=step_name,
+                        agent_name=agent_name,
+                        text=buffer.rstrip(),
+                        chunk_type=StreamChunkType.OUTPUT,
+                    )
+                    self._streaming_state.add_entry(legacy_entry)
+
+                    # Clear this buffer
+                    self._stream_buffers[agent_key] = ""
 
     async def _flush_stream_text(
         self,
