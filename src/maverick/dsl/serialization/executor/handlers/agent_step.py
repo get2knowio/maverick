@@ -127,18 +127,22 @@ async def execute_agent_step(
     agent_name = getattr(agent_instance, "name", step.agent)
 
     # Set up stream callback for real-time output streaming
+    # Track whether any output was actually streamed to avoid duplicate emission
     has_event_callback = event_callback is not None
     has_stream_attr = hasattr(agent_instance, "stream_callback")
+    output_was_streamed = False  # Track if streaming actually occurred
     logger.info(
         "stream_callback_setup",
         has_event_callback=has_event_callback,
         has_stream_attr=has_stream_attr,
         agent=step.agent,
     )
-    if event_callback and has_stream_attr:
+    if has_event_callback and has_stream_attr:
 
         async def stream_text_callback(text: str) -> None:
             """Forward agent output to event queue as AgentStreamChunk."""
+            nonlocal output_was_streamed
+            output_was_streamed = True  # Mark that we actually streamed output
             chunk_event = AgentStreamChunk(
                 step_name=step.name,
                 agent_name=agent_name,
@@ -176,19 +180,21 @@ async def execute_agent_step(
             result = await result
 
         # T027: Extract text output from result and emit OUTPUT chunk
-        # The result may contain an 'output' attribute or be a structured result
-        output_text = _extract_output_text(result)
-        if output_text:
-            output_event = AgentStreamChunk(
-                step_name=step.name,
-                agent_name=agent_name,
-                text=output_text,
-                chunk_type="output",
-            )
-            if event_callback:
-                await event_callback(output_event)
-            else:
-                emitted_events.append(output_event)
+        # Skip if output was already streamed in real-time to avoid duplication
+        # Only emit the final output when streaming didn't occur
+        if not output_was_streamed:
+            output_text = _extract_output_text(result)
+            if output_text:
+                output_event = AgentStreamChunk(
+                    step_name=step.name,
+                    agent_name=agent_name,
+                    text=output_text,
+                    chunk_type="output",
+                )
+                if event_callback:
+                    await event_callback(output_event)
+                else:
+                    emitted_events.append(output_event)
 
     except Exception as e:
         # T027: Emit ERROR chunk on exception
