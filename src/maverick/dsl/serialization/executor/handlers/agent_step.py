@@ -131,6 +131,7 @@ async def execute_agent_step(
     has_event_callback = event_callback is not None
     has_stream_attr = hasattr(agent_instance, "stream_callback")
     output_was_streamed = False  # Track if streaming actually occurred
+    last_was_tool_call = False  # Track output type for proper line breaks
     logger.info(
         "stream_callback_setup",
         has_event_callback=has_event_callback,
@@ -138,15 +139,47 @@ async def execute_agent_step(
         agent=step.agent,
     )
     if has_event_callback and has_stream_attr:
+        # Tool emojis used to detect tool call output
+        tool_emojis = {
+            "\U0001F4D6",  # 📖 Read
+            "\U0001F4DD",  # 📝 Write
+            "\u270F\uFE0F",  # ✏️ Edit
+            "\U0001F50D",  # 🔍 Glob/Grep
+            "\U0001F4BB",  # 💻 Bash
+            "\U0001F916",  # 🤖 Task
+            "\U0001F310",  # 🌐 WebFetch/WebSearch
+            "\U0001F527",  # 🔧 Generic
+        }
 
         async def stream_text_callback(text: str) -> None:
-            """Forward agent output to event queue as AgentStreamChunk."""
-            nonlocal output_was_streamed
+            """Forward agent output to event queue as AgentStreamChunk.
+
+            Handles line break transitions between tool calls and text output:
+            - Tool calls start with newline (handled in _format_tool_call)
+            - First text after tool call gets extra newline prefix
+            """
+            nonlocal output_was_streamed, last_was_tool_call
             output_was_streamed = True  # Mark that we actually streamed output
+
+            # Detect if this is a tool call (starts with newline + emoji)
+            is_tool_call = False
+            stripped = text.lstrip("\n")
+            if stripped:
+                first_char = stripped[0]
+                # Check single char emojis and multi-char emoji sequences
+                is_tool_call = first_char in tool_emojis or stripped[:2] in tool_emojis
+
+            # Add extra newline when switching from tool output to text
+            output_text = text
+            if last_was_tool_call and not is_tool_call and text.strip():
+                output_text = "\n" + text
+
+            last_was_tool_call = is_tool_call
+
             chunk_event = AgentStreamChunk(
                 step_name=step.name,
                 agent_name=agent_name,
-                text=text,
+                text=output_text,
                 chunk_type="output",
             )
             await event_callback(chunk_event)
