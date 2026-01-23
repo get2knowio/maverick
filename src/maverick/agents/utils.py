@@ -170,41 +170,10 @@ def extract_streaming_text(message: Any) -> str:
             tool_name = getattr(block, "name", "unknown")
             tool_input = getattr(block, "input", {})
 
-            # Format based on tool type
-            if tool_name == "Read":
-                file_path = tool_input.get("file_path", "")
-                if file_path:
-                    # Shorten path for display
-                    short_path = _shorten_path(file_path)
-                    text_parts.append(f"> Reading {short_path}")
-            elif tool_name == "Write":
-                file_path = tool_input.get("file_path", "")
-                if file_path:
-                    short_path = _shorten_path(file_path)
-                    text_parts.append(f"> Writing {short_path}")
-            elif tool_name == "Edit":
-                file_path = tool_input.get("file_path", "")
-                if file_path:
-                    short_path = _shorten_path(file_path)
-                    text_parts.append(f"> Editing {short_path}")
-            elif tool_name == "Glob":
-                pattern = tool_input.get("pattern", "")
-                text_parts.append(f"> Searching for {pattern}")
-            elif tool_name == "Grep":
-                pattern = tool_input.get("pattern", "")
-                text_parts.append(f"> Searching for '{pattern}'")
-            elif tool_name == "Bash":
-                command = tool_input.get("command", "")
-                # Truncate long commands
-                if len(command) > 60:
-                    command = command[:57] + "..."
-                text_parts.append(f"> Running: {command}")
-            elif tool_name == "Task":
-                description = tool_input.get("description", "")
-                text_parts.append(f"> Spawning agent: {description}")
-            else:
-                # Generic tool display
-                text_parts.append(f"> Using {tool_name}")
+            # Format based on tool type with emoji prefixes for visual scanning
+            tool_text = _format_tool_call(tool_name, tool_input)
+            if tool_text:
+                text_parts.append(tool_text)
 
     return "\n".join(text_parts)
 
@@ -243,6 +212,88 @@ def _shorten_path(path: str, max_length: int = 50) -> str:
             break
 
     return ".../" + "/".join(result_parts)
+
+
+# Tool emoji mapping for visual scanning in streaming output
+_TOOL_EMOJIS: dict[str, str] = {
+    "Read": "\U0001F4D6",  # 📖
+    "Write": "\U0001F4DD",  # 📝
+    "Edit": "\u270F\uFE0F",  # ✏️
+    "Glob": "\U0001F50D",  # 🔍
+    "Grep": "\U0001F50D",  # 🔍
+    "Bash": "\U0001F4BB",  # 💻
+    "Task": "\U0001F916",  # 🤖
+    "WebFetch": "\U0001F310",  # 🌐
+    "WebSearch": "\U0001F310",  # 🌐
+}
+_DEFAULT_TOOL_EMOJI = "\U0001F527"  # 🔧
+
+
+def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
+    """Format a tool call for streaming display with emoji prefix.
+
+    Uses emoji prefixes for quick visual scanning of tool activity.
+    Format: "emoji ToolName: key_parameter"
+
+    Args:
+        tool_name: Name of the tool being called
+        tool_input: Input parameters for the tool
+
+    Returns:
+        Formatted tool call string, or empty string if no meaningful display
+    """
+    emoji = _TOOL_EMOJIS.get(tool_name, _DEFAULT_TOOL_EMOJI)
+
+    if tool_name == "Read":
+        file_path = tool_input.get("file_path", "")
+        if file_path:
+            short_path = _shorten_path(file_path)
+            return f"{emoji} Read: {short_path}"
+        return ""
+
+    if tool_name == "Write":
+        file_path = tool_input.get("file_path", "")
+        if file_path:
+            short_path = _shorten_path(file_path)
+            return f"{emoji} Write: {short_path}"
+        return ""
+
+    if tool_name == "Edit":
+        file_path = tool_input.get("file_path", "")
+        if file_path:
+            short_path = _shorten_path(file_path)
+            return f"{emoji} Edit: {short_path}"
+        return ""
+
+    if tool_name == "Glob":
+        pattern = tool_input.get("pattern", "")
+        return f"{emoji} Glob: {pattern}"
+
+    if tool_name == "Grep":
+        pattern = tool_input.get("pattern", "")
+        return f"{emoji} Grep: {pattern}"
+
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        # Truncate long commands (80 chars like claude-stream-format)
+        if len(command) > 80:
+            command = command[:77] + "..."
+        return f"{emoji} Bash: {command}"
+
+    if tool_name == "Task":
+        description = tool_input.get("description", "")
+        return f"{emoji} Task: {description}"
+
+    if tool_name in ("WebFetch", "WebSearch"):
+        url = tool_input.get("url", "")
+        query = tool_input.get("query", "")
+        param = url or query
+        if len(param) > 60:
+            param = param[:57] + "..."
+        return f"{emoji} {tool_name}: {param}"
+
+    # Generic fallback for other tools
+    return f"{emoji} {tool_name}"
 
 
 def extract_all_text(messages: list[Any]) -> str:
