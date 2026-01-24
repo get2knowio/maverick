@@ -42,6 +42,9 @@ class StepCompleted:
         success: Whether the step completed successfully.
         duration_ms: Execution duration in milliseconds.
         error: Error message if the step failed (None if successful).
+        input_tokens: Input tokens consumed (agent steps only, None otherwise).
+        output_tokens: Output tokens generated (agent steps only, None otherwise).
+        cost_usd: Total cost in USD (agent steps only, None otherwise).
         timestamp: Unix timestamp when step completed (defaults to current time).
     """
 
@@ -50,6 +53,9 @@ class StepCompleted:
     success: bool
     duration_ms: int
     error: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
     timestamp: float = field(default_factory=time.time)
 
 

@@ -482,6 +482,14 @@ class UnifiedStreamState:
         total_steps: Total number of steps.
         workflow_name: Name of the running workflow.
         start_time: When the workflow started.
+        current_step_type: Type of the currently running step.
+        current_step_started_at: Timestamp when current step started.
+        current_step_tokens: Running total tokens for current step.
+        current_step_cost: Running cost for current step.
+        total_tokens: Aggregate token count across all steps.
+        total_cost: Aggregate cost across all steps.
+        completed_steps: Count of successfully completed steps.
+        failed_steps: Count of failed steps.
     """
 
     entries: list[UnifiedStreamEntry] = field(default_factory=list)
@@ -493,6 +501,16 @@ class UnifiedStreamState:
     total_steps: int = 0
     workflow_name: str = ""
     start_time: float | None = None
+    # Detail panel state (for step detail tracking)
+    current_step_type: str | None = None
+    current_step_started_at: float | None = None
+    current_step_tokens: int = 0
+    current_step_cost: float = 0.0
+    # Aggregate tracking
+    total_tokens: int = 0
+    total_cost: float = 0.0
+    completed_steps: int = 0
+    failed_steps: int = 0
 
     def __post_init__(self) -> None:
         """Initialize size tracking from any pre-existing entries."""
@@ -537,4 +555,66 @@ class UnifiedStreamState:
         total = self.elapsed_seconds
         minutes = total // 60
         seconds = total % 60
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def start_step(self, step_name: str, step_type: str) -> None:
+        """Record that a step has started.
+
+        Args:
+            step_name: Name of the step.
+            step_type: Type of the step (e.g., "agent", "python").
+        """
+        import time
+
+        self.current_step = step_name
+        self.current_step_type = step_type
+        self.current_step_started_at = time.time()
+        self.current_step_tokens = 0
+        self.current_step_cost = 0.0
+        self.current_step_number += 1
+
+    def complete_step(
+        self,
+        success: bool,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cost_usd: float | None = None,
+    ) -> None:
+        """Record that a step has completed.
+
+        Args:
+            success: Whether the step completed successfully.
+            input_tokens: Input tokens consumed (agent steps only).
+            output_tokens: Output tokens generated (agent steps only).
+            cost_usd: Cost in USD (agent steps only).
+        """
+        if success:
+            self.completed_steps += 1
+        else:
+            self.failed_steps += 1
+
+        # Accumulate tokens and cost from this step
+        tokens = 0
+        if input_tokens is not None:
+            tokens += input_tokens
+        if output_tokens is not None:
+            tokens += output_tokens
+
+        if tokens > 0:
+            self.current_step_tokens = tokens
+            self.total_tokens += tokens
+
+        if cost_usd is not None:
+            self.current_step_cost = cost_usd
+            self.total_cost += cost_usd
+
+    @property
+    def current_step_elapsed_formatted(self) -> str:
+        """Get elapsed time for current step formatted as MM:SS."""
+        if self.current_step_started_at is None:
+            return "--:--"
+        import time
+
+        elapsed = int(time.time() - self.current_step_started_at)
+        minutes, seconds = divmod(elapsed, 60)
         return f"{minutes:02d}:{seconds:02d}"

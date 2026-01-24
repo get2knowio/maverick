@@ -178,6 +178,108 @@ class TestStepCompleted:
         )
         assert event.duration_ms == 0
 
+    def test_usage_fields_default_to_none(self) -> None:
+        """Test that usage fields default to None for non-agent steps."""
+        event = StepCompleted(
+            step_name="python_step",
+            step_type=StepType.PYTHON,
+            success=True,
+            duration_ms=100,
+        )
+        assert event.input_tokens is None
+        assert event.output_tokens is None
+        assert event.cost_usd is None
+
+    def test_usage_fields_with_token_data(self) -> None:
+        """Test StepCompleted with token usage data (agent steps)."""
+        event = StepCompleted(
+            step_name="agent_step",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=5000,
+            input_tokens=1000,
+            output_tokens=500,
+            cost_usd=0.0045,
+        )
+        assert event.input_tokens == 1000
+        assert event.output_tokens == 500
+        assert event.cost_usd == 0.0045
+
+    def test_usage_fields_partial_data(self) -> None:
+        """Test StepCompleted with partial usage data."""
+        event = StepCompleted(
+            step_name="agent_step",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=100,
+            input_tokens=500,
+            output_tokens=200,
+            cost_usd=None,  # Cost unavailable
+        )
+        assert event.input_tokens == 500
+        assert event.output_tokens == 200
+        assert event.cost_usd is None
+
+    def test_usage_fields_zero_values(self) -> None:
+        """Test StepCompleted with zero token/cost values."""
+        event = StepCompleted(
+            step_name="agent_step",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=100,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+        )
+        assert event.input_tokens == 0
+        assert event.output_tokens == 0
+        assert event.cost_usd == 0.0
+
+    def test_usage_fields_large_values(self) -> None:
+        """Test StepCompleted with large token counts (real-world scenario)."""
+        event = StepCompleted(
+            step_name="large_agent_step",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=60000,
+            input_tokens=128000,  # Large context window
+            output_tokens=4096,
+            cost_usd=2.50,
+        )
+        assert event.input_tokens == 128000
+        assert event.output_tokens == 4096
+        assert event.cost_usd == 2.50
+
+    def test_usage_fields_immutable(self) -> None:
+        """Test that usage fields are immutable (frozen dataclass)."""
+        event = StepCompleted(
+            step_name="agent_step",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=100,
+            input_tokens=100,
+        )
+        with pytest.raises(Exception):  # FrozenInstanceError
+            event.input_tokens = 200  # type: ignore[misc]
+
+    def test_failed_step_with_no_usage(self) -> None:
+        """Test that failed steps typically have no usage data."""
+        event = StepCompleted(
+            step_name="failed_agent",
+            step_type=StepType.AGENT,
+            success=False,
+            duration_ms=500,
+            error="API error",
+            input_tokens=None,
+            output_tokens=None,
+            cost_usd=None,
+        )
+        assert event.success is False
+        assert event.error == "API error"
+        assert event.input_tokens is None
+        assert event.output_tokens is None
+        assert event.cost_usd is None
+
 
 class TestWorkflowStarted:
     """Test suite for WorkflowStarted event."""

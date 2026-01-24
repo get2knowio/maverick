@@ -30,6 +30,7 @@ from maverick.tui.widgets.settings import SettingField, SettingsSection
 from maverick.tui.widgets.shortcut_footer import ShortcutFooter
 from maverick.tui.widgets.sidebar import Sidebar
 from maverick.tui.widgets.stage_indicator import StageIndicator
+from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.step_group import StepGroup, StepGroupStatus, StepSummary
 from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
 from maverick.tui.widgets.validation_status import ValidationStatus
@@ -89,6 +90,7 @@ __all__ = [
     "Sidebar",
     "StageIndicator",
     "STATUS_ICONS",
+    "StepDetailPanel",
     "ValidationStatus",
     "WorkflowList",
     "WorkflowProgress",

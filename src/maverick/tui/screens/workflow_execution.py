@@ -35,6 +35,7 @@ from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.iteration_progress import IterationProgress
+from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
 if TYPE_CHECKING:
@@ -321,11 +322,19 @@ class WorkflowExecutionScreen(MaverickScreen):
                         self._step_widgets[step.name] = step_widget
                         yield step_widget
 
-            # Unified stream widget (primary content)
-            yield UnifiedStreamWidget(
-                self._unified_state,
-                id="unified-stream",
-            )
+            # Main content: detail panel + unified stream
+            with Vertical(id="execution-content"):
+                # Step detail panel (shows current step info, tokens, cost)
+                yield StepDetailPanel(
+                    self._unified_state,
+                    id="step-detail-panel",
+                )
+
+                # Unified stream widget (primary content)
+                yield UnifiedStreamWidget(
+                    self._unified_state,
+                    id="unified-stream",
+                )
 
     def on_mount(self) -> None:
         """Start workflow execution when mounted."""
@@ -446,11 +455,22 @@ class WorkflowExecutionScreen(MaverickScreen):
                 elif isinstance(event, StepStarted):
                     self.current_step += 1
                     self._update_progress()
-                    self._mark_step_running(event.step_name)
+                    step_type_str = (
+                        event.step_type.value
+                        if hasattr(event.step_type, "value")
+                        else str(event.step_type)
+                    )
+                    self._mark_step_running(event.step_name, step_type_str)
 
                 elif isinstance(event, StepCompleted):
                     if event.success:
-                        self._mark_step_completed(event.step_name, event.duration_ms)
+                        self._mark_step_completed(
+                            event.step_name,
+                            event.duration_ms,
+                            input_tokens=event.input_tokens,
+                            output_tokens=event.output_tokens,
+                            cost_usd=event.cost_usd,
+                        )
                     else:
                         self._mark_step_failed(
                             event.step_name, event.duration_ms, event.error
@@ -512,8 +532,13 @@ class WorkflowExecutionScreen(MaverickScreen):
         """Update the progress display (compact header)."""
         self._update_compact_header()
 
-    def _mark_step_running(self, step_name: str) -> None:
-        """Mark a step as running."""
+    def _mark_step_running(self, step_name: str, step_type: str = "unknown") -> None:
+        """Mark a step as running.
+
+        Args:
+            step_name: Name of the step.
+            step_type: Type of the step (agent, python, etc.).
+        """
         if step_name in self._step_widgets:
             self._step_widgets[step_name].set_running()
 
@@ -521,8 +546,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._step_start_times[step_name] = datetime.now()
         self._current_running_step = step_name
 
+        # Update unified state with step start (for detail panel)
+        self._unified_state.start_step(step_name, step_type)
+
         # Update compact header with current step
         self._update_compact_header()
+
+        # Refresh detail panel
+        self._refresh_detail_panel()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -533,8 +564,23 @@ class WorkflowExecutionScreen(MaverickScreen):
         )
         self._add_unified_entry(entry)
 
-    def _mark_step_completed(self, step_name: str, duration_ms: int) -> None:
-        """Mark a step as completed."""
+    def _mark_step_completed(
+        self,
+        step_name: str,
+        duration_ms: int,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cost_usd: float | None = None,
+    ) -> None:
+        """Mark a step as completed.
+
+        Args:
+            step_name: Name of the step.
+            duration_ms: Duration in milliseconds.
+            input_tokens: Input tokens consumed (agent steps only).
+            output_tokens: Output tokens generated (agent steps only).
+            cost_usd: Cost in USD (agent steps only).
+        """
         # Flush any remaining buffered streaming text for this step
         self._flush_all_stream_buffers()
 
@@ -551,6 +597,17 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._duration_store.record_duration(
             self._workflow.name, step_name, duration_seconds
         )
+
+        # Update unified state with completion (for detail panel)
+        self._unified_state.complete_step(
+            success=True,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+        )
+
+        # Refresh detail panel
+        self._refresh_detail_panel()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -577,6 +634,12 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._completed_steps.add(step_name)
         if self._current_running_step == step_name:
             self._current_running_step = None
+
+        # Update unified state with failure (for detail panel)
+        self._unified_state.complete_step(success=False)
+
+        # Refresh detail panel
+        self._refresh_detail_panel()
 
         # Add to unified stream
         content = f"{step_name} failed"
@@ -638,6 +701,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         except NoMatches:
             # Screen is being unmounted, widget no longer exists
             pass
+
+        # Update detail panel (for step elapsed time)
+        self._refresh_detail_panel()
 
     def action_cancel_workflow(self) -> None:
         """Request workflow cancellation or exit if complete."""
@@ -1226,6 +1292,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
             stream_widget.refresh_entries()
+        except NoMatches:
+            pass
+
+    def _refresh_detail_panel(self) -> None:
+        """Refresh the step detail panel with current state."""
+        try:
+            detail_panel = self.query_one("#step-detail-panel", StepDetailPanel)
+            detail_panel.refresh_display()
         except NoMatches:
             pass
 
