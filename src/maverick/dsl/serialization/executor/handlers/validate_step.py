@@ -58,7 +58,7 @@ async def execute_validate_step(
     context: WorkflowContext,
     registry: ComponentRegistry,
     config: Any = None,
-    event_callback: "EventCallback | None" = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
     """Execute a validation step using ValidationRunner.
 

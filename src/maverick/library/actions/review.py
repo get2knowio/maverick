@@ -8,7 +8,10 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from maverick.agents.base import StreamCallback
 
 from maverick.git import AsyncGitRepository
 from maverick.library.actions.types import (
@@ -627,6 +630,7 @@ async def run_review_fix_loop(
     base_branch: str,
     max_attempts: int,
     skip_if_approved: bool = True,
+    stream_callback: StreamCallback | None = None,
 ) -> ReviewFixLoopResult:
     """Execute review-fix loop with dual-agent review and single fixer.
 
@@ -645,6 +649,7 @@ async def run_review_fix_loop(
         base_branch: Base branch for comparison
         max_attempts: Maximum review-fix cycles (0 disables fixes)
         skip_if_approved: Skip fix loop if review recommends approve
+        stream_callback: Optional callback for streaming agent output text.
 
     Returns:
         ReviewFixLoopResult with review and fix outcomes
@@ -655,7 +660,7 @@ async def run_review_fix_loop(
 
     if max_attempts <= 0:
         # Just run review once, no fixing
-        review_result = await _run_dual_review(pr_context, base_branch)
+        review_result = await _run_dual_review(pr_context, base_branch, stream_callback)
         return ReviewFixLoopResult(
             success=True,
             attempts=0,
@@ -674,7 +679,7 @@ async def run_review_fix_loop(
         logger.info("Review-fix cycle %d/%d", attempt_num, max_attempts)
 
         # Step 1: Run dual review (spec + technical in parallel)
-        review_result = await _run_dual_review(pr_context, base_branch)
+        review_result = await _run_dual_review(pr_context, base_branch, stream_callback)
         current_recommendation = review_result.get("recommendation", "request_changes")
 
         # Step 2: Check if we're done (approved on first attempt = skip fixes)
@@ -711,7 +716,7 @@ async def run_review_fix_loop(
         # Don't fix on the last attempt - just report what's remaining
         if attempt_num < max_attempts:
             logger.info("Running review fixer agent")
-            await _run_review_fixer(review_result, pr_context)
+            await _run_review_fixer(review_result, pr_context, stream_callback)
 
     # Max attempts exhausted
     return ReviewFixLoopResult(
@@ -728,12 +733,14 @@ async def run_review_fix_loop(
 async def _run_dual_review(
     pr_context: dict[str, Any],
     base_branch: str,
+    stream_callback: StreamCallback | None = None,
 ) -> dict[str, Any]:
     """Run unified reviewer (spawns parallel expert subagents).
 
     Args:
         pr_context: PR context dict
         base_branch: Base branch for comparison
+        stream_callback: Optional callback for streaming agent output text.
 
     Returns:
         Review result with recommendation and report
@@ -755,6 +762,8 @@ async def _run_dual_review(
 
         # Run unified reviewer (spawns subagents internally)
         reviewer = UnifiedReviewerAgent()
+        if stream_callback:
+            reviewer.stream_callback = stream_callback
         result = await reviewer.execute(review_context)
 
         # Check for critical/major issues
@@ -808,6 +817,7 @@ async def _run_dual_review(
 async def _run_review_fixer(
     review_result: dict[str, Any],
     pr_context: dict[str, Any],
+    stream_callback: StreamCallback | None = None,
 ) -> dict[str, Any]:
     """Run the review fixer agent to address issues.
 
@@ -817,6 +827,7 @@ async def _run_review_fixer(
     Args:
         review_result: Combined review result with report and recommendation
         pr_context: PR context dict
+        stream_callback: Optional callback for streaming agent output text.
 
     Returns:
         Fix result dict with outcomes for each finding
@@ -841,6 +852,8 @@ async def _run_review_fixer(
 
         # Run simple fixer (spawns subagents internally for parallel fixes)
         fixer = SimpleFixerAgent()
+        if stream_callback:
+            fixer.stream_callback = stream_callback
         outcomes = await fixer.execute(
             {
                 "findings": all_findings,

@@ -77,6 +77,12 @@ async def execute_python_step(
     if inspect.iscoroutine(result):
         result = await result
 
+    # Check for failure in result dict (actions return {"success": False, "error": ...})
+    # This ensures actions that return failure dicts actually fail the step
+    if isinstance(result, dict) and result.get("success") is False:
+        error_msg = result.get("error", "Action returned success=False")
+        raise RuntimeError(f"Action '{step.action}' failed: {error_msg}")
+
     # Register rollback if specified
     if step.rollback:
         if not registry.actions.has(step.rollback):

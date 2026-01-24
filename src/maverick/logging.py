@@ -80,17 +80,29 @@ def _get_shared_processors() -> list[Processor]:
     ]
 
 
+def _is_tty() -> bool:
+    """Check if stderr is a TTY (terminal).
+
+    Returns:
+        True if stderr is connected to a terminal, False if piped/redirected.
+    """
+    return sys.stderr.isatty()
+
+
 def _get_development_processors() -> list[Processor]:
     """Get processors for development (pretty console output).
+
+    Automatically detects TTY and disables colors when output is piped/redirected.
 
     Returns:
         List of processors for development environment.
     """
+    use_colors = _is_tty()
     return [
         *_get_shared_processors(),
         structlog.processors.format_exc_info,
         structlog.dev.ConsoleRenderer(
-            colors=True,
+            colors=use_colors,
             exception_formatter=structlog.dev.plain_traceback,
         ),
     ]
@@ -178,11 +190,13 @@ def configure_logging(
         )
     else:
         # For console output, use structlog's ConsoleRenderer
+        # Auto-detect TTY to disable colors when output is piped/redirected
+        use_colors = _is_tty()
         handler.setFormatter(
             structlog.stdlib.ProcessorFormatter(
                 processors=[
                     structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                    structlog.dev.ConsoleRenderer(colors=True),
+                    structlog.dev.ConsoleRenderer(colors=use_colors),
                 ],
                 foreign_pre_chain=_get_shared_processors(),
             )
