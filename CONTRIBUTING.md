@@ -10,6 +10,13 @@ Thank you for contributing to Maverick! This guide explains the project architec
 - [Key Concepts](#key-concepts)
 - [Creating Custom Agents](#creating-custom-agents)
 - [Creating Custom Workflows](#creating-custom-workflows)
+  - [Workflow Architecture Overview](#workflow-architecture-overview)
+  - [Workflow Discovery Locations](#workflow-discovery-locations)
+  - [Creating a YAML Workflow](#creating-a-yaml-workflow)
+  - [Built-in Step Types](#built-in-step-types)
+  - [Registering Components](#registering-components)
+  - [Creating Reusable Fragments](#creating-reusable-fragments)
+- [Adding New Step Types](#adding-new-step-types)
 - [Testing Guidelines](#testing-guidelines)
 - [Code Style](#code-style)
 - [Pull Request Process](#pull-request-process)
@@ -72,11 +79,13 @@ maverick --version
 ### Environment Configuration
 
 1. **API Keys**: Set your Claude API key:
+
    ```bash
    export ANTHROPIC_API_KEY=your-api-key-here
    ```
 
 2. **GitHub Authentication**: Ensure GitHub CLI is authenticated:
+
    ```bash
    gh auth status
    gh auth login  # if not authenticated
@@ -223,13 +232,13 @@ from maverick.agents.context import AgentContext
 
 class MyAgent(MaverickAgent):
     """Custom agent for specific task."""
-    
+
     async def execute(self, context: AgentContext) -> MyResult:
         """Execute the agent's task.
-        
+
         Args:
             context: Agent execution context with config, branch, etc.
-            
+
         Returns:
             MyResult: Structured result object
         """
@@ -247,6 +256,7 @@ Workflows orchestrate **WHAT** tasks to do and **WHEN** to do them. They:
 - **Handle Errors**: Implement retry logic and graceful degradation
 
 **Key Workflows**:
+
 - `FlyWorkflow`: Complete spec-based feature development
 - `RefuelWorkflow`: Automated tech-debt resolution
 
@@ -256,11 +266,11 @@ from maverick.workflows.base import Workflow, WorkflowInputs, WorkflowResult
 async def my_workflow(inputs: MyInputs) -> AsyncGenerator[Event, None]:
     """Custom workflow implementation."""
     yield WorkflowStarted(...)
-    
+
     # Execute agents
     agent_result = await my_agent.execute(context)
     yield AgentCompleted(...)
-    
+
     # Final result
     yield WorkflowCompleted(success=True, ...)
 ```
@@ -282,10 +292,10 @@ from claude_agent_sdk import tool
 @tool
 async def my_custom_tool(param: str) -> str:
     """Tool description for the AI.
-    
+
     Args:
         param: Parameter description
-        
+
     Returns:
         Result description
     """
@@ -295,11 +305,11 @@ async def my_custom_tool(param: str) -> str:
 
 ### Workflow DSL
 
-The DSL (Domain-Specific Language) allows defining workflows in YAML:
+Maverick uses a YAML-based DSL for defining workflows. Workflows are executed by the `WorkflowFileExecutor` which resolves component references from registries.
 
 ```yaml
+version: "1.0"
 name: my-workflow
-version: 1.0.0
 description: Custom workflow example
 
 inputs:
@@ -308,19 +318,32 @@ inputs:
     required: true
     description: Target branch name
 
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: Preview mode without changes
+
 steps:
   - name: validate-branch
     type: python
-    code: |
-      if not inputs["branch"].startswith("feature/"):
-          raise ValueError("Branch must start with 'feature/'")
-  
-  - name: run-tests
-    type: agent
-    agent: test-runner
-    inputs:
+    action: validate_branch_name # Registered action
+    kwargs:
       branch: ${{ inputs.branch }}
+
+  - name: run-tests
+    type: validate
+    stages: [format, lint, test]
+    retry: 2
+    when: ${{ inputs.dry_run == false }}
 ```
+
+**Key Components**:
+
+- **WorkflowFile**: Pydantic schema for YAML parsing and validation
+- **ComponentRegistry**: Resolves actions, agents, generators by name
+- **Step Handlers**: Execute each step type (python, agent, validate, etc.)
+- **Expression Engine**: Evaluates `${{ ... }}` expressions for dynamic values
 
 ### Configuration
 
@@ -384,31 +407,31 @@ from claude_agent_sdk import ClaudeSDKClient
 
 class MyCustomAgent(MaverickAgent):
     """Agent that performs a specific task.
-    
+
     This agent uses Claude to analyze code and suggest improvements
     based on project-specific conventions.
     """
-    
+
     def __init__(self) -> None:
         """Initialize the agent."""
         super().__init__()
         self._client: ClaudeSDKClient | None = None
-    
+
     async def execute(self, context: AgentContext) -> CustomResult:
         """Execute the agent's task.
-        
+
         Args:
             context: Execution context with branch, config, etc.
-            
+
         Returns:
             CustomResult with findings and suggestions.
-            
+
         Raises:
             AgentError: If execution fails.
         """
         # Build system prompt
         system_prompt = self._build_system_prompt(context)
-        
+
         # Create Claude SDK client with allowed tools
         self._client = ClaudeSDKClient(
             model=context.config.model.model_id,
@@ -416,26 +439,26 @@ class MyCustomAgent(MaverickAgent):
             system=system_prompt,
             allowed_tools=["read_file", "search_code"],  # Least privilege
         )
-        
+
         # Execute with Claude
         response = await self._client.run(
             "Analyze the codebase for improvements"
         )
-        
+
         # Parse and structure the response
         return self._parse_response(response)
-    
+
     def _build_system_prompt(self, context: AgentContext) -> str:
         """Build the system prompt for Claude."""
         return f"""You are an expert code analyzer.
-        
+
         Repository: {context.config.github.repo}
         Branch: {context.branch}
-        
+
         Analyze code and suggest improvements following the project's
         conventions in CLAUDE.md.
         """
-    
+
     def _parse_response(self, response: str) -> CustomResult:
         """Parse Claude's response into structured result."""
         # Implementation to extract findings
@@ -457,7 +480,7 @@ from pydantic import BaseModel, Field
 
 class CustomFinding(BaseModel):
     """A single finding from the agent."""
-    
+
     file: str = Field(..., description="File path")
     line: int | None = Field(None, description="Line number")
     message: str = Field(..., description="Finding message")
@@ -465,7 +488,7 @@ class CustomFinding(BaseModel):
 
 class CustomResult(BaseModel):
     """Result from MyCustomAgent."""
-    
+
     findings: list[CustomFinding] = Field(default_factory=list)
     summary: str = Field(..., description="Summary of analysis")
     success: bool = Field(..., description="Whether execution succeeded")
@@ -491,9 +514,9 @@ async def test_custom_agent_success():
         cwd=Path.cwd(),
         config=MaverickConfig(),  # Use defaults
     )
-    
+
     result = await agent.execute(context)
-    
+
     assert result.success
     assert isinstance(result.findings, list)
     assert result.summary
@@ -501,118 +524,610 @@ async def test_custom_agent_success():
 
 ## Creating Custom Workflows
 
-### Option 1: Python Workflow
+Maverick supports YAML-based workflows that are declarative, shareable, and can be discovered from multiple locations. This is the **recommended approach** for defining reusable workflows.
 
-Create a new workflow in `src/maverick/workflows/`:
+### Workflow Architecture Overview
 
-```python
-from __future__ import annotations
+The workflow system consists of:
 
-from dataclasses import dataclass
-from typing import AsyncGenerator
+1. **WorkflowFile** (`maverick.dsl.serialization.schema`): Pydantic schema for YAML workflows
+2. **WorkflowFileExecutor** (`maverick.dsl.serialization.executor`): Executes workflows
+3. **ComponentRegistry** (`maverick.dsl.serialization.registry`): Resolves actions, agents, generators
+4. **Step Handlers** (`maverick.dsl.serialization.executor.handlers`): Execute each step type
+5. **Workflow Discovery** (`maverick.dsl.discovery`): Finds workflows from multiple locations
 
-from pydantic import BaseModel, Field
+### Workflow Discovery Locations
 
-from maverick.workflows.base import WorkflowEvent
+Workflows are discovered from three locations (in override order):
 
-@dataclass(frozen=True)
-class MyWorkflowStarted(WorkflowEvent):
-    """Workflow started event."""
-    total_steps: int
+| Priority    | Location                        | Purpose                    |
+| ----------- | ------------------------------- | -------------------------- |
+| 1 (highest) | `.maverick/workflows/`          | Project-specific workflows |
+| 2           | `~/.config/maverick/workflows/` | User-defined workflows     |
+| 3 (lowest)  | Built-in library                | Packaged with Maverick     |
 
-@dataclass(frozen=True)
-class MyWorkflowCompleted(WorkflowEvent):
-    """Workflow completed event."""
-    success: bool
-    summary: str
+**Override Behavior**: If the same workflow name exists in multiple locations, project overrides user, which overrides built-in.
 
-class MyWorkflowInputs(BaseModel):
-    """Inputs for MyWorkflow."""
-    
-    param1: str = Field(..., description="First parameter")
-    param2: int = Field(default=10, description="Second parameter")
+### Creating a YAML Workflow
 
-class MyWorkflow:
-    """Custom workflow implementation."""
-    
-    async def execute(
-        self, inputs: MyWorkflowInputs
-    ) -> AsyncGenerator[WorkflowEvent, None]:
-        """Execute the workflow.
-        
-        Args:
-            inputs: Workflow inputs
-            
-        Yields:
-            WorkflowEvent instances for progress tracking
-        """
-        yield MyWorkflowStarted(total_steps=3)
-        
-        # Step 1: Do something
-        yield StepStarted(step_name="step-1")
-        # ... implementation ...
-        yield StepCompleted(step_name="step-1", success=True)
-        
-        # Step 2: Do something else
-        yield StepStarted(step_name="step-2")
-        # ... implementation ...
-        yield StepCompleted(step_name="step-2", success=True)
-        
-        # Final result
-        yield MyWorkflowCompleted(
-            success=True,
-            summary="Workflow completed successfully"
-        )
-```
+#### Step 1: Create the Workflow File
 
-### Option 2: DSL-Based Workflow
-
-Create a YAML workflow file in `.maverick/workflows/`:
+Create a YAML file in `.maverick/workflows/` (project) or `~/.config/maverick/workflows/` (user):
 
 ```yaml
+# .maverick/workflows/my-workflow.yaml
+version: "1.0"
 name: my-workflow
-version: 1.0.0
-description: Example custom workflow
+description: Example custom workflow for feature development
 
+# Input declarations with type, required/optional, defaults, and descriptions
 inputs:
-  branch:
+  branch_name:
     type: string
     required: true
-    description: Branch to process
-  
-  dry_run:
+    description: Feature branch name
+
+  max_retries:
+    type: integer
+    required: false
+    default: 3
+    description: Maximum retry attempts for validation
+
+  skip_tests:
     type: boolean
     required: false
     default: false
-    description: Run without making changes
+    description: Skip test execution
+
+# Workflow steps execute in order
+steps:
+  # Python step: Execute a registered action
+  - name: preflight-checks
+    type: python
+    action: run_preflight_checks
+    kwargs:
+      check_git: true
+      check_github: true
+
+  # Agent step: Invoke a registered AI agent
+  - name: implement-feature
+    type: agent
+    agent: implementer
+    context:
+      branch: ${{ inputs.branch_name }}
+      spec_dir: specs/${{ inputs.branch_name }}
+
+  # Validate step: Run validation with retry loop
+  - name: validate-code
+    type: validate
+    stages:
+      - format
+      - lint
+      - typecheck
+      - test
+    retry: ${{ inputs.max_retries }}
+    on_failure:
+      name: auto-fix
+      type: agent
+      agent: validation_fixer
+
+  # Conditional execution with 'when' clause
+  - name: run-tests
+    type: python
+    action: run_test_suite
+    when: ${{ inputs.skip_tests == false }}
+
+  # Checkpoint for resumability
+  - name: save-progress
+    type: checkpoint
+    checkpoint_id: after-validation
+```
+
+#### Step 2: Supported Input Types
+
+```yaml
+inputs:
+  string_input:
+    type: string # Text values
+    required: true
+
+  integer_input:
+    type: integer # Whole numbers
+    default: 10
+
+  float_input:
+    type: float # Decimal numbers
+    default: 0.5
+
+  boolean_input:
+    type: boolean # true/false
+    default: false
+
+  object_input:
+    type: object # dict[str, Any]
+    default: {}
+
+  array_input:
+    type: array # list[Any]
+    default: []
+```
+
+#### Step 3: Expression Syntax
+
+Use `${{ ... }}` for dynamic values:
+
+```yaml
+steps:
+  - name: example
+    type: python
+    action: my_action
+    kwargs:
+      # Reference workflow inputs
+      branch: ${{ inputs.branch_name }}
+
+      # Reference previous step outputs
+      findings: ${{ steps.review.output.findings }}
+
+      # Nested access
+      count: ${{ steps.fetch.output.issues.length }}
+
+      # Boolean expressions (for 'when' conditions)
+      # when: ${{ inputs.skip_review == false }}
+```
+
+### Built-in Step Types
+
+Maverick provides 8 built-in step types, each with a dedicated handler:
+
+| Step Type     | Purpose                            | Handler Module        |
+| ------------- | ---------------------------------- | --------------------- |
+| `python`      | Execute registered Python actions  | `python_step.py`      |
+| `agent`       | Invoke registered AI agents        | `agent_step.py`       |
+| `generate`    | Generate text via generator agents | `generate_step.py`    |
+| `validate`    | Run validation with retry logic    | `validate_step.py`    |
+| `branch`      | Conditional branching              | `branch_step.py`      |
+| `loop`        | Iteration with concurrency control | `loop_step.py`        |
+| `subworkflow` | Invoke another workflow            | `subworkflow_step.py` |
+| `checkpoint`  | Save state for resumability        | `checkpoint_step.py`  |
+
+#### Python Step
+
+Execute a registered Python action:
+
+```yaml
+- name: fetch-issue
+  type: python
+  action: fetch_github_issue # Must be registered in ActionRegistry
+  args: [] # Positional arguments (optional)
+  kwargs: # Keyword arguments
+    issue_number: ${{ inputs.issue_number }}
+  rollback: cleanup_action # Optional rollback on workflow failure
+```
+
+#### Agent Step
+
+Invoke a registered AI agent:
+
+```yaml
+- name: review-code
+  type: agent
+  agent: code_reviewer # Must be registered in AgentRegistry
+  context: # Static dict or context builder name
+    files: ${{ steps.find-files.output }}
+    branch: ${{ inputs.branch }}
+  rollback: revert_changes # Optional rollback action
+```
+
+#### Validate Step
+
+Run validation stages with automatic retry:
+
+```yaml
+- name: validate
+  type: validate
+  stages: # Explicit list or config key
+    - format
+    - lint
+    - typecheck
+    - test
+  retry: 3 # Retry attempts (0 = no retry)
+  on_failure: # Optional step to run before each retry
+    name: auto-fix
+    type: agent
+    agent: validation_fixer
+```
+
+#### Branch Step
+
+Conditional execution based on predicates:
+
+```yaml
+- name: choose-strategy
+  type: branch
+  options:
+    - when: ${{ inputs.mode == 'fast' }}
+      step:
+        name: quick-validate
+        type: validate
+        stages: [format, lint]
+
+    - when: ${{ inputs.mode == 'thorough' }}
+      step:
+        name: full-validate
+        type: validate
+        stages: [format, lint, typecheck, test]
+
+    - when: ${{ true }} # Default/fallback branch
+      step:
+        name: standard-validate
+        type: validate
+        stages: [format, lint, test]
+```
+
+#### Loop Step
+
+Iterate over items with concurrency control:
+
+```yaml
+- name: process-issues
+  type: loop
+  for_each: ${{ steps.fetch-issues.output.issues }}
+  max_concurrency: 3 # 1=sequential, 0=unlimited, N=parallel limit
+  steps:
+    - name: fix-issue
+      type: agent
+      agent: issue_fixer
+      context:
+        issue: ${{ item }} # 'item' contains current iteration value
+```
+
+#### Subworkflow Step
+
+Invoke another workflow as a step:
+
+```yaml
+- name: validate-with-fixes
+  type: subworkflow
+  workflow: validate-and-fix # Workflow name or file path
+  inputs:
+    stages: [format, lint, test]
+    max_attempts: 5
+```
+
+#### Checkpoint Step
+
+Mark state for workflow resumability:
+
+```yaml
+- name: after-implementation
+  type: checkpoint
+  checkpoint_id: implementation-complete # Optional, defaults to step name
+```
+
+### Registering Components
+
+Workflows reference components by name. Register them in the appropriate registry:
+
+#### Registering Actions
+
+```python
+# src/maverick/library/actions/my_actions.py
+from maverick.dsl.serialization.registry import action_registry
+
+@action_registry.register("fetch_github_issue")
+async def fetch_github_issue(issue_number: int) -> dict:
+    """Fetch issue details from GitHub.
+
+    Args:
+        issue_number: GitHub issue number
+
+    Returns:
+        Issue details dict with title, body, labels, etc.
+    """
+    # Implementation
+    return {"title": "...", "body": "...", "labels": [...]}
+
+# Or register directly
+action_registry.register("my_action", my_function)
+```
+
+#### Registering Agents
+
+```python
+# src/maverick/library/agents/my_agents.py
+from maverick.dsl.serialization.registry import agent_registry
+from maverick.agents.base import MaverickAgent
+
+@agent_registry.register("code_reviewer")
+class CodeReviewerAgent(MaverickAgent):
+    """Code review agent."""
+
+    async def execute(self, context: dict) -> dict:
+        # Implementation
+        return {"findings": [...], "summary": "..."}
+```
+
+#### Registering Generators
+
+```python
+# src/maverick/library/generators/my_generators.py
+from maverick.dsl.serialization.registry import generator_registry
+
+@generator_registry.register("pr_body_generator")
+class PRBodyGenerator:
+    """Generate PR descriptions."""
+
+    async def generate(self, context: dict) -> str:
+        # Implementation
+        return "## Summary\n..."
+```
+
+### Creating Reusable Fragments
+
+Fragments are workflow snippets designed for reuse via `subworkflow` steps:
+
+```yaml
+# .maverick/workflows/my-fragment.yaml
+version: "1.0"
+name: my-fragment
+description: Reusable validation-with-retry logic
+
+inputs:
+  stages:
+    type: array
+    required: false
+    default: ["format", "lint", "test"]
+
+  max_attempts:
+    type: integer
+    required: false
+    default: 3
 
 steps:
-  - name: validate-inputs
-    type: python
-    code: |
-      if not inputs["branch"]:
-          raise ValueError("Branch is required")
-      print(f"Processing branch: {inputs['branch']}")
-  
-  - name: analyze-code
-    type: agent
-    agent: code-analyzer
-    inputs:
-      branch: ${{ inputs.branch }}
-    when: ${{ inputs.dry_run == false }}
-  
-  - name: create-report
-    type: generate
-    template: report-template
-    inputs:
-      findings: ${{ steps.analyze-code.output.findings }}
+  - name: run-validation
+    type: validate
+    stages: ${{ inputs.stages }}
+    retry: ${{ inputs.max_attempts }}
+    on_failure:
+      name: auto-fix
+      type: agent
+      agent: validation_fixer
 ```
 
-Run with:
+Use in other workflows:
+
+```yaml
+steps:
+  - name: validate-code
+    type: subworkflow
+    workflow: my-fragment
+    inputs:
+      stages: [format, lint, typecheck, test]
+      max_attempts: 5
+```
+
+### Running Workflows
 
 ```bash
-maverick workflow run my-workflow -i branch=feature/test
+# Run a workflow with inputs
+maverick workflow run my-workflow -i branch_name=feature/test
+
+# Run built-in workflow
+maverick workflow run feature -i branch_name=025-new-feature
+
+# List available workflows
+maverick workflow list
+
+# Show workflow details
+maverick workflow show my-workflow
 ```
+
+## Adding New Step Types
+
+To extend the DSL with a custom step type, follow these steps:
+
+### Step 1: Define the Step Type
+
+Add a new value to the `StepType` enum:
+
+```python
+# src/maverick/dsl/types.py
+class StepType(str, Enum):
+    PYTHON = "python"
+    AGENT = "agent"
+    # ... existing types ...
+    CUSTOM = "custom"  # Add your new type
+```
+
+### Step 2: Create the Schema Record
+
+Define the Pydantic model for YAML/JSON serialization:
+
+```python
+# src/maverick/dsl/serialization/schema.py
+class CustomStepRecord(StepRecord):
+    """Custom step for specialized operations.
+
+    Fields:
+        operation: Type of operation to perform
+        config: Operation-specific configuration
+    """
+
+    type: Literal[StepType.CUSTOM] = StepType.CUSTOM
+    operation: str = Field(..., min_length=1, description="Operation name")
+    config: dict[str, Any] = Field(default_factory=dict)
+
+# Add to the discriminated union
+StepRecordUnion = Annotated[
+    PythonStepRecord
+    | AgentStepRecord
+    # ... existing types ...
+    | CustomStepRecord,  # Add your new record
+    Field(discriminator="type"),
+]
+```
+
+### Step 3: Create the Step Handler
+
+Create the execution handler:
+
+```python
+# src/maverick/dsl/serialization/executor/handlers/custom_step.py
+"""Custom step handler for specialized operations."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from maverick.dsl.context import WorkflowContext
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.registry import ComponentRegistry
+from maverick.dsl.serialization.schema import CustomStepRecord
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+async def execute_custom_step(
+    step: CustomStepRecord,
+    resolved_inputs: dict[str, Any],
+    context: WorkflowContext,
+    registry: ComponentRegistry,
+    config: Any = None,
+    event_callback: EventCallback | None = None,
+) -> Any:
+    """Execute a custom step.
+
+    Args:
+        step: CustomStepRecord containing operation and config.
+        resolved_inputs: Resolved inputs from expressions.
+        context: WorkflowContext with inputs and step results.
+        registry: Component registry.
+        config: Optional workflow configuration.
+        event_callback: Optional callback for streaming events.
+
+    Returns:
+        Operation result.
+
+    Raises:
+        ValueError: If operation is not supported.
+    """
+    operation = step.operation
+    step_config = {**step.config, **resolved_inputs}
+
+    logger.info(f"Executing custom operation: {operation}")
+
+    # Implement your operation logic
+    if operation == "special_operation":
+        result = await _do_special_operation(step_config, context)
+    else:
+        raise ValueError(f"Unknown custom operation: {operation}")
+
+    return result
+
+
+async def _do_special_operation(
+    config: dict[str, Any],
+    context: WorkflowContext,
+) -> dict[str, Any]:
+    """Perform the special operation."""
+    # Implementation
+    return {"success": True, "result": "..."}
+```
+
+### Step 4: Register the Handler
+
+Add the handler to the registry:
+
+```python
+# src/maverick/dsl/serialization/executor/handlers/__init__.py
+from maverick.dsl.serialization.executor.handlers import custom_step
+
+STEP_HANDLERS: dict[StepType, StepHandler] = {
+    # ... existing handlers ...
+    StepType.CUSTOM: custom_step.execute_custom_step,
+}
+```
+
+### Step 5: Add Tests
+
+Create comprehensive tests:
+
+```python
+# tests/unit/dsl/serialization/executor/handlers/test_custom_step.py
+import pytest
+from maverick.dsl.context import WorkflowContext
+from maverick.dsl.serialization.executor.handlers.custom_step import (
+    execute_custom_step,
+)
+from maverick.dsl.serialization.registry import ComponentRegistry
+from maverick.dsl.serialization.schema import CustomStepRecord
+
+
+@pytest.fixture
+def custom_step() -> CustomStepRecord:
+    return CustomStepRecord(
+        name="test-custom",
+        operation="special_operation",
+        config={"key": "value"},
+    )
+
+
+@pytest.fixture
+def context() -> WorkflowContext:
+    return WorkflowContext(inputs={}, results={})
+
+
+@pytest.fixture
+def registry() -> ComponentRegistry:
+    return ComponentRegistry()
+
+
+@pytest.mark.asyncio
+async def test_execute_custom_step_success(
+    custom_step: CustomStepRecord,
+    context: WorkflowContext,
+    registry: ComponentRegistry,
+) -> None:
+    """Test successful custom step execution."""
+    result = await execute_custom_step(
+        step=custom_step,
+        resolved_inputs={},
+        context=context,
+        registry=registry,
+    )
+
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_custom_step_unknown_operation(
+    context: WorkflowContext,
+    registry: ComponentRegistry,
+) -> None:
+    """Test custom step with unknown operation."""
+    step = CustomStepRecord(
+        name="test-unknown",
+        operation="unknown_operation",
+        config={},
+    )
+
+    with pytest.raises(ValueError, match="Unknown custom operation"):
+        await execute_custom_step(
+            step=step,
+            resolved_inputs={},
+            context=context,
+            registry=registry,
+        )
+```
+
+### Step 6: Update Documentation
+
+Add documentation for your new step type in the relevant locations:
+
+- Update the step types table in this file
+- Add usage examples
+- Document schema fields
 
 ## Testing Guidelines
 
@@ -668,10 +1183,10 @@ async def test_code_reviewer_success(agent_context, mocker):
     mock_client.return_value.run = mocker.AsyncMock(
         return_value="Review complete. No issues found."
     )
-    
+
     agent = CodeReviewerAgent()
     result = await agent.execute(agent_context)
-    
+
     assert result.success
     assert result.files_reviewed >= 0
     assert result.summary
@@ -688,18 +1203,18 @@ async def test_fly_workflow_execution(tmp_path):
     repo_path = tmp_path / "test-repo"
     repo_path.mkdir()
     # ... initialize git repo, create tasks.md ...
-    
+
     workflow = FlyWorkflow()
     inputs = FlyInputs(
         branch_name="test-branch",
         task_file=repo_path / "tasks.md",
     )
-    
+
     # Collect events
     events = []
     async for event in workflow.execute(inputs):
         events.append(event)
-    
+
     # Verify workflow completed
     assert any(isinstance(e, FlyCompleted) for e in events)
 ```
@@ -714,14 +1229,14 @@ from maverick.tui.app import MaverickApp
 async def test_tui_home_screen():
     """Test TUI home screen rendering."""
     app = MaverickApp()
-    
+
     async with app.run_test() as pilot:
         # Verify initial screen
         assert app.screen.title == "Maverick"
-        
+
         # Simulate user input
         await pilot.press("q")  # Quit
-        
+
         # Verify app closed
         assert not app.is_running
 ```
@@ -780,24 +1295,24 @@ Maverick follows strict code style guidelines enforced by automated tools.
 
 ### Style Rules
 
-| Aspect | Convention | Example |
-|--------|-----------|---------|
-| Line Length | 88 characters (Black compatible) | - |
-| Imports | Sorted with isort (groups: stdlib, third-party, first-party) | - |
-| Quotes | Double quotes for strings | `"hello world"` |
-| Type Hints | Required for all public functions | `def foo(x: int) -> str:` |
-| Docstrings | Google style, required for public APIs | See below |
-| Naming | See naming conventions table | - |
+| Aspect      | Convention                                                   | Example                   |
+| ----------- | ------------------------------------------------------------ | ------------------------- |
+| Line Length | 88 characters (Black compatible)                             | -                         |
+| Imports     | Sorted with isort (groups: stdlib, third-party, first-party) | -                         |
+| Quotes      | Double quotes for strings                                    | `"hello world"`           |
+| Type Hints  | Required for all public functions                            | `def foo(x: int) -> str:` |
+| Docstrings  | Google style, required for public APIs                       | See below                 |
+| Naming      | See naming conventions table                                 | -                         |
 
 ### Naming Conventions
 
-| Element | Convention | Example |
-|---------|-----------|---------|
-| Classes | PascalCase | `CodeReviewerAgent`, `FlyWorkflow` |
-| Functions | snake_case | `execute_review`, `create_pr` |
-| Constants | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT` |
-| Private | Leading underscore | `_build_prompt`, `_validate` |
-| Type Aliases | PascalCase | `AgentResult`, `WorkflowEvent` |
+| Element      | Convention           | Example                            |
+| ------------ | -------------------- | ---------------------------------- |
+| Classes      | PascalCase           | `CodeReviewerAgent`, `FlyWorkflow` |
+| Functions    | snake_case           | `execute_review`, `create_pr`      |
+| Constants    | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT`   |
+| Private      | Leading underscore   | `_build_prompt`, `_validate`       |
+| Type Aliases | PascalCase           | `AgentResult`, `WorkflowEvent`     |
 
 ### Docstring Format
 
@@ -810,13 +1325,13 @@ def execute_task(
     timeout: int = 300,
 ) -> TaskResult:
     """Execute a single task with the given configuration.
-    
+
     This function orchestrates the execution of a task by:
     1. Validating the task ID exists
     2. Loading task configuration
     3. Running the task with the specified agent
     4. Collecting and structuring results
-    
+
     Args:
         task_id: Unique identifier for the task to execute. Must be
             a valid task ID from the project's task registry.
@@ -824,19 +1339,19 @@ def execute_task(
             such as timeout, retry policy, and agent selection.
         timeout: Maximum execution time in seconds. Defaults to 300.
             If exceeded, the task is terminated and marked as failed.
-    
+
     Returns:
         TaskResult containing:
             - success: Whether the task completed successfully
             - output: Task output data
             - duration: Execution time in milliseconds
             - error: Error message if failed (None otherwise)
-    
+
     Raises:
         TaskNotFoundError: If the task_id does not exist in the registry.
         ExecutionError: If the task fails during execution.
         TimeoutError: If execution exceeds the timeout limit.
-    
+
     Example:
         >>> config = TaskConfig(agent="implementer", retry=3)
         >>> result = execute_task("TASK-123", config, timeout=600)
@@ -893,7 +1408,7 @@ async def process_items(
 # Good: Use Protocol for interfaces
 class AgentProtocol(Protocol):
     """Protocol for agent implementations."""
-    
+
     async def execute(self, context: AgentContext) -> AgentResult:
         """Execute the agent."""
         ...
@@ -953,6 +1468,7 @@ echo "✓ All checks passed!"
 ```
 
 Make it executable:
+
 ```bash
 chmod +x .git/hooks/pre-commit
 ```
@@ -962,6 +1478,7 @@ chmod +x .git/hooks/pre-commit
 ### Before Opening a PR
 
 1. **Create a feature branch** from `main`:
+
    ```bash
    git checkout -b feature/my-feature
    ```
@@ -971,6 +1488,7 @@ chmod +x .git/hooks/pre-commit
 3. **Add tests**: All new code must have tests
 
 4. **Run all checks**:
+
    ```bash
    uv run ruff format . && uv run ruff check --fix . && uv run mypy src/maverick && uv run pytest
    ```
@@ -993,22 +1511,27 @@ chmod +x .git/hooks/pre-commit
 
 ```markdown
 ## Summary
+
 Brief description of changes.
 
 ## Motivation
+
 Why is this change needed? What problem does it solve?
 
 ## Changes
+
 - Added X feature
 - Fixed Y bug
 - Refactored Z component
 
 ## Testing
+
 - [ ] Unit tests added/updated
 - [ ] Integration tests pass
 - [ ] Manual testing completed
 
 ## Checklist
+
 - [ ] Code follows style guidelines
 - [ ] All tests pass
 - [ ] Documentation updated
@@ -1027,6 +1550,7 @@ Why is this change needed? What problem does it solve?
 All PRs are reviewed for compliance with [.specify/memory/constitution.md](.specify/memory/constitution.md).
 
 Key points:
+
 - ✅ Async-first design
 - ✅ Proper separation of concerns (Agents/Workflows/TUI/Tools)
 - ✅ Dependency injection
