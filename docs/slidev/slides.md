@@ -57,3 +57,35 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part1/02-click.md
+
+---
+
+## src: ./slides/part1/03-pydantic.md
+
+---
+
+## src: ./slides/part1/04-textual.md
+
+---
+
+## src: ./slides/part1/05-structlog.md
+
+---
+
+## src: ./slides/part1/06-gitpython.md
+
+---
+
+## src: ./slides/part1/07-pygithub.md
+
+---
+
+## src: ./slides/part1/08-tenacity.md
+
+---
+
+## src: ./slides/part1/09-lark.md
+
+---
+
+## src: ./slides/part1/10-claude-agent-sdk.md

@@ -1,0 +1,59 @@
+// Lark grammar for Maverick DSL expressions
+// Supports: ${{ inputs.name }}, ${{ steps.x.output }}, ${{ item }}, ${{ index }}
+// Features: dot notation, bracket notation, negation with 'not', boolean ops 'and'/'or'
+// Ternary: ${{ value_if_true if condition else value_if_false }}
+
+// Main entry point - ternary is lowest precedence
+start: ternary_expr
+
+// Ternary conditional (lowest precedence, right-associative)
+// Syntax: value_if_true if condition else value_if_false
+?ternary_expr: bool_expr
+             | bool_expr "if" bool_expr "else" ternary_expr -> ternary
+
+// Boolean expression with and/or operators (precedence: or < and < not)
+?bool_expr: bool_term (_OR bool_term)*
+?bool_term: unary_expr (_AND unary_expr)*
+?unary_expr: negation unary_expr -> negated_expr
+           | reference
+
+negation: "not"
+_AND: "and"
+_OR: "or"
+
+// Reference types - determines ExpressionKind
+reference: input_ref
+         | step_ref
+         | item_ref
+         | index_ref
+
+// Input reference: inputs.name, inputs.flag, etc.
+input_ref: "inputs" accessor+
+
+// Step reference: steps.step_id.output, steps.step_id.output.field, etc.
+step_ref: "steps" "." IDENTIFIER "." "output" accessor*
+
+// Item reference (for_each loops): item, item.field, item[0]
+item_ref: "item" accessor*
+
+// Index reference (for_each loops): index (no nested access allowed)
+index_ref: "index"
+
+// Access patterns - dot or bracket notation
+accessor: dot_accessor
+        | bracket_accessor
+
+dot_accessor: "." IDENTIFIER
+
+bracket_accessor: "[" bracket_content "]"
+
+bracket_content: INT
+               | STRING
+
+// Terminals
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
+INT: /-?[0-9]+/
+STRING: /'[^']*'/ | /"[^"]*"/
+
+// Ignore whitespace
+%ignore /\s+/
