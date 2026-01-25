@@ -40,60 +40,20 @@ fonts:
 
 <!--
 Welcome to the Maverick training presentation. This comprehensive guide covers everything you need to know about Maverick's architecture, how it works internally, and how to use and extend it.
+
+The curriculum is organized into two parts:
+- Part 1: Foundational Technologies (Modern Python, Click, Pydantic, Textual, etc.)
+- Part 2: Maverick Architecture (Project overview, DSL, Agents, Workflows, etc.)
 -->
 
 ---
-src: ./slides/01-introduction.md
----
+
+## src: ./slides/part1/00-part1-intro.md
 
 ---
-src: ./slides/02-architecture.md
----
+
+## src: ./slides/part1/01-modern-python.md
 
 ---
-src: ./slides/03-agents.md
----
 
----
-src: ./slides/04-workflows.md
----
-
----
-src: ./slides/05-mcp-tools.md
----
-
----
-src: ./slides/06-safety.md
----
-
----
-src: ./slides/07-tui.md
----
-
----
-src: ./slides/08-cli-config.md
----
-
----
-src: ./slides/09-infrastructure.md
----
-
----
-src: ./slides/10-extensibility.md
----
-
----
-src: ./slides/11-end-to-end.md
----
-
----
-src: ./slides/12-advanced.md
----
-
----
-src: ./slides/13-practical.md
----
-
----
-src: ./slides/14-conclusion.md
----
+## src: ./slides/part1/02-click.md
