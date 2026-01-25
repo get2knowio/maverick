@@ -89,3 +89,15 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part1/10-claude-agent-sdk.md
+
+---
+
+## src: ./slides/part2/00-part2-intro.md
+
+---
+
+## src: ./slides/part2/11-project-overview.md
+
+---
+
+## src: ./slides/part2/12-workflow-dsl.md
