@@ -309,3 +309,42 @@ class GeneratorError(AgentError):
         self.generator_name = generator_name
         self.input_context = input_context
         super().__init__(message, agent_name=generator_name)
+
+
+class CircuitBreakerError(AgentError):
+    """Exception raised when agent gets stuck in infinite tool call loop.
+
+    This error is raised when the circuit breaker detects that an agent is
+    repeatedly calling the same tool, indicating an infinite loop. The agent
+    execution is stopped to prevent resource exhaustion and runaway costs.
+
+    Attributes:
+        message: Human-readable error message.
+        tool_name: Name of the tool that triggered the circuit breaker.
+        call_count: Number of calls to the tool that triggered the error.
+        max_calls: Maximum allowed calls to a single tool.
+    """
+
+    def __init__(
+        self,
+        tool_name: str,
+        call_count: int,
+        max_calls: int,
+        agent_name: str | None = None,
+    ) -> None:
+        """Initialize the CircuitBreakerError.
+
+        Args:
+            tool_name: Name of the tool that triggered the circuit breaker.
+            call_count: Number of calls to the tool.
+            max_calls: Maximum allowed calls.
+            agent_name: Optional name of the agent that hit the limit.
+        """
+        self.tool_name = tool_name
+        self.call_count = call_count
+        self.max_calls = max_calls
+        message = (
+            f"Circuit breaker triggered: agent called '{tool_name}' {call_count} times "
+            f"(max: {max_calls}). This may indicate an infinite loop."
+        )
+        super().__init__(message, agent_name=agent_name)

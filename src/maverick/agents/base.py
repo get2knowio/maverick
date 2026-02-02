@@ -67,6 +67,12 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 #: Default permission mode for Claude SDK
 DEFAULT_PERMISSION_MODE: PermissionMode = "acceptEdits"
 
+#: Circuit breaker: maximum calls to the same tool before triggering
+MAX_SAME_TOOL_CALLS: int = 15
+
+#: Circuit breaker: maximum total messages before triggering
+MAX_TOTAL_MESSAGES: int = 100
+
 
 # =============================================================================
 # Abstract Base Class
@@ -334,6 +340,66 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         """
         ...
 
+    def _extract_tool_calls(self, message: Message) -> list[str]:
+        """Extract tool names from a message.
+
+        Args:
+            message: Message from Claude SDK.
+
+        Returns:
+            List of tool names used in this message.
+        """
+        tool_names: list[str] = []
+
+        # Check for content attribute (AssistantMessage)
+        if hasattr(message, "content") and message.content:
+            for block in message.content:
+                if type(block).__name__ == "ToolUseBlock":
+                    tool_name = getattr(block, "name", None)
+                    if tool_name:
+                        tool_names.append(tool_name)
+
+        return tool_names
+
+    def _check_circuit_breaker(
+        self,
+        tool_call_counts: dict[str, int],
+        message_count: int,
+    ) -> None:
+        """Check if circuit breaker should trigger.
+
+        Args:
+            tool_call_counts: Map of tool name to call count.
+            message_count: Total number of messages processed.
+
+        Raises:
+            CircuitBreakerError: If any threshold is exceeded.
+        """
+        from maverick.exceptions import CircuitBreakerError
+
+        # Check for repeated tool calls
+        for tool_name, count in tool_call_counts.items():
+            if count >= MAX_SAME_TOOL_CALLS:
+                raise CircuitBreakerError(
+                    tool_name=tool_name,
+                    call_count=count,
+                    max_calls=MAX_SAME_TOOL_CALLS,
+                    agent_name=self._name,
+                )
+
+        # Check for total message count (safety valve)
+        if message_count >= MAX_TOTAL_MESSAGES:
+            # Find the most called tool for the error message
+            most_called = max(
+                tool_call_counts.items(), key=lambda x: x[1], default=("unknown", 0)
+            )
+            raise CircuitBreakerError(
+                tool_name=most_called[0],
+                call_count=most_called[1],
+                max_calls=MAX_TOTAL_MESSAGES,
+                agent_name=self._name,
+            )
+
     async def query(
         self,
         prompt: str,
@@ -345,6 +411,9 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         messages back to the caller. On mid-stream failure, it yields
         partial content before raising StreamingError.
 
+        Includes circuit breaker protection to detect and stop infinite loops
+        where an agent repeatedly calls the same tool.
+
         Args:
             prompt: The prompt to send to Claude.
             cwd: Optional working directory override.
@@ -354,21 +423,41 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
 
         Raises:
             StreamingError: On mid-stream failure (after yielding partial content).
+            CircuitBreakerError: When agent gets stuck in infinite tool call loop.
             AgentError: On other SDK errors.
         """
         from claude_agent_sdk import ClaudeSDKClient
 
-        from maverick.exceptions import StreamingError
+        from maverick.exceptions import CircuitBreakerError, StreamingError
 
         options = self._build_options(cwd)
         partial_messages: list[Message] = []
+
+        # Circuit breaker state
+        tool_call_counts: dict[str, int] = {}
+        message_count = 0
 
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
                 async for message in client.receive_response():
                     partial_messages.append(message)
+                    message_count += 1
+
+                    # Track tool calls for circuit breaker
+                    tool_names = self._extract_tool_calls(message)
+                    for tool_name in tool_names:
+                        tool_call_counts[tool_name] = (
+                            tool_call_counts.get(tool_name, 0) + 1
+                        )
+
+                    # Check circuit breaker (may raise CircuitBreakerError)
+                    self._check_circuit_breaker(tool_call_counts, message_count)
+
                     yield message
+        except CircuitBreakerError:
+            # Re-raise circuit breaker errors directly
+            raise
         except Exception as e:
             # If we have partial messages, wrap in StreamingError
             if partial_messages:

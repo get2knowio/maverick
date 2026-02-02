@@ -13,6 +13,7 @@ from __future__ import annotations
 from maverick.exceptions.agent import (
     AgentError,
     AgentNotFoundError,
+    CircuitBreakerError,
     CLINotFoundError,
     DuplicateAgentError,
     GeneratorError,
@@ -97,6 +98,7 @@ __all__ = [
     # Agent
     "AgentError",
     "AgentNotFoundError",
+    "CircuitBreakerError",
     "CLINotFoundError",
     "DuplicateAgentError",
     "GeneratorError",
