@@ -34,27 +34,23 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import ClassVar
 
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.message import Message
+from textual.containers import Container, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
-Button,
-DataTable,
-Footer,
-Header,
-Label,
-ProgressBar,
-RichLog,
-Rule,
-Sparkline,
-Static,
+    Button,
+    Footer,
+    Header,
+    ProgressBar,
+    RichLog,
+    Rule,
+    Sparkline,
+    Static,
 )
 
 # =============================================================================
@@ -62,6 +58,7 @@ Static,
 # Domain Models
 
 # =============================================================================
+
 
 class TaskStatus(Enum):
     """Task execution states with associated styling."""
@@ -88,6 +85,7 @@ class TaskStatus(Enum):
     def styled_full(self) -> str:
         """Return Rich-formatted status with label."""
         return f"[{self.color}]{self.icon} {self.id_.title()}[/]"
+
 
 class TaskPhase(Enum):
     """Phases within a task lifecycle."""
@@ -116,6 +114,7 @@ class Task:
     estimated_cost: float = 0.0
     log_lines: list[str] = field(default_factory=list)
     activity_history: list[float] = field(default_factory=list)  # For sparkline
+    children: list[Task] = field(default_factory=list)  # Nested sub-steps
 
     @property
     def elapsed(self) -> timedelta | None:
@@ -142,11 +141,66 @@ class Task:
         """Last few lines of output for preview."""
         return self.log_lines[-5:] if self.log_lines else ["(no output yet)"]
 
+
+def flatten_task_tree(
+    tasks: list[Task],
+    depth: int = 0,
+    parent_is_last: list[bool] | None = None,
+) -> list[tuple[Task, str]]:
+    """
+    Flatten a tree of tasks into a list with tree-drawing prefixes.
+
+    Returns list of (task, prefix) tuples where prefix contains the
+    appropriate box-drawing characters for the tree structure.
+
+    Tree characters used:
+    - ├─ for middle children
+    - └─ for last child
+    - │  for continuation lines
+    """
+    if parent_is_last is None:
+        parent_is_last = []
+
+    result: list[tuple[Task, str]] = []
+
+    for i, task in enumerate(tasks):
+        is_last = i == len(tasks) - 1
+
+        # Build the prefix for this task
+        if depth > 0:
+            # Build continuation prefix from ancestor levels
+            # Skip the last entry - it represents the direct parent which gets
+            # a branch character, not a continuation line
+            continuation = ""
+            for was_last in parent_is_last[:-1]:
+                continuation += "   " if was_last else "│  "
+
+            # Add the branch character for this task
+            branch = "└─ " if is_last else "├─ "
+            current_prefix = continuation + branch
+        else:
+            current_prefix = ""
+
+        result.append((task, current_prefix))
+
+        # Recursively process children
+        if task.children:
+            child_results = flatten_task_tree(
+                task.children,
+                depth=depth + 1,
+                parent_is_last=parent_is_last + [is_last],
+            )
+            result.extend(child_results)
+
+    return result
+
+
 # =============================================================================
 
 # Mock Data Generator
 
 # =============================================================================
+
 
 class MockTaskEngine:
     """
@@ -155,46 +209,46 @@ class MockTaskEngine:
     """
 
     TASK_TEMPLATES = [
-    ("refactor-auth", "Refactor authentication module", "Modernizing OAuth2 flow"),
-    ("add-tests", "Add unit tests for API", "Increasing coverage to 80%"),
-    ("fix-perf", "Fix performance regression", "Optimizing database queries"),
-    ("update-deps", "Update dependencies", "Security patches for Q1"),
-    ("impl-feature", "Implement search feature", "Full-text search with filters"),
-    ("migrate-db", "Database migration", "PostgreSQL 15 upgrade"),
+        ("refactor-auth", "Refactor authentication module", "Modernizing OAuth2 flow"),
+        ("add-tests", "Add unit tests for API", "Increasing coverage to 80%"),
+        ("fix-perf", "Fix performance regression", "Optimizing database queries"),
+        ("update-deps", "Update dependencies", "Security patches for Q1"),
+        ("impl-feature", "Implement search feature", "Full-text search with filters"),
+        ("migrate-db", "Database migration", "PostgreSQL 15 upgrade"),
     ]
 
     OUTPUT_SAMPLES = [
-    "Analyzing codebase structure...",
-    "Found 23 files matching pattern",
-    "Generating abstract syntax tree",
-    "Identifying refactoring opportunities",
-    "Applying transformation: extract_method",
-    "Running static analysis checks",
-    "Validating type annotations",
-    "Executing test suite (47 tests)",
-    "All assertions passed",
-    "Formatting code with black",
-    "Committing changes to branch",
-    "Creating pull request draft",
-    "Waiting for CI pipeline...",
-    "Build succeeded ✓",
-    "Ready for review",
+        "Analyzing codebase structure...",
+        "Found 23 files matching pattern",
+        "Generating abstract syntax tree",
+        "Identifying refactoring opportunities",
+        "Applying transformation: extract_method",
+        "Running static analysis checks",
+        "Validating type annotations",
+        "Executing test suite (47 tests)",
+        "All assertions passed",
+        "Formatting code with black",
+        "Committing changes to branch",
+        "Creating pull request draft",
+        "Waiting for CI pipeline...",
+        "Build succeeded ✓",
+        "Ready for review",
     ]
 
     THINKING_SAMPLES = [
-    "[dim]Considering alternative approaches...[/]",
-    "[dim]Evaluating trade-offs between speed and memory...[/]",
-    "[dim]This reminds me of the adapter pattern...[/]",
-    "[dim]Let me verify this assumption...[/]",
-    "[dim]Hmm, edge case detected...[/]",
+        "[dim]Considering alternative approaches...[/]",
+        "[dim]Evaluating trade-offs between speed and memory...[/]",
+        "[dim]This reminds me of the adapter pattern...[/]",
+        "[dim]Let me verify this assumption...[/]",
+        "[dim]Hmm, edge case detected...[/]",
     ]
 
     TOOL_CALLS = [
-    "[cyan]→ read_file[/] src/auth/handler.py",
-    "[cyan]→ write_file[/] src/auth/oauth2.py",
-    "[cyan]→ run_command[/] pytest tests/",
-    "[cyan]→ search_codebase[/] 'def authenticate'",
-    "[cyan]→ git_commit[/] 'refactor: extract OAuth logic'",
+        "[cyan]→ read_file[/] src/auth/handler.py",
+        "[cyan]→ write_file[/] src/auth/oauth2.py",
+        "[cyan]→ run_command[/] pytest tests/",
+        "[cyan]→ search_codebase[/] 'def authenticate'",
+        "[cyan]→ git_commit[/] 'refactor: extract OAuth logic'",
     ]
 
     @classmethod
@@ -202,135 +256,186 @@ class MockTaskEngine:
         """Generate initial set of mock tasks in various states."""
         tasks = []
 
-        # Running task - most activity
+        # Running task - most activity (with nested sub-steps)
         t1 = Task(
-        id="task-001",
-        name="refactor-auth",
-        description="Refactoring authentication module for OAuth2",
-        status=TaskStatus.RUNNING,
-        phase=TaskPhase.EXECUTING,
-        progress=0.45,
-        started_at=datetime.now() - timedelta(minutes=3, seconds=27),
-        tokens_used=12847,
-        estimated_cost=0.0385,
-        activity_history=[0.2, 0.4, 0.3, 0.6, 0.8, 0.5, 0.7, 0.9, 0.6, 0.8],
+            id="task-001",
+            name="refactor-auth",
+            description="Refactoring authentication module for OAuth2",
+            status=TaskStatus.RUNNING,
+            phase=TaskPhase.EXECUTING,
+            progress=0.45,
+            started_at=datetime.now() - timedelta(minutes=3, seconds=27),
+            tokens_used=12847,
+            estimated_cost=0.0385,
+            activity_history=[0.2, 0.4, 0.3, 0.6, 0.8, 0.5, 0.7, 0.9, 0.6, 0.8],
+            children=[
+                Task(
+                    id="task-001-1",
+                    name="analyze",
+                    description="Analyze existing auth code",
+                    status=TaskStatus.SUCCESS,
+                    phase=TaskPhase.COMPLETE,
+                    progress=1.0,
+                    started_at=datetime.now() - timedelta(minutes=3, seconds=27),
+                    completed_at=datetime.now() - timedelta(minutes=2, seconds=50),
+                    tokens_used=2100,
+                    estimated_cost=0.0063,
+                ),
+                Task(
+                    id="task-001-2",
+                    name="extract-oauth",
+                    description="Extract OAuth logic to module",
+                    status=TaskStatus.RUNNING,
+                    phase=TaskPhase.EXECUTING,
+                    progress=0.6,
+                    started_at=datetime.now() - timedelta(minutes=2, seconds=45),
+                    tokens_used=5200,
+                    estimated_cost=0.0156,
+                    children=[
+                        Task(
+                            id="task-001-2-1",
+                            name="create-module",
+                            description="Create oauth2.py module",
+                            status=TaskStatus.SUCCESS,
+                            phase=TaskPhase.COMPLETE,
+                            progress=1.0,
+                        ),
+                        Task(
+                            id="task-001-2-2",
+                            name="move-funcs",
+                            description="Move functions",
+                            status=TaskStatus.RUNNING,
+                            phase=TaskPhase.EXECUTING,
+                            progress=0.4,
+                        ),
+                    ],
+                ),
+                Task(
+                    id="task-001-3",
+                    name="update-tests",
+                    description="Update test imports",
+                    status=TaskStatus.PENDING,
+                    phase=TaskPhase.INITIALIZING,
+                    progress=0.0,
+                ),
+            ],
         )
         t1.log_lines = [
-        "Starting authentication module refactor...",
-        "[cyan]→ read_file[/] src/auth/handler.py",
-        "Analyzing current OAuth1 implementation",
-        "[dim]This appears to use deprecated flow...[/]",
-        "[cyan]→ search_codebase[/] 'token_refresh'",
-        "Found 7 references to legacy token handling",
+            "Starting authentication module refactor...",
+            "[cyan]→ read_file[/] src/auth/handler.py",
+            "Analyzing current OAuth1 implementation",
+            "[dim]This appears to use deprecated flow...[/]",
+            "[cyan]→ search_codebase[/] 'token_refresh'",
+            "Found 7 references to legacy token handling",
         ]
         tasks.append(t1)
 
         # Another running task - earlier phase
         t2 = Task(
-        id="task-002",
-        name="add-tests",
-        description="Adding comprehensive unit tests for API endpoints",
-        status=TaskStatus.RUNNING,
-        phase=TaskPhase.PLANNING,
-        progress=0.15,
-        started_at=datetime.now() - timedelta(minutes=1, seconds=12),
-        tokens_used=4521,
-        estimated_cost=0.0136,
-        activity_history=[0.1, 0.2, 0.3, 0.2, 0.4, 0.3],
+            id="task-002",
+            name="add-tests",
+            description="Adding comprehensive unit tests for API endpoints",
+            status=TaskStatus.RUNNING,
+            phase=TaskPhase.PLANNING,
+            progress=0.15,
+            started_at=datetime.now() - timedelta(minutes=1, seconds=12),
+            tokens_used=4521,
+            estimated_cost=0.0136,
+            activity_history=[0.1, 0.2, 0.3, 0.2, 0.4, 0.3],
         )
         t2.log_lines = [
-        "Analyzing test coverage gaps...",
-        "[cyan]→ run_command[/] pytest --cov --cov-report=json",
-        "Current coverage: 47%",
-        "Identifying critical paths without coverage",
+            "Analyzing test coverage gaps...",
+            "[cyan]→ run_command[/] pytest --cov --cov-report=json",
+            "Current coverage: 47%",
+            "Identifying critical paths without coverage",
         ]
         tasks.append(t2)
 
         # Completed successfully
         t3 = Task(
-        id="task-003",
-        name="fix-perf",
-        description="Fixed N+1 query in user listing endpoint",
-        status=TaskStatus.SUCCESS,
-        phase=TaskPhase.COMPLETE,
-        progress=1.0,
-        started_at=datetime.now() - timedelta(minutes=8, seconds=45),
-        completed_at=datetime.now() - timedelta(minutes=2, seconds=10),
-        tokens_used=28934,
-        estimated_cost=0.0868,
-        activity_history=[0.3, 0.5, 0.7, 0.9, 0.8, 0.6, 0.4, 0.2, 0.1, 0.0],
+            id="task-003",
+            name="fix-perf",
+            description="Fixed N+1 query in user listing endpoint",
+            status=TaskStatus.SUCCESS,
+            phase=TaskPhase.COMPLETE,
+            progress=1.0,
+            started_at=datetime.now() - timedelta(minutes=8, seconds=45),
+            completed_at=datetime.now() - timedelta(minutes=2, seconds=10),
+            tokens_used=28934,
+            estimated_cost=0.0868,
+            activity_history=[0.3, 0.5, 0.7, 0.9, 0.8, 0.6, 0.4, 0.2, 0.1, 0.0],
         )
         t3.log_lines = [
-        "Profiling database queries...",
-        "[yellow]⚠ Detected N+1 pattern in get_users()[/]",
-        "[cyan]→ read_file[/] src/api/users.py",
-        "Applying eager loading with select_related()",
-        "[cyan]→ write_file[/] src/api/users.py",
-        "Running performance benchmark...",
-        "[green]✓ Query time reduced from 340ms to 12ms[/]",
-        "[cyan]→ git_commit[/] 'perf: fix N+1 in user listing'",
-        "[green]✓ Task completed successfully[/]",
+            "Profiling database queries...",
+            "[yellow]⚠ Detected N+1 pattern in get_users()[/]",
+            "[cyan]→ read_file[/] src/api/users.py",
+            "Applying eager loading with select_related()",
+            "[cyan]→ write_file[/] src/api/users.py",
+            "Running performance benchmark...",
+            "[green]✓ Query time reduced from 340ms to 12ms[/]",
+            "[cyan]→ git_commit[/] 'perf: fix N+1 in user listing'",
+            "[green]✓ Task completed successfully[/]",
         ]
         tasks.append(t3)
 
         # Warning state
         t4 = Task(
-        id="task-004",
-        name="update-deps",
-        description="Dependency updates with some deprecation warnings",
-        status=TaskStatus.WARNING,
-        phase=TaskPhase.COMPLETE,
-        progress=1.0,
-        started_at=datetime.now() - timedelta(minutes=12),
-        completed_at=datetime.now() - timedelta(minutes=5),
-        tokens_used=15672,
-        estimated_cost=0.0470,
-        activity_history=[0.4, 0.6, 0.5, 0.7, 0.5, 0.3, 0.2, 0.1],
+            id="task-004",
+            name="update-deps",
+            description="Dependency updates with some deprecation warnings",
+            status=TaskStatus.WARNING,
+            phase=TaskPhase.COMPLETE,
+            progress=1.0,
+            started_at=datetime.now() - timedelta(minutes=12),
+            completed_at=datetime.now() - timedelta(minutes=5),
+            tokens_used=15672,
+            estimated_cost=0.0470,
+            activity_history=[0.4, 0.6, 0.5, 0.7, 0.5, 0.3, 0.2, 0.1],
         )
         t4.log_lines = [
-        "Checking for outdated packages...",
-        "[cyan]→ run_command[/] pip list --outdated",
-        "Found 12 packages with updates available",
-        "[yellow]⚠ requests 2.28→2.31 has breaking changes[/]",
-        "[yellow]⚠ Deprecation: ssl.PROTOCOL_TLS[/]",
-        "Updates applied, some warnings remain",
-        "[yellow]⚠ Completed with 2 deprecation warnings[/]",
+            "Checking for outdated packages...",
+            "[cyan]→ run_command[/] pip list --outdated",
+            "Found 12 packages with updates available",
+            "[yellow]⚠ requests 2.28→2.31 has breaking changes[/]",
+            "[yellow]⚠ Deprecation: ssl.PROTOCOL_TLS[/]",
+            "Updates applied, some warnings remain",
+            "[yellow]⚠ Completed with 2 deprecation warnings[/]",
         ]
         tasks.append(t4)
 
         # Error state
         t5 = Task(
-        id="task-005",
-        name="impl-feature",
-        description="Search feature implementation failed on index creation",
-        status=TaskStatus.ERROR,
-        phase=TaskPhase.EXECUTING,
-        progress=0.67,
-        started_at=datetime.now() - timedelta(minutes=6, seconds=30),
-        completed_at=datetime.now() - timedelta(minutes=1),
-        tokens_used=21456,
-        estimated_cost=0.0644,
-        activity_history=[0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 0.0],
+            id="task-005",
+            name="impl-feature",
+            description="Search feature implementation failed on index creation",
+            status=TaskStatus.ERROR,
+            phase=TaskPhase.EXECUTING,
+            progress=0.67,
+            started_at=datetime.now() - timedelta(minutes=6, seconds=30),
+            completed_at=datetime.now() - timedelta(minutes=1),
+            tokens_used=21456,
+            estimated_cost=0.0644,
+            activity_history=[0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 0.0],
         )
         t5.log_lines = [
-        "Implementing full-text search...",
-        "[cyan]→ write_file[/] src/search/indexer.py",
-        "Creating Elasticsearch index mapping",
-        "[cyan]→ run_command[/] curl -X PUT localhost:9200/docs",
-        "[red]✗ Connection refused: Elasticsearch not running[/]",
-        "[red]✗ ERROR: Failed to create search index[/]",
-        "[dim]Hint: Ensure Elasticsearch is running on port 9200[/]",
+            "Implementing full-text search...",
+            "[cyan]→ write_file[/] src/search/indexer.py",
+            "Creating Elasticsearch index mapping",
+            "[cyan]→ run_command[/] curl -X PUT localhost:9200/docs",
+            "[red]✗ Connection refused: Elasticsearch not running[/]",
+            "[red]✗ ERROR: Failed to create search index[/]",
+            "[dim]Hint: Ensure Elasticsearch is running on port 9200[/]",
         ]
         tasks.append(t5)
 
         # Pending task
         t6 = Task(
-        id="task-006",
-        name="migrate-db",
-        description="PostgreSQL 15 migration (queued)",
-        status=TaskStatus.PENDING,
-        phase=TaskPhase.INITIALIZING,
-        progress=0.0,
+            id="task-006",
+            name="migrate-db",
+            description="PostgreSQL 15 migration (queued)",
+            status=TaskStatus.PENDING,
+            phase=TaskPhase.INITIALIZING,
+            progress=0.0,
         )
         t6.log_lines = ["Waiting in queue..."]
         tasks.append(t6)
@@ -348,11 +453,13 @@ class MockTaskEngine:
         else:
             return random.choice(cls.OUTPUT_SAMPLES)
 
+
 # =============================================================================
 
 # Custom Widgets
 
 # =============================================================================
+
 
 class AggregateStats(Static):
     """Header widget showing aggregate task statistics."""
@@ -383,20 +490,23 @@ class AggregateStats(Static):
         total_cost = sum(t.estimated_cost for t in self.tasks)
 
         return (
-        f"  {' │ '.join(parts)}  │  "
-        f"[dim]Tokens:[/] {total_tokens:,}  │  "
-        f"[dim]Cost:[/] ${total_cost:.4f}"
+            f"  {' │ '.join(parts)}  │  "
+            f"[dim]Tokens:[/] {total_tokens:,}  │  "
+            f"[dim]Cost:[/] ${total_cost:.4f}"
         )
+
 
 class TaskRow(Static):
     """A single row in the task list with status indicator."""
 
     task: reactive[Task | None] = reactive(None)
     selected: reactive[bool] = reactive(False)
+    tree_prefix: str = ""  # Tree characters for nesting (e.g., "│ ├─")
 
-    def __init__(self, task: Task, **kwargs):
+    def __init__(self, task: Task, tree_prefix: str = "", **kwargs):
         super().__init__(**kwargs)
         self.task = task
+        self.tree_prefix = tree_prefix
 
     def render(self) -> str:
         if self.task is None:
@@ -425,7 +535,12 @@ class TaskRow(Static):
         else:
             name = f" {name}"
 
-        return f" {status} {name:<20} {progress} {elapsed:>8}"
+        # Calculate available width for name based on tree prefix
+        prefix = f"[dim]{self.tree_prefix}[/]" if self.tree_prefix else ""
+        name_width = 20 - len(self.tree_prefix)
+
+        return f" {status} {prefix}{name:<{name_width}} {progress}"
+
 
 class TaskDetail(Widget):
     """Detail panel showing selected task information."""
@@ -489,6 +604,7 @@ class TaskDetail(Widget):
         except Exception:
             pass
 
+
 class LogPanel(RichLog):
     """Extended RichLog with scroll state tracking."""
 
@@ -511,19 +627,20 @@ class LogPanel(RichLog):
         else:
             self.border_subtitle = "[yellow]PAUSED ‖[/]"
 
+
 class HelpScreen(ModalScreen):
     """Modal help screen showing keybindings."""
 
     BINDINGS = [
-    Binding("escape", "dismiss", "Close"),
-    Binding("?", "dismiss", "Close"),
+        Binding("escape", "dismiss", "Close"),
+        Binding("?", "dismiss", "Close"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Container(
-        Static("[bold]Maverick Monitor - Keyboard Shortcuts[/]\n", id="help-title"),
-        Static(
-        """
+            Static("[bold]Maverick Monitor - Keyboard Shortcuts[/]\n", id="help-title"),
+            Static(
+                """
 
         [bold]Navigation[/]
         [cyan]j/k[/] or [cyan]↑/↓[/]   Navigate task list
@@ -547,21 +664,23 @@ class HelpScreen(ModalScreen):
         [cyan]?[/]            Show this help
         [cyan]q[/]            Quit
         """,
-        id="help-content",
-        ),
-        Button("Close", variant="primary", id="help-close"),
-        id="help-container",
+                id="help-content",
+            ),
+            Button("Close", variant="primary", id="help-close"),
+            id="help-container",
         )
 
     @on(Button.Pressed, "#help-close")
     def close_help(self) -> None:
         self.dismiss()
 
+
 # =============================================================================
 
 # Main Application
 
 # =============================================================================
+
 
 class MaverickMonitor(App):
     """
@@ -718,18 +837,18 @@ class MaverickMonitor(App):
     """
 
     BINDINGS = [
-    Binding("q", "quit", "Quit"),
-    Binding("?", "help", "Help"),
-    Binding("j", "cursor_down", "Down", show=False),
-    Binding("k", "cursor_up", "Up", show=False),
-    Binding("down", "cursor_down", "Down", show=False),
-    Binding("up", "cursor_up", "Up", show=False),
-    Binding("enter", "select_task", "Select", show=False),
-    Binding("l", "toggle_fullscreen_log", "Full Log"),
-    Binding("f", "toggle_focus", "Focus"),
-    Binding("s", "toggle_scroll", "Auto-scroll"),
-    Binding("g", "goto_first", "First", show=False),
-    Binding("G", "goto_last", "Last", show=False),
+        Binding("q", "quit", "Quit"),
+        Binding("?", "help", "Help"),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("enter", "select_task", "Select", show=False),
+        Binding("l", "toggle_fullscreen_log", "Full Log"),
+        Binding("f", "toggle_focus", "Focus"),
+        Binding("s", "toggle_scroll", "Auto-scroll"),
+        Binding("g", "goto_first", "First", show=False),
+        Binding("G", "goto_last", "Last", show=False),
     ]
 
     # Reactive state
@@ -742,16 +861,25 @@ class MaverickMonitor(App):
         super().__init__()
         self.tasks = MockTaskEngine.create_mock_tasks()
         self._streaming_active = True
+        # Flattened task list for navigation (includes nested tasks)
+        self._flattened_tasks: list[tuple[Task, str]] = []
+
+    def _rebuild_flattened_tasks(self) -> None:
+        """Rebuild the flattened task list from the task tree."""
+        self._flattened_tasks = flatten_task_tree(self.tasks)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield AggregateStats(id="stats-bar")
 
+        # Build flattened task list for navigation
+        self._rebuild_flattened_tasks()
+
         with Container(id="main-container"):
-            # Left panel: task list
+            # Left panel: task list (flattened tree with nesting indicators)
             with VerticalScroll(id="left-panel"):
-                for i, task in enumerate(self.tasks):
-                    row = TaskRow(task, classes="task-row")
+                for i, (task, tree_prefix) in enumerate(self._flattened_tasks):
+                    row = TaskRow(task, tree_prefix=tree_prefix, classes="task-row")
                     row.id = f"task-row-{i}"
                     if i == 0:
                         row.selected = True
@@ -787,8 +915,9 @@ class MaverickMonitor(App):
 
     def _load_task_log(self) -> None:
         """Load selected task's log into the log panel."""
-        if 0 <= self.selected_index < len(self.tasks):
-            task = self.tasks[self.selected_index]
+        if not (0 <= self.selected_index < len(self._flattened_tasks)):
+            return
+        task, _ = self._flattened_tasks[self.selected_index]
         log_panel = self.query_one("#log-panel", LogPanel)
         log_panel.clear()
         for line in task.log_lines:
@@ -801,8 +930,9 @@ class MaverickMonitor(App):
     @property
     def selected_task(self) -> Task | None:
         """Currently selected task."""
-        if 0 <= self.selected_index < len(self.tasks):
-            return self.tasks[self.selected_index]
+        if 0 <= self.selected_index < len(self._flattened_tasks):
+            task, _ = self._flattened_tasks[self.selected_index]
+            return task
         return None
 
         # -------------------------------------------------------------------------
@@ -811,7 +941,7 @@ class MaverickMonitor(App):
 
     def action_cursor_down(self) -> None:
         """Move selection down."""
-        if self.selected_index < len(self.tasks) - 1:
+        if self.selected_index < len(self._flattened_tasks) - 1:
             self.selected_index += 1
         self._update_selection()
         self._load_task_log()
@@ -831,7 +961,7 @@ class MaverickMonitor(App):
 
     def action_goto_last(self) -> None:
         """Jump to last task."""
-        self.selected_index = len(self.tasks) - 1
+        self.selected_index = len(self._flattened_tasks) - 1
         self._update_selection()
         self._load_task_log()
 
@@ -839,9 +969,9 @@ class MaverickMonitor(App):
         """Select current task (refresh detail view)."""
         self._load_task_log()
         # Scroll task into view
-        if 0 <= self.selected_index < len(self.tasks):
+        if 0 <= self.selected_index < len(self._flattened_tasks):
             row = self.query_one(f"#task-row-{self.selected_index}")
-        row.scroll_visible()
+            row.scroll_visible()
 
     def action_toggle_fullscreen_log(self) -> None:
         """Toggle full-screen log view."""
@@ -915,7 +1045,7 @@ class MaverickMonitor(App):
                         detail.task = task
 
                     # Update the task row
-                    for i, t in enumerate(self.tasks):
+                    for i, (t, _) in enumerate(self._flattened_tasks):
                         if t.id == task.id:
                             row = self.query_one(f"#task-row-{i}", TaskRow)
                             row.task = task
@@ -924,6 +1054,7 @@ class MaverickMonitor(App):
             self.query_one("#stats-bar", AggregateStats).tasks = list(self.tasks)
 
             await asyncio.sleep(0.5)  # Update every 500ms
+
 
 # =============================================================================
 
