@@ -24,7 +24,7 @@ class TestShortcutFooterCreation:
         """Test creating ShortcutFooter with default options."""
         footer = ShortcutFooter()
 
-        assert footer.max_shortcuts == 8
+        assert footer.max_shortcuts == 12
         assert footer._shortcuts == []
 
     def test_creation_with_custom_max_shortcuts(self) -> None:

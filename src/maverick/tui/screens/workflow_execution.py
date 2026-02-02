@@ -18,6 +18,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static
 from textual.worker import Worker, WorkerState
@@ -77,6 +78,18 @@ logger = get_logger(__name__)
 
 # Debounce interval for UI updates (50ms per SC-003)
 DEBOUNCE_INTERVAL_SECONDS = 0.050
+
+
+class StepClicked(Message):
+    """Message posted when a step is clicked in the sidebar.
+
+    Attributes:
+        step_name: Name of the clicked step.
+    """
+
+    def __init__(self, step_name: str) -> None:
+        self.step_name = step_name
+        super().__init__()
 
 
 class StepWidget(Static):
@@ -180,6 +193,10 @@ class StepWidget(Static):
         self._status = "skipped"
         self._update_display()
 
+    def on_click(self) -> None:
+        """Handle click to select this step for stream filtering."""
+        self.post_message(StepClicked(self._step_name))
+
 
 class WorkflowExecutionScreen(MaverickScreen):
     """Execute workflow and display real-time progress.
@@ -265,6 +282,9 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         # UI toggle states
         self._steps_panel_visible: bool = True
+
+        # Step selection state for stream filtering
+        self._selected_step: str | None = None
 
         # Sentence-boundary buffering for streaming text
         # Buffers text until a sentence boundary is reached for readable display
@@ -570,6 +590,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             entry_type=StreamEntryType.STEP_START,
             source=step_name,
             content=f"{step_name} started",
+            step_name=step_name,
         )
         self._add_unified_entry(entry)
 
@@ -627,6 +648,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             content=f"{step_name} completed",
             level="success",
             duration_ms=duration_ms,
+            step_name=step_name,
         )
         self._add_unified_entry(entry)
 
@@ -663,6 +685,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             content=content,
             level="error",
             duration_ms=duration_ms,
+            step_name=step_name,
         )
         self._add_unified_entry(entry)
 
@@ -1085,6 +1108,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                         source=agent_name,
                         content=buffer.rstrip(),
                         level="info",
+                        step_name=step_name,
                     )
                     self._add_unified_entry(unified_entry)
 
@@ -1132,6 +1156,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             source=event.agent_name,
             content=text.rstrip(),  # Remove trailing whitespace for cleaner display
             level="error" if chunk_type == StreamChunkType.ERROR else "info",
+            step_name=event.step_name,
         )
         self._add_unified_entry(unified_entry)
 
@@ -1163,6 +1188,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                     source=agent_name,
                     content=buffer.rstrip(),
                     level="info",
+                    step_name=step_name,
                 )
                 self._add_unified_entry(unified_entry)
 
@@ -1199,6 +1225,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             content=event.message,
             level=event.level,
             metadata=event.metadata,
+            step_name=event.step_name,
         )
         self._add_unified_entry(unified_entry)
 
@@ -1377,5 +1404,35 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
             stream_widget.scroll_to_bottom()
+        except NoMatches:
+            pass
+
+    def on_step_clicked(self, message: StepClicked) -> None:
+        """Handle step click for stream filtering.
+
+        Clicking a step filters the unified stream to show only that step's
+        entries. Clicking the same step again deselects it and shows all entries.
+
+        Args:
+            message: The StepClicked message with the step name.
+        """
+        if self._selected_step == message.step_name:
+            # Deselect: show all entries, resume auto-follow
+            self._selected_step = None
+        else:
+            # Select: filter stream to this step
+            self._selected_step = message.step_name
+
+        # Update visual selection on step widgets
+        for name, widget in self._step_widgets.items():
+            if name == self._selected_step:
+                widget.add_class("selected")
+            else:
+                widget.remove_class("selected")
+
+        # Apply filter to stream widget
+        try:
+            stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
+            stream_widget.filter_step = self._selected_step
         except NoMatches:
             pass

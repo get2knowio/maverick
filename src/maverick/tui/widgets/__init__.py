@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from maverick.tui.widgets.agent_output import AgentOutput
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
+from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 from maverick.tui.widgets.diff_panel import DiffPanel
 from maverick.tui.widgets.form import (
     BranchInputField,
@@ -68,6 +69,7 @@ ResultSummaryPRLinkClicked = ResultSummary.PRLinkClicked
 
 __all__ = [
     # Widgets
+    "AggregateStatsBar",
     "AgentOutput",
     "AgentStreamingPanel",
     "DiffPanel",

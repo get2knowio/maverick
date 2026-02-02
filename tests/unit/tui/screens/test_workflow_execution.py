@@ -11,9 +11,11 @@ import pytest
 from maverick.tui.screens.workflow_execution import (
     STATUS_ICONS,
     STEP_TYPE_ICONS,
+    StepClicked,
     StepWidget,
     WorkflowExecutionScreen,
 )
+from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 
 
 def create_mock_step(
@@ -745,3 +747,198 @@ class TestDebounce:
             screen._pending_iteration_update.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await screen._pending_iteration_update
+
+
+# Steps Panel Visibility Tests
+class TestStepsPanelVisibility:
+    """Tests for steps panel default visibility."""
+
+    def test_steps_panel_visible_by_default(self):
+        """Test that the steps panel is visible by default (not hidden)."""
+        mock_workflow = create_mock_workflow(
+            steps=[create_mock_step()],
+        )
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        assert screen._steps_panel_visible is True
+
+    def test_toggle_steps_panel_hides(self):
+        """Test that toggling from visible hides the panel."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Initial state is visible
+        assert screen._steps_panel_visible is True
+
+        # Simulate what toggle does to the flag
+        screen._steps_panel_visible = not screen._steps_panel_visible
+        assert screen._steps_panel_visible is False
+
+
+# AggregateStatsBar Integration Tests
+class TestAggregateStatsBarIntegration:
+    """Tests for AggregateStatsBar integration in WorkflowExecutionScreen."""
+
+    def test_unified_state_tracks_aggregate_data(self):
+        """Test that unified state has aggregate tracking fields."""
+        mock_workflow = create_mock_workflow(
+            steps=[create_mock_step()],
+        )
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        assert hasattr(screen._unified_state, "total_tokens")
+        assert hasattr(screen._unified_state, "total_cost")
+        assert hasattr(screen._unified_state, "completed_steps")
+        assert hasattr(screen._unified_state, "failed_steps")
+        assert hasattr(screen._unified_state, "total_steps")
+
+    def test_stats_bar_can_be_created_from_screen_state(self):
+        """Test that AggregateStatsBar can be created from screen's unified state."""
+        mock_workflow = create_mock_workflow(
+            steps=[create_mock_step("step-1"), create_mock_step("step-2")],
+        )
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        bar = AggregateStatsBar(screen._unified_state, id="stats-bar")
+        text = bar._format_stats()
+
+        # Should reflect the 2 pending steps from the workflow
+        assert "2 pending" in text
+
+    def test_refresh_stats_bar_no_error_without_mount(self):
+        """Test that _refresh_stats_bar doesn't raise when not mounted."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Should not raise even when widget is not mounted
+        screen._refresh_stats_bar()
+
+
+# StepClicked Message Tests
+class TestStepClicked:
+    """Tests for StepClicked message."""
+
+    def test_step_clicked_stores_step_name(self):
+        """Test that StepClicked message stores the step name."""
+        msg = StepClicked("implement_task")
+        assert msg.step_name == "implement_task"
+
+
+# Step Selection Tests
+class TestStepSelection:
+    """Tests for step selection in sidebar for stream filtering."""
+
+    def test_selected_step_initial_state(self):
+        """Test that no step is selected initially."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        assert screen._selected_step is None
+
+    def test_step_selection_sets_selected_step(self):
+        """Test that handling StepClicked sets _selected_step."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Simulate what on_step_clicked does (without mounting)
+        message = StepClicked("test_step")
+        screen._selected_step = message.step_name
+
+        assert screen._selected_step == "test_step"
+
+    def test_step_deselection_on_same_click(self):
+        """Test that clicking same step again deselects it."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Simulate first click
+        screen._selected_step = "test_step"
+
+        # Simulate second click on same step (deselect logic)
+        msg = StepClicked("test_step")
+        if screen._selected_step == msg.step_name:
+            screen._selected_step = None
+        else:
+            screen._selected_step = msg.step_name
+
+        assert screen._selected_step is None
+
+    def test_step_selection_switches_step(self):
+        """Test that clicking a different step switches selection."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Select first step
+        screen._selected_step = "step_a"
+
+        # Click different step
+        msg = StepClicked("step_b")
+        if screen._selected_step == msg.step_name:
+            screen._selected_step = None
+        else:
+            screen._selected_step = msg.step_name
+
+        assert screen._selected_step == "step_b"
+
+
+# UnifiedStreamEntry step_name Tests
+class TestUnifiedStreamEntryStepName:
+    """Tests for step_name field on UnifiedStreamEntry in workflow execution context."""
+
+    def test_mark_step_running_sets_step_name(self):
+        """Test that _mark_step_running creates entry with step_name."""
+
+        from maverick.tui.models.enums import StreamEntryType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        step_widget = StepWidget(step_name="review", step_type="agent")
+        screen._step_widgets["review"] = step_widget
+
+        screen._mark_step_running("review", "agent")
+
+        # Find the step start entry in unified state
+        entries = screen._unified_state.entries
+        step_start_entries = [
+            e for e in entries if e.entry_type == StreamEntryType.STEP_START
+        ]
+        assert len(step_start_entries) == 1
+        assert step_start_entries[0].step_name == "review"
+
+    def test_mark_step_completed_sets_step_name(self):
+        """Test that _mark_step_completed creates entry with step_name."""
+        from maverick.tui.models.enums import StreamEntryType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        step_widget = StepWidget(step_name="validate", step_type="python")
+        screen._step_widgets["validate"] = step_widget
+
+        screen._mark_step_completed("validate", 2000)
+
+        entries = screen._unified_state.entries
+        step_complete_entries = [
+            e for e in entries if e.entry_type == StreamEntryType.STEP_COMPLETE
+        ]
+        assert len(step_complete_entries) == 1
+        assert step_complete_entries[0].step_name == "validate"
+
+    def test_mark_step_failed_sets_step_name(self):
+        """Test that _mark_step_failed creates entry with step_name."""
+        from maverick.tui.models.enums import StreamEntryType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        step_widget = StepWidget(step_name="build", step_type="python")
+        screen._step_widgets["build"] = step_widget
+
+        screen._mark_step_failed("build", 500, "Build failed")
+
+        entries = screen._unified_state.entries
+        step_failed_entries = [
+            e for e in entries if e.entry_type == StreamEntryType.STEP_FAILED
+        ]
+        assert len(step_failed_entries) == 1
+        assert step_failed_entries[0].step_name == "build"

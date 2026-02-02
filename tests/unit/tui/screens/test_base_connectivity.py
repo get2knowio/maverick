@@ -56,6 +56,9 @@ class TestMaverickScreenConnectivity:
         # Mock the handler
         screen._handle_connectivity_change = MagicMock()
 
+        # Set baseline established (handler only called after baseline)
+        screen._connectivity_baseline_established = True
+
         # Simulate state change from connected to disconnected
         screen._connectivity_monitor.is_connected = MagicMock(return_value=True)
         screen._connectivity_monitor.check_connectivity = AsyncMock(return_value=False)
@@ -90,6 +93,9 @@ class TestMaverickScreenConnectivity:
         # Mock the handler
         screen._handle_connectivity_change = MagicMock()
 
+        # Set baseline established (handler only called after baseline)
+        screen._connectivity_baseline_established = True
+
         # Simulate state change from disconnected to connected
         screen._connectivity_monitor.is_connected = MagicMock(return_value=False)
         screen._connectivity_monitor.check_connectivity = AsyncMock(return_value=True)
@@ -99,8 +105,14 @@ class TestMaverickScreenConnectivity:
         # Handler should be called with True (reconnected)
         screen._handle_connectivity_change.assert_called_once_with(True)
 
-    def test_default_handle_connectivity_change_shows_notification(self) -> None:
-        """Test that default handler shows notifications."""
+    def test_default_handle_connectivity_change_is_noop(self) -> None:
+        """Test that default handler is a no-op (does not show notifications).
+
+        The connectivity notifications were removed because the underlying
+        connectivity detection was unreliable and produced false positives.
+        Subclasses can override _handle_connectivity_change if they need
+        connectivity-aware behavior.
+        """
         screen = MaverickScreen()
 
         # Mock the app's notify method
@@ -109,28 +121,13 @@ class TestMaverickScreenConnectivity:
         with patch.object(
             type(screen), "app", new_callable=PropertyMock, return_value=mock_app
         ):
-            # Test disconnection notification
+            # Test disconnection - no notification should be sent
             screen._handle_connectivity_change(False)
-            mock_app.notify.assert_called_once()
-            call_args = mock_app.notify.call_args
-            assert (
-                "lost" in call_args[0][0].lower()
-                or "lost" in str(call_args[1].get("title", "")).lower()
-            )
-            assert call_args[1].get("severity") == "warning"
+            mock_app.notify.assert_not_called()
 
-            # Reset mock
-            mock_app.notify.reset_mock()
-
-            # Test reconnection notification
+            # Test reconnection - no notification should be sent
             screen._handle_connectivity_change(True)
-            mock_app.notify.assert_called_once()
-            call_args = mock_app.notify.call_args
-            assert (
-                "restored" in call_args[0][0].lower()
-                or "restored" in str(call_args[1].get("title", "")).lower()
-            )
-            assert call_args[1].get("severity") == "information"
+            mock_app.notify.assert_not_called()
 
 
 class ConcreteScreen(MaverickScreen):
@@ -163,8 +160,8 @@ class TestMaverickScreenConnectivityOverride:
             # Verify our override was called
             assert screen.connectivity_change_calls == [False]
 
-            # Verify parent notification was still called
-            mock_app.notify.assert_called()
+            # Verify parent is a no-op (no notification called)
+            mock_app.notify.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_subclass_receives_connectivity_changes(self) -> None:
@@ -175,6 +172,9 @@ class TestMaverickScreenConnectivityOverride:
         with patch.object(
             type(screen), "app", new_callable=PropertyMock, return_value=mock_app
         ):
+            # Set baseline established (handler only called after baseline)
+            screen._connectivity_baseline_established = True
+
             # Mock connectivity monitor
             screen._connectivity_monitor.is_connected = MagicMock(return_value=True)
             screen._connectivity_monitor.check_connectivity = AsyncMock(

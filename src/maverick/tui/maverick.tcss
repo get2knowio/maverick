@@ -1121,6 +1121,11 @@ WorkflowExecutionScreen .step-item {
     margin-bottom: 0;
 }
 
+WorkflowExecutionScreen .step-item.selected {
+    background: $accent-muted;
+    border-left: thick $accent;
+}
+
 WorkflowExecutionScreen .step-running {
     color: $warning;
 }
@@ -1646,6 +1651,14 @@ HelpPanel .help-description {
     color: $text-muted;
 }
 
+/* === Aggregate Stats Bar === */
+AggregateStatsBar {
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+    text-align: center;
+}
+
 /* === Split-View Execution Screen === */
 /* Side-by-side Steps + Agent Output layout */
 
@@ -1769,11 +1782,6 @@ HelpPanel .help-description {
     padding: 0 1;
 }
 
-#unified-stream .stream-entry .timestamp {
-    width: 9;
-    color: $text-dim;
-}
-
 #unified-stream .stream-entry .badge {
     min-width: 12;
     margin-right: 1;
@@ -1852,7 +1860,7 @@ HelpPanel .help-description {
 
 /* Continuation lines for multi-line content */
 #unified-stream .continuation {
-    padding-left: 11;
+    padding-left: 2;
     color: $text-muted;
 }
 

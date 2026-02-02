@@ -74,7 +74,7 @@ class ShortcutFooter(Widget):
 
     def __init__(
         self,
-        max_shortcuts: int = 8,
+        max_shortcuts: int = 12,
         *,
         name: str | None = None,
         id: str | None = None,
@@ -208,13 +208,13 @@ class ShortcutFooter(Widget):
             display.update("")
             return
 
-        # Build display string: [key]action [key]action ...
+        # Build display string: key description  key description ...
         parts: list[str] = []
         for key, description in self._shortcuts:
             # Truncate long descriptions
-            if len(description) > 12:
-                description = description[:10] + ".."
-            parts.append(f"[cyan]{key}[/cyan][dim]{description}[/dim]")
+            if len(description) > 15:
+                description = description[:13] + ".."
+            parts.append(f"[bold cyan]{key}[/bold cyan] [dim]{description}[/dim]")
 
         display.update("  ".join(parts))
 

@@ -172,6 +172,72 @@ class UnifiedStreamWidget(Widget):
         super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self._state = state
         self._last_displayed_index: int = 0
+        self._filter_step: str | None = None
+
+    @property
+    def filter_step(self) -> str | None:
+        """Get the current step filter.
+
+        Returns:
+            Step name to filter by, or None to show all entries.
+        """
+        return self._filter_step
+
+    @filter_step.setter
+    def filter_step(self, value: str | None) -> None:
+        """Set the step filter and re-render entries.
+
+        Args:
+            value: Step name to filter by, or None to show all.
+        """
+        if value == self._filter_step:
+            return
+        self._filter_step = value
+        self._rerender_with_filter()
+
+    def _matches_filter(self, entry: UnifiedStreamEntry) -> bool:
+        """Check if an entry matches the current step filter.
+
+        Entries with step_name=None (global info/errors) always pass.
+
+        Args:
+            entry: The entry to check.
+
+        Returns:
+            True if the entry should be displayed.
+        """
+        if self._filter_step is None:
+            return True
+        if entry.step_name is None:
+            return True
+        return entry.step_name == self._filter_step
+
+    def _rerender_with_filter(self) -> None:
+        """Clear displayed entries and re-render with current filter applied."""
+        if not self.is_mounted:
+            return
+
+        try:
+            content = self.query_one("#stream-content", ScrollableContainer)
+            # Remove all existing entry widgets
+            for child in list(content.children):
+                child.remove()
+
+            # Re-render matching entries from state
+            for entry in self._state.entries:
+                if self._matches_filter(entry):
+                    widget = self._create_entry_widget(entry)
+                    content.mount(widget)
+
+            # Reset tracking index to current total (so refresh_entries
+            # won't re-add already-rendered entries)
+            self._last_displayed_index = len(self._state.entries)
+
+            # Scroll to bottom
+            if self._state.auto_scroll:
+                content.scroll_end(animate=False)
+        except NoMatches:
+            pass
 
     def compose(self) -> ComposeResult:
         """Compose the widget layout.
@@ -312,6 +378,7 @@ class UnifiedStreamWidget(Widget):
         """Refresh the display with all new entries since last refresh.
 
         This is called by the workflow execution screen after debouncing.
+        Only displays entries matching the current step filter.
         """
         if not self.is_mounted:
             return
@@ -323,9 +390,10 @@ class UnifiedStreamWidget(Widget):
 
             while self._last_displayed_index < total:
                 entry = entries[self._last_displayed_index]
-                widget = self._create_entry_widget(entry)
-                content.mount(widget)
                 self._last_displayed_index += 1
+                if self._matches_filter(entry):
+                    widget = self._create_entry_widget(entry)
+                    content.mount(widget)
 
             # Auto-scroll if enabled
             if self._state.auto_scroll:

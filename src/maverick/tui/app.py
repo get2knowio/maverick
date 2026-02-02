@@ -171,11 +171,22 @@ class MaverickApp(App[None]):
         self._update_layout_class()
 
     def on_screen_resume(self) -> None:
-        """Handle screen resume (screen becomes active after pop).
+        """Handle screen resume (screen becomes active after push or pop).
 
-        Refreshes the shortcut footer to show current screen's shortcuts.
+        ScreenResume fires whenever a screen becomes the active screen,
+        including when a new screen is pushed and when a popped screen
+        reveals the one underneath. Refreshes the shortcut footer to
+        show the current screen's shortcuts.
         """
         self._refresh_shortcut_footer()
+
+    def on_screen_suspend(self) -> None:
+        """Handle screen suspend (screen becomes inactive).
+
+        Also triggers a footer refresh to handle transition timing.
+        The next ScreenResume will set the correct bindings.
+        """
+        self.call_later(self._refresh_shortcut_footer)
 
     def _refresh_shortcut_footer(self) -> None:
         """Refresh the shortcut footer with current screen's bindings."""

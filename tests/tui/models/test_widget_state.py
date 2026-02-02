@@ -262,6 +262,56 @@ class TestUnifiedStreamStateAddEntry:
         assert state._current_size_bytes == 0
 
 
+class TestUnifiedStreamEntryStepName:
+    """Test suite for UnifiedStreamEntry step_name field."""
+
+    def test_step_name_defaults_to_none(self) -> None:
+        """Test that step_name defaults to None for backward compatibility."""
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.INFO,
+            source="test",
+            content="info message",
+        )
+        assert entry.step_name is None
+
+    def test_step_name_can_be_set(self) -> None:
+        """Test that step_name can be set explicitly."""
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.STEP_START,
+            source="implement_task",
+            content="implement_task started",
+            step_name="implement_task",
+        )
+        assert entry.step_name == "implement_task"
+
+    def test_step_name_on_agent_output(self) -> None:
+        """Test step_name on agent output entries."""
+        entry = UnifiedStreamEntry(
+            timestamp=time.time(),
+            entry_type=StreamEntryType.AGENT_OUTPUT,
+            source="ImplementerAgent",
+            content="Analyzing code...",
+            step_name="implement_task",
+        )
+        assert entry.step_name == "implement_task"
+        assert entry.source == "ImplementerAgent"
+
+    def test_step_name_preserved_in_frozen_dataclass(self) -> None:
+        """Test step_name is accessible on frozen dataclass instances."""
+        entry = UnifiedStreamEntry(
+            timestamp=1.0,
+            entry_type=StreamEntryType.STEP_COMPLETE,
+            source="review",
+            content="review completed",
+            step_name="review",
+            duration_ms=5000,
+        )
+        assert entry.step_name == "review"
+        assert entry.duration_ms == 5000
+
+
 class TestUnifiedStreamStateElapsedTime:
     """Test suite for UnifiedStreamState elapsed time tracking."""
 
