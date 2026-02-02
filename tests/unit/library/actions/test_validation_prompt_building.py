@@ -57,3 +57,43 @@ class TestBuildFixPrompt:
         prompt = _build_fix_prompt(result, ["lint"], attempt_number=1)
 
         assert "No specific errors provided" in prompt
+
+    def test_build_fix_prompt_includes_default_commands(self) -> None:
+        """Prompt includes default validation commands when none provided."""
+        result = create_validation_result(success=False)
+        prompt = _build_fix_prompt(result, ["lint", "test"], attempt_number=1)
+
+        assert "Validation Commands" in prompt
+        assert "ruff check" in prompt
+        assert "pytest" in prompt
+        assert "NOT npm/node" in prompt
+
+    def test_build_fix_prompt_includes_custom_commands(self) -> None:
+        """Prompt includes custom validation commands when provided."""
+        custom_commands = {
+            "lint": ("pylint", "src/"),
+            "test": ("python", "-m", "pytest", "-v"),
+        }
+        result = create_validation_result(success=False)
+        prompt = _build_fix_prompt(
+            result,
+            ["lint", "test"],
+            attempt_number=1,
+            validation_commands=custom_commands,
+        )
+
+        assert "pylint src/" in prompt
+        assert "python -m pytest -v" in prompt
+        # Should NOT include default commands
+        assert "ruff check" not in prompt
+
+    def test_build_fix_prompt_commands_from_validation_result(self) -> None:
+        """Prompt uses commands embedded in validation result via _validation_commands."""
+        from maverick.library.actions.validation import DEFAULT_STAGE_COMMANDS
+
+        result = create_validation_result(success=False)
+        # When no explicit commands passed, defaults are used
+        prompt = _build_fix_prompt(result, ["format"], attempt_number=1)
+
+        expected_cmd = " ".join(DEFAULT_STAGE_COMMANDS["format"])
+        assert expected_cmd in prompt

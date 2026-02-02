@@ -517,3 +517,145 @@ class TestRunFixRetryLoopWorkingDirectory:
             )
 
             mock_path.cwd.assert_called_once()
+
+
+class TestRunFixRetryLoopValidationCommands:
+    """Tests for validation_commands parameter passthrough."""
+
+    @pytest.mark.asyncio
+    async def test_run_fix_retry_loop_passes_commands_to_build_prompt(self) -> None:
+        """Custom commands are passed to _build_fix_prompt."""
+        validation_result = create_validation_result(success=False)
+        custom_commands = {
+            "lint": ("pylint", "src/"),
+            "test": ("python", "-m", "pytest"),
+        }
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+            patch(
+                "maverick.library.actions.validation._build_fix_prompt"
+            ) as mock_prompt,
+        ):
+            mock_prompt.return_value = "Fix prompt"
+            mock_fixer.return_value = create_fix_result(success=True)
+            mock_validation.return_value = create_validation_result(success=True)
+
+            await run_fix_retry_loop(
+                stages=["lint", "test"],
+                max_attempts=1,
+                fixer_agent="fixer",
+                validation_result=validation_result,
+                validation_commands=custom_commands,
+            )
+
+            mock_prompt.assert_called_once()
+            call_args = mock_prompt.call_args
+            assert call_args[0][3] == custom_commands  # 4th positional arg
+
+    @pytest.mark.asyncio
+    async def test_run_fix_retry_loop_passes_commands_to_run_validation(self) -> None:
+        """Custom commands are passed to _run_validation."""
+        validation_result = create_validation_result(success=False)
+        custom_commands = {
+            "lint": ("pylint", "src/"),
+        }
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+        ):
+            mock_fixer.return_value = create_fix_result(success=True)
+            mock_validation.return_value = create_validation_result(success=True)
+
+            await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=1,
+                fixer_agent="fixer",
+                validation_result=validation_result,
+                validation_commands=custom_commands,
+            )
+
+            mock_validation.assert_called_once()
+            assert (
+                mock_validation.call_args.kwargs["validation_commands"]
+                == custom_commands
+            )
+
+    @pytest.mark.asyncio
+    async def test_run_fix_retry_loop_extracts_commands_from_validation_result(
+        self,
+    ) -> None:
+        """Commands embedded in validation_result are extracted and used."""
+        validation_result = create_validation_result(
+            success=False,
+            stage_results={
+                "lint": {
+                    "passed": False,
+                    "output": "errors",
+                    "errors": [{"message": "E501"}],
+                },
+                "_validation_commands": {
+                    "lint": ["pylint", "src/"],
+                },
+            },
+        )
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+        ):
+            mock_fixer.return_value = create_fix_result(success=True)
+            mock_validation.return_value = create_validation_result(success=True)
+
+            await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=1,
+                fixer_agent="fixer",
+                validation_result=validation_result,
+            )
+
+            # Should have extracted and converted to tuples
+            call_args = mock_validation.call_args.kwargs
+            assert call_args["validation_commands"] == {"lint": ("pylint", "src/")}
+
+    @pytest.mark.asyncio
+    async def test_run_fix_retry_loop_uses_defaults_when_no_commands(self) -> None:
+        """Falls back to DEFAULT_STAGE_COMMANDS when no commands provided."""
+        from maverick.library.actions.validation import DEFAULT_STAGE_COMMANDS
+
+        validation_result = create_validation_result(success=False)
+
+        with (
+            patch(
+                "maverick.library.actions.validation._invoke_fixer_agent"
+            ) as mock_fixer,
+            patch(
+                "maverick.library.actions.validation._run_validation"
+            ) as mock_validation,
+        ):
+            mock_fixer.return_value = create_fix_result(success=True)
+            mock_validation.return_value = create_validation_result(success=True)
+
+            await run_fix_retry_loop(
+                stages=["lint"],
+                max_attempts=1,
+                fixer_agent="fixer",
+                validation_result=validation_result,
+            )
+
+            call_args = mock_validation.call_args.kwargs
+            assert call_args["validation_commands"] == DEFAULT_STAGE_COMMANDS

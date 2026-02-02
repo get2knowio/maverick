@@ -185,6 +185,13 @@ async def execute_validate_step(
                     f"({stage_result.duration_ms}ms, {error_count} errors)"
                 )
 
+        # Include resolved validation commands so the fix loop can reuse them
+        # instead of falling back to defaults (which may not match project config)
+        resolved_commands: dict[str, list[str]] = {}
+        for vs in validation_stages:
+            resolved_commands[vs.name] = list(vs.command)
+        stage_results["_validation_commands"] = resolved_commands
+
         return ValidationResult(
             success=output.success,
             stages=list(stages),

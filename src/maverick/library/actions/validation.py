@@ -44,6 +44,7 @@ async def run_fix_retry_loop(
     validation_result: dict[str, Any],
     cwd: str | None = None,
     stream_callback: Any | None = None,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     """Execute fix-and-retry loop for validation failures.
 
@@ -59,6 +60,8 @@ async def run_fix_retry_loop(
         validation_result: Initial validation result from validate step
         cwd: Working directory for validation commands (defaults to Path.cwd())
         stream_callback: Optional callback for streaming agent output
+        validation_commands: Optional mapping of stage name to command tuple.
+            If None, defaults to DEFAULT_STAGE_COMMANDS.
 
     Returns:
         Dict with:
@@ -93,6 +96,19 @@ async def run_fix_retry_loop(
     # Resolve working directory
     working_dir = Path(cwd) if cwd else Path.cwd()
 
+    # Resolve validation commands: explicit > from validation result > defaults
+    if validation_commands is not None:
+        resolved_commands = validation_commands
+    else:
+        # Try to extract commands from validation result (set by validate step handler)
+        result_commands = validation_result.get("stage_results", {}).get(
+            "_validation_commands"
+        )
+        if isinstance(result_commands, dict):
+            resolved_commands = {k: tuple(v) for k, v in result_commands.items()}
+        else:
+            resolved_commands = DEFAULT_STAGE_COMMANDS
+
     # Track state across retry attempts
     attempts = 0
     fixes_applied: list[str] = []
@@ -117,7 +133,9 @@ async def run_fix_retry_loop(
 
                 try:
                     # Build fix context from validation errors
-                    fix_prompt = _build_fix_prompt(current_result, stages, attempts)
+                    fix_prompt = _build_fix_prompt(
+                        current_result, stages, attempts, resolved_commands
+                    )
 
                     # Invoke the fixer agent
                     fix_result = await _invoke_fixer_agent(
@@ -147,6 +165,7 @@ async def run_fix_retry_loop(
                     current_result = await _run_validation(
                         stages=stages,
                         cwd=working_dir,
+                        validation_commands=resolved_commands,
                     )
 
                     if current_result.get("success", False):
@@ -286,12 +305,15 @@ async def _invoke_fixer_agent(
 async def _run_validation(
     stages: list[str],
     cwd: Path,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     """Re-run validation stages after fix attempts.
 
     Args:
         stages: List of stage names to run
         cwd: Working directory for validation commands
+        validation_commands: Optional mapping of stage name to command tuple.
+            If None, defaults to DEFAULT_STAGE_COMMANDS.
 
     Returns:
         Validation result dict with success status and per-stage results
@@ -301,10 +323,12 @@ async def _run_validation(
         from maverick.runners.models import ValidationStage as RunnerValidationStage
         from maverick.runners.validation import ValidationRunner
 
+        commands = validation_commands or DEFAULT_STAGE_COMMANDS
+
         # Build ValidationStage objects from stage names
         validation_stages = []
         for stage_name in stages:
-            command = DEFAULT_STAGE_COMMANDS.get(stage_name)
+            command = commands.get(stage_name)
             if command:
                 validation_stages.append(
                     RunnerValidationStage(
@@ -364,6 +388,7 @@ def _build_fix_prompt(
     validation_result: dict[str, Any],
     stages: list[str],
     attempt_number: int,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> str:
     """Build a prompt for the fixer agent based on validation errors.
 
@@ -371,10 +396,14 @@ def _build_fix_prompt(
         validation_result: Validation result containing errors
         stages: Validation stages that were run
         attempt_number: Current fix attempt number
+        validation_commands: Optional mapping of stage name to command tuple.
+            If None, defaults to DEFAULT_STAGE_COMMANDS.
 
     Returns:
         Formatted prompt string for fixer agent
     """
+    commands = validation_commands or DEFAULT_STAGE_COMMANDS
+
     errors = []
     stage_results = validation_result.get("stage_results", {})
     for stage_name, stage_result in stage_results.items():
@@ -393,15 +422,29 @@ def _build_fix_prompt(
 
     errors_text = "\n".join(errors) if errors else "No specific errors provided"
 
+    # Build validation commands section so the fixer knows what tools to use
+    command_lines = []
+    for stage_name in stages:
+        cmd = commands.get(stage_name)
+        if cmd:
+            command_lines.append(f"  - {stage_name}: {' '.join(cmd)}")
+    commands_text = (
+        "\n".join(command_lines) if command_lines else "  (no commands configured)"
+    )
+
     return f"""Fix validation failures (Attempt {attempt_number}):
 
 Validation Stages Run: {", ".join(stages)}
+
+Validation Commands (use these, NOT npm/node commands):
+{commands_text}
 
 Errors:
 {errors_text}
 
 Please analyze these validation failures and apply minimal fixes to resolve them.
 Focus on fixing the errors without refactoring unrelated code.
+Use only the validation commands listed above when checking your fixes.
 """
 
 
