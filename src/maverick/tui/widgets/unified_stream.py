@@ -19,6 +19,30 @@ from textual.widgets import Static
 from maverick.tui.models.enums import StreamEntryType
 from maverick.tui.models.widget_state import UnifiedStreamEntry, UnifiedStreamState
 
+# Rich colour names for badge text per entry type.
+# These are applied as inline markup: [colour]badge[/]
+_BADGE_COLORS: dict[StreamEntryType, str] = {
+    StreamEntryType.STEP_START: "dodger_blue1",
+    StreamEntryType.STEP_COMPLETE: "green3",
+    StreamEntryType.STEP_FAILED: "red1",
+    StreamEntryType.STEP_OUTPUT: "grey62",
+    StreamEntryType.AGENT_OUTPUT: "white",
+    StreamEntryType.AGENT_THINKING: "grey62 italic",
+    StreamEntryType.TOOL_CALL: "grey50",
+    StreamEntryType.TOOL_RESULT: "grey50",
+    StreamEntryType.LOOP_START: "gold1",
+    StreamEntryType.LOOP_COMPLETE: "gold1",
+    StreamEntryType.ERROR: "red1",
+    StreamEntryType.INFO: "cyan",
+}
+
+# Override badge colour when StepOutput has a non-info level.
+_LEVEL_COLORS: dict[str, str] = {
+    "success": "green3",
+    "warning": "gold1",
+    "error": "red1",
+}
+
 
 class UnifiedStreamWidget(Widget):
     """Widget for displaying unified workflow event stream.
@@ -81,104 +105,29 @@ class UnifiedStreamWidget(Widget):
         scrollbar-color: $text-disabled;
     }
 
-    /* Individual stream entries */
+    /* Individual stream entries - flat Static widgets with inline Rich markup */
     UnifiedStreamWidget .stream-entry {
         height: auto;
         width: 100%;
         padding: 0 1;
     }
 
-    UnifiedStreamWidget .stream-entry .badge {
-        min-width: 12;
-        margin-right: 1;
-    }
-
-    UnifiedStreamWidget .stream-entry .content {
-        width: 1fr;
-    }
-
-    /* Entry type styling */
-    UnifiedStreamWidget .stream-entry.step-start .badge {
-        color: $primary;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-complete .badge {
-        color: $success;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-failed .badge {
+    /* Entry type styling applied to the whole Static widget */
+    UnifiedStreamWidget .stream-entry.step-output.level-error {
         color: $error;
     }
 
-    UnifiedStreamWidget .stream-entry.step-output .badge {
-        color: $text-muted;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-output .content {
-        color: $text;
-    }
-
-    /* Step output level-based styling */
-    UnifiedStreamWidget .stream-entry.step-output.level-success .badge {
-        color: $success;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-output.level-warning .badge {
-        color: $warning;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-output.level-error .badge {
-        color: $error;
-    }
-
-    UnifiedStreamWidget .stream-entry.step-output.level-error .content {
-        color: $error;
-    }
-
-    UnifiedStreamWidget .stream-entry.agent-output .badge {
-        color: $text;
-    }
-
-    UnifiedStreamWidget .stream-entry.agent-thinking .badge {
+    UnifiedStreamWidget .stream-entry.agent-thinking {
         color: $text-muted;
         text-style: italic;
     }
 
-    UnifiedStreamWidget .stream-entry.agent-thinking .content {
-        color: $text-muted;
-        text-style: italic;
-    }
-
-    UnifiedStreamWidget .stream-entry.tool-call .badge {
-        color: $secondary;
-    }
-
-    UnifiedStreamWidget .stream-entry.tool-result .badge {
+    UnifiedStreamWidget .stream-entry.tool-result {
         color: $text-muted;
     }
 
-    UnifiedStreamWidget .stream-entry.tool-result .content {
-        color: $text-muted;
-    }
-
-    UnifiedStreamWidget .stream-entry.loop-start .badge {
-        color: $warning;
-    }
-
-    UnifiedStreamWidget .stream-entry.loop-complete .badge {
-        color: $warning;
-    }
-
-    UnifiedStreamWidget .stream-entry.error .badge {
+    UnifiedStreamWidget .stream-entry.error {
         color: $error;
-    }
-
-    UnifiedStreamWidget .stream-entry.error .content {
-        color: $error;
-    }
-
-    UnifiedStreamWidget .stream-entry.info .badge {
-        color: $secondary;
     }
 
     /* Continuation lines for multi-line content */
@@ -298,11 +247,21 @@ class UnifiedStreamWidget(Widget):
             else:
                 content = f"{content} ({duration_sec:.1f}s)"
 
-        # Build the entry line
-        # Escape badge and content to prevent Rich markup interpretation.
-        # Badges contain brackets (e.g., "[STEP]", "[OK]") and content may
-        # contain arbitrary text including brackets from tool output.
-        line = f"{escape_markup(entry.badge)} {escape_markup(content)}"
+        # Build a flat Static with inline Rich markup for badge colour.
+        # Badge and content are escaped to prevent bracket interpretation,
+        # then the badge is wrapped in a colour tag we control.
+        badge_escaped = escape_markup(entry.badge)
+        content_escaped = escape_markup(content)
+
+        badge_color = _BADGE_COLORS.get(entry.entry_type)
+        if entry.entry_type == StreamEntryType.STEP_OUTPUT and entry.level != "info":
+            badge_color = _LEVEL_COLORS.get(entry.level, badge_color)
+        if badge_color:
+            badge_markup = f"[{badge_color}]{badge_escaped}[/]"
+        else:
+            badge_markup = badge_escaped
+
+        line = f"{badge_markup} {content_escaped}"
 
         return Static(
             line,

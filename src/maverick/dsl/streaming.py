@@ -58,58 +58,65 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     """Format a tool call for streaming display with └ prefix.
 
     Uses └ prefix for visually distinct but unobtrusive tool activity display.
-    Format: "└ ToolName: key_parameter"
+    Format: "└ ToolName: key_parameter\\n"
 
     Note: This output must be plain text (no Rich markup tags) because it flows
     through sentence-boundary text buffering that can split content mid-string.
     Rich markup like [dim]...[/dim] would be broken across buffer flushes,
     causing MarkupError. Styling is applied at the widget level via CSS classes.
 
+    The trailing newline is critical: the sentence-boundary buffer splits at
+    ": " (colon+space), which would break "└ Bash: make test" into two entries.
+    The trailing newline ensures it is the last boundary in the buffer, so the
+    entire tool call line is flushed as one piece. The newline is stripped by
+    .rstrip() before display.
+
     Args:
         tool_name: Name of the tool being called
         tool_input: Input parameters for the tool
 
     Returns:
-        Formatted tool call string, or empty string if no meaningful display.
+        Formatted tool call string with trailing newline, or empty string
+        if no meaningful display.
     """
     if tool_name == "Read":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{_TOOL_PREFIX} Read: {short_path}"
+            return f"{_TOOL_PREFIX} Read: {short_path}\n"
         return ""
 
     if tool_name == "Write":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{_TOOL_PREFIX} Write: {short_path}"
+            return f"{_TOOL_PREFIX} Write: {short_path}\n"
         return ""
 
     if tool_name == "Edit":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"{_TOOL_PREFIX} Edit: {short_path}"
+            return f"{_TOOL_PREFIX} Edit: {short_path}\n"
         return ""
 
     if tool_name == "Glob":
         pattern = tool_input.get("pattern", "")
-        return f"{_TOOL_PREFIX} Glob: {pattern}"
+        return f"{_TOOL_PREFIX} Glob: {pattern}\n"
 
     if tool_name == "Grep":
         pattern = tool_input.get("pattern", "")
-        return f"{_TOOL_PREFIX} Grep: {pattern}"
+        return f"{_TOOL_PREFIX} Grep: {pattern}\n"
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
         if len(command) > 80:
             command = command[:77] + "..."
-        return f"{_TOOL_PREFIX} Bash: {command}"
+        return f"{_TOOL_PREFIX} Bash: {command}\n"
 
     if tool_name == "Task":
         description = tool_input.get("description", "")
-        return f"{_TOOL_PREFIX} Task: {description}"
+        return f"{_TOOL_PREFIX} Task: {description}\n"
 
     if tool_name in ("WebFetch", "WebSearch"):
         url = tool_input.get("url", "")
@@ -117,10 +124,10 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         param = url or query
         if len(param) > 60:
             param = param[:57] + "..."
-        return f"{_TOOL_PREFIX} {tool_name}: {param}"
+        return f"{_TOOL_PREFIX} {tool_name}: {param}\n"
 
     # Generic fallback for other tools
-    return f"{_TOOL_PREFIX} {tool_name}"
+    return f"{_TOOL_PREFIX} {tool_name}\n"
 
 
 @runtime_checkable
@@ -289,7 +296,7 @@ class StreamingContext:
             indicator = "-"
             level = "warning"
 
-        message = f"[dim]{_TOOL_PREFIX} {stage_name} {indicator}[/dim]"
+        message = f"{_TOOL_PREFIX} {stage_name} {indicator}"
         if details:
             message += f" {details}"
 
