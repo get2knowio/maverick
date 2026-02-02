@@ -139,35 +139,22 @@ async def execute_agent_step(
         agent=step.agent,
     )
     if has_event_callback and has_stream_attr:
-        # Tool emojis used to detect tool call output
-        tool_emojis = {
-            "\U0001f4d6",  # 📖 Read
-            "\U0001f4dd",  # 📝 Write
-            "\u270f\ufe0f",  # ✏️ Edit
-            "\U0001f50d",  # 🔍 Glob/Grep
-            "\U0001f4bb",  # 💻 Bash
-            "\U0001f916",  # 🤖 Task
-            "\U0001f310",  # 🌐 WebFetch/WebSearch
-            "\U0001f527",  # 🔧 Generic
-        }
 
         async def stream_text_callback(text: str) -> None:
             """Forward agent output to event queue as AgentStreamChunk.
 
             Handles line break transitions between tool calls and text output:
-            - Tool calls start with newline (handled in _format_tool_call)
+            - Tool calls use dim └ prefix (from _format_tool_call)
             - First text after tool call gets extra newline prefix
             """
             nonlocal output_was_streamed, last_was_tool_call
             output_was_streamed = True  # Mark that we actually streamed output
 
-            # Detect if this is a tool call (starts with newline + emoji)
-            is_tool_call = False
+            # Detect if this is a tool call (starts with └ or [dim]└)
             stripped = text.lstrip("\n")
-            if stripped:
-                first_char = stripped[0]
-                # Check single char emojis and multi-char emoji sequences
-                is_tool_call = first_char in tool_emojis or stripped[:2] in tool_emojis
+            is_tool_call = stripped.startswith("\u2514") or stripped.startswith(
+                "[dim]\u2514"
+            )
 
             # Add extra newlines when switching between tool output and text
             # This creates visual separation (blank line) between modes
