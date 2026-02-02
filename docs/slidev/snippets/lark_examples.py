@@ -7,10 +7,10 @@ from typing import Any
 
 from lark import Lark, Token, Transformer, v_args
 
-
 # =============================================================================
 # 9.1 - Basic Lark Example
 # =============================================================================
+
 
 # The wrong way - regex-based parsing
 def parse_expression_regex(text: str) -> tuple[str, ...] | None:
