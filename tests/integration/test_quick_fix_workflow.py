@@ -238,12 +238,16 @@ steps:
                     events.append(event)
 
                 # Verify workflow events were generated
+                from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
                 assert len(events) > 0
-                # Validation events come first
+                # Validation and preflight events come first
                 assert isinstance(events[0], ValidationStarted)
                 assert isinstance(events[1], ValidationCompleted)
-                assert isinstance(events[2], WorkflowStarted)
-                assert events[2].workflow_name == "quick-fix"
+                assert isinstance(events[2], PreflightStarted)
+                assert isinstance(events[3], PreflightCompleted)
+                assert isinstance(events[4], WorkflowStarted)
+                assert events[4].workflow_name == "quick-fix"
 
                 # Verify final event is workflow completion
                 assert isinstance(events[-1], WorkflowCompleted)

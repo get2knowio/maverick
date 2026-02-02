@@ -68,23 +68,27 @@ async def test_executor_simple_workflow(registry):
     async for event in executor.execute(workflow):
         events.append(event)
 
-    # Verify events (ValidationStarted, ValidationCompleted, then workflow events)
-    assert len(events) == 6
+    # Verify events (Validation, Preflight, then workflow events)
+    from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
+    assert len(events) == 8
     assert isinstance(events[0], ValidationStarted)
     assert isinstance(events[1], ValidationCompleted)
-    assert isinstance(events[2], WorkflowStarted)
-    assert events[2].workflow_name == "test-workflow"
+    assert isinstance(events[2], PreflightStarted)
+    assert isinstance(events[3], PreflightCompleted)
+    assert isinstance(events[4], WorkflowStarted)
+    assert events[4].workflow_name == "test-workflow"
 
-    assert isinstance(events[3], StepStarted)
-    assert events[3].step_name == "add_numbers"
-    assert events[3].step_type == StepType.PYTHON
+    assert isinstance(events[5], StepStarted)
+    assert events[5].step_name == "add_numbers"
+    assert events[5].step_type == StepType.PYTHON
 
-    assert isinstance(events[4], StepCompleted)
-    assert events[4].step_name == "add_numbers"
-    assert events[4].success is True
+    assert isinstance(events[6], StepCompleted)
+    assert events[6].step_name == "add_numbers"
+    assert events[6].success is True
 
-    assert isinstance(events[5], WorkflowCompleted)
-    assert events[5].success is True
+    assert isinstance(events[7], WorkflowCompleted)
+    assert events[7].success is True
 
     # Verify result
     result = executor.get_result()
@@ -173,10 +177,11 @@ async def test_executor_conditional_skip(registry):
     async for event in executor.execute(workflow, inputs={"run_step": False}):
         events.append(event)
 
-    # Should have ValidationStarted, ValidationCompleted, WorkflowStarted,
-    # StepStarted (executed_step), StepCompleted, WorkflowCompleted.
+    # Should have ValidationStarted, ValidationCompleted, PreflightStarted,
+    # PreflightCompleted, WorkflowStarted, StepStarted (executed_step),
+    # StepCompleted, WorkflowCompleted.
     # The skipped_step should not generate events
-    assert len(events) == 6
+    assert len(events) == 8
 
     step_names = [e.step_name for e in events if isinstance(e, StepStarted)]
     assert step_names == ["executed_step"]
@@ -408,22 +413,27 @@ async def test_executor_multiple_steps_event_order(registry):
     # Expected order:
     # 0. ValidationStarted
     # 1. ValidationCompleted
-    # 2. WorkflowStarted
-    # 3. StepStarted(step1)
-    # 4. StepCompleted(step1)
-    # 5. StepStarted(step2)
-    # 6. StepCompleted(step2)
-    # 7. WorkflowCompleted
+    # 2. PreflightStarted
+    # 3. PreflightCompleted
+    # 4. WorkflowStarted
+    # 5. StepStarted(step1)
+    # 6. StepCompleted(step1)
+    # 7. StepStarted(step2)
+    # 8. StepCompleted(step2)
+    # 9. WorkflowCompleted
+    from maverick.dsl.events import PreflightCompleted, PreflightStarted
 
     assert isinstance(events[0], ValidationStarted)
     assert isinstance(events[1], ValidationCompleted)
-    assert isinstance(events[2], WorkflowStarted)
-    assert isinstance(events[3], StepStarted)
-    assert events[3].step_name == "step1"
-    assert isinstance(events[4], StepCompleted)
-    assert events[4].step_name == "step1"
+    assert isinstance(events[2], PreflightStarted)
+    assert isinstance(events[3], PreflightCompleted)
+    assert isinstance(events[4], WorkflowStarted)
     assert isinstance(events[5], StepStarted)
-    assert events[5].step_name == "step2"
+    assert events[5].step_name == "step1"
     assert isinstance(events[6], StepCompleted)
-    assert events[6].step_name == "step2"
-    assert isinstance(events[7], WorkflowCompleted)
+    assert events[6].step_name == "step1"
+    assert isinstance(events[7], StepStarted)
+    assert events[7].step_name == "step2"
+    assert isinstance(events[8], StepCompleted)
+    assert events[8].step_name == "step2"
+    assert isinstance(events[9], WorkflowCompleted)

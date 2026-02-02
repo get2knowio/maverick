@@ -60,6 +60,80 @@ class StepCompleted:
 
 
 @dataclass(frozen=True, slots=True)
+class PreflightStarted:
+    """Event emitted when preflight checks begin.
+
+    Attributes:
+        prerequisites: Tuple of prerequisite names to be checked.
+        timestamp: Unix timestamp when preflight started (defaults to current time).
+    """
+
+    prerequisites: tuple[str, ...]
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightCheckPassed:
+    """Event emitted when a single preflight check passes.
+
+    Attributes:
+        name: Prerequisite name (e.g., "git_identity").
+        display_name: Human-readable name (e.g., "Git Identity").
+        duration_ms: How long the check took in milliseconds.
+        message: Success message from the check.
+        timestamp: Unix timestamp when check completed.
+    """
+
+    name: str
+    display_name: str
+    duration_ms: int
+    message: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightCheckFailed:
+    """Event emitted when a single preflight check fails.
+
+    Attributes:
+        name: Prerequisite name (e.g., "git_identity").
+        display_name: Human-readable name (e.g., "Git Identity").
+        duration_ms: How long the check took in milliseconds.
+        message: Error message from the check.
+        remediation: User-facing instructions to fix the issue.
+        affected_steps: Tuple of step names that require this prerequisite.
+        timestamp: Unix timestamp when check failed.
+    """
+
+    name: str
+    display_name: str
+    duration_ms: int
+    message: str
+    remediation: str = ""
+    affected_steps: tuple[str, ...] = ()
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightCompleted:
+    """Event emitted when all preflight checks complete.
+
+    Attributes:
+        success: True if all checks passed, False otherwise.
+        total_duration_ms: Total time for all checks in milliseconds.
+        passed_count: Number of checks that passed.
+        failed_count: Number of checks that failed.
+        timestamp: Unix timestamp when preflight completed.
+    """
+
+    success: bool
+    total_duration_ms: int
+    passed_count: int
+    failed_count: int
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowStarted:
     """Event emitted when a workflow begins execution.
 
@@ -294,7 +368,11 @@ class StepOutput:
 
 # Type alias for all progress events
 ProgressEvent = (
-    StepStarted
+    PreflightStarted
+    | PreflightCheckPassed
+    | PreflightCheckFailed
+    | PreflightCompleted
+    | StepStarted
     | StepCompleted
     | WorkflowStarted
     | WorkflowCompleted

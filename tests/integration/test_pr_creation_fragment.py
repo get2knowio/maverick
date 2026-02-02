@@ -146,11 +146,15 @@ class TestCreatePRWithSummaryFragment:
         ):
             events.append(event)
 
-        # Verify event sequence (validation events first, then workflow events)
+        # Verify event sequence (validation, preflight, then workflow events)
+        from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
         assert isinstance(events[0], ValidationStarted)
         assert isinstance(events[1], ValidationCompleted)
-        assert isinstance(events[2], WorkflowStarted)
-        assert events[2].workflow_name == "create-pr-with-summary"
+        assert isinstance(events[2], PreflightStarted)
+        assert isinstance(events[3], PreflightCompleted)
+        assert isinstance(events[4], WorkflowStarted)
+        assert events[4].workflow_name == "create-pr-with-summary"
 
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]
@@ -206,10 +210,14 @@ class TestCreatePRWithSummaryFragment:
         ):
             events.append(event)
 
-        # Verify event sequence (validation events first, then workflow events)
+        # Verify event sequence (validation, preflight, then workflow events)
+        from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
         assert isinstance(events[0], ValidationStarted)
         assert isinstance(events[1], ValidationCompleted)
-        assert isinstance(events[2], WorkflowStarted)
+        assert isinstance(events[2], PreflightStarted)
+        assert isinstance(events[3], PreflightCompleted)
+        assert isinstance(events[4], WorkflowStarted)
 
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]

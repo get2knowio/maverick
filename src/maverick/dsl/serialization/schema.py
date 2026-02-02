@@ -104,6 +104,10 @@ class StepRecord(BaseModel):
     name: str = Field(..., min_length=1, description="Unique step identifier")
     type: StepType
     when: str | None = Field(None, description="Optional condition expression")
+    requires: list[str] = Field(
+        default_factory=list,
+        description="Prerequisite names this step requires (e.g., ['git', 'gh_auth'])",
+    )
 
     @field_validator("name")
     @classmethod

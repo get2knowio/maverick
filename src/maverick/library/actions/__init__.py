@@ -95,34 +95,80 @@ def register_all_actions(registry: ComponentRegistry) -> None:
 
     Args:
         registry: Component registry to register actions with.
+
+    Note:
+        Actions are registered with `requires` metadata specifying which
+        prerequisite checks they need. These are automatically collected
+        by the preflight system before workflow execution.
     """
-    # Preflight actions
+    # Preflight actions (no requires - it's the check itself)
     registry.actions.register("run_preflight_checks", run_preflight_checks)
 
     # Workspace actions
-    registry.actions.register("init_workspace", init_workspace)
+    registry.actions.register(
+        "init_workspace",
+        init_workspace,
+        requires=("git", "git_repo", "git_remote"),
+    )
 
-    # Task actions
+    # Task actions (no external deps)
     registry.actions.register("get_phase_names", get_phase_names)
 
-    # Git actions
-    registry.actions.register("git_commit", git_commit)
-    registry.actions.register("git_push", git_push)
-    registry.actions.register("git_has_changes", git_has_changes)
-    registry.actions.register("create_git_branch", create_git_branch)
+    # Git actions - require git CLI and identity for commits
+    registry.actions.register(
+        "git_commit",
+        git_commit,
+        requires=("git", "git_identity"),
+    )
+    registry.actions.register(
+        "git_push",
+        git_push,
+        requires=("git", "git_remote"),
+    )
+    registry.actions.register(
+        "git_has_changes",
+        git_has_changes,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
+        "create_git_branch",
+        create_git_branch,
+        requires=("git", "git_repo"),
+    )
 
-    # GitHub actions
-    registry.actions.register("create_github_pr", create_github_pr)
-    registry.actions.register("fetch_github_issues", fetch_github_issues)
-    registry.actions.register("fetch_github_issue", fetch_github_issue)
+    # GitHub actions - require gh CLI and authentication
+    registry.actions.register(
+        "create_github_pr",
+        create_github_pr,
+        requires=("gh", "gh_auth"),
+    )
+    registry.actions.register(
+        "fetch_github_issues",
+        fetch_github_issues,
+        requires=("gh", "gh_auth"),
+    )
+    registry.actions.register(
+        "fetch_github_issue",
+        fetch_github_issue,
+        requires=("gh", "gh_auth"),
+    )
 
     # Review actions (with both prefixed and unprefixed names for compatibility)
-    registry.actions.register("gather_pr_context", gather_pr_context)
+    # Note: Most review actions may use git internally
+    registry.actions.register(
+        "gather_pr_context",
+        gather_pr_context,
+        requires=("git", "git_repo"),
+    )
     registry.actions.register("combine_review_results", combine_review_results)
     registry.actions.register("analyze_review_findings", analyze_review_findings)
     registry.actions.register("run_review_fix_loop", run_review_fix_loop)
     registry.actions.register("generate_review_fix_report", generate_review_fix_report)
-    registry.actions.register("review.gather_pr_context", gather_pr_context)
+    registry.actions.register(
+        "review.gather_pr_context",
+        gather_pr_context,
+        requires=("git", "git_repo"),
+    )
     registry.actions.register("review.combine_review_results", combine_review_results)
     registry.actions.register("review.analyze_review_findings", analyze_review_findings)
     registry.actions.register("review.run_review_fix_loop", run_review_fix_loop)
@@ -130,14 +176,18 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         "review.generate_review_fix_report", generate_review_fix_report
     )
 
-    # Cleanup actions
-    registry.actions.register("process_selected_issues", process_selected_issues)
+    # Cleanup actions - work with GitHub issues
+    registry.actions.register(
+        "process_selected_issues",
+        process_selected_issues,
+        requires=("gh", "gh_auth"),
+    )
     registry.actions.register("generate_cleanup_summary", generate_cleanup_summary)
 
-    # Validation actions
+    # Validation actions (no external deps - uses configured commands)
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
 
-    # Dry-run actions
+    # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)

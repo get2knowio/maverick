@@ -434,35 +434,40 @@ async def test_event_sequence_with_rollbacks(
     # Verify event sequence:
     # 0. ValidationStarted
     # 1. ValidationCompleted
-    # 2. WorkflowStarted
-    # 3. StepStarted (step_a)
-    # 4. StepCompleted (step_a, success)
-    # 5. StepStarted (failing_step)
-    # 6. StepCompleted (failing_step, failure)
-    # 7. RollbackStarted (step_a)
-    # 8. RollbackCompleted (step_a)
-    # 9. WorkflowCompleted (failure)
+    # 2. PreflightStarted
+    # 3. PreflightCompleted
+    # 4. WorkflowStarted
+    # 5. StepStarted (step_a)
+    # 6. StepCompleted (step_a, success)
+    # 7. StepStarted (failing_step)
+    # 8. StepCompleted (failing_step, failure)
+    # 9. RollbackStarted (step_a)
+    # 10. RollbackCompleted (step_a)
+    # 11. WorkflowCompleted (failure)
+    from maverick.dsl.events import PreflightCompleted, PreflightStarted
 
     assert isinstance(events[0], ValidationStarted)
     assert isinstance(events[1], ValidationCompleted)
-    assert isinstance(events[2], WorkflowStarted)
-    assert isinstance(events[3], StepStarted)
-    assert events[3].step_name == "step_a"
-    assert isinstance(events[4], StepCompleted)
-    assert events[4].step_name == "step_a"
-    assert events[4].success
-
+    assert isinstance(events[2], PreflightStarted)
+    assert isinstance(events[3], PreflightCompleted)
+    assert isinstance(events[4], WorkflowStarted)
     assert isinstance(events[5], StepStarted)
-    assert events[5].step_name == "failing_step"
+    assert events[5].step_name == "step_a"
     assert isinstance(events[6], StepCompleted)
-    assert events[6].step_name == "failing_step"
-    assert not events[6].success
+    assert events[6].step_name == "step_a"
+    assert events[6].success
 
-    assert isinstance(events[7], RollbackStarted)
-    assert events[7].step_name == "step_a"
-    assert isinstance(events[8], RollbackCompleted)
-    assert events[8].step_name == "step_a"
-    assert events[8].success
+    assert isinstance(events[7], StepStarted)
+    assert events[7].step_name == "failing_step"
+    assert isinstance(events[8], StepCompleted)
+    assert events[8].step_name == "failing_step"
+    assert not events[8].success
 
-    assert isinstance(events[9], WorkflowCompleted)
-    assert not events[9].success
+    assert isinstance(events[9], RollbackStarted)
+    assert events[9].step_name == "step_a"
+    assert isinstance(events[10], RollbackCompleted)
+    assert events[10].step_name == "step_a"
+    assert events[10].success
+
+    assert isinstance(events[11], WorkflowCompleted)
+    assert not events[11].success

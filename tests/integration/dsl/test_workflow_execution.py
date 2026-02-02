@@ -225,35 +225,42 @@ class TestUserStory1TwoStepWorkflow:
         ):
             events.append(event)
 
-        # Verify event sequence (includes validation events at start)
-        assert len(events) == 8
+        # Verify event sequence (includes validation and preflight events at start)
+        assert len(events) == 10
 
         # Validation events
         assert isinstance(events[0], ValidationStarted)
         assert isinstance(events[1], ValidationCompleted)
 
-        assert isinstance(events[2], WorkflowStarted)
-        assert events[2].workflow_name == "two-step-workflow"
-        assert events[2].inputs == {"input_data": "hello world"}
+        # Preflight events (no prerequisites for simple workflow)
+        from maverick.dsl.events import PreflightCompleted, PreflightStarted
 
-        assert isinstance(events[3], StepStarted)
-        assert events[3].step_name == "parse"
-        assert events[3].step_type == StepType.PYTHON
+        assert isinstance(events[2], PreflightStarted)
+        assert isinstance(events[3], PreflightCompleted)
+        assert events[3].success is True
 
-        assert isinstance(events[4], StepCompleted)
-        assert events[4].step_name == "parse"
-        assert events[4].success is True
+        assert isinstance(events[4], WorkflowStarted)
+        assert events[4].workflow_name == "two-step-workflow"
+        assert events[4].inputs == {"input_data": "hello world"}
 
         assert isinstance(events[5], StepStarted)
-        assert events[5].step_name == "format"
+        assert events[5].step_name == "parse"
+        assert events[5].step_type == StepType.PYTHON
 
         assert isinstance(events[6], StepCompleted)
-        assert events[6].step_name == "format"
+        assert events[6].step_name == "parse"
         assert events[6].success is True
 
-        assert isinstance(events[7], WorkflowCompleted)
-        assert events[7].workflow_name == "two-step-workflow"
-        assert events[7].success is True
+        assert isinstance(events[7], StepStarted)
+        assert events[7].step_name == "format"
+
+        assert isinstance(events[8], StepCompleted)
+        assert events[8].step_name == "format"
+        assert events[8].success is True
+
+        assert isinstance(events[9], WorkflowCompleted)
+        assert events[9].workflow_name == "two-step-workflow"
+        assert events[9].success is True
 
         # Verify WorkflowResult
         result = executor.get_result()

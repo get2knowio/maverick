@@ -166,6 +166,54 @@ async def run_preflight_checks(
             logger.error("Git not found")
         else:
             logger.info("Git is available")
+            # Also check git identity is configured (required for commits)
+            try:
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "git",
+                        "config",
+                        "user.name",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
+                    timeout=5,
+                )
+                stdout, _ = await proc.communicate()
+                if proc.returncode != 0 or not stdout.strip():
+                    git_available = False
+                    errors.append(
+                        "Git user.name is not configured. "
+                        "Run: git config --global user.name 'Your Name'"
+                    )
+                    logger.error("Git user.name not configured")
+
+                proc = await asyncio.wait_for(
+                    asyncio.create_subprocess_exec(
+                        "git",
+                        "config",
+                        "user.email",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    ),
+                    timeout=5,
+                )
+                stdout, _ = await proc.communicate()
+                if proc.returncode != 0 or not stdout.strip():
+                    git_available = False
+                    errors.append(
+                        "Git user.email is not configured. "
+                        "Run: git config --global user.email 'you@example.com'"
+                    )
+                    logger.error("Git user.email not configured")
+
+                if git_available:
+                    logger.info("Git identity is configured")
+            except TimeoutError:
+                warnings.append("Git identity check timed out")
+                logger.warning("Git identity check timed out")
+            except OSError as e:
+                warnings.append(f"Git identity check failed: {e}")
+                logger.warning("Git identity check failed", error=str(e))
 
     # Check GitHub CLI
     if check_github:

@@ -158,10 +158,16 @@ class TestReviewWorkflowIntegration:
                 events.append(event)
 
             # Verify workflow events were generated
+            from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
             assert len(events) > 0
-            # Workflow start (no validation events when validation is skipped)
-            assert isinstance(events[0], WorkflowStarted)
-            assert events[0].workflow_name == "review"
+            # Preflight events come first
+            # (no validation events when validation is skipped)
+            assert isinstance(events[0], PreflightStarted)
+            assert isinstance(events[1], PreflightCompleted)
+            # Then workflow start
+            assert isinstance(events[2], WorkflowStarted)
+            assert events[2].workflow_name == "review"
 
             # Verify final event is workflow completion
             assert isinstance(events[-1], WorkflowCompleted)
@@ -244,9 +250,13 @@ class TestReviewWorkflowIntegration:
             ):
                 events.append(event)
 
+            from maverick.dsl.events import PreflightCompleted, PreflightStarted
+
             assert len(events) > 0
-            # Workflow start (no validation events when validation is skipped)
-            assert isinstance(events[0], WorkflowStarted)
+            # Preflight events (no validation events when validation is skipped)
+            assert isinstance(events[0], PreflightStarted)
+            assert isinstance(events[1], PreflightCompleted)
+            assert isinstance(events[2], WorkflowStarted)
             # Workflow completed (may succeed or fail based on PR detection)
             # The important thing is it attempted to auto-detect
 

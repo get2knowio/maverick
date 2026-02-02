@@ -7,6 +7,7 @@ that can be referenced by name in workflow definitions.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from maverick.dsl.errors import (
     DuplicateComponentError,
@@ -14,6 +15,17 @@ from maverick.dsl.errors import (
 )
 from maverick.dsl.serialization.registry.protocol import AgentType
 from maverick.dsl.serialization.registry.validation import validate_agent_class
+
+
+@dataclass(frozen=True, slots=True)
+class AgentMetadata:
+    """Metadata for a registered agent.
+
+    Attributes:
+        requires: Tuple of prerequisite names this agent needs.
+    """
+
+    requires: tuple[str, ...] = field(default_factory=tuple)
 
 
 class AgentRegistry:
@@ -24,28 +36,32 @@ class AgentRegistry:
 
     Attributes:
         _agents: Internal dictionary mapping agent names to classes.
+        _metadata: Internal dictionary mapping agent names to metadata.
 
     Example:
         ```python
-        # Using decorator registration
-        @agent_registry.register("code_reviewer")
+        # Using decorator registration with prerequisites
+        @agent_registry.register("code_reviewer", requires=("anthropic_key",))
         class CodeReviewerAgent(MaverickAgent):
             ...
 
         # Using explicit registration
-        agent_registry.register("implementer", ImplementerAgent)
+        agent_registry.register(
+            "implementer", ImplementerAgent, requires=("anthropic_key",)
+        )
 
         # Looking up an agent
         agent_class = agent_registry.get("code_reviewer")
 
-        # Listing all registered agents
-        names = agent_registry.list_names()
+        # Getting prerequisites for an agent
+        prereqs = agent_registry.get_requires("code_reviewer")
         ```
     """
 
     def __init__(self) -> None:
         """Initialize an empty registry."""
         self._agents: dict[str, AgentType] = {}
+        self._metadata: dict[str, AgentMetadata] = {}
 
     def register(
         self,
@@ -53,6 +69,7 @@ class AgentRegistry:
         component: AgentType | None = None,
         *,
         validate: bool = True,
+        requires: tuple[str, ...] | list[str] | None = None,
     ) -> AgentType | Callable[[AgentType], AgentType]:
         """Register an agent class.
 
@@ -63,6 +80,8 @@ class AgentRegistry:
             component: Agent class to register (None when used as decorator).
             validate: Whether to validate that component inherits from
                 MaverickAgent. Set to False for testing with mock objects.
+            requires: Tuple/list of prerequisite names this agent needs.
+                These are automatically collected during preflight.
 
         Returns:
             The registered class when called directly, or a decorator function
@@ -74,32 +93,43 @@ class AgentRegistry:
 
         Example:
             ```python
-            # As a decorator
-            @registry.register("my_agent")
+            # As a decorator with prerequisites
+            @registry.register("my_agent", requires=("anthropic_key",))
             class MyAgent(MaverickAgent):
                 ...
 
-            # Direct registration
-            registry.register("my_agent", MyAgentClass)
+            # Direct registration with prerequisites
+            registry.register("my_agent", MyAgentClass, requires=["anthropic_key"])
 
             # For testing with mocks
             registry.register("mock_agent", MockAgent, validate=False)
             ```
         """
+        requires_tuple = tuple(requires) if requires else ()
+
         if component is None:
             # Used as a decorator: @registry.register("name")
             def decorator(agent_class: AgentType) -> AgentType:
-                self._register_impl(name, agent_class, validate=validate)
+                self._register_impl(
+                    name, agent_class, validate=validate, requires=requires_tuple
+                )
                 return agent_class
 
             return decorator
         else:
             # Direct call: registry.register("name", AgentClass)
-            self._register_impl(name, component, validate=validate)
+            self._register_impl(
+                name, component, validate=validate, requires=requires_tuple
+            )
             return component
 
     def _register_impl(
-        self, name: str, component: AgentType, *, validate: bool = True
+        self,
+        name: str,
+        component: AgentType,
+        *,
+        validate: bool = True,
+        requires: tuple[str, ...] = (),
     ) -> None:
         """Internal implementation of registration logic.
 
@@ -107,6 +137,7 @@ class AgentRegistry:
             name: Unique name for the agent.
             component: Agent class to register.
             validate: Whether to validate inheritance.
+            requires: Tuple of prerequisite names.
 
         Raises:
             DuplicateComponentError: If an agent with this name is already
@@ -123,6 +154,7 @@ class AgentRegistry:
                 component_name=name,
             )
         self._agents[name] = component
+        self._metadata[name] = AgentMetadata(requires=requires)
 
     def get(self, name: str) -> AgentType:
         """Look up an agent class by name.
@@ -180,3 +212,30 @@ class AgentRegistry:
             ```
         """
         return name in self._agents
+
+    def get_requires(self, name: str) -> tuple[str, ...]:
+        """Get prerequisite names for an agent.
+
+        Args:
+            name: Name of the agent.
+
+        Returns:
+            Tuple of prerequisite names, or empty tuple if none.
+
+        Raises:
+            ReferenceResolutionError: If no agent is registered with this name.
+
+        Example:
+            ```python
+            prereqs = registry.get_requires("code_reviewer")
+            # ('anthropic_key',)
+            ```
+        """
+        if name not in self._agents:
+            raise ReferenceResolutionError(
+                reference_type="agent",
+                reference_name=name,
+                available_names=list(self._agents.keys()),
+            )
+        metadata = self._metadata.get(name)
+        return metadata.requires if metadata else ()

@@ -19,6 +19,8 @@ from maverick.dsl.events import (
     AgentStreamChunk,
     LoopIterationCompleted,
     LoopIterationStarted,
+    PreflightCompleted,
+    PreflightStarted,
     ProgressEvent,
     RollbackCompleted,
     RollbackStarted,
@@ -29,6 +31,11 @@ from maverick.dsl.events import (
     ValidationStarted,
     WorkflowCompleted,
     WorkflowStarted,
+)
+from maverick.dsl.prerequisites import (
+    PrerequisiteCollector,
+    PrerequisiteRunner,
+    prerequisite_registry,
 )
 from maverick.dsl.results import RollbackError, StepResult, WorkflowResult
 from maverick.dsl.serialization.executor import checkpointing, conditions, context
@@ -300,6 +307,35 @@ class WorkflowFileExecutor:
 
         # Restore step results from checkpoint if resuming
         checkpointing.restore_context_from_checkpoint(checkpoint_data, exec_context)
+
+        # Run preflight checks before workflow starts (skip if resuming)
+        if not resume_from_checkpoint:
+            preflight_failed = False
+            async for preflight_event in self._run_preflight(workflow):
+                yield preflight_event
+                # Check if preflight failed from PreflightCompleted event
+                if (
+                    isinstance(preflight_event, PreflightCompleted)
+                    and not preflight_event.success
+                ):
+                    preflight_failed = True
+                    # Store empty result
+                    self._result = WorkflowResult(
+                        workflow_name=workflow.name,
+                        success=False,
+                        step_results=(),
+                        total_duration_ms=0,
+                        final_output=None,
+                        rollback_errors=(),
+                    )
+
+            if preflight_failed:
+                yield WorkflowCompleted(
+                    workflow_name=workflow.name,
+                    success=False,
+                    total_duration_ms=0,
+                )
+                return
 
         start_time = time.perf_counter()
         step_results: list[StepResult] = []
@@ -670,6 +706,46 @@ class WorkflowFileExecutor:
             ```
         """
         self._cancelled = True
+
+    async def _run_preflight(
+        self,
+        workflow: WorkflowFile,
+    ) -> AsyncIterator[ProgressEvent]:
+        """Run prerequisite checks before workflow execution.
+
+        Collects all required prerequisites from the workflow definition
+        and component registry, then runs them in dependency order.
+
+        Args:
+            workflow: WorkflowFile to check prerequisites for.
+
+        Yields:
+            Preflight progress events (PreflightStarted, PreflightCheckPassed,
+            PreflightCheckFailed, PreflightCompleted).
+        """
+        # Collect prerequisites from workflow and components
+        collector = PrerequisiteCollector()
+        plan = collector.collect(
+            workflow=workflow,
+            component_registry=self._registry,
+            prerequisite_registry=prerequisite_registry,
+        )
+
+        if not plan.execution_order:
+            # No prerequisites needed - emit minimal events
+            yield PreflightStarted(prerequisites=())
+            yield PreflightCompleted(
+                success=True,
+                total_duration_ms=0,
+                passed_count=0,
+                failed_count=0,
+            )
+            return
+
+        # Run prerequisites with event streaming
+        runner = PrerequisiteRunner(prerequisite_registry)
+        async for event in runner.run_with_events(plan):
+            yield event
 
     async def _execute_rollbacks(
         self,
