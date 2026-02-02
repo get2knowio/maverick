@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 
 from maverick.dsl.context import WorkflowContext
+from maverick.dsl.errors import LoopStepExecutionError
 from maverick.dsl.events import LoopIterationCompleted, LoopIterationStarted
 from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
@@ -27,6 +28,39 @@ logger = get_logger(__name__)
 
 # Key used in iteration_context to track parent loop for nested loop events
 _CURRENT_LOOP_STEP_KEY = "_current_loop_step"
+
+
+def _check_for_failures(
+    results: list[Any],
+    step_name: str,
+) -> None:
+    """Check results for exceptions and raise LoopStepExecutionError if any found.
+
+    Args:
+        results: List of results from loop iterations.
+        step_name: Name of the loop step for error reporting.
+
+    Raises:
+        LoopStepExecutionError: If any result is an exception.
+    """
+    failed_iterations: list[tuple[int, str]] = []
+
+    for idx, result in enumerate(results):
+        if isinstance(result, BaseException):
+            failed_iterations.append((idx, str(result)))
+        elif isinstance(result, list):
+            # For for_each loops, results may be lists of step results
+            for step_result in result:
+                if isinstance(step_result, BaseException):
+                    failed_iterations.append((idx, str(step_result)))
+                    break  # Only report first failure per iteration
+
+    if failed_iterations:
+        raise LoopStepExecutionError(
+            step_name=step_name,
+            failed_iterations=failed_iterations,
+            total_iterations=len(results),
+        )
 
 
 def _extract_item_label(item: Any, index: int) -> str:
@@ -160,6 +194,9 @@ async def _execute_loop_tasks(
     # Create semaphore for concurrency control (0 means unlimited)
     semaphore = anyio.Semaphore(max_concurrency) if max_concurrency > 0 else None
 
+    # Fail-fast: shared flag to stop pending iterations after a failure
+    failure_event = anyio.Event()
+
     # Track parent loop for nested loop visibility
     parent_step_name = context.iteration_context.get(_CURRENT_LOOP_STEP_KEY)
     # Set current loop as parent for any nested loops
@@ -169,6 +206,16 @@ async def _execute_loop_tasks(
         """Execute a step and store result at the correct index."""
 
         async def _execute() -> None:
+            # Skip if a previous iteration already failed
+            if failure_event.is_set():
+                logger.debug(
+                    "loop_task_skipped",
+                    step_name=step_name,
+                    index=index,
+                    reason="previous iteration failed",
+                )
+                return
+
             # Extract label from step name if available
             item_label = getattr(step_record, "name", None) or f"Task {index + 1}"
 
@@ -207,6 +254,7 @@ async def _execute_loop_tasks(
                 results[index] = exc
                 success = False
                 error_msg = str(exc)
+                failure_event.set()
 
             # Calculate duration
             duration_ms = int((time.time() - start_time) * 1000)
@@ -245,7 +293,7 @@ async def _execute_loop_tasks(
             for idx, step_record in enumerate(steps):
                 tg.start_soon(run_step, idx, step_record)
     except ExceptionGroup:
-        # Exceptions are captured in results array; continue to return them
+        # Exceptions are captured in results array; we'll check below
         pass
     finally:
         # Restore parent loop context for proper nesting
@@ -253,6 +301,9 @@ async def _execute_loop_tasks(
             context.iteration_context[_CURRENT_LOOP_STEP_KEY] = parent_step_name
         else:
             context.iteration_context.pop(_CURRENT_LOOP_STEP_KEY, None)
+
+    # Check for failures and raise if any iterations failed
+    _check_for_failures(results, step_name)
 
     return {"results": results, "events": emitted_events}
 
@@ -304,6 +355,9 @@ async def _execute_loop_for_each(
     emitted_events: list[LoopIterationStarted | LoopIterationCompleted] = []
     events_lock = anyio.Lock()
 
+    # Fail-fast: shared flag to stop pending iterations after a failure
+    failure_event = anyio.Event()
+
     # Track parent loop for nested loop visibility
     parent_step_name = context.iteration_context.get(_CURRENT_LOOP_STEP_KEY)
     # Set current loop as parent for any nested loops
@@ -334,6 +388,16 @@ async def _execute_loop_for_each(
         """
 
         async def _execute() -> None:
+            # Skip if a previous iteration already failed
+            if failure_event.is_set():
+                logger.debug(
+                    "loop_iteration_skipped",
+                    step_name=step.name,
+                    index=index,
+                    reason="previous iteration failed",
+                )
+                return
+
             # Extract label for TUI display
             item_label = _extract_item_label(item, index)
 
@@ -396,10 +460,12 @@ async def _execute_loop_for_each(
                         step_results.append(exc)
                         success = False
                         error_msg = str(exc)
+                        failure_event.set()
                         break  # Stop iteration on error
             except BaseException as exc:
                 success = False
                 error_msg = str(exc)
+                failure_event.set()
 
             iteration_results[index] = step_results
 
@@ -458,7 +524,7 @@ async def _execute_loop_for_each(
 
                 tg.start_soon(run_iteration, idx, item, skip_steps)
     except ExceptionGroup:
-        # Exceptions captured in iteration_results
+        # Exceptions captured in iteration_results; we'll check below
         pass
     finally:
         # Restore parent loop context for proper nesting
@@ -466,5 +532,8 @@ async def _execute_loop_for_each(
             context.iteration_context[_CURRENT_LOOP_STEP_KEY] = parent_step_name
         else:
             context.iteration_context.pop(_CURRENT_LOOP_STEP_KEY, None)
+
+    # Check for failures and raise if any iterations failed
+    _check_for_failures(iteration_results, step.name)
 
     return {"results": iteration_results, "events": emitted_events}

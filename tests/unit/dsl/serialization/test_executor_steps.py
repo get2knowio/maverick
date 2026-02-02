@@ -1137,7 +1137,12 @@ class TestParallelStepExecution:
 
     @pytest.mark.asyncio
     async def test_parallel_step_with_exceptions(self, registry):
-        """Test parallel step when one step raises exception."""
+        """Test parallel step when one step raises exception.
+
+        When any step in a parallel loop fails, the loop step should fail
+        and propagate the error to stop the workflow. This ensures that failures
+        are not silently swallowed.
+        """
 
         @registry.actions.register("success_action")
         async def success_action():
@@ -1175,18 +1180,16 @@ class TestParallelStepExecution:
             pass
 
         result = executor.get_result()
-        # Parallel step uses asyncio.gather with return_exceptions=True
-        # So it completes successfully even if some tasks fail
-        assert result.success is True
-        assert len(result.final_output["results"]) == 2
-        # One result is "success", the other is a RuntimeError exception
-        assert "success" in result.final_output["results"]
-        # Check that one of the results is an exception
-        exceptions = [
-            r for r in result.final_output["results"] if isinstance(r, Exception)
-        ]
-        assert len(exceptions) == 1
-        assert "Failed!" in str(exceptions[0])
+        # Loop step should fail when any step fails
+        assert result.success is False
+
+        # Check that the step result indicates failure
+        assert len(result.step_results) == 1
+        step_result = result.step_results[0]
+        assert step_result.name == "run_parallel"
+        assert step_result.success is False
+        assert step_result.error is not None
+        assert "Failed!" in step_result.error
 
     @pytest.mark.asyncio
     async def test_parallel_step_with_sync_and_async(self, registry):
@@ -1400,7 +1403,11 @@ class TestParallelStepExecution:
 
     @pytest.mark.asyncio
     async def test_parallel_step_for_each_with_exception(self, registry):
-        """Test parallel step with for_each when one iteration fails."""
+        """Test parallel step with for_each when one iteration fails.
+
+        When any iteration in a for_each loop fails, the loop step should fail
+        and propagate the error to stop the workflow.
+        """
 
         @registry.actions.register("maybe_fail")
         async def maybe_fail(item):
@@ -1435,21 +1442,16 @@ class TestParallelStepExecution:
             pass
 
         result = executor.get_result()
-        # Parallel step uses return_exceptions=True, so it completes
-        assert result.success is True
-        assert len(result.final_output["results"]) == 3
-        # Check that one iteration has an exception
-        has_exception = False
-        for iteration_result in result.final_output["results"]:
-            if isinstance(iteration_result, Exception):
-                has_exception = True
-                break
-            # iteration_result is a list of step results
-            for step_result in iteration_result:
-                if isinstance(step_result, Exception):
-                    has_exception = True
-                    break
-        assert has_exception
+        # Loop step should fail when any iteration fails
+        assert result.success is False
+
+        # Check that the step result indicates failure
+        assert len(result.step_results) == 1
+        step_result = result.step_results[0]
+        assert step_result.name == "process_items"
+        assert step_result.success is False
+        assert step_result.error is not None
+        assert "Bad item!" in step_result.error
 
 
 # =============================================================================

@@ -287,7 +287,12 @@ steps:
 
     @pytest.mark.asyncio
     async def test_parallel_for_each_with_partial_failure_yaml(self) -> None:
-        """Test parallel for_each with one iteration failing."""
+        """Test parallel for_each with one iteration failing.
+
+        When any iteration in a loop step fails, the entire loop step should fail
+        and propagate the error to stop the workflow. This ensures that failures
+        are not silently swallowed.
+        """
         yaml_content = """
 version: "1.0"
 name: parallel-with-errors
@@ -326,22 +331,190 @@ steps:
             pass
 
         result = executor.get_result()
-        # Parallel step uses return_exceptions=True, so it completes
-        assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        # Loop step should fail when any iteration fails
+        assert result.success is False
 
-        # Check that one iteration has an exception
-        has_exception = False
-        for iteration_result in result.final_output["results"]:
-            if isinstance(iteration_result, Exception):
-                has_exception = True
-                break
-            # Check nested results
-            for step_result in iteration_result:
-                if isinstance(step_result, Exception):
-                    has_exception = True
-                    break
-        assert has_exception
+        # Check that the step result indicates failure
+        assert len(result.step_results) == 1
+        step_result = result.step_results[0]
+        assert step_result.name == "process_items"
+        assert step_result.success is False
+        assert step_result.error is not None
+        assert "Intentional failure" in step_result.error
+
+    @pytest.mark.asyncio
+    async def test_for_each_stops_on_first_failure(self) -> None:
+        """Test that sequential for_each stops after the first failure.
+
+        With max_concurrency=1 (default), iterations run sequentially.
+        When an iteration fails, subsequent iterations must NOT execute.
+        """
+        yaml_content = """
+version: "1.0"
+name: fail-fast-sequential
+description: Stop on first failure
+
+inputs:
+  items:
+    type: array
+
+steps:
+  - name: process_items
+    type: loop
+    for_each: ${{ inputs.items }}
+    max_concurrency: 1
+    steps:
+      - name: track_and_maybe_fail
+        type: python
+        action: track_and_maybe_fail
+        kwargs:
+          value: ${{ item }}
+"""
+
+        executed: list[str] = []
+        registry = ComponentRegistry()
+
+        @registry.actions.register("track_and_maybe_fail")
+        async def track_and_maybe_fail(value):
+            executed.append(value)
+            if value == "fail":
+                raise ValueError("Intentional failure")
+            return f"ok_{value}"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(
+            workflow, inputs={"items": ["a", "b", "fail", "c", "d"]}
+        ):
+            pass
+
+        result = executor.get_result()
+        assert result.success is False
+
+        # Items after "fail" must NOT have been executed
+        assert "a" in executed
+        assert "b" in executed
+        assert "fail" in executed
+        assert "c" not in executed
+        assert "d" not in executed
+
+    @pytest.mark.asyncio
+    async def test_loop_tasks_stop_on_first_failure(self) -> None:
+        """Test that sequential loop tasks stop after the first failure.
+
+        Non-for_each loop with max_concurrency=1 should also stop on
+        first task failure.
+        """
+        yaml_content = """
+version: "1.0"
+name: fail-fast-tasks
+
+steps:
+  - name: run_tasks
+    type: loop
+    max_concurrency: 1
+    steps:
+      - name: task_ok
+        type: python
+        action: task_ok
+      - name: task_fail
+        type: python
+        action: task_fail
+      - name: task_after
+        type: python
+        action: task_after
+"""
+
+        executed: list[str] = []
+        registry = ComponentRegistry()
+
+        @registry.actions.register("task_ok")
+        async def task_ok():
+            executed.append("task_ok")
+            return "ok"
+
+        @registry.actions.register("task_fail")
+        async def task_fail():
+            executed.append("task_fail")
+            raise ValueError("Task failed")
+
+        @registry.actions.register("task_after")
+        async def task_after():
+            executed.append("task_after")
+            return "after"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(workflow):
+            pass
+
+        result = executor.get_result()
+        assert result.success is False
+
+        # task_after must NOT have executed
+        assert "task_ok" in executed
+        assert "task_fail" in executed
+        assert "task_after" not in executed
+
+    @pytest.mark.asyncio
+    async def test_failure_stops_subsequent_step(self) -> None:
+        """Test that a failed loop step prevents subsequent workflow steps.
+
+        When a loop step fails, the entire workflow should stop —
+        no subsequent top-level steps should execute.
+        """
+        yaml_content = """
+version: "1.0"
+name: fail-stops-workflow
+
+inputs:
+  items:
+    type: array
+
+steps:
+  - name: process_items
+    type: loop
+    for_each: ${{ inputs.items }}
+    steps:
+      - name: maybe_fail
+        type: python
+        action: maybe_fail
+        kwargs:
+          value: ${{ item }}
+
+  - name: should_not_run
+    type: python
+    action: should_not_run
+"""
+
+        executed: list[str] = []
+        registry = ComponentRegistry()
+
+        @registry.actions.register("maybe_fail")
+        async def maybe_fail(value):
+            executed.append(f"process_{value}")
+            if value == "bad":
+                raise ValueError("Intentional failure")
+            return f"ok_{value}"
+
+        @registry.actions.register("should_not_run")
+        async def should_not_run():
+            executed.append("should_not_run")
+            return "ran"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(workflow, inputs={"items": ["good", "bad"]}):
+            pass
+
+        result = executor.get_result()
+        assert result.success is False
+
+        # The step after the failed loop must NOT execute
+        assert "should_not_run" not in executed
 
 
 class TestParallelWorkflowEdgeCases:

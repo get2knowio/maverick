@@ -415,6 +415,62 @@ class InputMismatchError(WorkflowExecutionError):
         )
 
 
+class LoopStepExecutionError(WorkflowExecutionError):
+    """Raised when one or more iterations in a loop step fail.
+
+    This error is raised when a loop step completes but one or more of its
+    iterations encountered errors. It provides details about which iterations
+    failed and what errors occurred.
+
+    Attributes:
+        step_name: Name of the loop step that failed.
+        failed_iterations: List of (index, error_message) tuples for failed iterations.
+        total_iterations: Total number of iterations attempted.
+
+    Examples:
+        ```python
+        raise LoopStepExecutionError(
+            step_name="implement_by_phase",
+            failed_iterations=[(2, "git commit failed: Author identity unknown")],
+            total_iterations=5,
+        )
+        ```
+    """
+
+    def __init__(
+        self,
+        step_name: str,
+        failed_iterations: list[tuple[int, str]],
+        total_iterations: int,
+    ) -> None:
+        """Initialize the LoopStepExecutionError.
+
+        Args:
+            step_name: Name of the loop step.
+            failed_iterations: List of (index, error_message) tuples.
+            total_iterations: Total number of iterations.
+        """
+        self.step_name = step_name
+        self.failed_iterations = failed_iterations
+        self.total_iterations = total_iterations
+
+        # Build error message
+        failed_count = len(failed_iterations)
+        if failed_count == 1:
+            idx, error = failed_iterations[0]
+            message = f"Loop step '{step_name}' failed: iteration {idx} error: {error}"
+        else:
+            indices = ", ".join(str(idx) for idx, _ in failed_iterations[:5])
+            if failed_count > 5:
+                indices += f", ... ({failed_count - 5} more)"
+            first_error = failed_iterations[0][1]
+            message = (
+                f"Loop step '{step_name}' failed: {failed_count}/{total_iterations} "
+                f"iterations failed (indices: {indices}). First error: {first_error}"
+            )
+        super().__init__(message)
+
+
 # ============================================================================
 # Serialization Errors (Backwards Compatibility Alias)
 # ============================================================================

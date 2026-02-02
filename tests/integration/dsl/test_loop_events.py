@@ -216,7 +216,12 @@ steps:
     async def test_loop_events_emitted_on_iteration_failure(
         self, registry: ComponentRegistry
     ) -> None:
-        """Test that events are emitted even when an iteration fails."""
+        """Test that events are emitted for iterations that ran, but not skipped ones.
+
+        With fail-fast behavior (default max_concurrency=1), iterations after a
+        failure are skipped entirely — no started or completed events are emitted
+        for them.
+        """
         workflow_yaml = """
 version: "1.0"
 name: test-loop-failure
@@ -250,11 +255,9 @@ steps:
         started_events = [e for e in events if isinstance(e, LoopIterationStarted)]
         completed_events = [e for e in events if isinstance(e, LoopIterationCompleted)]
 
-        # All 3 iterations should have started events
-        assert len(started_events) == 3
-
-        # All 3 iterations should have completed events
-        assert len(completed_events) == 3
+        # Only "ok" and "fail" should have events; "never" is skipped (fail-fast)
+        assert len(started_events) == 2
+        assert len(completed_events) == 2
 
         # Find the failed iteration completed event
         failed_completions = [e for e in completed_events if not e.success]
@@ -265,9 +268,9 @@ steps:
         assert failed_event.error is not None
         assert "Intentional failure" in failed_event.error
 
-        # The other iterations should have succeeded
+        # The "ok" iteration should have succeeded
         successful_completions = [e for e in completed_events if e.success]
-        assert len(successful_completions) == 2
+        assert len(successful_completions) == 1
 
     @pytest.mark.asyncio
     async def test_loop_events_with_multiple_steps_per_iteration(
