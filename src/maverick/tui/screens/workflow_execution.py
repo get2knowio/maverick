@@ -9,6 +9,7 @@ Updated: 2026-01-17 - Streaming-first layout with unified event stream.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,7 @@ from maverick.tui.models.widget_state import (
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
+from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 from maverick.tui.widgets.iteration_progress import IterationProgress
 from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
@@ -262,7 +264,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._current_running_step: str | None = None
 
         # UI toggle states
-        self._steps_panel_visible: bool = False
+        self._steps_panel_visible: bool = True
 
         # Sentence-boundary buffering for streaming text
         # Buffers text until a sentence boundary is reached for readable display
@@ -301,10 +303,16 @@ class WorkflowExecutionScreen(MaverickScreen):
             id="compact-header",
         )
 
+        # Aggregate stats bar: step counts, tokens, cost
+        yield AggregateStatsBar(
+            self._unified_state,
+            id="stats-bar",
+        )
+
         # Main content area with optional steps panel
         with Horizontal(id="execution-main"):
             # Steps panel (hidden by default, toggleable with 's')
-            with Vertical(id="execution-steps", classes="execution-pane hidden"):
+            with Vertical(id="execution-steps", classes="execution-pane"):
                 yield Static("[bold]Steps[/bold]", classes="pane-header")
                 with ScrollableContainer(id="step-list"):
                     for step in self._workflow.steps:
@@ -374,9 +382,9 @@ class WorkflowExecutionScreen(MaverickScreen):
             elapsed = datetime.now() - self._start_time
             minutes = int(elapsed.total_seconds()) // 60
             seconds = int(elapsed.total_seconds()) % 60
-            elapsed_str = f"[{minutes:02d}:{seconds:02d}]"
+            elapsed_str = f"\\[{minutes:02d}:{seconds:02d}]"
         else:
-            elapsed_str = "[00:00]"
+            elapsed_str = "\\[00:00]"
 
         return f"[bold]{name}[/bold]  {step_info}  [dim]{elapsed_str}[/dim]"
 
@@ -552,8 +560,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Update compact header with current step
         self._update_compact_header()
 
-        # Refresh detail panel
+        # Refresh detail panel and stats bar
         self._refresh_detail_panel()
+        self._refresh_stats_bar()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -606,8 +615,9 @@ class WorkflowExecutionScreen(MaverickScreen):
             cost_usd=cost_usd,
         )
 
-        # Refresh detail panel
+        # Refresh detail panel and stats bar
         self._refresh_detail_panel()
+        self._refresh_stats_bar()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -638,8 +648,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Update unified state with failure (for detail panel)
         self._unified_state.complete_step(success=False)
 
-        # Refresh detail panel
+        # Refresh detail panel and stats bar
         self._refresh_detail_panel()
+        self._refresh_stats_bar()
 
         # Add to unified stream
         content = f"{step_name} failed"
@@ -686,6 +697,9 @@ class WorkflowExecutionScreen(MaverickScreen):
             # Screen is being unmounted, widgets no longer exist
             pass
 
+        # Refresh stats bar with final counts
+        self._refresh_stats_bar()
+
     def _update_elapsed_time(self) -> None:
         """Update the elapsed time display in headers."""
         if self._start_time is None:
@@ -704,6 +718,9 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         # Update detail panel (for step elapsed time)
         self._refresh_detail_panel()
+
+        # Update stats bar (for token/cost counters)
+        self._refresh_stats_bar()
 
     def action_cancel_workflow(self) -> None:
         """Request workflow cancellation or exit if complete."""
@@ -1036,13 +1053,10 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._stream_buffer_flush_task.cancel()
 
         # Schedule a new flush after the delay
-        try:
+        with contextlib.suppress(RuntimeError):
             self._stream_buffer_flush_task = asyncio.create_task(
                 self._delayed_buffer_flush()
             )
-        except RuntimeError:
-            # Event loop not running - skip scheduling
-            pass
 
     async def _delayed_buffer_flush(self) -> None:
         """Flush stale buffers after a delay.
@@ -1099,6 +1113,10 @@ class WorkflowExecutionScreen(MaverickScreen):
             event: The original event (for metadata).
             chunk_type: The type of chunk.
         """
+        # Skip whitespace-only flushes to prevent empty stream entries
+        if not text.strip():
+            return
+
         # Map StreamChunkType to StreamEntryType
         if chunk_type == StreamChunkType.THINKING:
             entry_type = StreamEntryType.AGENT_THINKING
@@ -1300,6 +1318,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             detail_panel = self.query_one("#step-detail-panel", StepDetailPanel)
             detail_panel.refresh_display()
+        except NoMatches:
+            pass
+
+    def _refresh_stats_bar(self) -> None:
+        """Refresh the aggregate stats bar with current state."""
+        try:
+            stats_bar = self.query_one("#stats-bar", AggregateStatsBar)
+            stats_bar.refresh_display()
         except NoMatches:
             pass
 

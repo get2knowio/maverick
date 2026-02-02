@@ -9,6 +9,7 @@ Date: 2026-01-17
 
 from __future__ import annotations
 
+from rich.markup import escape as escape_markup
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer
 from textual.css.query import NoMatches
@@ -85,11 +86,6 @@ class UnifiedStreamWidget(Widget):
         height: auto;
         width: 100%;
         padding: 0 1;
-    }
-
-    UnifiedStreamWidget .stream-entry .timestamp {
-        width: 9;
-        color: $text-disabled;
     }
 
     UnifiedStreamWidget .stream-entry .badge {
@@ -187,7 +183,7 @@ class UnifiedStreamWidget(Widget):
 
     /* Continuation lines for multi-line content */
     UnifiedStreamWidget .continuation {
-        padding-left: 11;
+        padding-left: 2;
         color: $text-muted;
     }
 
@@ -270,7 +266,7 @@ class UnifiedStreamWidget(Widget):
         else:
             step_info = f"Step 0/{self._state.total_steps}"
 
-        elapsed = f"[{self._state.elapsed_formatted}]"
+        elapsed = f"\\[{self._state.elapsed_formatted}]"
 
         return f"[bold]{name}[/bold]  {step_info}  [dim]{elapsed}[/dim]"
 
@@ -303,8 +299,10 @@ class UnifiedStreamWidget(Widget):
                 content = f"{content} ({duration_sec:.1f}s)"
 
         # Build the entry line
-        # Format: "HH:MM:SS [BADGE] content"
-        line = f"[dim]{entry.formatted_time}[/dim] {entry.badge} {content}"
+        # Escape badge and content to prevent Rich markup interpretation.
+        # Badges contain brackets (e.g., "[STEP]", "[OK]") and content may
+        # contain arbitrary text including brackets from tool output.
+        line = f"{escape_markup(entry.badge)} {escape_markup(content)}"
 
         return Static(
             line,

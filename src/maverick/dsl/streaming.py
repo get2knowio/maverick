@@ -24,24 +24,8 @@ if TYPE_CHECKING:
     EventCallback = Callable[["AgentStreamChunk | StepOutput"], Awaitable[None]]
 
 
-# Tool emoji mapping for visual scanning in streaming output
-_TOOL_EMOJIS: dict[str, str] = {
-    "Read": "\U0001f4d6",  # 📖
-    "Write": "\U0001f4dd",  # 📝
-    "Edit": "\u270f\ufe0f",  # ✏️
-    "Glob": "\U0001f50d",  # 🔍
-    "Grep": "\U0001f50d",  # 🔍
-    "Bash": "\U0001f4bb",  # 💻
-    "Task": "\U0001f916",  # 🤖
-    "WebFetch": "\U0001f310",  # 🌐
-    "WebSearch": "\U0001f310",  # 🌐
-    # Validation stages
-    "format": "\U0001f3a8",  # 🎨
-    "lint": "\U0001f9f9",  # 🧹
-    "typecheck": "\U0001f50d",  # 🔍
-    "test": "\U0001f9ea",  # 🧪
-}
-_DEFAULT_TOOL_EMOJI = "\U0001f527"  # 🔧
+# Prefix character for tool call display (Unicode L-bracket └)
+_TOOL_PREFIX = "\u2514"
 
 
 def _shorten_path(path: str, max_length: int = 50) -> str:
@@ -71,59 +55,61 @@ def _shorten_path(path: str, max_length: int = 50) -> str:
 
 
 def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
-    """Format a tool call for streaming display with emoji prefix.
+    """Format a tool call for streaming display with └ prefix.
 
-    Uses emoji prefixes for quick visual scanning of tool activity.
-    Format: "\\nemoji ToolName: key_parameter"
+    Uses └ prefix for visually distinct but unobtrusive tool activity display.
+    Format: "└ ToolName: key_parameter"
+
+    Note: This output must be plain text (no Rich markup tags) because it flows
+    through sentence-boundary text buffering that can split content mid-string.
+    Rich markup like [dim]...[/dim] would be broken across buffer flushes,
+    causing MarkupError. Styling is applied at the widget level via CSS classes.
 
     Args:
         tool_name: Name of the tool being called
         tool_input: Input parameters for the tool
 
     Returns:
-        Formatted tool call string with leading newline, or empty string if
-        no meaningful display.
+        Formatted tool call string, or empty string if no meaningful display.
     """
-    emoji = _TOOL_EMOJIS.get(tool_name, _DEFAULT_TOOL_EMOJI)
-
     if tool_name == "Read":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"\n{emoji} Read: {short_path}"
+            return f"{_TOOL_PREFIX} Read: {short_path}"
         return ""
 
     if tool_name == "Write":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"\n{emoji} Write: {short_path}"
+            return f"{_TOOL_PREFIX} Write: {short_path}"
         return ""
 
     if tool_name == "Edit":
         file_path = tool_input.get("file_path", "")
         if file_path:
             short_path = _shorten_path(file_path)
-            return f"\n{emoji} Edit: {short_path}"
+            return f"{_TOOL_PREFIX} Edit: {short_path}"
         return ""
 
     if tool_name == "Glob":
         pattern = tool_input.get("pattern", "")
-        return f"\n{emoji} Glob: {pattern}"
+        return f"{_TOOL_PREFIX} Glob: {pattern}"
 
     if tool_name == "Grep":
         pattern = tool_input.get("pattern", "")
-        return f"\n{emoji} Grep: {pattern}"
+        return f"{_TOOL_PREFIX} Grep: {pattern}"
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
         if len(command) > 80:
             command = command[:77] + "..."
-        return f"\n{emoji} Bash: {command}"
+        return f"{_TOOL_PREFIX} Bash: {command}"
 
     if tool_name == "Task":
         description = tool_input.get("description", "")
-        return f"\n{emoji} Task: {description}"
+        return f"{_TOOL_PREFIX} Task: {description}"
 
     if tool_name in ("WebFetch", "WebSearch"):
         url = tool_input.get("url", "")
@@ -131,10 +117,10 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         param = url or query
         if len(param) > 60:
             param = param[:57] + "..."
-        return f"\n{emoji} {tool_name}: {param}"
+        return f"{_TOOL_PREFIX} {tool_name}: {param}"
 
     # Generic fallback for other tools
-    return f"\n{emoji} {tool_name}"
+    return f"{_TOOL_PREFIX} {tool_name}"
 
 
 @runtime_checkable
@@ -290,8 +276,6 @@ class StreamingContext:
         if not self._callback:
             return
 
-        emoji = _TOOL_EMOJIS.get(stage_name, _DEFAULT_TOOL_EMOJI)
-
         if status == "running":
             indicator = "..."
             level = "info"
@@ -305,7 +289,7 @@ class StreamingContext:
             indicator = "-"
             level = "warning"
 
-        message = f"\n{emoji} {stage_name} {indicator}"
+        message = f"[dim]{_TOOL_PREFIX} {stage_name} {indicator}[/dim]"
         if details:
             message += f" {details}"
 
