@@ -142,48 +142,32 @@ inputs:
 # ------------------------------------------------------------------------------
 steps:
   # ============================================================================
-  # Step 0: Check for Changes
+  # Step 1: Check for Changes and Stage
   # ============================================================================
-  # Check if there are any changes to commit before proceeding.
-  #
-  # This step checks for:
-  # - Staged changes (git diff --cached)
-  # - Unstaged changes (git diff)
-  # - Untracked files (git ls-files --others)
-  #
-  # If no changes exist, subsequent steps will be skipped to avoid errors.
-  # This prevents the "Diff cannot be empty" error when there's nothing to commit.
+  # Detect staged, unstaged, and untracked changes and stage them in a single
+  # step.  Staging first ensures that ``git diff --cached`` returns a meaningful
+  # diff for the commit message generator (untracked files are invisible to
+  # ``git diff`` until they are staged).
   #
   # Output: Object with has_staged, has_unstaged, has_untracked, has_any booleans
   # ============================================================================
-  - name: check_changes
+  - name: check_and_stage
     type: python
-    action: git_has_changes
+    action: git_check_and_stage
 
   # ============================================================================
-  # Step 1: Generate Commit Message (Conditional)
+  # Step 2: Generate Commit Message (Conditional)
   # ============================================================================
   # Automatically generate a conventional commit message if none was provided.
   #
-  # CONDITIONAL: This step only runs when inputs.message is not provided.
-  # The condition expression ${{ not inputs.message }} evaluates to:
-  # - true when message is omitted or empty (triggers generation)
-  # - false when message is explicitly provided (skips generation)
+  # CONDITIONAL: Only runs when inputs.message is not provided AND there are
+  # changes to commit.
   #
   # The commit_message_generator analyzes:
   # - Git diff: Understanding what files changed and how
   # - Recent commits: Learning the project's commit message style
   # - Staged changes: Determining scope and nature of changes
   # - Project context: Task lists, specs, and conventions (if available)
-  #
-  # The generator produces a conventional commit message following the format:
-  #   <type>(<scope>): <description>
-  #
-  #   [optional body]
-  #
-  #   [optional footer with Co-authored-by, etc.]
-  #
-  # Common types: feat, fix, docs, refactor, test, chore
   #
   # Context builder: commit_message_context
   # - Includes: git diff, git log, staged files, project metadata
@@ -194,77 +178,43 @@ steps:
     type: generate
     generator: commit_message_generator
     context: commit_message_context
-    when: ${{ not inputs.message and steps.check_changes.output.has_any }}
+    when: ${{ not inputs.message and steps.check_and_stage.output.has_any }}
 
   # ============================================================================
-  # Step 2a: Commit Changes (with provided message)
+  # Step 3: Commit Changes
   # ============================================================================
-  # Create a git commit using the explicitly provided message.
+  # Create a git commit using either the provided or generated message.
   #
-  # CONDITIONAL: This step only runs when inputs.message is provided.
+  # CONDITIONAL: Only runs when there are changes to commit.
+  #
+  # The ternary expression selects the message source:
+  # - inputs.message when explicitly provided (truthy string)
+  # - steps.generate_message.output when message is empty/omitted (falsy)
   #
   # The commit action:
   # - Stages all current changes (git add .)
-  # - Creates a commit with the provided message
+  # - Creates a commit with the resolved message
   # - Includes Co-authored-by attribution for AI assistance
   # - Returns commit SHA and status
   #
   # Output: Commit SHA, commit status, files committed
   # ============================================================================
-  - name: commit_with_message
+  - name: commit
     type: python
     action: git_commit
     kwargs:
-      message: ${{ inputs.message }}
+      message: ${{ inputs.message if inputs.message else steps.generate_message.output }}
       add_all: true
       include_attribution: true
-    when: ${{ inputs.message and steps.check_changes.output.has_any }}
+    when: ${{ steps.check_and_stage.output.has_any }}
 
   # ============================================================================
-  # Step 2b: Commit Changes (with generated message)
-  # ============================================================================
-  # Create a git commit using the auto-generated message.
-  #
-  # CONDITIONAL: This step only runs when inputs.message was not provided
-  # (and thus generate_message step executed).
-  #
-  # The commit action:
-  # - Stages all current changes (git add .)
-  # - Creates a commit with the generated message
-  # - Includes Co-authored-by attribution for AI assistance
-  # - Returns commit SHA and status
-  #
-  # Output: Commit SHA, commit status, files committed
-  # ============================================================================
-  - name: commit_with_generated
-    type: python
-    action: git_commit
-    kwargs:
-      message: ${{ steps.generate_message.output }}
-      add_all: true
-      include_attribution: true
-    when: ${{ not inputs.message and steps.check_changes.output.has_any }}
-
-  # ============================================================================
-  # Step 3: Push to Remote (Conditional)
+  # Step 4: Push to Remote (Conditional)
   # ============================================================================
   # Push committed changes to the remote origin repository.
   #
-  # CONDITIONAL: This step only runs when inputs.push is true (default).
-  # The condition expression ${{ inputs.push }} evaluates the push input:
-  # - true (default): Executes the push
-  # - false: Skips the push (commit remains local only)
-  #
-  # The push action:
-  # - Pushes current branch to origin
-  # - Sets upstream if not already set
-  # - Reports push status and remote branch information
-  #
-  # Use cases for push=false:
-  # - Batching multiple commits before pushing
-  # - Testing commit message generation locally
-  # - Workflows that need additional steps before pushing
-  # - Manual push control scenarios
+  # CONDITIONAL: Only runs when inputs.push is true (default) and there are
+  # changes to commit.
   #
   # Output: Push status, remote branch, upstream information
   # ============================================================================
@@ -273,4 +223,4 @@ steps:
     action: git_push
     kwargs:
       set_upstream: true
-    when: ${{ inputs.push and steps.check_changes.output.has_any }}
+    when: ${{ inputs.push and steps.check_and_stage.output.has_any }}

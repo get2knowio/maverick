@@ -24,6 +24,7 @@ def test_review_command_with_valid_pr_number(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T057: Test review command with valid PR number - 'maverick review 123'.
 
@@ -94,6 +95,7 @@ def test_review_with_fix_option(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T058: Test review --fix option - 'maverick review 123 --fix'.
 
@@ -158,6 +160,7 @@ def test_review_output_json_option(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T059: Test review --output json option - outputs valid JSON.
 
@@ -231,6 +234,7 @@ def test_review_output_markdown_option(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T060: Test review --output markdown option - outputs markdown.
 
@@ -304,6 +308,7 @@ def test_review_output_text_option(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """Test review --output text option - outputs plain text.
 
@@ -373,6 +378,7 @@ def test_review_with_nonexistent_pr_error(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T061: Test review with non-existent PR error.
 

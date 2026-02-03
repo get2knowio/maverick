@@ -23,6 +23,7 @@ def test_status_command_displays_branch_info(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T082: Test status command displays branch info - 'maverick status'.
 
@@ -58,6 +59,7 @@ def test_status_with_pending_tasks(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T083: Test status command with pending tasks (when tasks.md exists).
 
@@ -106,6 +108,7 @@ def test_status_format_json_option(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T084: Test status --format json option - outputs valid JSON.
 
@@ -145,6 +148,7 @@ def test_status_in_non_git_directory_error(
     temp_dir: Path,
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
 ) -> None:
     """T085: Test status in non-git directory error.
 

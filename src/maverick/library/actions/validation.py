@@ -42,6 +42,8 @@ async def run_fix_retry_loop(
     max_attempts: int,
     fixer_agent: str,
     validation_result: dict[str, Any],
+    initial_result: dict[str, Any] | None = None,
+    generate_report: bool = False,
     cwd: str | None = None,
     stream_callback: Any | None = None,
     validation_commands: dict[str, tuple[str, ...]] | None = None,
@@ -58,17 +60,21 @@ async def run_fix_retry_loop(
         max_attempts: Maximum fix attempts (0 disables retry)
         fixer_agent: Name of fixer agent to use (currently unused, FixerAgent is used)
         validation_result: Initial validation result from validate step
+        initial_result: Initial validation result for report generation
+            (defaults to *validation_result* when not supplied).
+        generate_report: When True (default), fold ``generate_validation_report``
+            into the return value so a separate report step is unnecessary.
         cwd: Working directory for validation commands (defaults to Path.cwd())
         stream_callback: Optional callback for streaming agent output
         validation_commands: Optional mapping of stage name to command tuple.
             If None, defaults to DEFAULT_STAGE_COMMANDS.
 
     Returns:
-        Dict with:
-            - passed: bool - Whether validation ultimately passed
-            - attempts: int - Number of fix attempts made
-            - fixes_applied: list[str] - Description of each fix applied
-            - final_result: dict - Final validation result after all attempts
+        When *generate_report* is True the return dict matches the
+        ``generate_validation_report`` schema (passed, stages, attempts,
+        fixes_applied, remaining_errors, suggestions).  Otherwise the raw
+        loop result dict is returned (passed, attempts, fixes_applied,
+        final_result).
 
     Note:
         This action follows the graceful failure principle: one agent failure
@@ -77,21 +83,37 @@ async def run_fix_retry_loop(
     """
     # If initial validation passed, return immediately with no attempts
     if validation_result.get("success", False):
-        return {
+        loop_result: dict[str, Any] = {
             "passed": True,
             "attempts": 0,
             "fixes_applied": [],
             "final_result": validation_result,
         }
+        if generate_report:
+            return await generate_validation_report(
+                initial_result=initial_result or validation_result,
+                fix_loop_result=loop_result,
+                max_attempts=max_attempts,
+                stages=stages,
+            )
+        return loop_result
 
     # If max_attempts is 0, don't retry - just return the failure
     if max_attempts <= 0:
-        return {
+        loop_result = {
             "passed": False,
             "attempts": 0,
             "fixes_applied": [],
             "final_result": validation_result,
         }
+        if generate_report:
+            return await generate_validation_report(
+                initial_result=initial_result or validation_result,
+                fix_loop_result=loop_result,
+                max_attempts=max_attempts,
+                stages=stages,
+            )
+        return loop_result
 
     # Resolve working directory
     working_dir = Path(cwd) if cwd else Path.cwd()
@@ -174,12 +196,20 @@ async def run_fix_retry_loop(
                             attempts,
                         )
                         # Success - exit the retry loop
-                        return {
+                        loop_result = {
                             "passed": True,
                             "attempts": attempts,
                             "fixes_applied": fixes_applied,
                             "final_result": current_result,
                         }
+                        if generate_report:
+                            return await generate_validation_report(
+                                initial_result=initial_result or validation_result,
+                                fix_loop_result=loop_result,
+                                max_attempts=max_attempts,
+                                stages=stages,
+                            )
+                        return loop_result
 
                     # Validation still failing - signal retry needed
                     logger.debug(
@@ -209,14 +239,23 @@ async def run_fix_retry_loop(
         # All retries exhausted, validation still failing
         pass
 
-    # Return the fix loop results
-    # Note: The 'passed' status reflects whether validation succeeded after fixes
-    return {
+    # Build the raw loop result
+    loop_result = {
         "passed": current_result.get("success", False),
         "attempts": attempts,
         "fixes_applied": fixes_applied,
         "final_result": current_result,
     }
+
+    if generate_report:
+        return await generate_validation_report(
+            initial_result=initial_result or validation_result,
+            fix_loop_result=loop_result,
+            max_attempts=max_attempts,
+            stages=stages,
+        )
+
+    return loop_result
 
 
 async def _invoke_fixer_agent(

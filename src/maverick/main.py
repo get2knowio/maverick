@@ -166,6 +166,18 @@ def cli(
                     click.echo(error_msg, err=True)
                 ctx.exit(ExitCode.FAILURE)
 
+            # Require maverick.yaml for workflow commands
+            project_config_path = (
+                Path(config_file) if config_file else Path.cwd() / "maverick.yaml"
+            )
+            if not project_config_path.exists():
+                error_msg = format_error(
+                    f"Project configuration not found: {project_config_path}",
+                    suggestion="Run 'maverick init' to create maverick.yaml",
+                )
+                click.echo(error_msg, err=True)
+                ctx.exit(ExitCode.FAILURE)
+
     # If no command is given, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())

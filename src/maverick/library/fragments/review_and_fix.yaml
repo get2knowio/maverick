@@ -119,7 +119,7 @@ steps:
         weight: 5
 
   # ===========================================================================
-  # Step 2: Review-Fix Loop
+  # Step 2: Review-Fix Loop with Report
   # ===========================================================================
   # Execute the review-fix cycle up to max_attempts times.
   # Each iteration:
@@ -127,6 +127,8 @@ steps:
   # 2. Combine findings
   # 3. If approved or no issues, exit loop
   # 4. Run fixer agent (handles parallelization internally)
+  #
+  # The final report is generated at the end of the loop (folded in).
   # ===========================================================================
   - name: review_fix_loop
     type: python
@@ -136,23 +138,8 @@ steps:
       base_branch: ${{ inputs.base_branch }}
       max_attempts: ${{ inputs.max_attempts }}
       skip_if_approved: ${{ inputs.skip_if_approved }}
+      generate_report: true
     metadata:
       progress:
         stage: "reviewing"
-        weight: 80
-
-  # ===========================================================================
-  # Step 3: Generate Final Report
-  # ===========================================================================
-  # Produce a final summary of the review-and-fix process.
-  # ===========================================================================
-  - name: final_report
-    type: python
-    action: generate_review_fix_report
-    kwargs:
-      loop_result: ${{ steps.review_fix_loop.output }}
-      max_attempts: ${{ inputs.max_attempts }}
-    metadata:
-      progress:
-        stage: "reporting"
-        weight: 5
+        weight: 85

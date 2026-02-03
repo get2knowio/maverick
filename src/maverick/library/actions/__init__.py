@@ -29,9 +29,11 @@ from maverick.library.actions.cleanup import (
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
     create_git_branch,
+    git_check_and_stage,
     git_commit,
     git_has_changes,
     git_push,
+    git_stage_all,
 )
 from maverick.library.actions.github import (
     create_github_pr,
@@ -64,7 +66,9 @@ __all__ = [
     # Git actions
     "git_commit",
     "git_push",
+    "git_check_and_stage",
     "git_has_changes",
+    "git_stage_all",
     "create_git_branch",
     # GitHub actions
     "create_github_pr",
@@ -126,8 +130,18 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         requires=("git", "git_remote"),
     )
     registry.actions.register(
+        "git_check_and_stage",
+        git_check_and_stage,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
         "git_has_changes",
         git_has_changes,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
+        "git_stage_all",
+        git_stage_all,
         requires=("git", "git_repo"),
     )
     registry.actions.register(

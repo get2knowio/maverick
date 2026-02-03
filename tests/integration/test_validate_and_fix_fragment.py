@@ -4,7 +4,7 @@ This module tests the validate_and_fix.yaml fragment as a standalone sub-workflo
 verifying:
 - Input parameter handling (stages, max_attempts, fixer_agent)
 - Default values for optional parameters
-- Step execution order (run_validation -> fix_loop -> report)
+- Step execution order (run_validation -> fix_loop)
 - Conditional execution based on validation results
 - Integration with mocked validation and fix actions
 """
@@ -335,8 +335,7 @@ class TestValidateAndFixFragment:
 
         Verifies:
         - Step 1: run_validation
-        - Step 2: fix_loop (conditional)
-        - Step 3: report
+        - Step 2: fix_loop (includes report generation)
         """
         executor = WorkflowFileExecutor(registry=registry)
 

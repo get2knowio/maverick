@@ -199,22 +199,11 @@ steps:
         when: ${{ steps.validate_phase.output.success }}
         inputs:
           push: false
-          commit_message: "feat(${{ item }}): complete phase tasks"
         metadata:
           progress:
             stage: "commit"
             phase: ${{ item }}
             weight: 2
-
-      # Checkpoint after phase completion
-      - name: checkpoint_phase
-        type: checkpoint
-        checkpoint_id: "phase_${{ index }}_complete"
-        metadata:
-          progress:
-            stage: "checkpoint"
-            phase: ${{ item }}
-            weight: 1
 
   # ============================================================================
   # Checkpoint: After All Implementation

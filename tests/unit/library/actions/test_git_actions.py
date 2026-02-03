@@ -14,8 +14,10 @@ import pytest
 
 from maverick.library.actions.git import (
     create_git_branch,
+    git_check_and_stage,
     git_commit,
     git_push,
+    git_stage_all,
 )
 
 
@@ -528,3 +530,131 @@ class TestCreateGitBranch:
             assert result["success"] is False
             assert result["created"] is False
             assert result["error"] is not None
+
+
+class TestGitStageAll:
+    """Tests for git_stage_all action."""
+
+    @pytest.mark.asyncio
+    async def test_stages_all_changes(self) -> None:
+        """Test stages all changes with 'git add .'."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # git add .
+            ]
+
+            result = await git_stage_all()
+
+            assert result["success"] is True
+            assert result["error"] is None
+
+            # Verify git add . was called
+            add_call = mock_exec.call_args_list[0]
+            assert add_call[0] == ("git", "add", ".")
+
+    @pytest.mark.asyncio
+    async def test_handles_staging_failure(self) -> None:
+        """Test handles git add failure gracefully."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr="fatal: not a git repository"),
+            ]
+
+            result = await git_stage_all()
+
+            assert result["success"] is False
+            assert result["error"] is not None
+
+
+class TestGitCheckAndStage:
+    """Tests for git_check_and_stage action."""
+
+    @pytest.mark.asyncio
+    async def test_checks_and_stages_when_changes_exist(self) -> None:
+        """Test detects changes and stages them in one call."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                # git_has_changes: git diff --cached --quiet (has staged)
+                create_mock_process(1),
+                # git_has_changes: git diff --quiet (no unstaged)
+                create_mock_process(0),
+                # git_has_changes: git ls-files --others (no untracked)
+                create_mock_process(0, stdout=""),
+                # git_stage_all: git add .
+                create_mock_process(0),
+            ]
+
+            result = await git_check_and_stage()
+
+            assert result["has_any"] is True
+            assert result["has_staged"] is True
+            # Verify git add . was called (4th subprocess call)
+            assert mock_exec.call_count == 4
+            add_call = mock_exec.call_args_list[3]
+            assert add_call[0] == ("git", "add", ".")
+
+    @pytest.mark.asyncio
+    async def test_returns_change_status_fields(self) -> None:
+        """Test returns all expected status fields."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # no staged
+                create_mock_process(1),  # has unstaged
+                create_mock_process(0, stdout="new_file.py\n"),  # has untracked
+                create_mock_process(0),  # git add .
+            ]
+
+            result = await git_check_and_stage()
+
+            assert result["has_staged"] is False
+            assert result["has_unstaged"] is True
+            assert result["has_untracked"] is True
+            assert result["has_any"] is True
+
+    @pytest.mark.asyncio
+    async def test_skips_staging_when_no_changes(self) -> None:
+        """Test skips staging when no changes detected."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # no staged
+                create_mock_process(0),  # no unstaged
+                create_mock_process(0, stdout=""),  # no untracked
+                # No git add . call expected
+            ]
+
+            result = await git_check_and_stage()
+
+            assert result["has_any"] is False
+            # Only 3 calls (the 3 checks), no staging call
+            assert mock_exec.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_handles_staging_failure(self) -> None:
+        """Test returns status even when staging fails."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1),  # has staged
+                create_mock_process(0),  # no unstaged
+                create_mock_process(0, stdout=""),  # no untracked
+                create_mock_process(
+                    1, stderr="fatal: staging error"
+                ),  # git add . fails
+            ]
+
+            result = await git_check_and_stage()
+
+            # Should still return the status, even though staging failed
+            assert result["has_any"] is True
+            assert result["has_staged"] is True

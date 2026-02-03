@@ -137,10 +137,7 @@ steps:
   # ============================================================================
   # Generate a conventional commit-style PR title if the user didn't provide one.
   #
-  # This step is CONDITIONAL - it only runs when title input is omitted or empty.
-  # The condition ${{ not inputs.title }} evaluates to:
-  # - true when title is not provided or is an empty string
-  # - false when title is explicitly set
+  # CONDITIONAL: Only runs when title input is omitted or empty.
   #
   # The pr_title_generator analyzes:
   # - Commit messages from the branch
@@ -154,18 +151,13 @@ steps:
   # Context builder: pr_title_context
   # - Includes: commit messages, branch name, task summary, diff overview
   #
-  # Output: Generated title stored in context.pr_title
+  # Output: Generated title stored in step result
   # ============================================================================
   - name: generate_title
-    type: branch
-    options:
-      # Only generate title if not provided
-      - when: ${{ not inputs.title }}
-        step:
-          name: generate_title_inner
-          type: generate
-          generator: pr_title_generator
-          context: pr_title_context
+    type: generate
+    generator: pr_title_generator
+    context: pr_title_context
+    when: ${{ not inputs.title }}
 
   # ============================================================================
   # Step 2: Generate PR Body

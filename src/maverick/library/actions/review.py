@@ -630,8 +630,9 @@ async def run_review_fix_loop(
     base_branch: str,
     max_attempts: int,
     skip_if_approved: bool = True,
+    generate_report: bool = False,
     stream_callback: StreamCallback | None = None,
-) -> ReviewFixLoopResult:
+) -> ReviewFixLoopResult | ReviewAndFixReport:
     """Execute review-fix loop with dual-agent review and single fixer.
 
     This implements the simplified review-fix architecture:
@@ -649,26 +650,42 @@ async def run_review_fix_loop(
         base_branch: Base branch for comparison
         max_attempts: Maximum review-fix cycles (0 disables fixes)
         skip_if_approved: Skip fix loop if review recommends approve
+        generate_report: When True (default), generate a
+            ``ReviewAndFixReport`` instead of the raw ``ReviewFixLoopResult``.
         stream_callback: Optional callback for streaming agent output text.
 
     Returns:
-        ReviewFixLoopResult with review and fix outcomes
+        When *generate_report* is True: ``ReviewAndFixReport`` with the final
+        summary.  Otherwise: ``ReviewFixLoopResult`` with raw review and fix
+        outcomes.
     """
     # Convert pr_context if it's a ReviewContextResult
     if hasattr(pr_context, "to_dict"):
         pr_context = pr_context.to_dict()
 
+    async def _maybe_report(
+        result: ReviewFixLoopResult,
+    ) -> ReviewFixLoopResult | ReviewAndFixReport:
+        if generate_report:
+            return await generate_review_fix_report(
+                loop_result=result.to_dict(),
+                max_attempts=max_attempts,
+            )
+        return result
+
     if max_attempts <= 0:
         # Just run review once, no fixing
         review_result = await _run_dual_review(pr_context, base_branch, stream_callback)
-        return ReviewFixLoopResult(
-            success=True,
-            attempts=0,
-            issues_fixed=(),
-            issues_remaining=(),
-            final_recommendation=review_result.get("recommendation", "comment"),
-            skipped=True,
-            skip_reason="Fix attempts disabled (max_attempts=0)",
+        return await _maybe_report(
+            ReviewFixLoopResult(
+                success=True,
+                attempts=0,
+                issues_fixed=(),
+                issues_remaining=(),
+                final_recommendation=review_result.get("recommendation", "comment"),
+                skipped=True,
+                skip_reason="Fix attempts disabled (max_attempts=0)",
+            )
         )
 
     attempts = 0
@@ -685,14 +702,16 @@ async def run_review_fix_loop(
         # Step 2: Check if we're done (approved on first attempt = skip fixes)
         if current_recommendation == "approve":
             logger.info("Review approved on attempt %d", attempt_num)
-            return ReviewFixLoopResult(
-                success=True,
-                attempts=attempts,
-                issues_fixed=(),
-                issues_remaining=(),
-                final_recommendation=current_recommendation,
-                skipped=(attempt_num == 1 and skip_if_approved),
-                skip_reason="Initial review approved" if attempt_num == 1 else None,
+            return await _maybe_report(
+                ReviewFixLoopResult(
+                    success=True,
+                    attempts=attempts,
+                    issues_fixed=(),
+                    issues_remaining=(),
+                    final_recommendation=current_recommendation,
+                    skipped=(attempt_num == 1 and skip_if_approved),
+                    skip_reason="Initial review approved" if attempt_num == 1 else None,
+                )
             )
 
         # Step 3: Check if there are issues worth fixing
@@ -702,14 +721,16 @@ async def run_review_fix_loop(
 
         if not has_critical and not has_major:
             logger.info("No critical/major issues, accepting current state")
-            return ReviewFixLoopResult(
-                success=True,
-                attempts=attempts,
-                issues_fixed=(),
-                issues_remaining=(),
-                final_recommendation=current_recommendation,
-                skipped=False,
-                skip_reason=None,
+            return await _maybe_report(
+                ReviewFixLoopResult(
+                    success=True,
+                    attempts=attempts,
+                    issues_fixed=(),
+                    issues_remaining=(),
+                    final_recommendation=current_recommendation,
+                    skipped=False,
+                    skip_reason=None,
+                )
             )
 
         # Step 4: Run fixer agent (handles parallelization internally)
@@ -719,14 +740,16 @@ async def run_review_fix_loop(
             await _run_review_fixer(review_result, pr_context, stream_callback)
 
     # Max attempts exhausted
-    return ReviewFixLoopResult(
-        success=current_recommendation == "approve",
-        attempts=attempts,
-        issues_fixed=(),
-        issues_remaining=(),
-        final_recommendation=current_recommendation,
-        skipped=False,
-        skip_reason=None,
+    return await _maybe_report(
+        ReviewFixLoopResult(
+            success=current_recommendation == "approve",
+            attempts=attempts,
+            issues_fixed=(),
+            issues_remaining=(),
+            final_recommendation=current_recommendation,
+            skipped=False,
+            skip_reason=None,
+        )
     )
 
 

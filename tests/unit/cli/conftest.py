@@ -12,6 +12,14 @@ Common fixtures available from parent conftest.py:
 
 from __future__ import annotations
 
-# No additional fixtures needed at this time.
-# The cli_runner, temp_dir, clean_env, and sample_config_yaml fixtures
-# from the parent conftest.py are sufficient for all CLI command tests.
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def maverick_yaml(temp_dir: Path) -> Path:
+    """Create a minimal maverick.yaml in the temp directory."""
+    config_file = temp_dir / "maverick.yaml"
+    config_file.write_text("github:\n  owner: test-org\n  repo: test-repo\n")
+    return config_file

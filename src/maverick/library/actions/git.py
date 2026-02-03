@@ -84,6 +84,66 @@ async def git_has_changes() -> dict[str, Any]:
         }
 
 
+async def git_check_and_stage() -> dict[str, Any]:
+    """Check for changes and stage them if any exist.
+
+    Combines the check and stage operations into a single action so that
+    ``git diff --cached`` returns a meaningful diff for the commit message
+    generator.  If no changes are detected the staging step is skipped.
+
+    Returns:
+        Dict with:
+        - has_staged: True if there are staged changes
+        - has_unstaged: True if there are unstaged changes
+        - has_untracked: True if there are untracked files
+        - has_any: True if any changes exist (staged, unstaged, or untracked)
+    """
+    # Reuse git_has_changes for the detection logic
+    status = await git_has_changes()
+
+    if status["has_any"]:
+        stage_result = await git_stage_all()
+        if not stage_result["success"]:
+            logger.error("Failed to stage changes: %s", stage_result.get("error"))
+            # Still return the status so callers know changes exist even
+            # though staging failed – downstream steps will see has_any=True
+            # and attempt their own staging via git_commit(add_all=True).
+
+    return status
+
+
+async def git_stage_all() -> dict[str, Any]:
+    """Stage all changes including untracked files (git add .).
+
+    This is useful before generating commit messages, so that `git diff --cached`
+    captures newly-created files that would otherwise be invisible to diff.
+
+    Returns:
+        Dict with:
+        - success: True if staging succeeded
+        - error: Error message if staging failed, None otherwise
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "add",
+            ".",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            stderr = await proc.stderr.read() if proc.stderr else b""
+            raise RuntimeError(f"git add failed: {stderr.decode()}")
+
+        logger.debug("Staged all changes")
+        return {"success": True, "error": None}
+
+    except (RuntimeError, OSError) as e:
+        logger.error(f"Git stage all failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
 async def git_commit(
     message: str,
     add_all: bool = True,

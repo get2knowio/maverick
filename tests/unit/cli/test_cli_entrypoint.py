@@ -540,3 +540,106 @@ def test_cli_context_stored_in_click_context(
 
     assert result.exit_code == 0
     # In implementation, we'll verify CLIContext is in ctx.obj
+
+
+# =============================================================================
+# Tests: maverick.yaml project configuration requirement
+# =============================================================================
+
+
+def test_fly_without_maverick_yaml_exits_with_error(
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that fly fails with config error when maverick.yaml is missing.
+
+    Verifies:
+    - Exit code is non-zero
+    - Error mentions config not found
+    - Suggestion mentions 'maverick init'
+    """
+    import os
+
+    os.chdir(temp_dir)
+    monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+    # Mock check_dependencies to return success so we reach the config check
+    from maverick.cli.validators import DependencyStatus
+
+    with patch("maverick.main.check_dependencies") as mock_check_deps:
+        mock_check_deps.return_value = [
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
+        ]
+
+        # No maverick.yaml in temp_dir
+        result = cli_runner.invoke(cli, ["fly", "feature"])
+
+        assert result.exit_code == 1
+        assert "configuration not found" in result.output.lower()
+        assert "maverick init" in result.output
+
+
+def test_init_without_maverick_yaml_succeeds(
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that init command is not affected by missing maverick.yaml.
+
+    The init command should work without maverick.yaml since its purpose
+    is to create that file.
+    """
+    import os
+
+    os.chdir(temp_dir)
+    monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+    # init should not fail due to missing maverick.yaml
+    # (it may fail for other reasons, but not the config check)
+    result = cli_runner.invoke(cli, ["init", "--help"])
+
+    assert result.exit_code == 0
+
+
+def test_fly_with_maverick_yaml_passes_config_check(
+    cli_runner: CliRunner,
+    temp_dir: Path,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+    maverick_yaml: Path,
+) -> None:
+    """Test that fly passes the config check when maverick.yaml exists.
+
+    The command may fail later in workflow execution, but should not fail
+    at the config existence check.
+    """
+    import os
+
+    os.chdir(temp_dir)
+    monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+    # Mock check_dependencies to return success
+    from maverick.cli.validators import DependencyStatus
+
+    with patch("maverick.main.check_dependencies") as mock_check_deps:
+        mock_check_deps.return_value = [
+            DependencyStatus(
+                name="git", available=True, version="2.39.0", path="/usr/bin/git"
+            ),
+            DependencyStatus(
+                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
+            ),
+        ]
+
+        result = cli_runner.invoke(cli, ["fly", "feature"])
+
+        # Should NOT fail with "configuration not found"
+        assert "configuration not found" not in result.output.lower()

@@ -74,7 +74,16 @@ class TestCommitAndPushFragment:
                 "upstream_set": set_upstream,
             }
 
-        # Mock git_has_changes action (assumes there are changes to commit)
+        # Mock git_check_and_stage action (combines check + stage)
+        def mock_git_check_and_stage() -> dict[str, Any]:
+            return {
+                "has_staged": True,
+                "has_unstaged": False,
+                "has_untracked": False,
+                "has_any": True,
+            }
+
+        # Mock git_has_changes action (kept for standalone use)
         def mock_git_has_changes() -> dict[str, Any]:
             return {
                 "has_staged": True,
@@ -82,6 +91,10 @@ class TestCommitAndPushFragment:
                 "has_untracked": False,
                 "has_any": True,
             }
+
+        # Mock git_stage_all action
+        def mock_git_stage_all() -> dict[str, Any]:
+            return {"success": True, "error": None}
 
         # Register components (validate=False for mock objects)
         registry.generators.register(
@@ -92,7 +105,9 @@ class TestCommitAndPushFragment:
         )
         registry.actions.register("git_commit", mock_git_commit)
         registry.actions.register("git_push", mock_git_push)
+        registry.actions.register("git_check_and_stage", mock_git_check_and_stage)
         registry.actions.register("git_has_changes", mock_git_has_changes)
+        registry.actions.register("git_stage_all", mock_git_stage_all)
 
         return registry
 
@@ -110,8 +125,7 @@ class TestCommitAndPushFragment:
 
         Verifies:
         - generate_message step is skipped (condition: when: ${{ not inputs.message }})
-        - commit_with_message step executes with provided message
-        - commit_with_generated step is skipped
+        - commit step executes with provided message
         - push step executes (default push=true)
         - Final result contains commit SHA and push status
         """
@@ -140,11 +154,8 @@ class TestCommitAndPushFragment:
         # generate_message should NOT run (message was provided)
         assert "generate_message" not in step_names
 
-        # commit_with_message SHOULD run
-        assert "commit_with_message" in step_names
-
-        # commit_with_generated should NOT run (message was provided)
-        assert "commit_with_generated" not in step_names
+        # commit SHOULD run
+        assert "commit" in step_names
 
         # push SHOULD run (default push=true)
         assert "push" in step_names
@@ -158,9 +169,7 @@ class TestCommitAndPushFragment:
         assert result.success is True
 
         # Find commit and push step results
-        commit_step = next(
-            (s for s in result.step_results if s.name == "commit_with_message"), None
-        )
+        commit_step = next((s for s in result.step_results if s.name == "commit"), None)
         assert commit_step is not None
         assert commit_step.output["sha"] == "abc123def456"
         assert commit_step.output["message"] == custom_message
@@ -177,8 +186,7 @@ class TestCommitAndPushFragment:
 
         Verifies:
         - generate_message step executes (no message provided)
-        - commit_with_message step is skipped
-        - commit_with_generated step executes with generated message
+        - commit step executes with generated message
         - push step executes
         - Generated message is used for commit
         """
@@ -203,11 +211,8 @@ class TestCommitAndPushFragment:
         # generate_message SHOULD run (no message provided)
         assert "generate_message" in step_names
 
-        # commit_with_message should NOT run
-        assert "commit_with_message" not in step_names
-
-        # commit_with_generated SHOULD run
-        assert "commit_with_generated" in step_names
+        # commit SHOULD run
+        assert "commit" in step_names
 
         # push SHOULD run
         assert "push" in step_names
@@ -227,9 +232,7 @@ class TestCommitAndPushFragment:
         assert generate_step is not None
         assert generate_step.output == "feat(test): auto-generated commit message"
 
-        commit_step = next(
-            (s for s in result.step_results if s.name == "commit_with_generated"), None
-        )
+        commit_step = next((s for s in result.step_results if s.name == "commit"), None)
         assert commit_step is not None
         assert (
             commit_step.output["message"] == "feat(test): auto-generated commit message"
@@ -258,8 +261,8 @@ class TestCommitAndPushFragment:
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]
 
-        # commit_with_message SHOULD run
-        assert "commit_with_message" in step_names
+        # commit SHOULD run
+        assert "commit" in step_names
 
         # push should NOT run (push=false)
         assert "push" not in step_names
@@ -273,9 +276,7 @@ class TestCommitAndPushFragment:
         assert result.success is True
 
         # Find commit step result (push should not be in results)
-        commit_step = next(
-            (s for s in result.step_results if s.name == "commit_with_message"), None
-        )
+        commit_step = next((s for s in result.step_results if s.name == "commit"), None)
         assert commit_step is not None
 
         push_step = next((s for s in result.step_results if s.name == "push"), None)
@@ -320,8 +321,9 @@ class TestCommitAndPushFragment:
         """Test that fragment steps execute in the correct order.
 
         Verifies execution order:
-        - generate_message (conditional, first if needed)
-        - commit_with_message OR commit_with_generated (mutually exclusive)
+        - check_and_stage (first)
+        - generate_message (conditional)
+        - commit
         - push (conditional, last)
         """
         executor = WorkflowFileExecutor(registry=registry)
@@ -354,7 +356,7 @@ class TestCommitAndPushFragment:
             (
                 i
                 for i, (name, typ) in enumerate(step_sequence)
-                if name == "commit_with_generated" and typ == "start"
+                if name == "commit" and typ == "start"
             ),
             None,
         )
@@ -383,8 +385,7 @@ class TestCommitAndPushFragment:
         """Test that commit action receives include_attribution=true.
 
         Verifies:
-        - Both commit_with_message and commit_with_generated steps
-        - Pass include_attribution=true to git_commit action
+        - commit step passes include_attribution=true to git_commit action
         """
         executor = WorkflowFileExecutor(registry=registry)
 
@@ -396,9 +397,7 @@ class TestCommitAndPushFragment:
             events.append(event)
 
         result = executor.get_result()
-        commit_step = next(
-            (s for s in result.step_results if s.name == "commit_with_message"), None
-        )
+        commit_step = next((s for s in result.step_results if s.name == "commit"), None)
         assert commit_step is not None
         # In a real implementation, we'd verify the action was called with
         # include_attribution=true. For now, we verify the step executed.
@@ -410,7 +409,7 @@ class TestCommitAndPushFragment:
         """Test that commit action receives add_all=true.
 
         Verifies:
-        - Both commit steps pass add_all=true to git_commit
+        - commit step passes add_all=true to git_commit
         - This stages all changes before committing
         """
         executor = WorkflowFileExecutor(registry=registry)
@@ -422,9 +421,7 @@ class TestCommitAndPushFragment:
             events.append(event)
 
         result = executor.get_result()
-        commit_step = next(
-            (s for s in result.step_results if s.name == "commit_with_message"), None
-        )
+        commit_step = next((s for s in result.step_results if s.name == "commit"), None)
         assert commit_step is not None
         # Verify files_committed in output
         assert "files_committed" in commit_step.output
@@ -469,7 +466,7 @@ class TestCommitAndPushFragment:
         Verifies:
         - Empty string is treated as "no message provided"
         - generate_message step executes
-        - commit_with_generated executes (not commit_with_message)
+        - commit executes (not separate commit_with_message / commit_with_generated)
         """
         executor = WorkflowFileExecutor(registry=registry)
 

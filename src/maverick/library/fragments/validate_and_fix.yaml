@@ -36,7 +36,7 @@
 #      - Calls fixer agent to analyze and fix issues
 #      - Re-runs validation stages
 #      - Repeats up to max_attempts times or until validation passes
-#   3. report: Generate final result with pass/fail status and metrics
+#      - Generates final validation report with pass/fail status and metrics
 #
 # CUSTOMIZATION POINTS:
 #   To override this fragment, create a file with the same name in:
@@ -125,12 +125,13 @@ steps:
     retry: 0  # No automatic retry; retry handled by fix_loop
 
   # ---------------------------------------------------------------------------
-  # Step 2: Fix Loop (Conditional)
+  # Step 2: Fix Loop with Report
   # ---------------------------------------------------------------------------
   # When validation fails and max_attempts > 0, enter a retry loop that:
   #   1. Invokes the fixer agent to analyze failures and apply fixes
   #   2. Re-runs validation to check if fixes resolved the issues
   #   3. Repeats until validation passes or max_attempts is exhausted
+  #   4. Generates the final validation report (folded into this step)
   #
   # The fix loop is skipped when:
   #   - Initial validation passed (all stages succeeded)
@@ -138,33 +139,6 @@ steps:
   #
   # The Python action handles the branching logic internally since the
   # expression parser doesn't support comparison operators.
-  #
-  # Customization: Override this fragment to:
-  #   - Change fix logic (e.g., apply specific fixes per stage)
-  #   - Add pre-fix analysis or post-fix verification
-  #   - Implement custom retry strategies (e.g., exponential backoff)
-  #   - Integrate with external fix tools
-  # ---------------------------------------------------------------------------
-  - name: fix_loop
-    type: python
-    action: run_fix_retry_loop
-    kwargs:
-      stages: ${{ inputs.stages }}
-      max_attempts: ${{ inputs.max_attempts }}
-      fixer_agent: ${{ inputs.fixer_agent }}
-      validation_result: ${{ steps.run_validation.output }}
-
-  # ---------------------------------------------------------------------------
-  # Step 3: Generate Validation Report
-  # ---------------------------------------------------------------------------
-  # Produce a final summary of the validation-and-fix process, including:
-  #   - Overall pass/fail status (did validation ultimately succeed?)
-  #   - Per-stage results (which stages passed/failed)
-  #   - Number of fix attempts made (0 if validation passed initially)
-  #   - List of fixes applied by the fixer agent
-  #   - Remaining errors (if validation ultimately failed)
-  #   - Performance metrics (total time, time per stage)
-  #   - Suggestions for manual fixes (when auto-fix couldn't resolve issues)
   #
   # The report is structured as a dict with the following schema:
   #   {
@@ -183,23 +157,19 @@ steps:
   #     "suggestions": [str]      # Manual fix suggestions
   #   }
   #
-  # This report is returned as the fragment output and can be consumed by:
-  #   - Parent workflows (e.g., fly workflow's validate stage)
-  #   - TUI for display in validation results panels
-  #   - CLI for terminal output formatting
-  #   - Logging and metrics systems
-  #
-  # Customization: Replace this step with a custom report generator to:
-  #   - Change output format (e.g., JSON, markdown, HTML)
-  #   - Add additional metrics or analysis
-  #   - Integrate with external monitoring/reporting systems
-  #   - Customize success/failure criteria
+  # Customization: Override this fragment to:
+  #   - Change fix logic (e.g., apply specific fixes per stage)
+  #   - Add pre-fix analysis or post-fix verification
+  #   - Implement custom retry strategies (e.g., exponential backoff)
+  #   - Integrate with external fix tools
   # ---------------------------------------------------------------------------
-  - name: report
+  - name: fix_loop
     type: python
-    action: generate_validation_report
+    action: run_fix_retry_loop
     kwargs:
-      initial_result: ${{ steps.run_validation.output }}
-      fix_loop_result: ${{ steps.fix_loop.output }}
-      max_attempts: ${{ inputs.max_attempts }}
       stages: ${{ inputs.stages }}
+      max_attempts: ${{ inputs.max_attempts }}
+      fixer_agent: ${{ inputs.fixer_agent }}
+      validation_result: ${{ steps.run_validation.output }}
+      initial_result: ${{ steps.run_validation.output }}
+      generate_report: true

@@ -159,9 +159,8 @@ class TestCreatePRWithSummaryFragment:
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]
 
-        # generate_title branch step should run (it's a branch step that
-        # conditionally runs inner step). The inner step should NOT run.
-        assert "generate_title" in step_names
+        # generate_title should NOT run (title was provided, when condition is false)
+        assert "generate_title" not in step_names
 
         # generate_body SHOULD run
         assert "generate_body" in step_names
@@ -222,7 +221,7 @@ class TestCreatePRWithSummaryFragment:
         step_started_events = [e for e in events if isinstance(e, StepStarted)]
         step_names = [e.step_name for e in step_started_events]
 
-        # generate_title branch step should run
+        # generate_title SHOULD run (title is empty → when condition true)
         assert "generate_title" in step_names
 
         # generate_body SHOULD run
