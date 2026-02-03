@@ -754,6 +754,99 @@ class TestValidateStepExecution:
         assert result.success is True
 
     @pytest.mark.asyncio
+    async def test_validate_step_skips_stage_with_no_source_files(
+        self, registry, mock_validation_runner, tmp_path
+    ):
+        """Test that stages are skipped when no source files exist."""
+        from unittest.mock import patch
+
+        from maverick.config import MaverickConfig
+
+        # Create an empty directory (no .py files)
+        empty_dir = tmp_path / "empty_project"
+        empty_dir.mkdir()
+
+        config = MaverickConfig()
+        config.validation.project_root = empty_dir
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="skip-validate-workflow",
+            steps=[
+                ValidateStepRecord(
+                    name="validate",
+                    type=StepType.VALIDATE,
+                    stages=["lint", "typecheck", "test"],
+                    retry=0,
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.validate_step.load_config",
+            return_value=config,
+        ):
+            async for _ in executor.execute(workflow):
+                pass
+
+        result = executor.get_result()
+        assert result.success is True
+        # All stages should be skipped (no .py files)
+        stage_results = result.final_output["stage_results"]
+        for stage_name in ["lint", "typecheck", "test"]:
+            assert stage_results[stage_name]["skipped"] is True
+            assert stage_results[stage_name]["passed"] is True
+
+    @pytest.mark.asyncio
+    async def test_validate_step_runs_stage_when_source_files_exist(
+        self, registry, mock_validation_runner, tmp_path
+    ):
+        """Test that stages run normally when source files exist."""
+        from unittest.mock import patch
+
+        from maverick.config import MaverickConfig
+
+        # Create a directory with .py files
+        project_dir = tmp_path / "py_project"
+        project_dir.mkdir()
+        (project_dir / "main.py").write_text("print('hello')")
+
+        config = MaverickConfig()
+        config.validation.project_root = project_dir
+
+        workflow = WorkflowFile(
+            version="1.0",
+            name="run-validate-workflow",
+            steps=[
+                ValidateStepRecord(
+                    name="validate",
+                    type=StepType.VALIDATE,
+                    stages=["format", "lint"],
+                    retry=0,
+                )
+            ],
+        )
+
+        executor = WorkflowFileExecutor(registry=registry)
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.validate_step.load_config",
+            return_value=config,
+        ):
+            async for _ in executor.execute(workflow):
+                pass
+
+        result = executor.get_result()
+        assert result.success is True
+        # Stages should have run (not skipped)
+        stage_results = result.final_output["stage_results"]
+        assert "format" in stage_results
+        assert stage_results["format"]["passed"] is True
+        assert "skipped" not in stage_results["format"]
+
+    @pytest.mark.asyncio
     async def test_validate_step_empty_stages(self, registry):
         """Test validate step with empty stages list."""
         workflow = WorkflowFile(

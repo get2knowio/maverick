@@ -27,6 +27,46 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Tools that require source files to operate on.
+# If no files match the glob pattern, the stage is skipped.
+_TOOL_SOURCE_GLOBS: dict[str, str] = {
+    "mypy": "**/*.py",
+    "pytest": "**/*.py",
+    "ruff": "**/*.py",
+    "black": "**/*.py",
+    "isort": "**/*.py",
+    "pylint": "**/*.py",
+    "pyright": "**/*.py",
+    "eslint": "**/*.js",
+    "tsc": "**/*.ts",
+    "cargo": "**/*.rs",
+    "go": "**/*.go",
+}
+
+
+def _has_source_files(command: tuple[str, ...], cwd: Path) -> bool:
+    """Check whether source files exist for a validation tool.
+
+    Returns True if the tool is unknown (assume files exist) or if
+    at least one file matches the tool's expected source glob.
+
+    Args:
+        command: The command tuple (first element is the tool name).
+        cwd: Working directory to search for source files.
+
+    Returns:
+        True if source files exist or tool is unknown, False otherwise.
+    """
+    tool = command[0] if command else ""
+    pattern = _TOOL_SOURCE_GLOBS.get(tool)
+    if pattern is None:
+        return True  # Unknown tool, don't skip
+    try:
+        next(cwd.glob(pattern))
+        return True
+    except StopIteration:
+        return False
+
 
 def _get_stage_command(
     stage_name: str, validation_config: ValidationConfig
@@ -92,6 +132,10 @@ async def execute_validate_step(
     validation_config = config.validation
     timeout = validation_config.timeout_seconds
 
+    # Determine working directory (use project_root from config or cwd)
+    # Resolved before stage-building so _has_source_files can use it.
+    cwd = validation_config.project_root or Path.cwd()
+
     # Build ValidationStage objects for each requested stage
     validation_stages: list[ValidationStage] = []
     skipped_stages: list[str] = []
@@ -99,6 +143,14 @@ async def execute_validate_step(
     for stage_name in stages:
         cmd = _get_stage_command(stage_name, validation_config)
         if cmd:
+            if not _has_source_files(cmd, cwd):
+                logger.info(
+                    "Stage '%s' skipped: no source files for '%s'",
+                    stage_name,
+                    cmd[0],
+                )
+                skipped_stages.append(stage_name)
+                continue
             validation_stages.append(
                 ValidationStage(
                     name=stage_name,
@@ -115,14 +167,21 @@ async def execute_validate_step(
     # If no stages to run, return success
     if not validation_stages:
         logger.info("No validation stages configured to run")
+        # Include skipped stage results so callers know they were intentional
+        stage_results: dict[str, Any] = {}
+        for name in skipped_stages:
+            stage_results[name] = {
+                "passed": True,
+                "skipped": True,
+                "duration_ms": 0,
+                "output": f"Skipped: no source files for {name}",
+                "errors": [],
+            }
         return ValidationResult(
             success=True,
             stages=list(stages),
-            stage_results={},
+            stage_results=stage_results,
         )
-
-    # Determine working directory (use project_root from config or cwd)
-    cwd = validation_config.project_root or Path.cwd()
 
     # Create streaming context for progress events
     async with StreamingContext(event_callback, step.name, "validation") as stream:
@@ -184,6 +243,16 @@ async def execute_validate_step(
                     f"Validation stage '{stage_result.stage_name}' failed "
                     f"({stage_result.duration_ms}ms, {error_count} errors)"
                 )
+
+        # Add skipped stages to results
+        for name in skipped_stages:
+            stage_results[name] = {
+                "passed": True,
+                "skipped": True,
+                "duration_ms": 0,
+                "output": f"Skipped: no source files for {name}",
+                "errors": [],
+            }
 
         # Include resolved validation commands so the fix loop can reuse them
         # instead of falling back to defaults (which may not match project config)
