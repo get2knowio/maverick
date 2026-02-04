@@ -30,6 +30,7 @@ class StepStarted:
     step_name: str
     step_type: StepType
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,7 @@ class StepCompleted:
     output_tokens: int | None = None
     cost_usd: float | None = None
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,10 +174,12 @@ class RollbackStarted:
     Attributes:
         step_name: Name of the step whose rollback is being executed.
         timestamp: Unix timestamp when rollback started (defaults to current time).
+        step_path: Hierarchical path for tree navigation (e.g., "loop/[0]/step").
     """
 
     step_name: str
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +197,7 @@ class RollbackCompleted:
     success: bool
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +213,7 @@ class CheckpointSaved:
     step_name: str
     workflow_id: str
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +278,7 @@ class LoopIterationStarted:
     item_label: str
     parent_step_name: str | None = None
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,6 +300,7 @@ class LoopIterationCompleted:
     duration_ms: int
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +320,7 @@ class AgentStreamChunk:
     text: str
     chunk_type: ChunkType
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 # Type alias for StepOutput level
@@ -364,6 +373,7 @@ class StepOutput:
     source: str | None = None
     metadata: dict[str, Any] | None = None
     timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
 
 
 # Type alias for all progress events

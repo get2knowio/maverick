@@ -17,6 +17,7 @@ from maverick.dsl.errors import LoopStepExecutionError
 from maverick.dsl.events import LoopIterationCompleted, LoopIterationStarted
 from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.executor.step_path import make_prefix_callback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import LoopStepRecord
 from maverick.logging import get_logger
@@ -219,6 +220,11 @@ async def _execute_loop_tasks(
             # Extract label from step name if available
             item_label = getattr(step_record, "name", None) or f"Task {index + 1}"
 
+            # Wrap callback with iteration prefix for hierarchical paths
+            iter_callback: EventCallback | None = None
+            if event_callback:
+                iter_callback = make_prefix_callback(f"[{index}]", event_callback)
+
             # Emit LoopIterationStarted event
             start_event = LoopIterationStarted(
                 step_name=step_name,
@@ -226,6 +232,7 @@ async def _execute_loop_tasks(
                 total_iterations=total_steps,
                 item_label=item_label,
                 parent_step_name=parent_step_name,
+                step_path=f"[{index}]",
             )
             if event_callback:
                 await event_callback(start_event)
@@ -248,7 +255,7 @@ async def _execute_loop_tasks(
 
             try:
                 results[index] = await execute_step_fn(
-                    step_record, context, event_callback
+                    step_record, context, iter_callback
                 )
             except BaseException as exc:
                 results[index] = exc
@@ -266,6 +273,7 @@ async def _execute_loop_tasks(
                 success=success,
                 duration_ms=duration_ms,
                 error=error_msg,
+                step_path=f"[{index}]",
             )
             if event_callback:
                 await event_callback(completed_event)
@@ -401,6 +409,11 @@ async def _execute_loop_for_each(
             # Extract label for TUI display
             item_label = _extract_item_label(item, index)
 
+            # Wrap callback with iteration prefix for hierarchical paths
+            iter_callback: EventCallback | None = None
+            if event_callback:
+                iter_callback = make_prefix_callback(f"[{index}]", event_callback)
+
             # Emit LoopIterationStarted event
             start_event = LoopIterationStarted(
                 step_name=step.name,
@@ -408,6 +421,7 @@ async def _execute_loop_for_each(
                 total_iterations=total_iterations,
                 item_label=item_label,
                 parent_step_name=parent_step_name,
+                step_path=f"[{index}]",
             )
             if event_callback:
                 await event_callback(start_event)
@@ -454,7 +468,7 @@ async def _execute_loop_for_each(
                         continue
 
                     try:
-                        result = await execute_step_fn(s, item_context, event_callback)
+                        result = await execute_step_fn(s, item_context, iter_callback)
                         step_results.append(result)
                     except BaseException as exc:
                         step_results.append(exc)
@@ -479,6 +493,7 @@ async def _execute_loop_for_each(
                 success=success,
                 duration_ms=duration_ms,
                 error=error_msg,
+                step_path=f"[{index}]",
             )
             if event_callback:
                 await event_callback(completed_event)

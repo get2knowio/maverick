@@ -25,6 +25,7 @@ from textual.worker import Worker, WorkerState
 
 from maverick.logging import get_logger
 from maverick.tui.models.enums import IterationStatus, StreamChunkType, StreamEntryType
+from maverick.tui.models.step_tree import StepTreeState
 from maverick.tui.models.widget_state import (
     AgentStreamEntry,
     LoopIterationItem,
@@ -37,8 +38,10 @@ from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
+from maverick.tui.widgets.breadcrumb import BreadcrumbBar
 from maverick.tui.widgets.iteration_progress import IterationProgress
 from maverick.tui.widgets.step_detail import StepDetailPanel
+from maverick.tui.widgets.step_tree import StepTreeWidget
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
 if TYPE_CHECKING:
@@ -252,6 +255,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._result: WorkflowResult | None = None
         self._start_time: datetime | None = None
 
+        # Step tree state for hierarchical step display
+        self._tree_state = StepTreeState()
+
         # Unified stream state for the streaming-first layout
         self._unified_state = UnifiedStreamState(
             workflow_name=workflow.name,
@@ -331,10 +337,16 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         # Main content area with optional steps panel
         with Horizontal(id="execution-main"):
-            # Steps panel (hidden by default, toggleable with 's')
+            # Steps panel (toggleable with 's') - tree widget
             with Vertical(id="execution-steps", classes="execution-pane"):
                 yield Static("[bold]Steps[/bold]", classes="pane-header")
-                with ScrollableContainer(id="step-list"):
+                # Tree widget for hierarchical step display
+                yield StepTreeWidget(
+                    self._tree_state,
+                    id="step-tree",
+                )
+                # Legacy step list (hidden, kept for backward compat)
+                with ScrollableContainer(id="step-list", classes="hidden"):
                     for step in self._workflow.steps:
                         step_type_str = (
                             step.type.value
@@ -350,8 +362,14 @@ class WorkflowExecutionScreen(MaverickScreen):
                         self._step_widgets[step.name] = step_widget
                         yield step_widget
 
-            # Main content: detail panel + unified stream
+            # Main content: breadcrumb + detail panel + unified stream
             with Vertical(id="execution-content"):
+                # Breadcrumb bar (hidden when no scope active)
+                yield BreadcrumbBar(
+                    id="breadcrumb-bar",
+                    classes="hidden",
+                )
+
                 # Step detail panel (shows current step info, tokens, cost)
                 yield StepDetailPanel(
                     self._unified_state,
@@ -488,7 +506,9 @@ class WorkflowExecutionScreen(MaverickScreen):
                         if hasattr(event.step_type, "value")
                         else str(event.step_type)
                     )
-                    self._mark_step_running(event.step_name, step_type_str)
+                    self._mark_step_running(
+                        event.step_name, step_type_str, step_path=event.step_path
+                    )
 
                 elif isinstance(event, StepCompleted):
                     if event.success:
@@ -498,10 +518,14 @@ class WorkflowExecutionScreen(MaverickScreen):
                             input_tokens=event.input_tokens,
                             output_tokens=event.output_tokens,
                             cost_usd=event.cost_usd,
+                            step_path=event.step_path,
                         )
                     else:
                         self._mark_step_failed(
-                            event.step_name, event.duration_ms, event.error
+                            event.step_name,
+                            event.duration_ms,
+                            event.error,
+                            step_path=event.step_path,
                         )
                         # Update status and show error when step fails
                         self._update_status(f"Step '{event.step_name}' failed")
@@ -560,12 +584,18 @@ class WorkflowExecutionScreen(MaverickScreen):
         """Update the progress display (compact header)."""
         self._update_compact_header()
 
-    def _mark_step_running(self, step_name: str, step_type: str = "unknown") -> None:
+    def _mark_step_running(
+        self,
+        step_name: str,
+        step_type: str = "unknown",
+        step_path: str | None = None,
+    ) -> None:
         """Mark a step as running.
 
         Args:
             step_name: Name of the step.
             step_type: Type of the step (agent, python, etc.).
+            step_path: Hierarchical path for tree navigation.
         """
         if step_name in self._step_widgets:
             self._step_widgets[step_name].set_running()
@@ -573,6 +603,11 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Track start time for duration calculation
         self._step_start_times[step_name] = datetime.now()
         self._current_running_step = step_name
+
+        # Update tree state
+        path = step_path or step_name
+        self._tree_state.upsert_node(path, step_type=step_type, status="running")
+        self._refresh_step_tree()
 
         # Update unified state with step start (for detail panel)
         self._unified_state.start_step(step_name, step_type)
@@ -591,6 +626,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             source=step_name,
             content=f"{step_name} started",
             step_name=step_name,
+            step_path=path,
         )
         self._add_unified_entry(entry)
 
@@ -601,6 +637,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         cost_usd: float | None = None,
+        step_path: str | None = None,
     ) -> None:
         """Mark a step as completed.
 
@@ -610,6 +647,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             input_tokens: Input tokens consumed (agent steps only).
             output_tokens: Output tokens generated (agent steps only).
             cost_usd: Cost in USD (agent steps only).
+            step_path: Hierarchical path for tree navigation.
         """
         # Flush any remaining buffered streaming text for this step
         self._flush_all_stream_buffers()
@@ -621,6 +659,12 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._completed_steps.add(step_name)
         if self._current_running_step == step_name:
             self._current_running_step = None
+
+        # Update tree state
+        path = step_path or step_name
+        self._tree_state.upsert_node(path, status="completed", duration_ms=duration_ms)
+        self._tree_state.auto_collapse_completed(path)
+        self._refresh_step_tree()
 
         # Record duration in history for future ETA estimates
         duration_seconds = duration_ms / 1000.0
@@ -649,11 +693,16 @@ class WorkflowExecutionScreen(MaverickScreen):
             level="success",
             duration_ms=duration_ms,
             step_name=step_name,
+            step_path=path,
         )
         self._add_unified_entry(entry)
 
     def _mark_step_failed(
-        self, step_name: str, duration_ms: int, error: str | None = None
+        self,
+        step_name: str,
+        duration_ms: int,
+        error: str | None = None,
+        step_path: str | None = None,
     ) -> None:
         """Mark a step as failed."""
         # Flush any remaining buffered streaming text for this step
@@ -666,6 +715,11 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._completed_steps.add(step_name)
         if self._current_running_step == step_name:
             self._current_running_step = None
+
+        # Update tree state
+        path = step_path or step_name
+        self._tree_state.upsert_node(path, status="failed", duration_ms=duration_ms)
+        self._refresh_step_tree()
 
         # Update unified state with failure (for detail panel)
         self._unified_state.complete_step(success=False)
@@ -686,6 +740,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             level="error",
             duration_ms=duration_ms,
             step_name=step_name,
+            step_path=path,
         )
         self._add_unified_entry(entry)
 
@@ -746,7 +801,20 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._refresh_stats_bar()
 
     def action_cancel_workflow(self) -> None:
-        """Request workflow cancellation or exit if complete."""
+        """Request workflow cancellation or exit if complete.
+
+        When a scope is active, Escape navigates up one level instead.
+        """
+        # If a scope is active, navigate up instead of cancelling
+        if self._selected_step is not None:
+            try:
+                breadcrumb = self.query_one("#breadcrumb-bar", BreadcrumbBar)
+                new_path = breadcrumb.navigate_up()
+                self._apply_scope(new_path)
+                return
+            except NoMatches:
+                pass
+
         if not self.is_running:
             # If not running (workflow complete or not started), exit the app
             self.app.exit()
@@ -820,6 +888,15 @@ class WorkflowExecutionScreen(MaverickScreen):
             item.status = IterationStatus.RUNNING
             item.started_at = event.timestamp
 
+        # Update tree state with iteration node
+        if event.step_path:
+            self._tree_state.upsert_node(
+                event.step_path,
+                label=event.item_label or f"[{event.iteration_index}]",
+                status="running",
+            )
+            self._refresh_step_tree()
+
         # Trigger UI update
         self._refresh_iteration_widget(event.step_name)
 
@@ -847,6 +924,17 @@ class WorkflowExecutionScreen(MaverickScreen):
             item.duration_ms = event.duration_ms
             item.error = event.error
             item.completed_at = event.timestamp
+
+        # Update tree state
+        if event.step_path:
+            status = "completed" if event.success else "failed"
+            self._tree_state.upsert_node(
+                event.step_path,
+                status=status,
+                duration_ms=event.duration_ms,
+            )
+            self._tree_state.auto_collapse_completed(event.step_path)
+            self._refresh_step_tree()
 
         self._refresh_iteration_widget(event.step_name)
 
@@ -1157,6 +1245,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             content=text.rstrip(),  # Remove trailing whitespace for cleaner display
             level="error" if chunk_type == StreamChunkType.ERROR else "info",
             step_name=event.step_name,
+            step_path=event.step_path,
         )
         self._add_unified_entry(unified_entry)
 
@@ -1226,6 +1315,7 @@ class WorkflowExecutionScreen(MaverickScreen):
             level=event.level,
             metadata=event.metadata,
             step_name=event.step_name,
+            step_path=event.step_path,
         )
         self._add_unified_entry(unified_entry)
 
@@ -1356,6 +1446,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         except NoMatches:
             pass
 
+    def _refresh_step_tree(self) -> None:
+        """Refresh the step tree widget."""
+        try:
+            tree_widget = self.query_one("#step-tree", StepTreeWidget)
+            tree_widget.refresh_tree()
+        except NoMatches:
+            pass
+
     def action_toggle_follow(self) -> None:
         """Toggle auto-scroll/follow mode (bound to 'f' key)."""
         try:
@@ -1408,22 +1506,56 @@ class WorkflowExecutionScreen(MaverickScreen):
             pass
 
     def on_step_clicked(self, message: StepClicked) -> None:
-        """Handle step click for stream filtering.
-
-        Clicking a step filters the unified stream to show only that step's
-        entries. Clicking the same step again deselects it and shows all entries.
+        """Handle step click for stream filtering (legacy).
 
         Args:
             message: The StepClicked message with the step name.
         """
-        if self._selected_step == message.step_name:
-            # Deselect: show all entries, resume auto-follow
-            self._selected_step = None
-        else:
-            # Select: filter stream to this step
-            self._selected_step = message.step_name
+        self._apply_scope(message.step_name)
 
-        # Update visual selection on step widgets
+    def on_step_tree_widget_step_tree_node_selected(
+        self, message: StepTreeWidget.StepTreeNodeSelected
+    ) -> None:
+        """Handle tree node click for stream filtering.
+
+        Clicking a node filters the stream to that subtree. Clicking
+        the same node again clears the filter.
+
+        Args:
+            message: The StepTreeNodeSelected message with the path.
+        """
+        if self._selected_step == message.path:
+            # Toggle off: clear scope
+            self._apply_scope(None)
+        else:
+            self._apply_scope(message.path)
+
+    def on_breadcrumb_bar_breadcrumb_segment_clicked(
+        self, message: BreadcrumbBar.BreadcrumbSegmentClicked
+    ) -> None:
+        """Handle breadcrumb segment click."""
+        self._apply_scope(message.path)
+
+    def _apply_scope(self, path: str | None) -> None:
+        """Apply a scope filter to the stream and update tree/breadcrumb.
+
+        Args:
+            path: Step path to scope to, or None to show all.
+        """
+        self._selected_step = path
+        self._tree_state.selected_path = path
+
+        # Update tree visual
+        self._refresh_step_tree()
+
+        # Update breadcrumb
+        try:
+            breadcrumb = self.query_one("#breadcrumb-bar", BreadcrumbBar)
+            breadcrumb.set_path(path)
+        except NoMatches:
+            pass
+
+        # Update visual selection on legacy step widgets
         for name, widget in self._step_widgets.items():
             if name == self._selected_step:
                 widget.add_class("selected")
@@ -1433,6 +1565,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Apply filter to stream widget
         try:
             stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
-            stream_widget.filter_step = self._selected_step
+            stream_widget.filter_path = path
         except NoMatches:
             pass

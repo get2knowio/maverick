@@ -437,6 +437,7 @@ class UnifiedStreamEntry:
     duration_ms: int | None = None
     metadata: dict[str, object] | None = None
     step_name: str | None = None
+    step_path: str | None = None
 
     @property
     def formatted_time(self) -> str:

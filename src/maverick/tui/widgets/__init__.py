@@ -9,6 +9,7 @@ from __future__ import annotations
 from maverick.tui.widgets.agent_output import AgentOutput
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
+from maverick.tui.widgets.breadcrumb import BreadcrumbBar
 from maverick.tui.widgets.diff_panel import DiffPanel
 from maverick.tui.widgets.form import (
     BranchInputField,
@@ -33,6 +34,7 @@ from maverick.tui.widgets.sidebar import Sidebar
 from maverick.tui.widgets.stage_indicator import StageIndicator
 from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.step_group import StepGroup, StepGroupStatus, StepSummary
+from maverick.tui.widgets.step_tree import StepTreeWidget
 from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
 from maverick.tui.widgets.validation_status import ValidationStatus
 from maverick.tui.widgets.workflow_list import WorkflowList
@@ -67,11 +69,16 @@ IssueListItemToggled = IssueListItem.Toggled
 
 ResultSummaryPRLinkClicked = ResultSummary.PRLinkClicked
 
+StepTreeNodeSelected = StepTreeWidget.StepTreeNodeSelected
+BreadcrumbSegmentClicked = BreadcrumbBar.BreadcrumbSegmentClicked
+
 __all__ = [
     # Widgets
     "AggregateStatsBar",
     "AgentOutput",
     "AgentStreamingPanel",
+    "BreadcrumbBar",
+    "StepTreeWidget",
     "DiffPanel",
     "HelpPanel",
     "IterationProgress",
@@ -131,4 +138,8 @@ __all__ = [
     "IssueListItemToggled",
     # ResultSummary messages
     "ResultSummaryPRLinkClicked",
+    # StepTree messages
+    "StepTreeNodeSelected",
+    # Breadcrumb messages
+    "BreadcrumbSegmentClicked",
 ]

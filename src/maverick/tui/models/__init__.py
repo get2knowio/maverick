@@ -58,6 +58,10 @@ from maverick.tui.models.settings import (
     SettingsSection,
     SettingValue,
 )
+from maverick.tui.models.step_tree import (
+    StepTreeNode,
+    StepTreeState,
+)
 from maverick.tui.models.theme import (
     ACCENT_COLORS,
     DARK_THEME,
@@ -135,6 +139,9 @@ __all__ = [
     "ValidationStep",
     "WorkflowHistoryEntry",
     "WorkflowStage",
+    # Step tree models
+    "StepTreeNode",
+    "StepTreeState",
     # Widget state models
     "AgentOutputState",
     "AgentStreamEntry",

@@ -55,7 +55,7 @@ class TestUnifiedStreamWidgetFilterStep:
         """Only entries with matching step_name pass filter."""
         state = UnifiedStreamState()
         widget = UnifiedStreamWidget(state)
-        widget._filter_step = "review"
+        widget._filter_path = "review"
 
         matching = _make_entry(step_name="review")
         non_matching = _make_entry(step_name="implement")
@@ -70,7 +70,7 @@ class TestUnifiedStreamWidgetFilterStep:
         """Entries without step_name (global info/errors) always pass any filter."""
         state = UnifiedStreamState()
         widget = UnifiedStreamWidget(state)
-        widget._filter_step = "some_step"
+        widget._filter_path = "some_step"
 
         global_info = _make_entry(
             step_name=None,
@@ -96,14 +96,14 @@ class TestUnifiedStreamWidgetFilterProperty:
         state = UnifiedStreamState()
         widget = UnifiedStreamWidget(state)
 
-        widget._filter_step = "implement_task"
-        assert widget.filter_step == "implement_task"
+        widget._filter_path = "implement_task"
+        assert widget.filter_path == "implement_task"
 
     def test_clearing_filter_step(self) -> None:
         """Setting filter_step to None clears the filter."""
         state = UnifiedStreamState()
         widget = UnifiedStreamWidget(state)
 
-        widget._filter_step = "implement_task"
-        widget._filter_step = None
-        assert widget.filter_step is None
+        widget._filter_path = "implement_task"
+        widget._filter_path = None
+        assert widget.filter_path is None

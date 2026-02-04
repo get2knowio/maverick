@@ -1878,6 +1878,63 @@ AggregateStatsBar {
     display: block;
 }
 
+/* === Step Tree Widget === */
+#step-tree {
+    height: 1fr;
+    width: 100%;
+    padding: 0;
+    overflow-y: auto;
+}
+
+#step-tree .tree-content {
+    height: 1fr;
+    padding: 0;
+}
+
+#step-tree .tree-node {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+}
+
+#step-tree .tree-node.selected {
+    background: $accent 20%;
+    border-left: thick $accent;
+}
+
+#step-tree .tree-node.running {
+    color: $accent;
+}
+
+#step-tree .tree-node.completed {
+    color: $text;
+}
+
+#step-tree .tree-node.failed {
+    color: $error;
+}
+
+#step-tree .tree-node.pending {
+    color: $text-muted;
+}
+
+#step-tree .tree-node.skipped {
+    color: $text-disabled;
+}
+
+/* === Breadcrumb Bar === */
+#breadcrumb-bar {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $surface;
+    color: $text-muted;
+}
+
+#breadcrumb-bar.hidden {
+    display: none;
+}
+
 /* Progress timeline - toggleable with 't' key */
 #progress-timeline.hidden {
     display: none;

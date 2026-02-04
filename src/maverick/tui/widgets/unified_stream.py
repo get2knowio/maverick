@@ -173,32 +173,52 @@ class UnifiedStreamWidget(Widget):
         self._state = state
         self._last_displayed_index: int = 0
         self._filter_step: str | None = None
+        self._filter_path: str | None = None
 
     @property
     def filter_step(self) -> str | None:
-        """Get the current step filter.
-
-        Returns:
-            Step name to filter by, or None to show all entries.
-        """
+        """Get the current step filter (legacy, use filter_path)."""
         return self._filter_step
 
     @filter_step.setter
     def filter_step(self, value: str | None) -> None:
-        """Set the step filter and re-render entries.
+        """Set the step filter (legacy compat, delegates to filter_path)."""
+        self.filter_path = value
+
+    @property
+    def filter_path(self) -> str | None:
+        """Get the current path filter.
+
+        Returns:
+            Step path to filter by, or None to show all entries.
+        """
+        return self._filter_path
+
+    @filter_path.setter
+    def filter_path(self, value: str | None) -> None:
+        """Set the path filter and re-render entries.
+
+        Filtering uses prefix matching: selecting "a/b" shows all
+        entries whose step_path starts with "a/b/" or equals "a/b".
 
         Args:
-            value: Step name to filter by, or None to show all.
+            value: Step path to filter by, or None to show all.
         """
-        if value == self._filter_step:
+        if value == self._filter_path:
             return
+        self._filter_path = value
+        # Keep legacy filter_step in sync
         self._filter_step = value
         self._rerender_with_filter()
 
     def _matches_filter(self, entry: UnifiedStreamEntry) -> bool:
-        """Check if an entry matches the current step filter.
+        """Check if an entry matches the current path filter.
 
-        Entries with step_name=None (global info/errors) always pass.
+        Uses prefix matching: filter "a/b" matches entries with
+        step_path "a/b", "a/b/c", "a/b/c/d", etc. but not "a/bc".
+
+        Entries with no step_path and no step_name (global events)
+        always pass through.
 
         Args:
             entry: The entry to check.
@@ -206,11 +226,13 @@ class UnifiedStreamWidget(Widget):
         Returns:
             True if the entry should be displayed.
         """
-        if self._filter_step is None:
+        if self._filter_path is None:
             return True
-        if entry.step_name is None:
+        # Global events (no path or step_name) always shown
+        if entry.step_path is None and entry.step_name is None:
             return True
-        return entry.step_name == self._filter_step
+        path = entry.step_path or entry.step_name or ""
+        return path == self._filter_path or path.startswith(self._filter_path + "/")
 
     def _rerender_with_filter(self) -> None:
         """Clear displayed entries and re-render with current filter applied."""

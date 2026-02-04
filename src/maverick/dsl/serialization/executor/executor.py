@@ -41,6 +41,7 @@ from maverick.dsl.results import RollbackError, StepResult, WorkflowResult
 from maverick.dsl.serialization.executor import checkpointing, conditions, context
 from maverick.dsl.serialization.executor.handlers import get_handler
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.executor.step_path import make_prefix_callback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import (
     AgentStepRecord,
@@ -406,7 +407,11 @@ class WorkflowFileExecutor:
                     step_record.name,
                 )
 
-            yield StepStarted(step_name=step_record.name, step_type=step_record.type)
+            yield StepStarted(
+                step_name=step_record.name,
+                step_type=step_record.type,
+                step_path=step_record.name,
+            )
 
             step_start = time.perf_counter()
             embedded_events: list[EmbeddedEventType] = []
@@ -519,6 +524,7 @@ class WorkflowFileExecutor:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=cost_usd,
+                step_path=step_record.name,
             )
 
             if not step_result.success:
@@ -593,6 +599,13 @@ class WorkflowFileExecutor:
         # Resolve expressions in step inputs
         resolved_inputs = conditions.resolve_expressions(step, exec_context)
 
+        # Wrap the event_callback with step name prefix for hierarchical paths.
+        # This is the single injection point — every handler's events
+        # automatically get the step name prepended to their step_path.
+        step_callback: EventCallback | None = None
+        if event_callback is not None:
+            step_callback = make_prefix_callback(step.name, event_callback)
+
         # Get handler from registry based on step type
         step_type = StepType(step.type)
         handler = get_handler(step_type)
@@ -612,9 +625,9 @@ class WorkflowFileExecutor:
             # Branch and parallel steps need execute_step_fn for nested execution
             handler_kwargs["execute_step_fn"] = self._execute_step
 
-            # Pass event_callback to loop handler for real-time streaming
-            if step_type == StepType.LOOP and event_callback:
-                handler_kwargs["event_callback"] = event_callback
+            # Pass step_callback to branch/loop handlers for real-time streaming
+            if step_callback:
+                handler_kwargs["event_callback"] = step_callback
 
             # Pass resume info to loop handler if this step contains the checkpoint
             if (
@@ -639,24 +652,24 @@ class WorkflowFileExecutor:
                 self._checkpoint_location = None
 
         elif step_type == StepType.AGENT:
-            # Pass event_callback to agent handler for real-time streaming
-            if event_callback:
-                handler_kwargs["event_callback"] = event_callback
+            # Pass step_callback to agent handler for real-time streaming
+            if step_callback:
+                handler_kwargs["event_callback"] = step_callback
 
         elif step_type == StepType.PYTHON:
-            # Pass event_callback to python handler for actions that need streaming
-            if event_callback:
-                handler_kwargs["event_callback"] = event_callback
+            # Pass step_callback to python handler for actions that need streaming
+            if step_callback:
+                handler_kwargs["event_callback"] = step_callback
 
         elif step_type == StepType.SUBWORKFLOW:
-            # Pass event_callback to subworkflow handler for event propagation
-            if event_callback:
-                handler_kwargs["event_callback"] = event_callback
+            # Pass step_callback to subworkflow handler for event propagation
+            if step_callback:
+                handler_kwargs["event_callback"] = step_callback
 
         elif step_type == StepType.VALIDATE:
-            # Pass event_callback to validate handler for stage progress streaming
-            if event_callback:
-                handler_kwargs["event_callback"] = event_callback
+            # Pass step_callback to validate handler for stage progress streaming
+            if step_callback:
+                handler_kwargs["event_callback"] = step_callback
 
         elif step_type == StepType.CHECKPOINT:
             # Checkpoint step needs checkpoint_store

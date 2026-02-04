@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.serialization.executor.conditions import evaluate_condition
+from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import BranchStepRecord
 
@@ -23,6 +24,7 @@ async def execute_branch_step(
     registry: ComponentRegistry,
     config: Any = None,
     execute_step_fn: Callable[..., Coroutine[Any, Any, Any]] | None = None,
+    event_callback: EventCallback | None = None,
 ) -> Any:
     """Execute a branch step.
 
@@ -35,6 +37,7 @@ async def execute_branch_step(
         registry: Component registry (unused).
         config: Optional configuration (unused).
         execute_step_fn: Function to execute nested steps (required).
+        event_callback: Optional callback for real-time event streaming.
 
     Returns:
         Result from the first matching branch, or None if no match.
@@ -48,7 +51,7 @@ async def execute_branch_step(
     # Evaluate options in order, execute first matching step
     for option in step.options:
         if evaluate_condition(option.when, context):
-            return await execute_step_fn(option.step, context)
+            return await execute_step_fn(option.step, context, event_callback)
 
     # No matching branch found
     return None
