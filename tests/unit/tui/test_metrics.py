@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from threading import Thread
+from unittest.mock import patch
 
 import pytest
 
@@ -74,17 +75,26 @@ class TestWidgetMetrics:
     def test_record_message_when_enabled(self) -> None:
         """Recording messages when enabled should capture data."""
         metrics = WidgetMetrics(enabled=True)
-        metrics.record_message("TestWidget")
-        time.sleep(0.1)  # Small delay to measure throughput
-        metrics.record_message("TestWidget")
-        time.sleep(0.1)
-        metrics.record_message("TestWidget")
+
+        # Mock time() to return controlled timestamps spaced 0.1s apart
+        base = 1000000.0
+        call_count = 0
+
+        def mock_time() -> float:
+            nonlocal call_count
+            result = base + call_count * 0.1
+            call_count += 1
+            return result
+
+        with patch("maverick.tui.metrics.time", side_effect=mock_time):
+            metrics.record_message("TestWidget")
+            metrics.record_message("TestWidget")
+            metrics.record_message("TestWidget")
 
         stats = metrics.get_stats("TestWidget")
         assert stats.message_count == 3
-        # Throughput should be roughly 3 messages / 0.2 seconds = 15 msg/sec
-        # Allow for timing variance
-        assert 10.0 < stats.messages_per_second < 30.0
+        # Throughput: 3 messages / 0.2 seconds = 15 msg/sec
+        assert 14.0 < stats.messages_per_second < 16.0
 
     def test_get_stats_all_widgets(self) -> None:
         """Get stats for all widgets combined."""
@@ -266,20 +276,25 @@ class TestRealWorldScenarios:
         """Simulate AgentOutput receiving multiple messages rapidly."""
         metrics = WidgetMetrics(enabled=True)
 
-        # Simulate 10 messages over 1 second
-        start = time.time()
-        for _ in range(10):
-            metrics.record_message("AgentOutput")
-            time.sleep(0.05)  # 50ms between messages
+        # Mock time() to return timestamps spaced 50ms apart
+        base = 1000000.0
+        call_count = 0
 
-        elapsed = time.time() - start
+        def mock_time() -> float:
+            nonlocal call_count
+            result = base + call_count * 0.05
+            call_count += 1
+            return result
+
+        with patch("maverick.tui.metrics.time", side_effect=mock_time):
+            for _ in range(10):
+                metrics.record_message("AgentOutput")
+
         stats = metrics.get_stats("AgentOutput")
 
         assert stats.message_count == 10
-        # Throughput should be roughly 10 messages / elapsed time
-        expected_rate = 10 / elapsed
-        # Allow more tolerance for timing variance (3.0 instead of 2.0)
-        assert abs(stats.messages_per_second - expected_rate) < 3.0
+        # Throughput: 10 messages / 0.45 seconds ~ 22.2 msg/sec
+        assert 20.0 < stats.messages_per_second < 25.0
 
     def test_workflow_progress_render_timing(self) -> None:
         """Simulate WorkflowProgress rebuilding stages."""

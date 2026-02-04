@@ -22,13 +22,16 @@ pytest_plugins = [
 ]
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="session")
 def configure_test_logging() -> Generator[None, None, None]:
-    """Configure structlog for test environment.
+    """Configure structlog for test environment (once per session).
 
-    This fixture runs automatically for all tests to ensure logging
+    This fixture runs automatically once per test session to ensure logging
     is properly configured to output to stderr (not stdout) and
     suppress verbose log output during tests.
+
+    Session-scoped to avoid reinitializing structlog for every test function.
+    Tests that need different logging levels should use their own fixture.
     """
     from maverick.logging import configure_logging
 
@@ -44,6 +47,10 @@ def temp_dir() -> Iterator[Path]:
 
     Also saves and restores the current working directory to prevent
     tests that use os.chdir() from affecting other tests.
+
+    This fixture ensures xdist safety with ``--dist loadscope``: each
+    worker runs tests sequentially within a module, and cwd is always
+    restored after each test via this fixture's teardown.
     """
     original_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:

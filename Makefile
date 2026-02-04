@@ -10,7 +10,8 @@
 #   make install       # Sync dependencies
 #   make VERBOSE=1 test  # Full pytest output
 
-.PHONY: help install sync test lint typecheck format format-fix check clean ci \
+.PHONY: help install sync test test-fast test-cov test-integration lint typecheck \
+       format format-fix check clean ci ci-coverage \
        test-tui test-tui-unit test-tui-widgets test-tui-screens test-tui-e2e \
        test-tui-visual test-tui-perf test-tui-a11y update-snapshots
 
@@ -42,8 +43,17 @@ install: ## Install/sync all dependencies
 
 sync: install ## Alias for install
 
-test: ## Run tests (errors only)
-	$(Q)uv run pytest $(PYTEST_ARGS) tests/ 2>&1 | grep -v "^===\|^---\|^platform\|^rootdir\|^plugins\|^collected\|passed\|warnings summary" | grep -v "^$$" || true
+test: ## Run tests (errors only, parallel)
+	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope tests/ 2>&1 | grep -v "^===\|^---\|^platform\|^rootdir\|^plugins\|^collected\|passed\|warnings summary" | grep -v "^$$" || true
+
+test-fast: ## Run unit tests only (fastest feedback loop)
+	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope -m "not slow" tests/unit/
+
+test-cov: ## Run tests with coverage report
+	$(Q)uv run pytest $(PYTEST_ARGS) --cov=maverick --cov-report=term-missing tests/
+
+test-integration: ## Run integration tests only
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/integration/
 
 lint: ## Run ruff linter (errors only)
 	$(Q)uv run ruff check $(RUFF_ARGS) src/ tests/ 2>&1 || true
@@ -65,7 +75,7 @@ ci: ## CI mode: fail fast on any error
 	$(Q)uv run ruff check src/ tests/ || exit 1
 	$(Q)uv run ruff format --check src/ tests/ || exit 1
 	$(Q)uv run mypy src/ || exit 1
-	$(Q)uv run pytest -x --tb=short tests/ || exit 1
+	$(Q)uv run pytest -n auto --dist loadscope -x --tb=short tests/ || exit 1
 
 ci-coverage: ## CI mode with coverage (for GitHub Actions)
 	$(Q)uv run ruff check src/ tests/ || exit 1

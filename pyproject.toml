@@ -57,7 +57,9 @@ test = [
     "pytest>=8.2.0,<9",
     "pytest-asyncio>=0.24.0,<1",
     "pytest-cov>=4.0.0,<6",
+    "pytest-split>=0.10.0,<1",
     "pytest-timeout>=2.0.0,<3",
+    "pytest-xdist>=3.5.0,<4",
 ]
 lint = [
     "ruff>=0.1.0,<1",
@@ -128,9 +130,6 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=maverick",
-    "--cov-report=term-missing",
-    "--cov-report=html",
     "--timeout=30",
 ]
 markers = [
@@ -147,6 +146,7 @@ timeout = 30  # 30-second default timeout for async tests (FR-026)
 
 [tool.coverage.run]
 source = ["src/maverick"]
+core = "sysmon"
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

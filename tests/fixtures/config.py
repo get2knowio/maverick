@@ -26,6 +26,11 @@ def sample_config(
     containing test configuration, then loads it using the standard config
     loading mechanism.
 
+    Note: os.chdir is required because MaverickConfig reads from
+    Path.cwd() / "maverick.yaml" via Pydantic settings sources.
+    The temp_dir fixture handles cwd restoration after each test,
+    making this safe for xdist with --dist loadscope.
+
     Yields:
         MaverickConfig instance configured for testing with:
         - GitHub: test-org/test-repo with main branch

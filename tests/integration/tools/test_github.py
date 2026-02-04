@@ -353,6 +353,7 @@ class TestGitHubToolsPerformance:
         assert isinstance(server_config, dict)
         assert "instance" in server_config
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_performance(self) -> None:
         """Test multiple sequential tool calls complete efficiently.

@@ -1140,7 +1140,7 @@ class TestFitToBudget:
 
     def test_single_section(self) -> None:
         """Single section over budget is truncated."""
-        sections = {"only": "x" * 100000}
+        sections = {"only": "x" * 10000}
         result = fit_to_budget(sections, budget=1000)
 
         assert estimate_tokens(result["only"]) <= 1100  # Allow some tolerance

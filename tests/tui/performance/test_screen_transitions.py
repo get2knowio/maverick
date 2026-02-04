@@ -291,6 +291,7 @@ class TestTimedScreenPush:
 class TestPerformanceRegression:
     """Tests to catch performance regressions."""
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_no_memory_leak_in_transitions(self) -> None:
         """Test that repeated transitions don't cause memory issues.

@@ -561,8 +561,9 @@ class TestErrorHandlingInCommands:
         mock_runner.run = AsyncMock(return_value=network_error_result)
         runner._command_runner = mock_runner
 
-        with pytest.raises(RuntimeError) as exc_info:
-            await runner._run_gh_command("issue", "list")
+        with patch("tenacity.nap.sleep", new_callable=AsyncMock):
+            with pytest.raises(RuntimeError) as exc_info:
+                await runner._run_gh_command("issue", "list")
 
         # Should retry 3 times for network errors
         assert mock_runner.run.call_count == 3
@@ -594,7 +595,8 @@ class TestErrorHandlingInCommands:
         mock_runner.run = AsyncMock(side_effect=[network_error_result, success_result])
         runner._command_runner = mock_runner
 
-        result = await runner._run_gh_command("issue", "list")
+        with patch("tenacity.nap.sleep", new_callable=AsyncMock):
+            result = await runner._run_gh_command("issue", "list")
 
         # Should retry and succeed
         assert mock_runner.run.call_count == 2
