@@ -1041,70 +1041,41 @@ class TestPhaseLevelExecution:
             assert result.metadata.get("execution_mode") == "phase"
             assert result.success is True
 
-    def test_build_phase_prompt_fallback_without_skill_file(
+    def test_build_phase_prompt_contains_phase_name(
         self, agent: ImplementerAgent, phase_context: ImplementerContext
     ) -> None:
-        """Test prompt falls back to arguments template when skill not found."""
+        """Test phase prompt includes the phase name."""
+        prompt = agent._build_phase_prompt("Phase 1: Setup", phase_context)
+
+        assert "Phase 1: Setup" in prompt
+
+    def test_build_phase_prompt_contains_task_file(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
+    ) -> None:
+        """Test phase prompt includes the task file path."""
         prompt = agent._build_phase_prompt("Phase 1", phase_context)
 
-        # Fallback: arguments template with phase name and task file
-        assert "Phase 1" in prompt
         assert str(phase_context.task_file) in prompt
-        assert "[P]" in prompt
-        assert "subagent" in prompt.lower()
 
-    def test_build_phase_prompt_expands_skill_file(
-        self, agent: ImplementerAgent, tmp_path: Path
+    def test_build_phase_prompt_instructs_write(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
     ) -> None:
-        """Test prompt expands speckit.implement skill when available."""
-        # Create a skill file in the project
-        skill_dir = tmp_path / ".claude" / "commands"
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "speckit.implement.md").write_text(
-            "---\ndescription: test\n---\n## Instructions\n\n$ARGUMENTS\n\nDo TDD.\n"
-        )
-        task_file = tmp_path / "tasks.md"
-        task_file.write_text("## Phase 1\n- [ ] T001 Do thing\n")
-        context = ImplementerContext(
-            task_file=task_file,
-            phase_name="Phase 1",
-            branch="test",
-            cwd=tmp_path,
-        )
+        """Test phase prompt instructs agent to use Write and Edit tools."""
+        prompt = agent._build_phase_prompt("Phase 1", phase_context)
 
-        prompt = agent._build_phase_prompt("Phase 1", context)
+        assert "Write" in prompt
+        assert "Edit" in prompt
+        # Must emphasize actual code creation, not just reading
+        assert "create" in prompt.lower() or "modify" in prompt.lower()
 
-        # Preamble should be prepended (skip prereqs, start at step 3)
-        assert "Workflow Context" in prompt
-        assert "skip" in prompt.lower()
-        assert "Step 3" in prompt
-        # Skill content should be expanded (frontmatter stripped)
-        assert "## Instructions" in prompt
-        assert "Do TDD." in prompt
-        # $ARGUMENTS replaced with phase-specific text
-        assert "$ARGUMENTS" not in prompt
-        assert "Phase 1" in prompt
-        assert str(task_file) in prompt
+    def test_build_phase_prompt_mentions_parallel_tasks(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
+    ) -> None:
+        """Test phase prompt mentions [P] parallel task markers."""
+        prompt = agent._build_phase_prompt("Phase 1", phase_context)
 
-    def test_load_skill_strips_frontmatter(self, tmp_path: Path) -> None:
-        """Test _load_skill strips YAML frontmatter correctly."""
-        skill_dir = tmp_path / ".claude" / "commands"
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "test.md").write_text(
-            "---\ndescription: A skill\n---\n\nBody content here.\n"
-        )
-
-        content = ImplementerAgent._load_skill("test.md", tmp_path)
-
-        assert content is not None
-        assert "description:" not in content
-        assert "---" not in content
-        assert "Body content here." in content
-
-    def test_load_skill_returns_none_when_missing(self, tmp_path: Path) -> None:
-        """Test _load_skill returns None when file doesn't exist."""
-        content = ImplementerAgent._load_skill("nonexistent.md", tmp_path)
-        assert content is None
+        assert "[P]" in prompt
+        assert "Task" in prompt  # Task tool for subagents
 
     # NOTE: test_phase_commit_message_format was removed as _create_phase_commit
     # was removed from the agent (issue #147). Commits are handled by workflow.

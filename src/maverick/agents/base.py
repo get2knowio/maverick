@@ -442,7 +442,15 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
                 await client.query(prompt)
                 async for message in client.receive_response():
                     partial_messages.append(message)
-                    message_count += 1
+
+                    # Only count non-streaming messages for the circuit
+                    # breaker.  With include_partial_messages=True the SDK
+                    # emits a StreamEvent for every token, so counting all
+                    # messages would trip the breaker after a few seconds
+                    # of normal streaming output.
+                    msg_type = type(message).__name__
+                    if msg_type != "StreamEvent":
+                        message_count += 1
 
                     # Track tool calls for circuit breaker
                     tool_names = self._extract_tool_calls(message)

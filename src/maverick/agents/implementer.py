@@ -102,50 +102,45 @@ After completing a task, output a JSON summary:
 }
 """
 
-PHASE_ARGUMENTS_TEMPLATE = (
-    'Implement all the tasks in phase "{phase_name}" '
-    'from the task file at "{task_file}". '
-    "Create a subagent to complete each task. "
-    'Tasks marked with a "[P]" can be processed simultaneously '
-    "(in separate subagents). Update tasks.md to track your progress."
-)
+PHASE_PROMPT_TEMPLATE = """\
+## Phase Execution: {phase_name}
 
-#: Preamble prepended to the expanded skill content when running inside
-#: the Maverick workflow.  The workflow's preflight and init steps already
-#: handle prerequisite checks, workspace setup, and git operations, so the
-#: agent should skip those shell-dependent steps and focus on implementation.
-PHASE_SKILL_PREAMBLE = """\
-## Workflow Context — Read This First
+You are implementing a single phase from the task file at `{task_file}`.
 
-You are running inside the Maverick orchestration workflow. The workflow has
-ALREADY completed the following before invoking you:
+### Step 1: Load Context
 
-- **Preflight checks** (API keys, git, GitHub CLI, validation tools) — PASSED
-- **Workspace initialization** (branch checkout, sync with origin/main) — DONE
-- **Project setup verification** (ignore files, config) — DONE
+Read the following spec artifacts to understand the project:
+- **REQUIRED**: Read `{task_file}` for the complete task list
+- **REQUIRED**: Read the spec directory for plan.md (tech stack, architecture)
+- **IF EXISTS**: Read data-model.md, contracts/, research.md, quickstart.md
 
-Therefore you MUST **skip** the following steps from the instructions below:
-- Step 1 (check-prerequisites.sh) — already done by the workflow
-- Step 2 (checklist verification) — already done by the workflow
-- Step 4 (project setup verification / git rev-parse) — already done
+### Step 2: Identify Tasks
 
-**Start directly from Step 3** (load and analyze the implementation context)
-and continue through implementation execution (Steps 5-8). You MUST actually
-create and modify source files using Write and Edit tools — do not just read
-and analyze. You do NOT have access to the Bash tool, so do not attempt to
-run shell commands. Use Read, Write, Edit, Glob, Grep, and Task (subagents).
+From `{task_file}`, find ALL tasks listed under the **"{phase_name}"** section.
+These are the tasks you MUST implement in this session.
 
----
+### Step 3: Execute Tasks
 
+For EACH task in this phase, you MUST:
+1. **Create or modify the source files** specified in the task description
+   using the Write tool (new files) or Edit tool (existing files)
+2. Write tests alongside implementation if the task requires it
+3. After completing each task, mark it as done in `{task_file}` by changing
+   `- [ ]` to `- [x]` for that task line
+
+Tasks marked with **[P]** can be executed simultaneously by spawning
+separate subagents via the Task tool. Sequential tasks must be completed
+in order.
+
+### Rules
+
+- You MUST use Write and Edit to create and modify actual source files.
+  Reading and analyzing is NOT enough — you must produce working code.
+- You do NOT have Bash access. Do not try to run shell commands.
+- The orchestration workflow handles git commits, validation, and testing
+  after you finish. Focus only on writing code.
+- Follow the project's conventions from CLAUDE.md if it exists.
 """
-
-#: Skill file name to load for phase-level execution
-SPECKIT_IMPLEMENT_SKILL = "speckit.implement.md"
-
-#: Standard locations for Claude Code custom commands (searched in order)
-SKILL_SEARCH_DIRS = [
-    ".claude/commands",
-]
 
 
 # =============================================================================
@@ -610,75 +605,18 @@ After completion, provide a summary of changes made.
     ) -> str:
         """Build prompt for phase-level execution.
 
-        Loads the speckit.implement skill from .claude/commands/ and expands
-        its $ARGUMENTS placeholder with phase-specific instructions. This
-        gives the agent the full speckit implementation workflow:
-        - Prerequisites check
-        - Checklist verification
-        - Loading spec artifacts (plan.md, data-model.md, etc.)
-        - Task parsing from tasks.md
-        - Task execution with subagent parallelization
-
-        Falls back to the arguments template alone if the skill file is
-        not found (the agent still receives actionable instructions).
+        Creates a focused prompt that tells the agent exactly what to do
+        for a single phase: read spec artifacts, find the phase's tasks,
+        and implement them by writing code with Write/Edit tools.
 
         Args:
-            phase_name: Name of the phase.
+            phase_name: Name of the phase to implement.
             context: Execution context (provides task_file path and cwd).
 
         Returns:
             Formatted prompt for Claude.
         """
-        arguments = PHASE_ARGUMENTS_TEMPLATE.format(
+        return PHASE_PROMPT_TEMPLATE.format(
             phase_name=phase_name,
             task_file=context.task_file,
         )
-
-        skill_content = self._load_skill(SPECKIT_IMPLEMENT_SKILL, context.cwd)
-        if skill_content:
-            expanded = skill_content.replace("$ARGUMENTS", arguments)
-            return PHASE_SKILL_PREAMBLE + expanded
-
-        logger.warning(
-            "speckit.implement skill not found, using fallback prompt",
-            cwd=str(context.cwd),
-        )
-        return arguments
-
-    @staticmethod
-    def _load_skill(
-        skill_filename: str,
-        cwd: Path | None = None,
-    ) -> str | None:
-        """Load a Claude Code custom command (skill) from .claude/commands/.
-
-        Searches the project directory for the skill file, strips YAML
-        frontmatter, and returns the prompt content.
-
-        Args:
-            skill_filename: Skill filename (e.g. "speckit.implement.md").
-            cwd: Project working directory to search from.
-
-        Returns:
-            Skill prompt content with frontmatter stripped, or None if
-            the skill file was not found.
-        """
-        search_root = cwd or Path.cwd()
-
-        for search_dir in SKILL_SEARCH_DIRS:
-            path = search_root / search_dir / skill_filename
-            if path.is_file():
-                content = path.read_text()
-                # Strip YAML frontmatter (--- ... ---)
-                if content.startswith("---"):
-                    end = content.find("---", 3)
-                    if end != -1:
-                        content = content[end + 3 :].lstrip("\n")
-                logger.debug(
-                    "Loaded skill from %s (%d chars)",
-                    path,
-                    len(content),
-                )
-                return content
-
-        return None
