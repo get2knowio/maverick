@@ -778,3 +778,267 @@ class TestUnifiedStreamEntryStepName:
         ]
         assert len(step_failed_entries) == 1
         assert step_failed_entries[0].step_name == "build"
+
+
+# Bug Fix: Agent step tree node from stream chunks
+class TestAgentStepTreeNodeFromStreamChunk:
+    """Tests for Bug 1 fix: agent steps inside loop iterations should
+    appear in the step tree when their first AgentStreamChunk arrives.
+
+    Agent steps (e.g., implement_phase) inside loop iterations do NOT
+    receive a separate StepStarted event through the callback chain.
+    The first AgentStreamChunk is the earliest signal that the step is
+    running, so _handle_stream_chunk must create the tree node.
+    """
+
+    @pytest.mark.asyncio
+    async def test_first_stream_chunk_creates_tree_node(self):
+        """Test that the first AgentStreamChunk creates a tree node."""
+        from maverick.dsl.events import AgentStreamChunk
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Simulate the tree state having the parent nodes already
+        screen._tree_state.upsert_node(
+            "implement_by_phase", step_type="loop", status="running"
+        )
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]", label="Phase 1: Setup", status="running"
+        )
+
+        # Simulate an AgentStreamChunk with a step_path for implement_phase
+        event = AgentStreamChunk(
+            step_name="implement_phase",
+            agent_name="implementer",
+            text="Working on task...\n",
+            chunk_type="output",
+            step_path="implement_by_phase/[0]/implement_phase",
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        # Verify the tree node was created
+        node = screen._tree_state._node_index.get(
+            "implement_by_phase/[0]/implement_phase"
+        )
+        assert node is not None, "implement_phase tree node should be created"
+        assert node.status == "running"
+        assert node.step_type == "agent"
+
+    @pytest.mark.asyncio
+    async def test_subsequent_chunks_do_not_re_upsert(self):
+        """Test that only the first chunk triggers upsert, not every chunk."""
+        from maverick.dsl.events import AgentStreamChunk
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Pre-create parent nodes
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]", label="Phase 1", status="running"
+        )
+
+        step_path = "implement_by_phase/[0]/implement_phase"
+
+        # First chunk
+        event1 = AgentStreamChunk(
+            step_name="implement_phase",
+            agent_name="implementer",
+            text="First chunk\n",
+            chunk_type="output",
+            step_path=step_path,
+        )
+        await screen._handle_stream_chunk(event1)
+
+        # Verify path is registered
+        assert step_path in screen._registered_stream_paths
+
+        # Manually mark node as completed to detect if a re-upsert resets it
+        screen._tree_state.upsert_node(step_path, status="completed")
+
+        # Second chunk should NOT overwrite the status
+        event2 = AgentStreamChunk(
+            step_name="implement_phase",
+            agent_name="implementer",
+            text="Second chunk\n",
+            chunk_type="output",
+            step_path=step_path,
+        )
+        await screen._handle_stream_chunk(event2)
+
+        node = screen._tree_state._node_index[step_path]
+        assert node.status == "completed", (
+            "Status should not be overwritten by subsequent chunks"
+        )
+
+    @pytest.mark.asyncio
+    async def test_chunk_without_step_path_skips_tree(self):
+        """Test that chunks without step_path do not create tree nodes."""
+        from maverick.dsl.events import AgentStreamChunk
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        event = AgentStreamChunk(
+            step_name="implement_phase",
+            agent_name="implementer",
+            text="No path chunk\n",
+            chunk_type="output",
+            step_path=None,
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        # No tree node should be created for path-less chunks
+        assert "implement_phase" not in screen._tree_state._node_index
+
+
+# Bug Fix: Pre-populate all iteration nodes
+class TestPrePopulateIterationNodes:
+    """Tests for Bug 2 fix: when the first LoopIterationStarted fires,
+    ALL iteration nodes should be pre-populated in the step tree as
+    pending/collapsed entries so users can see the total number of phases.
+    """
+
+    @pytest.mark.asyncio
+    async def test_all_iterations_prepopulated_on_first_event(self):
+        """Test that all iterations appear in tree on first LoopIterationStarted."""
+        from maverick.dsl.events import LoopIterationStarted
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Pre-create the loop parent node
+        screen._tree_state.upsert_node(
+            "implement_by_phase", step_type="loop", status="running"
+        )
+
+        event = LoopIterationStarted(
+            step_name="implement_by_phase",
+            iteration_index=0,
+            total_iterations=3,
+            item_label="Phase 1: Setup",
+            parent_step_name=None,
+            step_path="implement_by_phase/[0]",
+        )
+
+        await screen._handle_iteration_started(event)
+
+        # Verify all three iteration nodes exist
+        for i in range(3):
+            path = f"implement_by_phase/[{i}]"
+            node = screen._tree_state._node_index.get(path)
+            assert node is not None, f"Iteration [{i}] node should exist"
+
+        # Current iteration (0) should be running
+        node_0 = screen._tree_state._node_index["implement_by_phase/[0]"]
+        assert node_0.status == "running"
+        assert node_0.label == "Phase 1: Setup"
+
+        # Future iterations should be pending and collapsed
+        node_1 = screen._tree_state._node_index["implement_by_phase/[1]"]
+        assert node_1.status == "pending"
+        assert node_1.expanded is False
+
+        node_2 = screen._tree_state._node_index["implement_by_phase/[2]"]
+        assert node_2.status == "pending"
+        assert node_2.expanded is False
+
+    @pytest.mark.asyncio
+    async def test_pending_iteration_uses_generic_label(self):
+        """Test that pending iterations get generic labels when real labels
+        are not yet known.
+        """
+        from maverick.dsl.events import LoopIterationStarted
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        screen._tree_state.upsert_node(
+            "my_loop", step_type="loop", status="running"
+        )
+
+        event = LoopIterationStarted(
+            step_name="my_loop",
+            iteration_index=0,
+            total_iterations=2,
+            item_label="Item A",
+            parent_step_name=None,
+            step_path="my_loop/[0]",
+        )
+
+        await screen._handle_iteration_started(event)
+
+        # Future iteration should have a generic label "Phase {i+1}" where i=1
+        node_1 = screen._tree_state._node_index["my_loop/[1]"]
+        assert node_1.label == "Phase 2"
+
+    @pytest.mark.asyncio
+    async def test_subsequent_iteration_updates_label_and_status(self):
+        """Test that when a subsequent LoopIterationStarted fires, the
+        pre-populated pending node is updated to running with correct label.
+        """
+        from maverick.dsl.events import LoopIterationStarted
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        screen._tree_state.upsert_node(
+            "implement_by_phase", step_type="loop", status="running"
+        )
+
+        # First iteration
+        event_0 = LoopIterationStarted(
+            step_name="implement_by_phase",
+            iteration_index=0,
+            total_iterations=3,
+            item_label="Phase 1: Setup",
+            parent_step_name=None,
+            step_path="implement_by_phase/[0]",
+        )
+        await screen._handle_iteration_started(event_0)
+
+        # Verify [1] is pending with generic label
+        node_1 = screen._tree_state._node_index["implement_by_phase/[1]"]
+        assert node_1.status == "pending"
+
+        # Second iteration starts
+        event_1 = LoopIterationStarted(
+            step_name="implement_by_phase",
+            iteration_index=1,
+            total_iterations=3,
+            item_label="Phase 2: Core",
+            parent_step_name=None,
+            step_path="implement_by_phase/[1]",
+        )
+        await screen._handle_iteration_started(event_1)
+
+        # [1] should now be running with real label
+        node_1 = screen._tree_state._node_index["implement_by_phase/[1]"]
+        assert node_1.status == "running"
+        assert node_1.label == "Phase 2: Core"
+
+    @pytest.mark.asyncio
+    async def test_no_step_path_skips_tree_prepopulation(self):
+        """Test that events without step_path don't prepopulate tree."""
+        from maverick.dsl.events import LoopIterationStarted
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        event = LoopIterationStarted(
+            step_name="my_loop",
+            iteration_index=0,
+            total_iterations=3,
+            item_label="Item A",
+            parent_step_name=None,
+            step_path=None,
+        )
+
+        await screen._handle_iteration_started(event)
+
+        # Only the loop state should be created, no tree nodes
+        assert "my_loop" in screen._loop_states
+        # No iteration tree nodes since step_path was None
+        assert "my_loop/[0]" not in screen._tree_state._node_index

@@ -170,6 +170,10 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Step selection state for stream filtering
         self._selected_step: str | None = None
 
+        # Track step paths that have been registered in the tree
+        # (to avoid redundant upsert_node calls on every stream chunk)
+        self._registered_stream_paths: set[str] = set()
+
         # Sentence-boundary buffering for streaming text
         # Buffers text until a newline is reached for readable display
         self._stream_buffers: dict[str, str] = {}  # agent_key -> buffered text
@@ -692,11 +696,16 @@ class WorkflowExecutionScreen(MaverickScreen):
         Creates or updates the LoopIterationState for the given loop step,
         marks the current iteration as running, and refreshes the UI.
 
+        On first encounter of a loop, pre-populates tree nodes for ALL
+        iterations (pending/collapsed) so users can see the total number
+        of phases immediately.
+
         Args:
             event: The LoopIterationStarted event containing iteration details.
         """
         # Get or create loop state
-        if event.step_name not in self._loop_states:
+        is_first_encounter = event.step_name not in self._loop_states
+        if is_first_encounter:
             self._loop_states[event.step_name] = LoopIterationState(
                 step_name=event.step_name,
                 iterations=[
@@ -721,8 +730,46 @@ class WorkflowExecutionScreen(MaverickScreen):
             item.status = IterationStatus.RUNNING
             item.started_at = event.timestamp
 
-        # Update tree state with iteration node
-        if event.step_path:
+        # Pre-populate tree nodes for ALL iterations on first encounter.
+        # This lets users see the total number of phases/iterations
+        # upfront, with pending ones shown collapsed.
+        if is_first_encounter and event.step_path and event.total_iterations > 0:
+            # Derive the base path by stripping the current iteration
+            # segment.  e.g. "implement_by_phase/[0]" -> "implement_by_phase"
+            iter_segment = f"[{event.iteration_index}]"
+            if event.step_path.endswith(iter_segment):
+                base_path = event.step_path[: -len(iter_segment)].rstrip("/")
+            else:
+                base_path = event.step_path.rsplit("/", 1)[0]
+
+            for i in range(event.total_iterations):
+                iter_path = f"{base_path}/[{i}]" if base_path else f"[{i}]"
+                if i == event.iteration_index:
+                    # Current iteration: mark as running with its label
+                    self._tree_state.upsert_node(
+                        iter_path,
+                        label=event.item_label or f"[{i}]",
+                        status="running",
+                    )
+                else:
+                    # Future iteration: mark as pending and collapsed.
+                    # Labels are not yet known; use the label from the
+                    # LoopIterationState if available, otherwise generic.
+                    iter_label = (
+                        state.iterations[i].label
+                        if state.iterations[i].label
+                        else f"Phase {i + 1}"
+                    )
+                    node = self._tree_state.upsert_node(
+                        iter_path,
+                        label=iter_label,
+                        status="pending",
+                    )
+                    node.expanded = False
+
+            self._refresh_step_tree()
+        elif event.step_path:
+            # Not first encounter: just update the current iteration node
             self._tree_state.upsert_node(
                 event.step_path,
                 label=event.item_label or f"[{event.iteration_index}]",
@@ -912,6 +959,21 @@ class WorkflowExecutionScreen(MaverickScreen):
         Args:
             event: The AgentStreamChunk event containing streaming data.
         """
+        # Bug fix: ensure a tree node exists for this step.
+        # Agent steps inside loop iterations do not receive a separate
+        # StepStarted event through the callback chain, so the first
+        # AgentStreamChunk is the earliest signal that the step is running.
+        # Create the tree node on first encounter so it appears in the
+        # step tree alongside subworkflow siblings like validate_phase.
+        if event.step_path and event.step_path not in self._registered_stream_paths:
+            self._registered_stream_paths.add(event.step_path)
+            self._tree_state.upsert_node(
+                event.step_path,
+                step_type="agent",
+                status="running",
+            )
+            self._refresh_step_tree()
+
         # Convert chunk_type string to enum
         try:
             chunk_type = StreamChunkType(event.chunk_type)
