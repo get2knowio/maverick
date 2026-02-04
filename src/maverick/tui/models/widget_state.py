@@ -503,7 +503,7 @@ class UnifiedStreamState:
     total_steps: int = 0
     workflow_name: str = ""
     start_time: float | None = None
-    # Detail panel state (for step detail tracking)
+    # Current step tracking
     current_step_type: str | None = None
     current_step_started_at: float | None = None
     current_step_tokens: int = 0

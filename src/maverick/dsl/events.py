@@ -7,7 +7,7 @@ These events are emitted during workflow execution to track progress and state.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 from maverick.dsl.results import RollbackError
@@ -15,6 +15,32 @@ from maverick.dsl.types import StepType
 
 # Type alias for AgentStreamChunk chunk types
 ChunkType = Literal["output", "thinking", "error"]
+
+
+def _event_to_dict(event: object) -> dict[str, Any]:
+    """Convert a frozen event dataclass to a JSON-serializable dictionary.
+
+    Handles StepType enum conversion, tuple-to-list conversion, and dict
+    copying for safe JSON serialization.
+
+    Args:
+        event: A frozen dataclass instance.
+
+    Returns:
+        Dictionary with an ``"event"`` key set to the class name and all
+        dataclass fields as additional keys.
+    """
+    result: dict[str, Any] = {"event": type(event).__name__}
+    for f in fields(event):  # type: ignore[arg-type]
+        value = getattr(event, f.name)
+        if isinstance(value, StepType):
+            value = value.value
+        elif isinstance(value, tuple):
+            value = list(value)
+        elif isinstance(value, dict):
+            value = dict(value)
+        result[f.name] = value
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +57,10 @@ class StepStarted:
     step_type: StepType
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +90,10 @@ class StepCompleted:
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class PreflightStarted:
@@ -72,6 +106,10 @@ class PreflightStarted:
 
     prerequisites: tuple[str, ...]
     timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +129,10 @@ class PreflightCheckPassed:
     duration_ms: int
     message: str
     timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +157,10 @@ class PreflightCheckFailed:
     affected_steps: tuple[str, ...] = ()
     timestamp: float = field(default_factory=time.time)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class PreflightCompleted:
@@ -134,6 +180,10 @@ class PreflightCompleted:
     failed_count: int
     timestamp: float = field(default_factory=time.time)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class WorkflowStarted:
@@ -148,6 +198,10 @@ class WorkflowStarted:
     workflow_name: str
     inputs: dict[str, Any]
     timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +220,10 @@ class WorkflowCompleted:
     total_duration_ms: int
     timestamp: float = field(default_factory=time.time)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class RollbackStarted:
@@ -180,6 +238,10 @@ class RollbackStarted:
     step_name: str
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +261,10 @@ class RollbackCompleted:
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class CheckpointSaved:
@@ -215,6 +281,10 @@ class CheckpointSaved:
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationStarted:
@@ -227,6 +297,10 @@ class ValidationStarted:
 
     workflow_name: str
     timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +317,10 @@ class ValidationCompleted:
     warnings_count: int
     timestamp: float = field(default_factory=time.time)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationFailed:
@@ -257,6 +335,10 @@ class ValidationFailed:
     workflow_name: str
     errors: tuple[str, ...]
     timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +362,10 @@ class LoopIterationStarted:
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class LoopIterationCompleted:
@@ -302,6 +388,10 @@ class LoopIterationCompleted:
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class AgentStreamChunk:
@@ -321,6 +411,10 @@ class AgentStreamChunk:
     chunk_type: ChunkType
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 # Type alias for StepOutput level
@@ -374,6 +468,10 @@ class StepOutput:
     metadata: dict[str, Any] | None = None
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
 
 
 # Type alias for all progress events

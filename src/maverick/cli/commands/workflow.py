@@ -1010,6 +1010,12 @@ def workflow_new(
     default=False,
     help="Skip semantic validation before execution (not recommended).",
 )
+@click.option(
+    "--session-log",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write session journal (JSONL) to this file path.",
+)
 @click.pass_context
 @async_command
 async def workflow_run(
@@ -1020,6 +1026,7 @@ async def workflow_run(
     dry_run: bool,
     restart: bool,
     no_validate: bool,
+    session_log: Path | None,
 ) -> None:
     """Execute workflow from file or discovered workflow.
 
@@ -1045,7 +1052,14 @@ async def workflow_run(
     """
     # Delegate to helper function
     await _execute_workflow_run(
-        ctx, name_or_file, inputs, input_file, dry_run, restart, no_validate
+        ctx,
+        name_or_file,
+        inputs,
+        input_file,
+        dry_run,
+        restart,
+        no_validate,
+        session_log_path=session_log,
     )
 
 
@@ -1059,6 +1073,7 @@ async def _execute_workflow_run(
     no_validate: bool = False,
     list_steps: bool = False,
     only_step: str | None = None,
+    session_log_path: Path | None = None,
 ) -> None:
     """Core workflow execution logic (shared by fly and workflow run commands).
 
@@ -1072,6 +1087,7 @@ async def _execute_workflow_run(
         no_validate: If True, skip semantic validation before execution.
         list_steps: If True, list workflow steps and exit.
         only_step: If provided, run only this step (name or number).
+        session_log_path: If provided, write session journal to this file.
     """
     import json
 
@@ -1318,128 +1334,160 @@ async def _execute_workflow_run(
             ValidationStarted,
         )
 
-        async for event in executor.execute(
-            workflow_obj,
-            inputs=input_dict,
-            resume_from_checkpoint=resume_from_checkpoint,
-            only_step=only_step_index,
-        ):
-            if isinstance(event, ValidationStarted):
-                # Show validation start
-                msg = click.style("Validating workflow...", fg="cyan")
-                click.echo(msg, nl=False)
+        # Set up session journal if requested
+        from maverick.session_journal import SessionJournal
 
-            elif isinstance(event, ValidationCompleted):
-                # Show validation success
-                check_mark = click.style("✓", fg="green", bold=True)
-                click.echo(f" {check_mark}")
-                if event.warnings_count > 0:
-                    warning_msg = click.style(
-                        f"  ({event.warnings_count} warning(s))",
-                        fg="yellow",
+        journal: SessionJournal | None = None
+        if session_log_path is not None:
+            journal = SessionJournal(session_log_path)
+            journal.write_header(workflow_obj.name, input_dict)
+            click.echo(click.style(f"Session log: {session_log_path}", dim=True))
+            click.echo()
+
+        try:
+            async for event in executor.execute(
+                workflow_obj,
+                inputs=input_dict,
+                resume_from_checkpoint=resume_from_checkpoint,
+                only_step=only_step_index,
+            ):
+                # Record event to session journal if active
+                if journal is not None:
+                    await journal.record(event)
+
+                if isinstance(event, ValidationStarted):
+                    # Show validation start
+                    msg = click.style("Validating workflow...", fg="cyan")
+                    click.echo(msg, nl=False)
+
+                elif isinstance(event, ValidationCompleted):
+                    # Show validation success
+                    check_mark = click.style("✓", fg="green", bold=True)
+                    click.echo(f" {check_mark}")
+                    if event.warnings_count > 0:
+                        warning_msg = click.style(
+                            f"  ({event.warnings_count} warning(s))",
+                            fg="yellow",
+                        )
+                        click.echo(warning_msg)
+                    click.echo()
+
+                elif isinstance(event, ValidationFailed):
+                    # Show validation failure
+                    x_mark = click.style("✗", fg="red", bold=True)
+                    click.echo(f" {x_mark}")
+                    click.echo()
+
+                    # Display error details
+                    error_msg = format_error(
+                        "Workflow validation failed",
+                        details=list(event.errors),
+                        suggestion="Fix validation errors and try again",
                     )
-                    click.echo(warning_msg)
-                click.echo()
-
-            elif isinstance(event, ValidationFailed):
-                # Show validation failure
-                x_mark = click.style("✗", fg="red", bold=True)
-                click.echo(f" {x_mark}")
-                click.echo()
-
-                # Display error details
-                error_msg = format_error(
-                    "Workflow validation failed",
-                    details=list(event.errors),
-                    suggestion="Fix validation errors and try again",
-                )
-                click.echo(error_msg, err=True)
-                raise SystemExit(ExitCode.FAILURE)
-
-            elif isinstance(event, WorkflowStarted):
-                # Track workflow nesting depth
-                workflow_depth += 1
-                # Main workflow header already displayed above (depth == 1)
-                # Subworkflow headers are shown as part of their parent step
-
-            elif isinstance(event, StepStarted):
-                # Step type icon mapping
-                type_icons = {
-                    "python": "⚙",
-                    "agent": "🤖",
-                    "generate": "✍",
-                    "validate": "✓",
-                    "checkpoint": "💾",
-                }
-                icon = type_icons.get(event.step_type.value, "●")
-                step_name = event.step_name
-
-                # Only count and number top-level steps (depth == 1)
-                if workflow_depth == 1:
-                    step_index += 1
-                    step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
-                    styled = click.style(step_header, fg="blue")
-                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
-                else:
-                    # Nested steps: show indented without numbering
-                    indent = "  " * (workflow_depth - 1)
-                    step_header = f"{indent}{icon} {step_name}"
-                    styled = click.style(step_header, fg="cyan", dim=True)
-                    click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
-
-            elif isinstance(event, StepCompleted):
-                # Calculate duration
-                duration_sec = event.duration_ms / 1000
-
-                if event.success:
-                    # Success indicator
-                    status_msg = click.style("✓", fg="green", bold=True)
-                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                    click.echo(f"{status_msg} {duration_msg}")
-                else:
-                    # Failure indicator
-                    status_msg = click.style("✗", fg="red", bold=True)
-                    duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
-                    click.echo(f"{status_msg} {duration_msg}")
-
-            elif isinstance(event, AgentStreamChunk):
-                # Stream agent output to console in real-time
-                if event.chunk_type == "output":
-                    # Regular agent output - stream directly
-                    click.echo(event.text, nl=False)
-                elif event.chunk_type == "thinking":
-                    # Thinking indicator - dim styling
-                    thinking_msg = click.style(event.text, dim=True)
-                    click.echo(thinking_msg)
-                elif event.chunk_type == "error":
-                    # Error output - red styling
-                    error_msg = click.style(event.text, fg="red")
                     click.echo(error_msg, err=True)
+                    raise SystemExit(ExitCode.FAILURE)
 
-            elif isinstance(event, WorkflowCompleted):
-                # Decrement nesting depth
-                workflow_depth -= 1
+                elif isinstance(event, WorkflowStarted):
+                    # Track workflow nesting depth
+                    workflow_depth += 1
+                    # Main workflow header already displayed above (depth == 1)
+                    # Subworkflow headers are shown as part of their parent step
 
-                # Only show summary for main workflow (depth back to 0)
-                if workflow_depth > 0:
-                    # Subworkflow completed - show brief inline message
+                elif isinstance(event, StepStarted):
+                    # Step type icon mapping
+                    type_icons = {
+                        "python": "⚙",
+                        "agent": "🤖",
+                        "generate": "✍",
+                        "validate": "✓",
+                        "checkpoint": "💾",
+                    }
+                    icon = type_icons.get(event.step_type.value, "●")
+                    step_name = event.step_name
+
+                    # Only count and number top-level steps (depth == 1)
+                    if workflow_depth == 1:
+                        step_index += 1
+                        step_header = f"[{step_index}/{total_steps}] {icon} {step_name}"
+                        styled = click.style(step_header, fg="blue")
+                        click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+                    else:
+                        # Nested steps: show indented without numbering
+                        indent = "  " * (workflow_depth - 1)
+                        step_header = f"{indent}{icon} {step_name}"
+                        styled = click.style(step_header, fg="cyan", dim=True)
+                        click.echo(f"{styled} ({event.step_type.value})... ", nl=False)
+
+                elif isinstance(event, StepCompleted):
+                    # Calculate duration
+                    duration_sec = event.duration_ms / 1000
+
+                    if event.success:
+                        # Success indicator
+                        status_msg = click.style("✓", fg="green", bold=True)
+                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                        click.echo(f"{status_msg} {duration_msg}")
+                    else:
+                        # Failure indicator
+                        status_msg = click.style("✗", fg="red", bold=True)
+                        duration_msg = click.style(f"({duration_sec:.2f}s)", dim=True)
+                        click.echo(f"{status_msg} {duration_msg}")
+
+                elif isinstance(event, AgentStreamChunk):
+                    # Stream agent output to console in real-time
+                    if event.chunk_type == "output":
+                        # Regular agent output - stream directly
+                        click.echo(event.text, nl=False)
+                    elif event.chunk_type == "thinking":
+                        # Thinking indicator - dim styling
+                        thinking_msg = click.style(event.text, dim=True)
+                        click.echo(thinking_msg)
+                    elif event.chunk_type == "error":
+                        # Error output - red styling
+                        error_msg = click.style(event.text, fg="red")
+                        click.echo(error_msg, err=True)
+
+                elif isinstance(event, WorkflowCompleted):
+                    # Decrement nesting depth
+                    workflow_depth -= 1
+
+                    # Only show summary for main workflow (depth back to 0)
+                    if workflow_depth > 0:
+                        # Subworkflow completed - show brief inline message
+                        total_sec = event.total_duration_ms / 1000
+                        duration_msg = click.style(f"({total_sec:.2f}s)", dim=True)
+                        click.echo(f"{duration_msg}")
+                        continue
+
+                    # Main workflow summary
+                    click.echo()
                     total_sec = event.total_duration_ms / 1000
-                    duration_msg = click.style(f"({total_sec:.2f}s)", dim=True)
-                    click.echo(f"{duration_msg}")
-                    continue
 
-                # Main workflow summary
-                click.echo()
-                total_sec = event.total_duration_ms / 1000
-
-                if event.success:
-                    summary_header = click.style(
-                        "Workflow completed successfully", fg="green", bold=True
+                    if event.success:
+                        summary_header = click.style(
+                            "Workflow completed successfully",
+                            fg="green",
+                            bold=True,
+                        )
+                        click.echo(f"{summary_header} in {total_sec:.2f}s")
+                    else:
+                        summary_header = click.style(
+                            "Workflow failed", fg="red", bold=True
+                        )
+                        click.echo(f"{summary_header} after {total_sec:.2f}s")
+        finally:
+            if journal is not None:
+                try:
+                    final = executor.get_result()
+                    journal.write_summary(
+                        {
+                            "success": final.success,
+                            "total_duration_ms": final.total_duration_ms,
+                        }
                     )
-                    click.echo(f"{summary_header} in {total_sec:.2f}s")
-                else:
-                    summary_header = click.style("Workflow failed", fg="red", bold=True)
-                    click.echo(f"{summary_header} after {total_sec:.2f}s")
+                except Exception:
+                    journal.write_summary({"success": False})
+                journal.close()
 
         # Get final result
         result = executor.get_result()

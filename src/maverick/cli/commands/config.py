@@ -105,14 +105,14 @@ def config_show(ctx: click.Context, fmt: str) -> None:
     cli_ctx: CLIContext = ctx.obj["cli_ctx"]
     config = cli_ctx.config
 
-    # Convert config to dict for output
-    config_dict = config.model_dump(mode="python")
-
     if fmt == "json":
-        # Output as JSON
+        # Use mode="json" to ensure all values are JSON-serializable
+        # (e.g. Path objects become strings)
+        config_dict = config.model_dump(mode="json")
         click.echo(format_json(config_dict))
     else:
-        # Output as YAML
+        # Use mode="python" for YAML (handles Path objects natively)
+        config_dict = config.model_dump(mode="python")
         yaml_output = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
         click.echo(yaml_output)
 

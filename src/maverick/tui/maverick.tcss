@@ -1622,14 +1622,6 @@ HelpPanel .help-description {
     color: $text-muted;
 }
 
-/* === Aggregate Stats Bar === */
-AggregateStatsBar {
-    height: 1;
-    background: $surface;
-    padding: 0 1;
-    text-align: center;
-}
-
 /* === Split-View Execution Screen === */
 /* Side-by-side Steps + Agent Output layout */
 

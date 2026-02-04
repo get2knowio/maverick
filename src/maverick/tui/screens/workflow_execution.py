@@ -36,10 +36,8 @@ from maverick.tui.models.widget_state import (
 from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
-from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 from maverick.tui.widgets.breadcrumb import BreadcrumbBar
 from maverick.tui.widgets.iteration_progress import IterationProgress
-from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.step_tree import StepTreeWidget
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
@@ -212,12 +210,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             id="compact-header",
         )
 
-        # Aggregate stats bar: step counts, tokens, cost
-        yield AggregateStatsBar(
-            self._unified_state,
-            id="stats-bar",
-        )
-
         # Main content area with optional steps panel
         with Horizontal(id="execution-main"):
             # Steps panel (toggleable with 's') - tree widget
@@ -229,18 +221,12 @@ class WorkflowExecutionScreen(MaverickScreen):
                     id="step-tree",
                 )
 
-            # Main content: breadcrumb + detail panel + unified stream
+            # Main content: breadcrumb + unified stream
             with Vertical(id="execution-content"):
                 # Breadcrumb bar (hidden when no scope active)
                 yield BreadcrumbBar(
                     id="breadcrumb-bar",
                     classes="hidden",
-                )
-
-                # Step detail panel (shows current step info, tokens, cost)
-                yield StepDetailPanel(
-                    self._unified_state,
-                    id="step-detail-panel",
                 )
 
                 # Unified stream widget (primary content)
@@ -483,15 +469,11 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._tree_state.upsert_node(path, step_type=step_type, status="running")
         self._refresh_step_tree()
 
-        # Update unified state with step start (for detail panel)
+        # Update unified state with step start
         self._unified_state.start_step(step_name, step_type)
 
         # Update compact header with current step
         self._update_compact_header()
-
-        # Refresh detail panel and stats bar
-        self._refresh_detail_panel()
-        self._refresh_stats_bar()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -543,17 +525,13 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._workflow.name, step_name, duration_seconds
         )
 
-        # Update unified state with completion (for detail panel)
+        # Update unified state with completion
         self._unified_state.complete_step(
             success=True,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=cost_usd,
         )
-
-        # Refresh detail panel and stats bar
-        self._refresh_detail_panel()
-        self._refresh_stats_bar()
 
         # Add to unified stream
         entry = UnifiedStreamEntry(
@@ -589,12 +567,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._tree_state.upsert_node(path, status="failed", duration_ms=duration_ms)
         self._refresh_step_tree()
 
-        # Update unified state with failure (for detail panel)
+        # Update unified state with failure
         self._unified_state.complete_step(success=False)
-
-        # Refresh detail panel and stats bar
-        self._refresh_detail_panel()
-        self._refresh_stats_bar()
 
         # Add to unified stream
         content = f"{step_name} failed"
@@ -643,9 +617,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             # Screen is being unmounted, widgets no longer exist
             pass
 
-        # Refresh stats bar with final counts
-        self._refresh_stats_bar()
-
     def _update_elapsed_time(self) -> None:
         """Update the elapsed time display in headers."""
         if self._start_time is None:
@@ -661,12 +632,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         except NoMatches:
             # Screen is being unmounted, widget no longer exists
             pass
-
-        # Update detail panel (for step elapsed time)
-        self._refresh_detail_panel()
-
-        # Update stats bar (for token/cost counters)
-        self._refresh_stats_bar()
 
     def action_cancel_workflow(self) -> None:
         """Request workflow cancellation or exit if complete.
@@ -1292,22 +1257,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         try:
             stream_widget = self.query_one("#unified-stream", UnifiedStreamWidget)
             stream_widget.refresh_entries()
-        except NoMatches:
-            pass
-
-    def _refresh_detail_panel(self) -> None:
-        """Refresh the step detail panel with current state."""
-        try:
-            detail_panel = self.query_one("#step-detail-panel", StepDetailPanel)
-            detail_panel.refresh_display()
-        except NoMatches:
-            pass
-
-    def _refresh_stats_bar(self) -> None:
-        """Refresh the aggregate stats bar with current state."""
-        try:
-            stats_bar = self.query_one("#stats-bar", AggregateStatsBar)
-            stats_bar.refresh_display()
         except NoMatches:
             pass
 

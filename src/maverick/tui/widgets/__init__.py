@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from maverick.tui.widgets.agent_output import AgentOutput
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
-from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 from maverick.tui.widgets.breadcrumb import BreadcrumbBar
 from maverick.tui.widgets.diff_panel import DiffPanel
 from maverick.tui.widgets.form import (
@@ -32,7 +31,6 @@ from maverick.tui.widgets.settings import SettingField, SettingsSection
 from maverick.tui.widgets.shortcut_footer import ShortcutFooter
 from maverick.tui.widgets.sidebar import Sidebar
 from maverick.tui.widgets.stage_indicator import StageIndicator
-from maverick.tui.widgets.step_detail import StepDetailPanel
 from maverick.tui.widgets.step_group import StepGroup, StepGroupStatus, StepSummary
 from maverick.tui.widgets.step_tree import StepTreeWidget
 from maverick.tui.widgets.timeline import ProgressTimeline, TimelineStep
@@ -74,7 +72,6 @@ BreadcrumbSegmentClicked = BreadcrumbBar.BreadcrumbSegmentClicked
 
 __all__ = [
     # Widgets
-    "AggregateStatsBar",
     "AgentOutput",
     "AgentStreamingPanel",
     "BreadcrumbBar",
@@ -99,7 +96,6 @@ __all__ = [
     "Sidebar",
     "StageIndicator",
     "STATUS_ICONS",
-    "StepDetailPanel",
     "ValidationStatus",
     "WorkflowList",
     "WorkflowProgress",

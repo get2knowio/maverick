@@ -13,7 +13,6 @@ from maverick.tui.screens.workflow_execution import (
     STEP_TYPE_ICONS,
     WorkflowExecutionScreen,
 )
-from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
 
 
 def create_mock_step(
@@ -682,45 +681,6 @@ class TestStepsPanelVisibility:
         # Simulate what toggle does to the flag
         screen._steps_panel_visible = not screen._steps_panel_visible
         assert screen._steps_panel_visible is False
-
-
-# AggregateStatsBar Integration Tests
-class TestAggregateStatsBarIntegration:
-    """Tests for AggregateStatsBar integration in WorkflowExecutionScreen."""
-
-    def test_unified_state_tracks_aggregate_data(self):
-        """Test that unified state has aggregate tracking fields."""
-        mock_workflow = create_mock_workflow(
-            steps=[create_mock_step()],
-        )
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        assert hasattr(screen._unified_state, "total_tokens")
-        assert hasattr(screen._unified_state, "total_cost")
-        assert hasattr(screen._unified_state, "completed_steps")
-        assert hasattr(screen._unified_state, "failed_steps")
-        assert hasattr(screen._unified_state, "total_steps")
-
-    def test_stats_bar_can_be_created_from_screen_state(self):
-        """Test that AggregateStatsBar can be created from screen's unified state."""
-        mock_workflow = create_mock_workflow(
-            steps=[create_mock_step("step-1"), create_mock_step("step-2")],
-        )
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        bar = AggregateStatsBar(screen._unified_state, id="stats-bar")
-        text = bar._format_stats()
-
-        # Should reflect the 2 pending steps from the workflow
-        assert "2 pending" in text
-
-    def test_refresh_stats_bar_no_error_without_mount(self):
-        """Test that _refresh_stats_bar doesn't raise when not mounted."""
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        # Should not raise even when widget is not mounted
-        screen._refresh_stats_bar()
 
 
 # Step Selection Tests

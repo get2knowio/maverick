@@ -31,6 +31,7 @@ __all__ = [
     "ModelConfig",
     "ParallelConfig",
     "TuiMetricsConfig",
+    "SessionLogConfig",
     "AgentConfig",
     "load_config",
     "get_user_config_path",
@@ -181,6 +182,21 @@ class PreflightValidationConfig(BaseModel):
     custom_tools: list[CustomToolConfig] = Field(default_factory=list)
 
 
+class SessionLogConfig(BaseModel):
+    """Settings for session journal logging.
+
+    Attributes:
+        enabled: Enable session logging by default (default: False).
+        output_dir: Default directory for session log files.
+        include_agent_text: Include high-volume AgentStreamChunk events
+            in the log (default: True).
+    """
+
+    enabled: bool = False
+    output_dir: Path = Field(default_factory=lambda: Path(".maverick/logs"))
+    include_agent_text: bool = True
+
+
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
@@ -248,6 +264,7 @@ class MaverickConfig(BaseSettings):
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
+    session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
