@@ -179,26 +179,44 @@ class StepTreeWidget(Widget):
 
     def on_click(self, event: object) -> None:
         """Handle click on tree nodes."""
-        # Walk up from the clicked widget to find a tree-node
         from textual.events import Click
 
         if not isinstance(event, Click):
             return
 
-        # Find which node was clicked by checking all mounted Static widgets
-        # (Textual routes Click to the widget under the cursor)
-        widget = getattr(event, "widget", None)
-        if widget is None:
+        # Find the clicked widget using screen coordinates for reliability.
+        # event.widget may not reference the child Static when the Click
+        # event bubbles up from a child to this parent widget.
+        clicked_widget = None
+        try:
+            clicked_widget, _offset = self.screen.get_widget_at(
+                event.screen_x, event.screen_y
+            )
+        except (AttributeError, Exception):
+            # Fallback: try event.widget (may work in some Textual versions)
+            clicked_widget = getattr(event, "widget", None)
+
+        if clicked_widget is None:
             return
 
-        path = getattr(widget, "_step_tree_path", None)
-        if path is not None:
-            # Toggle expand/collapse if clicking an already-selected node
-            node = self._state._node_index.get(path)
-            if node and node.children and path == self._state.selected_path:
-                node.expanded = not node.expanded
-                node.user_toggled = True
-                self.refresh_tree()
-                return
+        # Walk up the widget tree to find the node with a path attribute
+        widget = clicked_widget
+        path: str | None = None
+        while widget is not None and widget is not self:
+            path = getattr(widget, "_step_tree_path", None)
+            if path is not None:
+                break
+            widget = widget.parent  # type: ignore[assignment]
 
-            self.post_message(self.StepTreeNodeSelected(path))
+        if path is None:
+            return
+
+        # Toggle expand/collapse if clicking an already-selected parent node
+        node = self._state._node_index.get(path)
+        if node and node.children and path == self._state.selected_path:
+            node.expanded = not node.expanded
+            node.user_toggled = True
+            self.refresh_tree()
+            return
+
+        self.post_message(self.StepTreeNodeSelected(path))

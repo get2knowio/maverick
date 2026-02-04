@@ -293,11 +293,14 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._selected_step: str | None = None
 
         # Sentence-boundary buffering for streaming text
-        # Buffers text until a sentence boundary is reached for readable display
-        self._stream_buffers: dict[str, str] = {}  # agent_name -> buffered text
+        # Buffers text until a newline is reached for readable display
+        self._stream_buffers: dict[str, str] = {}  # agent_key -> buffered text
         self._stream_buffer_timestamps: dict[
             str, float
-        ] = {}  # agent_name -> last update
+        ] = {}  # agent_key -> last update
+        self._stream_buffer_paths: dict[
+            str, str | None
+        ] = {}  # agent_key -> step_path (for filtering)
         self._stream_buffer_flush_delay: float = 0.3  # Flush stale buffers after 300ms
         self._stream_buffer_flush_task: asyncio.Task[None] | None = None
 
@@ -1072,15 +1075,14 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._mount_iteration_widget(step_name)
 
     async def _handle_stream_chunk(self, event: AgentStreamChunk) -> None:
-        """Handle agent stream chunk event with sentence-boundary buffering.
+        """Handle agent stream chunk event with newline-based buffering.
 
-        Buffers incoming text chunks until a sentence boundary is reached,
-        then flushes complete sentences to the unified stream. This produces
-        readable, conversational output instead of choppy word-by-word display.
+        Buffers incoming text chunks until a newline is reached, then
+        flushes complete lines to the unified stream. This produces
+        readable output without breaking lines mid-sentence.
 
-        Sentence boundaries are detected when:
+        Flush triggers:
         - A newline appears (flush everything up to and including the newline)
-        - Sentence-ending punctuation (. ! ? :) followed by whitespace
         - Buffer timeout elapsed (300ms with no new input) - flushes partial text
 
         Args:
@@ -1094,11 +1096,13 @@ class WorkflowExecutionScreen(MaverickScreen):
 
         agent_key = f"{event.step_name}:{event.agent_name}"
 
-        # Append to buffer
+        # Append to buffer and track step_path for filtering
         current_buffer = self._stream_buffers.get(agent_key, "")
         current_buffer += event.text
         self._stream_buffers[agent_key] = current_buffer
         self._stream_buffer_timestamps[agent_key] = time.time()
+        if event.step_path is not None:
+            self._stream_buffer_paths[agent_key] = event.step_path
 
         # Determine what to flush based on sentence boundaries
         text_to_flush = self._extract_flushable_text(agent_key)
@@ -1116,35 +1120,32 @@ class WorkflowExecutionScreen(MaverickScreen):
     def _extract_flushable_text(self, agent_key: str) -> str:
         """Extract text that can be flushed from the buffer.
 
-        Returns text up to and including the last sentence boundary.
-        Keeps any incomplete sentence in the buffer for later flushing.
+        Returns text up to and including the last newline character.
+        Keeps any incomplete line in the buffer for later flushing
+        (either by a subsequent newline or the 300ms timeout).
 
-        Sentence boundaries are:
-        - Newlines (always flush up to and including)
-        - Sentence-ending punctuation (. ! ? :) followed by whitespace
+        Only newlines trigger a flush — not sentence-ending punctuation.
+        This prevents mid-paragraph line breaks where each sentence
+        would otherwise appear as a separate visual entry with its
+        own badge prefix.
 
         Args:
             agent_key: The buffer key (step_name:agent_name).
 
         Returns:
-            Text to flush, or empty string if no sentence boundary found.
+            Text to flush, or empty string if no newline found.
         """
         buffer = self._stream_buffers.get(agent_key, "")
         if not buffer:
             return ""
 
-        # Find the last sentence boundary
-        last_boundary = -1
+        # Find the last newline
+        last_newline = buffer.rfind("\n")
 
-        for i, char in enumerate(buffer):
-            # Newlines are always a flush point
-            if char == "\n" or char in " \t" and i > 0 and buffer[i - 1] in ".!?:":
-                last_boundary = i
-
-        if last_boundary >= 0:
-            # Flush up to and including the boundary
-            text_to_flush = buffer[: last_boundary + 1]
-            self._stream_buffers[agent_key] = buffer[last_boundary + 1 :]
+        if last_newline >= 0:
+            # Flush up to and including the newline
+            text_to_flush = buffer[: last_newline + 1]
+            self._stream_buffers[agent_key] = buffer[last_newline + 1 :]
             return text_to_flush
 
         return ""
@@ -1189,6 +1190,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                     parts = agent_key.split(":", 1)
                     step_name = parts[0] if len(parts) > 0 else "unknown"
                     agent_name = parts[1] if len(parts) > 1 else "unknown"
+                    step_path = self._stream_buffer_paths.get(agent_key)
 
                     unified_entry = UnifiedStreamEntry(
                         timestamp=now,
@@ -1197,6 +1199,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                         content=buffer.rstrip(),
                         level="info",
                         step_name=step_name,
+                        step_path=step_path,
                     )
                     self._add_unified_entry(unified_entry)
 
@@ -1270,6 +1273,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                 parts = agent_key.split(":", 1)
                 step_name = parts[0] if len(parts) > 0 else "unknown"
                 agent_name = parts[1] if len(parts) > 1 else "unknown"
+                step_path = self._stream_buffer_paths.get(agent_key)
 
                 unified_entry = UnifiedStreamEntry(
                     timestamp=time.time(),
@@ -1278,6 +1282,7 @@ class WorkflowExecutionScreen(MaverickScreen):
                     content=buffer.rstrip(),
                     level="info",
                     step_name=step_name,
+                    step_path=step_path,
                 )
                 self._add_unified_entry(unified_entry)
 
@@ -1293,6 +1298,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Clear all buffers
         self._stream_buffers.clear()
         self._stream_buffer_timestamps.clear()
+        self._stream_buffer_paths.clear()
 
     async def _handle_step_output(self, event: StepOutput) -> None:
         """Handle generic step output event.

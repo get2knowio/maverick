@@ -276,9 +276,10 @@ class UnifiedStreamWidget(Widget):
 
         # Scrollable stream content
         with ScrollableContainer(classes="stream-content", id="stream-content"):
-            # Render existing entries
+            # Render existing entries (respecting current filter)
             for entry in self._state.entries:
-                yield self._create_entry_widget(entry)
+                if self._matches_filter(entry):
+                    yield self._create_entry_widget(entry)
 
         # Scroll paused indicator
         yield Static(
@@ -382,9 +383,14 @@ class UnifiedStreamWidget(Widget):
     def _mount_entry(self, entry: UnifiedStreamEntry) -> None:
         """Mount a new entry widget to the stream content.
 
+        Only mounts the entry if it passes the current filter.
+
         Args:
             entry: The entry to mount.
         """
+        if not self._matches_filter(entry):
+            return
+
         try:
             content = self.query_one("#stream-content", ScrollableContainer)
             widget = self._create_entry_widget(entry)

@@ -499,9 +499,9 @@ class TestHandleStreamChunk:
     async def test_adds_entry_to_streaming_state(self) -> None:
         """Test that handler adds AgentStreamEntry to streaming state.
 
-        Note: With sentence-boundary buffering, text is buffered until a
-        sentence ending (. ! ? :) followed by whitespace. We use text ending
-        with "! " to trigger immediate flush, or call _flush_all_stream_buffers.
+        Note: With newline-based buffering, text is buffered until a
+        newline character appears. We use text ending with "\\n" to
+        trigger immediate flush, or call _flush_all_stream_buffers.
         """
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
@@ -510,11 +510,11 @@ class TestHandleStreamChunk:
         screen._refresh_streaming_panel = MagicMock()
 
         timestamp = time.time()
-        # Text ends with "! " which is a sentence boundary - triggers flush
+        # Text ends with newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Hello, world! ",
+            text="Hello, world!\n",
             chunk_type="output",
             timestamp=timestamp,
         )
@@ -536,11 +536,11 @@ class TestHandleStreamChunk:
 
         screen._refresh_streaming_panel = MagicMock()
 
-        # Use sentence-ending text to trigger flush
+        # Use newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Output text. ",
+            text="Output text\n",
             chunk_type="output",
         )
 
@@ -557,11 +557,11 @@ class TestHandleStreamChunk:
 
         screen._refresh_streaming_panel = MagicMock()
 
-        # Use sentence-ending text to trigger flush
+        # Use newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Thinking about this. ",
+            text="Thinking about this\n",
             chunk_type="thinking",
         )
 
@@ -578,11 +578,11 @@ class TestHandleStreamChunk:
 
         screen._refresh_streaming_panel = MagicMock()
 
-        # Use sentence-ending text to trigger flush
+        # Use newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Error occurred! ",
+            text="Error occurred!\n",
             chunk_type="error",
         )
 
@@ -599,11 +599,11 @@ class TestHandleStreamChunk:
 
         screen._refresh_streaming_panel = MagicMock()
 
-        # Use sentence-ending text to trigger flush
+        # Use newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Unknown type. ",
+            text="Unknown type\n",
             chunk_type="unknown_type",
         )
 
@@ -616,32 +616,32 @@ class TestHandleStreamChunk:
     async def test_adds_multiple_entries_sequentially(self) -> None:
         """Test that handler adds multiple entries in order.
 
-        With sentence-boundary buffering, each chunk needs a sentence ending
-        to flush immediately, or we flush all buffers at the end.
+        With newline-based buffering, each chunk needs a newline to
+        flush immediately, or we flush all buffers at the end.
         """
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
         screen._refresh_streaming_panel = MagicMock()
 
-        # Use sentence-ending text to trigger flush for each chunk
+        # Use newline to trigger flush for each chunk
         events = [
             AgentStreamChunk(
                 step_name="step1",
                 agent_name="Agent1",
-                text="First chunk. ",
+                text="First chunk\n",
                 chunk_type="output",
             ),
             AgentStreamChunk(
                 step_name="step1",
                 agent_name="Agent1",
-                text="Second chunk. ",
+                text="Second chunk\n",
                 chunk_type="output",
             ),
             AgentStreamChunk(
                 step_name="step2",
                 agent_name="Agent2",
-                text="Third chunk. ",
+                text="Third chunk\n",
                 chunk_type="thinking",
             ),
         ]
@@ -662,11 +662,11 @@ class TestHandleStreamChunk:
 
         screen._add_unified_entry = MagicMock()
 
-        # Use sentence-ending text to trigger flush
+        # Use newline to trigger flush
         event = AgentStreamChunk(
             step_name="test_step",
             agent_name="TestAgent",
-            text="Some text. ",
+            text="Some text\n",
             chunk_type="output",
         )
 
@@ -908,8 +908,8 @@ class TestEventHandlerIntegration:
     async def test_concurrent_loops_with_streaming(self) -> None:
         """Test handling events from multiple loops and streaming concurrently.
 
-        With sentence-boundary buffering, we use text ending with "..." which
-        includes a period to trigger flush, or explicitly flush buffers.
+        With newline-based buffering, we use text ending with a newline
+        to trigger flush, or explicitly flush buffers.
         """
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
