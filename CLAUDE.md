@@ -17,7 +17,7 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 | TUI             | Textual                 | `textual` package                        |
 | CLI             | Click                   | `click` package                          |
 | Validation      | Pydantic                | For configuration and data models        |
-| Testing         | pytest + pytest-asyncio | All tests async-compatible               |
+| Testing         | pytest + pytest-asyncio | Parallel via xdist (`-n auto`)           |
 | Linting         | Ruff                    | Fast, comprehensive Python linter        |
 | Type Checking   | MyPy                    | Strict mode recommended                  |
 | Git Operations  | GitPython               | `maverick.git` wraps GitPython           |
@@ -209,17 +209,20 @@ If you have existing Python decorator workflows, see `docs/migrating-from-decora
 
 **IMPORTANT**: Always use `make` commands instead of `uv run` directly. The Makefile provides AI-agent-friendly output with minimal noise.
 
-| Command               | Purpose                                |
-| --------------------- | -------------------------------------- |
-| `make test`           | Run tests (errors only)                |
-| `make lint`           | Run ruff linter (errors only)          |
-| `make typecheck`      | Run mypy (errors only)                 |
-| `make format`         | Check formatting (diff if needed)      |
-| `make format-fix`     | Apply formatting fixes                 |
-| `make check`          | Run all checks (lint, typecheck, test) |
-| `make ci`             | CI mode: fail fast on any error        |
-| `make clean`          | Remove build artifacts and caches      |
-| `make VERBOSE=1 test` | Full output for debugging              |
+| Command               | Purpose                                     |
+| --------------------- | ------------------------------------------- |
+| `make test`           | Run all tests in parallel (errors only)     |
+| `make test-fast`      | Unit tests only, no slow tests (fastest)    |
+| `make test-cov`       | Run tests with coverage report              |
+| `make test-integration` | Run integration tests only                |
+| `make lint`           | Run ruff linter (errors only)               |
+| `make typecheck`      | Run mypy (errors only)                      |
+| `make format`         | Check formatting (diff if needed)           |
+| `make format-fix`     | Apply formatting fixes                      |
+| `make check`          | Run all checks (lint, typecheck, test)      |
+| `make ci`             | CI mode: fail fast on any error             |
+| `make clean`          | Remove build artifacts and caches           |
+| `make VERBOSE=1 test` | Full output for debugging                   |
 
 ## Core Principles
 
