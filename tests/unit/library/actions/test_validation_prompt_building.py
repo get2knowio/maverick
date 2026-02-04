@@ -88,7 +88,7 @@ class TestBuildFixPrompt:
         assert "ruff check" not in prompt
 
     def test_build_fix_prompt_commands_from_validation_result(self) -> None:
-        """Prompt uses commands embedded in validation result via _validation_commands."""
+        """Prompt uses commands from validation result via _validation_commands."""
         from maverick.library.actions.validation import DEFAULT_STAGE_COMMANDS
 
         result = create_validation_result(success=False)

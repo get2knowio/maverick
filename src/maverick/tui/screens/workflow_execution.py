@@ -18,7 +18,6 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
-from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static
 from textual.worker import Worker, WorkerState
@@ -83,124 +82,6 @@ logger = get_logger(__name__)
 DEBOUNCE_INTERVAL_SECONDS = 0.050
 
 
-class StepClicked(Message):
-    """Message posted when a step is clicked in the sidebar.
-
-    Attributes:
-        step_name: Name of the clicked step.
-    """
-
-    def __init__(self, step_name: str) -> None:
-        self.step_name = step_name
-        super().__init__()
-
-
-class StepWidget(Static):
-    """Widget to display a single workflow step with status."""
-
-    def __init__(
-        self,
-        step_name: str,
-        step_type: str,
-        *,
-        name: str | None = None,
-        id: str | None = None,
-        classes: str | None = None,
-    ) -> None:
-        """Initialize the step widget.
-
-        Args:
-            step_name: Name of the workflow step.
-            step_type: Type of the step (python, agent, etc.).
-            name: Widget name.
-            id: Widget ID.
-            classes: CSS classes.
-        """
-        super().__init__(name=name, id=id, classes=classes)
-        self._step_name = step_name
-        self._step_type = step_type
-        self._status = "pending"
-        self._duration_ms: int | None = None
-        self._error: str | None = None
-        self._update_display()
-
-    def _update_display(self) -> None:
-        """Update the displayed content based on status."""
-        type_icon = STEP_TYPE_ICONS.get(self._step_type, "?")
-        status_icon = STATUS_ICONS.get(self._status, "?")
-
-        # Build status color
-        if self._status == "running":
-            status_class = "step-running"
-            status_icon = "\u25cf"  # Will animate in CSS
-        elif self._status == "completed":
-            status_class = "step-completed"
-        elif self._status == "failed":
-            status_class = "step-failed"
-        elif self._status == "skipped":
-            status_class = "step-skipped"
-        else:
-            status_class = "step-pending"
-
-        # Build duration string
-        duration_str = ""
-        if self._duration_ms is not None:
-            if self._duration_ms >= 60000:
-                minutes = self._duration_ms // 60000
-                seconds = (self._duration_ms % 60000) // 1000
-                duration_str = f" ({minutes}m {seconds}s)"
-            elif self._duration_ms >= 1000:
-                duration_str = f" ({self._duration_ms / 1000:.1f}s)"
-            else:
-                duration_str = f" ({self._duration_ms}ms)"
-
-        # Error indicator
-        error_str = ""
-        if self._error:
-            error_str = f"\n  [red]{self._error}[/red]"
-
-        self.update(
-            f"[{status_class}]{status_icon}[/{status_class}] "
-            f"{type_icon} {self._step_name}{duration_str}{error_str}"
-        )
-
-    def set_running(self) -> None:
-        """Mark the step as running."""
-        self._status = "running"
-        self._update_display()
-
-    def set_completed(self, duration_ms: int) -> None:
-        """Mark the step as completed.
-
-        Args:
-            duration_ms: Duration in milliseconds.
-        """
-        self._status = "completed"
-        self._duration_ms = duration_ms
-        self._update_display()
-
-    def set_failed(self, duration_ms: int, error: str | None = None) -> None:
-        """Mark the step as failed.
-
-        Args:
-            duration_ms: Duration in milliseconds.
-            error: Error message.
-        """
-        self._status = "failed"
-        self._duration_ms = duration_ms
-        self._error = error
-        self._update_display()
-
-    def set_skipped(self) -> None:
-        """Mark the step as skipped."""
-        self._status = "skipped"
-        self._update_display()
-
-    def on_click(self) -> None:
-        """Handle click to select this step for stream filtering."""
-        self.post_message(StepClicked(self._step_name))
-
-
 class WorkflowExecutionScreen(MaverickScreen):
     """Execute workflow and display real-time progress.
 
@@ -248,7 +129,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         super().__init__(name=name, id=id, classes=classes)
         self._workflow = workflow
         self._inputs = inputs
-        self._step_widgets: dict[str, StepWidget] = {}
         self._loop_states: dict[str, LoopIterationState] = {}
         self._cancel_requested = False
         self._executor_worker: Worker[WorkflowResult] | None = None
@@ -348,22 +228,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                     self._tree_state,
                     id="step-tree",
                 )
-                # Legacy step list (hidden, kept for backward compat)
-                with ScrollableContainer(id="step-list", classes="hidden"):
-                    for step in self._workflow.steps:
-                        step_type_str = (
-                            step.type.value
-                            if hasattr(step.type, "value")
-                            else str(step.type)
-                        )
-                        step_widget = StepWidget(
-                            step_name=step.name,
-                            step_type=step_type_str,
-                            id=f"step-{step.name}",
-                            classes="step-item",
-                        )
-                        self._step_widgets[step.name] = step_widget
-                        yield step_widget
 
             # Main content: breadcrumb + detail panel + unified stream
             with Vertical(id="execution-content"):
@@ -395,6 +259,16 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._unified_state.start_time = time.time()
         self._unified_state.workflow_name = self._workflow.name
         self._unified_state.total_steps = self.total_steps
+
+        # Pre-populate tree with all workflow steps (status=pending)
+        for step in self._workflow.steps:
+            step_type_str = (
+                step.type.value if hasattr(step.type, "value") else str(step.type)
+            )
+            self._tree_state.upsert_node(
+                step.name, step_type=step_type_str, status="pending"
+            )
+        self._refresh_step_tree()
 
         # Start elapsed time timer (updates compact header and unified stream)
         self.set_interval(1.0, self._update_elapsed_time)
@@ -600,9 +474,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             step_type: Type of the step (agent, python, etc.).
             step_path: Hierarchical path for tree navigation.
         """
-        if step_name in self._step_widgets:
-            self._step_widgets[step_name].set_running()
-
         # Track start time for duration calculation
         self._step_start_times[step_name] = datetime.now()
         self._current_running_step = step_name
@@ -654,9 +525,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         """
         # Flush any remaining buffered streaming text for this step
         self._flush_all_stream_buffers()
-
-        if step_name in self._step_widgets:
-            self._step_widgets[step_name].set_completed(duration_ms)
 
         # Track completion and record duration for future ETA calculations
         self._completed_steps.add(step_name)
@@ -710,9 +578,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         """Mark a step as failed."""
         # Flush any remaining buffered streaming text for this step
         self._flush_all_stream_buffers()
-
-        if step_name in self._step_widgets:
-            self._step_widgets[step_name].set_failed(duration_ms, error)
 
         # Track as completed (failed) and clear running state
         self._completed_steps.add(step_name)
@@ -1006,18 +871,12 @@ class WorkflowExecutionScreen(MaverickScreen):
             classes="iteration-progress",
         )
 
-        # Mount after the corresponding step widget if it exists
-        step_widget = self._step_widgets.get(step_name)
-        parent = step_widget.parent if step_widget else None
-        if parent is not None and isinstance(parent, ScrollableContainer):
-            parent.mount(widget, after=step_widget)
-        else:
-            # Fallback: append to step list
-            try:
-                container = self.query_one("#step-list", ScrollableContainer)
-                container.mount(widget)
-            except NoMatches:
-                pass
+        # Mount into the tree content container
+        try:
+            container = self.query_one("#tree-content", ScrollableContainer)
+            container.mount(widget)
+        except NoMatches:
+            pass
 
     def _refresh_iteration_widget(self, step_name: str) -> None:
         """Refresh the IterationProgress widget for the given loop step.
@@ -1511,14 +1370,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         except NoMatches:
             pass
 
-    def on_step_clicked(self, message: StepClicked) -> None:
-        """Handle step click for stream filtering (legacy).
-
-        Args:
-            message: The StepClicked message with the step name.
-        """
-        self._apply_scope(message.step_name)
-
     def on_step_tree_widget_step_tree_node_selected(
         self, message: StepTreeWidget.StepTreeNodeSelected
     ) -> None:
@@ -1560,13 +1411,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             breadcrumb.set_path(path)
         except NoMatches:
             pass
-
-        # Update visual selection on legacy step widgets
-        for name, widget in self._step_widgets.items():
-            if name == self._selected_step:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
 
         # Apply filter to stream widget
         try:

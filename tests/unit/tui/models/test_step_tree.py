@@ -148,6 +148,123 @@ class TestStepTreeState:
         ]
 
 
+class TestSelectNextVisible:
+    """Tests for select_next_visible navigation."""
+
+    def test_empty_tree_returns_none(self) -> None:
+        state = StepTreeState()
+        assert state.select_next_visible() is None
+
+    def test_no_selection_selects_first(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+
+        result = state.select_next_visible()
+        assert result == "a"
+        assert state.selected_path == "a"
+
+    def test_advances_to_next(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+        state.upsert_node("c")
+        state.selected_path = "a"
+
+        assert state.select_next_visible() == "b"
+        assert state.select_next_visible() == "c"
+
+    def test_wraps_around(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+        state.selected_path = "b"
+
+        assert state.select_next_visible() == "a"
+
+    def test_stale_selection_resets_to_first(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.selected_path = "nonexistent"
+
+        assert state.select_next_visible() == "a"
+
+
+class TestSelectPrevVisible:
+    """Tests for select_prev_visible navigation."""
+
+    def test_empty_tree_returns_none(self) -> None:
+        state = StepTreeState()
+        assert state.select_prev_visible() is None
+
+    def test_no_selection_selects_last(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+
+        result = state.select_prev_visible()
+        assert result == "b"
+        assert state.selected_path == "b"
+
+    def test_moves_to_previous(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+        state.upsert_node("c")
+        state.selected_path = "c"
+
+        assert state.select_prev_visible() == "b"
+        assert state.select_prev_visible() == "a"
+
+    def test_wraps_around(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+        state.selected_path = "a"
+
+        assert state.select_prev_visible() == "b"
+
+    def test_stale_selection_resets_to_last(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("a")
+        state.upsert_node("b")
+        state.selected_path = "nonexistent"
+
+        assert state.select_prev_visible() == "b"
+
+
+class TestToggleExpanded:
+    """Tests for toggle_expanded method."""
+
+    def test_toggle_node_with_children(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("loop/[0]", status="running")
+
+        # "loop" has children, should toggle
+        assert state._node_index["loop"].expanded is True
+        assert state.toggle_expanded("loop") is True
+        assert state._node_index["loop"].expanded is False
+        assert state._node_index["loop"].user_toggled is True
+
+    def test_toggle_again_expands(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("loop/[0]", status="running")
+        state.toggle_expanded("loop")  # collapse
+        state.toggle_expanded("loop")  # expand
+
+        assert state._node_index["loop"].expanded is True
+
+    def test_toggle_leaf_returns_false(self) -> None:
+        state = StepTreeState()
+        state.upsert_node("step_a", status="running")
+
+        assert state.toggle_expanded("step_a") is False
+
+    def test_toggle_nonexistent_returns_false(self) -> None:
+        state = StepTreeState()
+        assert state.toggle_expanded("nope") is False
+
+
 class TestFilterPrefixMatching:
     """Tests for stream filter prefix matching logic."""
 

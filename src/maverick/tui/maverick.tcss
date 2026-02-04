@@ -1109,35 +1109,6 @@ WorkflowExecutionScreen #progress-bar {
     margin-bottom: 1;
 }
 
-WorkflowExecutionScreen #step-list {
-    height: 1fr;
-    overflow-y: auto;
-    border: solid $border;
-    padding: 1;
-}
-
-WorkflowExecutionScreen .step-item {
-    height: auto;
-    margin-bottom: 0;
-}
-
-WorkflowExecutionScreen .step-item.selected {
-    background: $accent-muted;
-    border-left: thick $accent;
-}
-
-WorkflowExecutionScreen .step-running {
-    color: $warning;
-}
-
-WorkflowExecutionScreen .step-completed {
-    color: $success;
-}
-
-WorkflowExecutionScreen .step-failed {
-    color: $error;
-}
-
 WorkflowExecutionScreen #error-display {
     color: $error;
     margin-top: 1;
@@ -1703,11 +1674,6 @@ AggregateStatsBar {
 
 #execution-steps {
     width: 40%;
-}
-
-#execution-steps #step-list {
-    height: 1fr;
-    padding: 0 1;
 }
 
 #execution-output {

@@ -22,9 +22,6 @@ from textual.widgets import Static
 from maverick.tui.models.enums import StreamChunkType
 from maverick.tui.models.widget_state import AgentStreamEntry
 from maverick.tui.screens.workflow_execution import (
-    STATUS_ICONS,
-    STEP_TYPE_ICONS,
-    StepWidget,
     WorkflowExecutionScreen,
 )
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
@@ -169,168 +166,6 @@ class WorkflowExecutionTestApp(ScreenTestApp):
         await self.push_screen(self.screen_instance)
 
 
-class StepWidgetTestApp(ScreenTestApp):
-    """Test app for StepWidget."""
-
-    def compose(self) -> Iterable[Widget]:
-        yield StepWidget(
-            step_name="test_step",
-            step_type="python",
-            id="test-step-widget",
-        )
-
-
-# =============================================================================
-# StepWidget Tests
-# =============================================================================
-
-
-class TestStepWidget:
-    """Tests for the StepWidget component."""
-
-    @pytest.mark.asyncio
-    async def test_step_widget_renders_name_and_type(self) -> None:
-        """Test that StepWidget displays step name and type icon."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            content = str(step_widget.renderable)
-
-            # Should contain step name
-            assert "test_step" in content
-
-            # Should contain type icon (gear for python)
-            assert STEP_TYPE_ICONS["python"] in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_initial_pending_status(self) -> None:
-        """Test that StepWidget starts in pending status."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            content = str(step_widget.renderable)
-
-            # Should contain pending status icon
-            assert STATUS_ICONS["pending"] in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_running(self) -> None:
-        """Test that set_running updates the step status."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_running()
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-            # Should contain running indicator (filled circle)
-            assert STATUS_ICONS["running"] in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_completed_with_duration(self) -> None:
-        """Test that set_completed shows duration."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_completed(duration_ms=1500)
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-
-            # Should contain completed icon
-            assert STATUS_ICONS["completed"] in content
-
-            # Should contain duration (1.5s)
-            assert "1.5s" in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_completed_short_duration(self) -> None:
-        """Test that short durations are shown in milliseconds."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_completed(duration_ms=500)
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-
-            # Should contain duration in ms
-            assert "500ms" in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_completed_long_duration(self) -> None:
-        """Test that long durations are shown in minutes and seconds."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_completed(duration_ms=90000)  # 1m 30s
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-
-            # Should contain duration in minutes and seconds
-            assert "1m" in content
-            assert "30s" in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_failed_with_error(self) -> None:
-        """Test that set_failed shows error message."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_failed(
-                duration_ms=1000,
-                error="Connection timeout",
-            )
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-
-            # Should contain failed icon
-            assert STATUS_ICONS["failed"] in content
-
-            # Should contain error message
-            assert "Connection timeout" in content
-
-    @pytest.mark.asyncio
-    async def test_step_widget_set_skipped(self) -> None:
-        """Test that set_skipped updates the status."""
-        app = StepWidgetTestApp()
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            step_widget = pilot.app.query_one("#test-step-widget", StepWidget)
-            step_widget.set_skipped()
-            await pilot.pause()
-
-            content = str(step_widget.renderable)
-
-            # Should contain skipped icon
-            assert STATUS_ICONS["skipped"] in content
-
-
 # =============================================================================
 # WorkflowExecutionScreen Layout Tests
 # =============================================================================
@@ -354,8 +189,8 @@ class TestWorkflowExecutionScreenLayout:
             assert "My Test Workflow" in content
 
     @pytest.mark.asyncio
-    async def test_screen_renders_step_widgets(self) -> None:
-        """Test that step widgets are created for each workflow step."""
+    async def test_tree_pre_populated_on_mount(self) -> None:
+        """Test that tree is pre-populated with all steps on mount."""
         workflow = create_mock_workflow(
             steps=[
                 {"name": "step1", "type": "python"},
@@ -368,14 +203,18 @@ class TestWorkflowExecutionScreenLayout:
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            # Should have step widgets for each step
-            step1 = pilot.app.query_one("#step-step1", StepWidget)
-            step2 = pilot.app.query_one("#step-step2", StepWidget)
-            step3 = pilot.app.query_one("#step-step3", StepWidget)
+            assert app.screen_instance is not None
+            tree_state = app.screen_instance._tree_state
 
-            assert step1 is not None
-            assert step2 is not None
-            assert step3 is not None
+            # Should have 3 root nodes in the tree
+            assert len(tree_state.roots) == 3
+            assert tree_state.roots[0].path == "step1"
+            assert tree_state.roots[1].path == "step2"
+            assert tree_state.roots[2].path == "step3"
+
+            # All should start as pending
+            for node in tree_state.roots:
+                assert node.status == "pending"
 
     @pytest.mark.asyncio
     async def test_screen_renders_unified_stream(self) -> None:
@@ -552,11 +391,11 @@ class TestWorkflowExecutionScreenActions:
 
 
 class TestStepStatusUpdates:
-    """Tests for step status update methods."""
+    """Tests for step status update methods via tree state."""
 
     @pytest.mark.asyncio
     async def test_mark_step_running(self) -> None:
-        """Test that _mark_step_running updates step widget."""
+        """Test that _mark_step_running updates tree state."""
         workflow = create_mock_workflow(steps=[{"name": "test_step", "type": "python"}])
         app = WorkflowExecutionTestApp(workflow=workflow)
 
@@ -567,14 +406,13 @@ class TestStepStatusUpdates:
                 app.screen_instance._mark_step_running("test_step")
                 await pilot.pause()
 
-                step_widget = pilot.app.query_one("#step-test_step", StepWidget)
-                content = str(step_widget.renderable)
-
-                assert STATUS_ICONS["running"] in content
+                node = app.screen_instance._tree_state._node_index.get("test_step")
+                assert node is not None
+                assert node.status == "running"
 
     @pytest.mark.asyncio
     async def test_mark_step_completed(self) -> None:
-        """Test that _mark_step_completed updates step widget."""
+        """Test that _mark_step_completed updates tree state."""
         workflow = create_mock_workflow(steps=[{"name": "test_step", "type": "python"}])
         app = WorkflowExecutionTestApp(workflow=workflow)
 
@@ -585,15 +423,14 @@ class TestStepStatusUpdates:
                 app.screen_instance._mark_step_completed("test_step", 2000)
                 await pilot.pause()
 
-                step_widget = pilot.app.query_one("#step-test_step", StepWidget)
-                content = str(step_widget.renderable)
-
-                assert STATUS_ICONS["completed"] in content
-                assert "2.0s" in content
+                node = app.screen_instance._tree_state._node_index.get("test_step")
+                assert node is not None
+                assert node.status == "completed"
+                assert node.duration_ms == 2000
 
     @pytest.mark.asyncio
     async def test_mark_step_failed(self) -> None:
-        """Test that _mark_step_failed updates step widget with error."""
+        """Test that _mark_step_failed updates tree state."""
         workflow = create_mock_workflow(steps=[{"name": "test_step", "type": "python"}])
         app = WorkflowExecutionTestApp(workflow=workflow)
 
@@ -608,11 +445,10 @@ class TestStepStatusUpdates:
                 )
                 await pilot.pause()
 
-                step_widget = pilot.app.query_one("#step-test_step", StepWidget)
-                content = str(step_widget.renderable)
-
-                assert STATUS_ICONS["failed"] in content
-                assert "Test error message" in content
+                node = app.screen_instance._tree_state._node_index.get("test_step")
+                assert node is not None
+                assert node.status == "failed"
+                assert node.duration_ms == 1000
 
 
 # =============================================================================

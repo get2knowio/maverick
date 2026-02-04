@@ -158,6 +158,70 @@ class StepTreeState:
             if ancestor and not ancestor.user_toggled:
                 ancestor.expanded = True
 
+    def select_next_visible(self) -> str | None:
+        """Move selection down in the flattened visible list (wrap-around).
+
+        Returns:
+            The newly selected path, or None if the tree is empty.
+        """
+        visible = self.flatten_visible()
+        if not visible:
+            return None
+
+        if self.selected_path is None:
+            self.selected_path = visible[0].path
+            return self.selected_path
+
+        for i, node in enumerate(visible):
+            if node.path == self.selected_path:
+                next_index = (i + 1) % len(visible)
+                self.selected_path = visible[next_index].path
+                return self.selected_path
+
+        # Selected path not in visible list; select first
+        self.selected_path = visible[0].path
+        return self.selected_path
+
+    def select_prev_visible(self) -> str | None:
+        """Move selection up in the flattened visible list (wrap-around).
+
+        Returns:
+            The newly selected path, or None if the tree is empty.
+        """
+        visible = self.flatten_visible()
+        if not visible:
+            return None
+
+        if self.selected_path is None:
+            self.selected_path = visible[-1].path
+            return self.selected_path
+
+        for i, node in enumerate(visible):
+            if node.path == self.selected_path:
+                prev_index = (i - 1) % len(visible)
+                self.selected_path = visible[prev_index].path
+                return self.selected_path
+
+        # Selected path not in visible list; select last
+        self.selected_path = visible[-1].path
+        return self.selected_path
+
+    def toggle_expanded(self, path: str) -> bool:
+        """Toggle expand/collapse for a node with children.
+
+        Args:
+            path: Path of the node to toggle.
+
+        Returns:
+            True if the node was toggled, False if not found or has no children.
+        """
+        node = self._node_index.get(path)
+        if node is None or not node.children:
+            return False
+        node.expanded = not node.expanded
+        node.user_toggled = True
+        return True
+
     def _flatten(
         self,
         nodes: list[StepTreeNode],

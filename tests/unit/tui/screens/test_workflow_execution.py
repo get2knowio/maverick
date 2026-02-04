@@ -11,8 +11,6 @@ import pytest
 from maverick.tui.screens.workflow_execution import (
     STATUS_ICONS,
     STEP_TYPE_ICONS,
-    StepClicked,
-    StepWidget,
     WorkflowExecutionScreen,
 )
 from maverick.tui.widgets.aggregate_stats import AggregateStatsBar
@@ -104,92 +102,6 @@ class TestStatusIcons:
         assert STATUS_ICONS["skipped"] == "\u2014"
 
 
-# StepWidget Tests
-class TestStepWidget:
-    """Tests for StepWidget class."""
-
-    def test_initialization(self):
-        """Test StepWidget initializes correctly."""
-        widget = StepWidget(step_name="test", step_type="python")
-
-        assert widget._step_name == "test"
-        assert widget._step_type == "python"
-        assert widget._status == "pending"
-        assert widget._duration_ms is None
-        assert widget._error is None
-
-    def test_set_running(self):
-        """Test set_running updates status."""
-        widget = StepWidget(step_name="test", step_type="python")
-
-        widget.set_running()
-
-        assert widget._status == "running"
-
-    def test_set_completed(self):
-        """Test set_completed updates status and duration."""
-        widget = StepWidget(step_name="test", step_type="python")
-
-        widget.set_completed(duration_ms=1500)
-
-        assert widget._status == "completed"
-        assert widget._duration_ms == 1500
-
-    def test_set_failed(self):
-        """Test set_failed updates status, duration, and error."""
-        widget = StepWidget(step_name="test", step_type="python")
-
-        widget.set_failed(duration_ms=500, error="Something went wrong")
-
-        assert widget._status == "failed"
-        assert widget._duration_ms == 500
-        assert widget._error == "Something went wrong"
-
-    def test_set_skipped(self):
-        """Test set_skipped updates status."""
-        widget = StepWidget(step_name="test", step_type="python")
-
-        widget.set_skipped()
-
-        assert widget._status == "skipped"
-
-
-# Duration Formatting Tests
-class TestDurationFormatting:
-    """Tests for duration formatting in StepWidget."""
-
-    def test_duration_milliseconds(self):
-        """Test duration formatting for milliseconds."""
-        widget = StepWidget(step_name="test", step_type="python")
-        widget._duration_ms = 500
-        widget._status = "completed"
-
-        widget._update_display()
-
-        # Duration should be formatted with ms suffix
-        # This is verified through the widget's renderable content
-
-    def test_duration_seconds(self):
-        """Test duration formatting for seconds."""
-        widget = StepWidget(step_name="test", step_type="python")
-        widget._duration_ms = 2500
-        widget._status = "completed"
-
-        widget._update_display()
-
-        # Duration should be formatted with seconds
-
-    def test_duration_minutes(self):
-        """Test duration formatting for minutes."""
-        widget = StepWidget(step_name="test", step_type="python")
-        widget._duration_ms = 125000  # 2m 5s
-        widget._status = "completed"
-
-        widget._update_display()
-
-        # Duration should be formatted with minutes and seconds
-
-
 # WorkflowExecutionScreen Initialization Tests
 class TestWorkflowExecutionInitialization:
     """Tests for WorkflowExecutionScreen initialization."""
@@ -216,7 +128,6 @@ class TestWorkflowExecutionInitialization:
 
         assert screen._workflow == mock_workflow
         assert screen._inputs == inputs
-        assert screen._step_widgets == {}
         assert screen._cancel_requested is False
 
 
@@ -257,46 +168,44 @@ class TestReactiveState:
 
 # Step Marking Tests
 class TestStepMarking:
-    """Tests for step marking methods."""
+    """Tests for step marking methods using tree state."""
 
     def test_mark_step_running(self):
-        """Test marking a step as running."""
+        """Test marking a step as running updates tree state."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        step_widget = StepWidget(step_name="test", step_type="python")
-        screen._step_widgets["test"] = step_widget
+        screen._mark_step_running("test", "python")
 
-        screen._mark_step_running("test")
-
-        assert step_widget._status == "running"
+        node = screen._tree_state._node_index.get("test")
+        assert node is not None
+        assert node.status == "running"
 
     def test_mark_step_completed(self):
-        """Test marking a step as completed."""
+        """Test marking a step as completed updates tree state."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        step_widget = StepWidget(step_name="test", step_type="python")
-        screen._step_widgets["test"] = step_widget
-
+        screen._mark_step_running("test", "python")
         screen._mark_step_completed("test", 1000)
 
-        assert step_widget._status == "completed"
-        assert step_widget._duration_ms == 1000
+        node = screen._tree_state._node_index.get("test")
+        assert node is not None
+        assert node.status == "completed"
+        assert node.duration_ms == 1000
 
     def test_mark_step_failed(self):
-        """Test marking a step as failed."""
+        """Test marking a step as failed updates tree state."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        step_widget = StepWidget(step_name="test", step_type="python")
-        screen._step_widgets["test"] = step_widget
-
+        screen._mark_step_running("test", "python")
         screen._mark_step_failed("test", 500, "Error message")
 
-        assert step_widget._status == "failed"
-        assert step_widget._duration_ms == 500
-        assert step_widget._error == "Error message"
+        node = screen._tree_state._node_index.get("test")
+        assert node is not None
+        assert node.status == "failed"
+        assert node.duration_ms == 500
 
     def test_mark_unknown_step_no_error(self):
         """Test marking unknown step doesn't raise error."""
@@ -814,19 +723,9 @@ class TestAggregateStatsBarIntegration:
         screen._refresh_stats_bar()
 
 
-# StepClicked Message Tests
-class TestStepClicked:
-    """Tests for StepClicked message."""
-
-    def test_step_clicked_stores_step_name(self):
-        """Test that StepClicked message stores the step name."""
-        msg = StepClicked("implement_task")
-        assert msg.step_name == "implement_task"
-
-
 # Step Selection Tests
 class TestStepSelection:
-    """Tests for step selection in sidebar for stream filtering."""
+    """Tests for step selection via _apply_scope for stream filtering."""
 
     def test_selected_step_initial_state(self):
         """Test that no step is selected initially."""
@@ -834,48 +733,34 @@ class TestStepSelection:
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
         assert screen._selected_step is None
 
-    def test_step_selection_sets_selected_step(self):
-        """Test that handling StepClicked sets _selected_step."""
+    def test_apply_scope_sets_selected_step(self):
+        """Test that _apply_scope sets _selected_step and tree state."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        # Simulate what on_step_clicked does (without mounting)
-        message = StepClicked("test_step")
-        screen._selected_step = message.step_name
+        screen._apply_scope("test_step")
 
         assert screen._selected_step == "test_step"
+        assert screen._tree_state.selected_path == "test_step"
 
-    def test_step_deselection_on_same_click(self):
-        """Test that clicking same step again deselects it."""
+    def test_apply_scope_none_clears_selection(self):
+        """Test that _apply_scope(None) clears selection."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        # Simulate first click
-        screen._selected_step = "test_step"
-
-        # Simulate second click on same step (deselect logic)
-        msg = StepClicked("test_step")
-        if screen._selected_step == msg.step_name:
-            screen._selected_step = None
-        else:
-            screen._selected_step = msg.step_name
+        screen._apply_scope("test_step")
+        screen._apply_scope(None)
 
         assert screen._selected_step is None
+        assert screen._tree_state.selected_path is None
 
-    def test_step_selection_switches_step(self):
-        """Test that clicking a different step switches selection."""
+    def test_apply_scope_switches_step(self):
+        """Test that _apply_scope switches selection to a different step."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        # Select first step
-        screen._selected_step = "step_a"
-
-        # Click different step
-        msg = StepClicked("step_b")
-        if screen._selected_step == msg.step_name:
-            screen._selected_step = None
-        else:
-            screen._selected_step = msg.step_name
+        screen._apply_scope("step_a")
+        screen._apply_scope("step_b")
 
         assert screen._selected_step == "step_b"
 
@@ -891,9 +776,6 @@ class TestUnifiedStreamEntryStepName:
 
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        step_widget = StepWidget(step_name="review", step_type="agent")
-        screen._step_widgets["review"] = step_widget
 
         screen._mark_step_running("review", "agent")
 
@@ -912,9 +794,6 @@ class TestUnifiedStreamEntryStepName:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        step_widget = StepWidget(step_name="validate", step_type="python")
-        screen._step_widgets["validate"] = step_widget
-
         screen._mark_step_completed("validate", 2000)
 
         entries = screen._unified_state.entries
@@ -930,9 +809,6 @@ class TestUnifiedStreamEntryStepName:
 
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        step_widget = StepWidget(step_name="build", step_type="python")
-        screen._step_widgets["build"] = step_widget
 
         screen._mark_step_failed("build", 500, "Build failed")
 
