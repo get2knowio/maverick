@@ -28,7 +28,7 @@ ifeq ($(VERBOSE),1)
   MYPY_ARGS :=
 else
   Q := @
-  PYTEST_ARGS := -q --no-header --tb=line -x
+  PYTEST_ARGS := -q --no-header --tb=line -x --disable-warnings
   RUFF_ARGS := --quiet
   MYPY_ARGS := --no-error-summary
 endif
@@ -43,17 +43,19 @@ install: ## Install/sync all dependencies
 
 sync: install ## Alias for install
 
+PYTEST_FILTER := 2>&1 | grep -vE "^(===|---|platform|rootdir|plugins|collected|.*passed|warnings summary|bringing up|$$)" || true
+
 test: ## Run tests (errors only, parallel)
-	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope tests/ 2>&1 | grep -v "^===\|^---\|^platform\|^rootdir\|^plugins\|^collected\|passed\|warnings summary" | grep -v "^$$" || true
+	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope tests/ $(PYTEST_FILTER)
 
 test-fast: ## Run unit tests only (fastest feedback loop)
-	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope -m "not slow" tests/unit/
+	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope -m "not slow" tests/unit/ $(PYTEST_FILTER)
 
 test-cov: ## Run tests with coverage report
-	$(Q)uv run pytest $(PYTEST_ARGS) --cov=maverick --cov-report=term-missing tests/
+	$(Q)uv run pytest $(PYTEST_ARGS) --cov=maverick --cov-report=term-missing tests/ $(PYTEST_FILTER)
 
 test-integration: ## Run integration tests only
-	$(Q)uv run pytest $(PYTEST_ARGS) tests/integration/
+	$(Q)uv run pytest $(PYTEST_ARGS) tests/integration/ $(PYTEST_FILTER)
 
 lint: ## Run ruff linter (errors only)
 	$(Q)uv run ruff check $(RUFF_ARGS) src/ tests/ 2>&1 || true
