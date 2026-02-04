@@ -128,7 +128,7 @@ class TestImplementerTools:
 
     def test_implementer_tools_exact_composition(self) -> None:
         """Test IMPLEMENTER_TOOLS contains exactly the expected tools."""
-        expected = {"Read", "Write", "Edit", "Glob", "Grep"}
+        expected = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
         assert expected == IMPLEMENTER_TOOLS
 
     def test_implementer_tools_has_no_bash(self) -> None:
@@ -193,8 +193,8 @@ class TestIssueFixerTools:
         assert expected == ISSUE_FIXER_TOOLS
 
     def test_issue_fixer_tools_identical_to_implementer_tools(self) -> None:
-        """Test ISSUE_FIXER_TOOLS is identical to IMPLEMENTER_TOOLS."""
-        assert ISSUE_FIXER_TOOLS == IMPLEMENTER_TOOLS
+        """Test ISSUE_FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS."""
+        assert ISSUE_FIXER_TOOLS.issubset(IMPLEMENTER_TOOLS)
 
     def test_issue_fixer_tools_has_no_bash(self) -> None:
         """Test ISSUE_FIXER_TOOLS does not include Bash."""
@@ -301,12 +301,13 @@ class TestToolSetRelationships:
 class TestToolSetOperations:
     """Tests for set operations on tool sets."""
 
-    def test_reviewer_plus_fixer_equals_implementer_minus_search(self) -> None:
-        """Test REVIEWER_TOOLS union FIXER_TOOLS relationship."""
+    def test_reviewer_plus_fixer_is_subset_of_implementer(self) -> None:
+        """Test REVIEWER_TOOLS union FIXER_TOOLS is subset of IMPLEMENTER."""
         # REVIEWER has Read+Search, FIXER has Read+Write+Edit
-        # Union should give Read+Write+Edit+Search = IMPLEMENTER_TOOLS
+        # Union gives Read+Write+Edit+Search, subset of IMPLEMENTER
+        # (IMPLEMENTER also has Task for subagent support)
         union = REVIEWER_TOOLS | FIXER_TOOLS
-        assert union == IMPLEMENTER_TOOLS
+        assert union.issubset(IMPLEMENTER_TOOLS)
 
     def test_common_tools_across_all_non_empty_sets(self) -> None:
         """Test the intersection of all non-empty tool sets."""
@@ -314,13 +315,15 @@ class TestToolSetOperations:
         common = REVIEWER_TOOLS & IMPLEMENTER_TOOLS & FIXER_TOOLS & ISSUE_FIXER_TOOLS
         assert common == {"Read"}
 
-    def test_implementer_and_issue_fixer_are_identical(self) -> None:
-        """Test IMPLEMENTER_TOOLS and ISSUE_FIXER_TOOLS are identical."""
-        # Both should have the same tools
-        assert IMPLEMENTER_TOOLS == ISSUE_FIXER_TOOLS
+    def test_issue_fixer_is_subset_of_implementer(self) -> None:
+        """Test ISSUE_FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS.
 
-        # Symmetric difference should be empty
-        assert not (IMPLEMENTER_TOOLS ^ ISSUE_FIXER_TOOLS)
+        The implementer has Task for subagent-based parallelization;
+        the issue fixer does not need it.
+        """
+        assert ISSUE_FIXER_TOOLS.issubset(IMPLEMENTER_TOOLS)
+        # The extra tool is Task
+        assert {"Task"} == IMPLEMENTER_TOOLS - ISSUE_FIXER_TOOLS
 
 
 # =============================================================================

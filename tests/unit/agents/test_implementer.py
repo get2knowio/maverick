@@ -211,12 +211,13 @@ class TestImplementerAgentInitialization:
         assert "Grep" in agent.allowed_tools
 
     def test_allowed_tools_matches_contract(self, agent: ImplementerAgent) -> None:
-        """Test allowed tools matches US3 contract exactly.
+        """Test allowed tools matches contract exactly.
 
-        US3 Contract: ImplementerAgent must have exactly Read, Write, Edit, Glob, Grep.
+        ImplementerAgent has Read, Write, Edit, Glob, Grep, and Task
+        (for subagent-based parallel task execution within phases).
         Bash removed - orchestration layer handles command execution.
         """
-        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
             f"ImplementerAgent tools mismatch. "
@@ -1011,10 +1012,10 @@ class TestPhaseLevelExecution:
             mock_task.assert_called_once_with(task_file_context)
 
     @pytest.mark.asyncio
-    async def test_phase_execution_filters_to_phase(
+    async def test_phase_execution_sends_prompt_and_returns_result(
         self, agent: ImplementerAgent, phase_context: ImplementerContext
     ) -> None:
-        """Test phase execution only includes tasks from the specified phase."""
+        """Test phase execution sends prompt to Claude and returns result."""
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_message.content = [MagicMock(type="text", text="Phase completed")]
@@ -1023,7 +1024,7 @@ class TestPhaseLevelExecution:
             yield mock_message
 
         with (
-            patch.object(agent, "query", side_effect=async_gen),
+            patch.object(agent, "query", side_effect=async_gen) as mock_query,
             patch(
                 "maverick.agents.implementer.detect_file_changes",
                 new_callable=AsyncMock,
@@ -1032,96 +1033,78 @@ class TestPhaseLevelExecution:
         ):
             result = await agent.execute(phase_context)
 
-            # Phase 1 has 3 tasks (T001, T002, T003)
-            assert result.tasks_completed == 3
+            # Verify prompt was sent with phase-specific arguments
+            mock_query.assert_called_once()
+            prompt = mock_query.call_args[0][0]
+            assert "Phase 1: Setup" in prompt
             assert result.metadata.get("phase") == "Phase 1: Setup"
             assert result.metadata.get("execution_mode") == "phase"
+            assert result.success is True
 
-    @pytest.mark.asyncio
-    async def test_phase_execution_raises_on_unknown_phase(
-        self, agent: ImplementerAgent, tmp_path: Path, phase_task_file: Path
+    def test_build_phase_prompt_fallback_without_skill_file(
+        self, agent: ImplementerAgent, phase_context: ImplementerContext
     ) -> None:
-        """Test phase execution raises error for unknown phase name."""
-        context = ImplementerContext(
-            task_file=phase_task_file,
-            phase_name="Nonexistent Phase",
-            branch="test",
-            cwd=tmp_path,
-        )
+        """Test prompt falls back to arguments template when skill not found."""
+        prompt = agent._build_phase_prompt("Phase 1", phase_context)
 
-        with pytest.raises(TaskParseError) as exc_info:
-            await agent.execute(context)
-
-        assert "not found" in str(exc_info.value).lower()
-        assert "Nonexistent Phase" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_phase_execution_returns_empty_for_completed_tasks(
-        self, agent: ImplementerAgent, tmp_path: Path
-    ) -> None:
-        """Test phase execution handles phases with all completed tasks."""
-        task_file = tmp_path / "tasks.md"
-        task_file.write_text("""## Phase 1: Done
-- [x] T001 Already completed
-- [x] T002 Also completed
-""")
-        context = ImplementerContext(
-            task_file=task_file,
-            phase_name="Phase 1: Done",
-            branch="test",
-            cwd=tmp_path,
-        )
-
-        result = await agent.execute(context)
-
-        assert result.success is True
-        assert result.tasks_completed == 0
-        assert len(result.task_results) == 0
-
-    def test_build_phase_prompt_invokes_speckit_implement(
-        self, agent: ImplementerAgent
-    ) -> None:
-        """Test phase prompt invokes /speckit.implement skill."""
-        tasks = [
-            Task(id="T001", description="Setup config", parallel=False),
-            Task(id="T002", description="Add logging", parallel=True),
-            Task(id="T003", description="Add tests", parallel=True),
-        ]
-        context = ImplementerContext(
-            task_description="Placeholder for validation",
-            branch="test",
-        )
-
-        prompt = agent._build_phase_prompt("Phase 1", tasks, context)
-
-        # Prompt should invoke /speckit.implement with the phase name
-        assert "/speckit.implement" in prompt
+        # Fallback: arguments template with phase name and task file
         assert "Phase 1" in prompt
-        # Prompt should mention parallel tasks and subagents
+        assert str(phase_context.task_file) in prompt
         assert "[P]" in prompt
         assert "subagent" in prompt.lower()
-        # Prompt should ask to update tasks.md
-        assert "tasks.md" in prompt
 
-    def test_build_phase_prompt_includes_phase_name(
-        self, agent: ImplementerAgent
+    def test_build_phase_prompt_expands_skill_file(
+        self, agent: ImplementerAgent, tmp_path: Path
     ) -> None:
-        """Test phase prompt includes the phase name for /speckit.implement."""
-        tasks = [
-            Task(id="T001", description="Sequential task", parallel=False),
-            Task(id="T002", description="Parallel task", parallel=True),
-        ]
+        """Test prompt expands speckit.implement skill when available."""
+        # Create a skill file in the project
+        skill_dir = tmp_path / ".claude" / "commands"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "speckit.implement.md").write_text(
+            "---\ndescription: test\n---\n## Instructions\n\n$ARGUMENTS\n\nDo TDD.\n"
+        )
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("## Phase 1\n- [ ] T001 Do thing\n")
         context = ImplementerContext(
-            task_description="Placeholder for validation",
+            task_file=task_file,
+            phase_name="Phase 1",
             branch="test",
+            cwd=tmp_path,
         )
 
-        prompt = agent._build_phase_prompt("Test Phase", tasks, context)
+        prompt = agent._build_phase_prompt("Phase 1", context)
 
-        # The phase name should be included in the prompt
-        assert "Test Phase" in prompt
-        # Should request JSON output format
-        assert "JSON" in prompt or "json" in prompt
+        # Preamble should be prepended (skip prereqs, start at step 3)
+        assert "Workflow Context" in prompt
+        assert "skip" in prompt.lower()
+        assert "Step 3" in prompt
+        # Skill content should be expanded (frontmatter stripped)
+        assert "## Instructions" in prompt
+        assert "Do TDD." in prompt
+        # $ARGUMENTS replaced with phase-specific text
+        assert "$ARGUMENTS" not in prompt
+        assert "Phase 1" in prompt
+        assert str(task_file) in prompt
+
+    def test_load_skill_strips_frontmatter(self, tmp_path: Path) -> None:
+        """Test _load_skill strips YAML frontmatter correctly."""
+        skill_dir = tmp_path / ".claude" / "commands"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "test.md").write_text(
+            "---\ndescription: A skill\n---\n\nBody content here.\n"
+        )
+
+        content = ImplementerAgent._load_skill("test.md", tmp_path)
+
+        assert content is not None
+        assert "description:" not in content
+        assert "---" not in content
+        assert "Body content here." in content
+
+    def test_load_skill_returns_none_when_missing(self, tmp_path: Path) -> None:
+        """Test _load_skill returns None when file doesn't exist."""
+        content = ImplementerAgent._load_skill("nonexistent.md", tmp_path)
+        assert content is None
 
     # NOTE: test_phase_commit_message_format was removed as _create_phase_commit
     # was removed from the agent (issue #147). Commits are handled by workflow.

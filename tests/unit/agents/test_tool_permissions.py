@@ -33,11 +33,11 @@ class TestImplementerAgentToolPermissions:
         # Convert both to sets for comparison (order doesn't matter)
         assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS
 
-    def test_implementer_agent_has_read_write_edit_glob_grep(self) -> None:
-        """Test ImplementerAgent has exactly Read, Write, Edit, Glob, Grep."""
+    def test_implementer_agent_has_expected_tools(self) -> None:
+        """Test ImplementerAgent has Read, Write, Edit, Glob, Grep, Task."""
         agent = ImplementerAgent()
 
-        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
         assert set(agent.allowed_tools) == expected_tools
 
     def test_implementer_agent_has_no_bash(self) -> None:
@@ -296,12 +296,16 @@ class TestUnauthorizedToolRejection:
 class TestAgentToolComparison:
     """Tests comparing tool permissions across agents."""
 
-    def test_implementer_and_issue_fixer_have_identical_tools(self) -> None:
-        """Test that ImplementerAgent and IssueFixerAgent have identical tools."""
+    def test_issue_fixer_tools_are_subset_of_implementer(self) -> None:
+        """Test IssueFixerAgent tools are a subset of ImplementerAgent tools.
+
+        The implementer has Task for subagent-based parallelization; the
+        issue fixer does not need it.
+        """
         implementer = ImplementerAgent()
         issue_fixer = IssueFixerAgent()
 
-        assert set(implementer.allowed_tools) == set(issue_fixer.allowed_tools)
+        assert set(issue_fixer.allowed_tools).issubset(set(implementer.allowed_tools))
 
     def test_code_reviewer_is_subset_of_implementer(self) -> None:
         """Test that CodeReviewerAgent tools are a subset of ImplementerAgent tools."""

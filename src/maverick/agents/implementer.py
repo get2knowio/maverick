@@ -79,12 +79,17 @@ When describing your changes, use this format for reference:
 The orchestration layer will create commits using this format.
 
 ## Tools Available
-Read, Write, Edit, Glob, Grep
+Read, Write, Edit, Glob, Grep, Task
 
 Use these tools to:
 - Read existing code and understand context
 - Write new files or update existing ones
-- Search for patterns and locate relevant code
+- Edit existing files with targeted replacements
+- Search for patterns and locate relevant code (Glob for files, Grep for content)
+- Spawn subagents for parallel task execution (Task)
+
+**IMPORTANT**: You MUST use Write and Edit to create and modify source files.
+Do not just read and analyze — actually implement the code.
 
 ## Output
 After completing a task, output a JSON summary:
@@ -97,20 +102,50 @@ After completing a task, output a JSON summary:
 }
 """
 
-PHASE_EXECUTION_PROMPT = (
-    '/speckit.implement Implement all the tasks in phase "{phase_name}", '
-    "creating a subagent to complete each task. "
+PHASE_ARGUMENTS_TEMPLATE = (
+    'Implement all the tasks in phase "{phase_name}" '
+    'from the task file at "{task_file}". '
+    "Create a subagent to complete each task. "
     'Tasks marked with a "[P]" can be processed simultaneously '
-    "(in separate subagents). Update tasks.md to track your progress.\n\n"
-    "After completing all tasks, provide a JSON summary:\n"
-    "{{\n"
-    '  "phase": "{phase_name}",\n'
-    '  "tasks_completed": ["T001", "T002"],\n'
-    '  "tasks_failed": [],\n'
-    '  "files_changed": ["src/file.py", "tests/test_file.py"],\n'
-    '  "summary": "Brief description of work done"\n'
-    "}}\n"
+    "(in separate subagents). Update tasks.md to track your progress."
 )
+
+#: Preamble prepended to the expanded skill content when running inside
+#: the Maverick workflow.  The workflow's preflight and init steps already
+#: handle prerequisite checks, workspace setup, and git operations, so the
+#: agent should skip those shell-dependent steps and focus on implementation.
+PHASE_SKILL_PREAMBLE = """\
+## Workflow Context — Read This First
+
+You are running inside the Maverick orchestration workflow. The workflow has
+ALREADY completed the following before invoking you:
+
+- **Preflight checks** (API keys, git, GitHub CLI, validation tools) — PASSED
+- **Workspace initialization** (branch checkout, sync with origin/main) — DONE
+- **Project setup verification** (ignore files, config) — DONE
+
+Therefore you MUST **skip** the following steps from the instructions below:
+- Step 1 (check-prerequisites.sh) — already done by the workflow
+- Step 2 (checklist verification) — already done by the workflow
+- Step 4 (project setup verification / git rev-parse) — already done
+
+**Start directly from Step 3** (load and analyze the implementation context)
+and continue through implementation execution (Steps 5-8). You MUST actually
+create and modify source files using Write and Edit tools — do not just read
+and analyze. You do NOT have access to the Bash tool, so do not attempt to
+run shell commands. Use Read, Write, Edit, Glob, Grep, and Task (subagents).
+
+---
+
+"""
+
+#: Skill file name to load for phase-level execution
+SPECKIT_IMPLEMENT_SKILL = "speckit.implement.md"
+
+#: Standard locations for Claude Code custom commands (searched in order)
+SKILL_SEARCH_DIRS = [
+    ".claude/commands",
+]
 
 
 # =============================================================================
@@ -479,10 +514,14 @@ After completion, provide a summary of changes made.
     async def _execute_phase_mode(
         self, context: ImplementerContext
     ) -> ImplementationResult:
-        """Execute all tasks in a phase with Claude handling parallelization.
+        """Execute all tasks in a phase via /speckit.implement.
 
-        In phase mode, Claude receives all tasks in the phase in a single prompt
-        and decides how to parallelize [P] marked tasks using the Task tool.
+        In phase mode, the prompt invokes /speckit.implement which handles
+        task parsing, prerequisite checks, and execution. Claude decides how
+        to parallelize [P] marked tasks using the Task tool (subagents).
+
+        The agent does NOT pre-parse tasks — Claude reads tasks.md directly
+        and determines which tasks belong to the requested phase.
 
         Args:
             context: Execution context with phase_name and task_file.
@@ -496,54 +535,21 @@ After completion, provide a summary of changes made.
         assert context.phase_name is not None
 
         try:
-            # Parse task file
+            # Verify task file exists (Claude can't read a nonexistent file)
             if not context.task_file.exists():
                 raise TaskParseError(f"Task file not found: {context.task_file}")
 
-            task_file = TaskFile.parse(context.task_file)
-
-            # Get tasks for specified phase
-            if context.phase_name not in task_file.phases:
-                raise TaskParseError(
-                    f"Phase '{context.phase_name}' not found in {context.task_file}. "
-                    f"Available phases: {list(task_file.phases.keys())}"
-                )
-
-            phase_tasks = [
-                t
-                for t in task_file.phases[context.phase_name]
-                if t.status == TaskStatus.PENDING
-            ]
-
-            if not phase_tasks:
-                logger.info("No pending tasks in phase '%s'", context.phase_name)
-                return ImplementationResult(
-                    success=True,
-                    tasks_completed=0,
-                    tasks_failed=0,
-                    tasks_skipped=0,
-                    task_results=[],
-                    files_changed=[],
-                    commits=[],
-                    metadata={
-                        "branch": context.branch,
-                        "phase": context.phase_name,
-                        "duration_ms": int((time.monotonic() - start_time) * 1000),
-                        "dry_run": context.dry_run,
-                    },
-                )
-
             logger.info(
-                "Executing phase '%s' with %d tasks",
+                "Executing phase '%s' from %s",
                 context.phase_name,
-                len(phase_tasks),
+                context.task_file,
             )
 
-            # Build phase prompt with all tasks
-            prompt = self._build_phase_prompt(context.phase_name, phase_tasks, context)
+            # Build phase prompt — Claude/speckit handles task parsing
+            prompt = self._build_phase_prompt(context.phase_name, context)
 
             # Execute via Claude SDK with streaming
-            # Claude handles parallelization of tasks within the phase
+            # Claude handles task parsing and parallelization within the phase
             messages = []
             async for msg in self.query(prompt, cwd=context.cwd):
                 messages.append(msg)
@@ -556,41 +562,17 @@ After completion, provide a summary of changes made.
             # Detect file changes after phase execution
             files_changed = await detect_file_changes(context.cwd)
 
-            # Validation and commits are handled by the workflow layer
-            # Agent returns file changes; orchestration runs validation/commits
-            validation_results: list[ValidationResult] = []
-            commit_sha = None
-
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
-            # Build task results (simplified - Claude executed all tasks)
-            task_results = [
-                TaskResult(
-                    task_id=task.id,
-                    status=TaskStatus.COMPLETED,
-                    files_changed=[],  # Aggregated at phase level
-                    duration_ms=duration_ms // len(phase_tasks),
-                    validation=validation_results if i == 0 else [],
-                )
-                for i, task in enumerate(phase_tasks)
-            ]
-
-            # Determine success based on validation results
-            validation_success = (
-                all(v.success for v in validation_results)
-                if validation_results
-                else True
-            )
-
             return ImplementationResult(
-                success=validation_success,
-                tasks_completed=len(phase_tasks),
+                success=True,
+                tasks_completed=0,
                 tasks_failed=0,
                 tasks_skipped=0,
-                task_results=task_results,
+                task_results=[],
                 files_changed=files_changed,
-                commits=[commit_sha] if commit_sha else [],
-                validation_passed=validation_success,
+                commits=[],
+                validation_passed=True,
                 metadata={
                     "branch": context.branch,
                     "phase": context.phase_name,
@@ -624,24 +606,79 @@ After completion, provide a summary of changes made.
     def _build_phase_prompt(
         self,
         phase_name: str,
-        tasks: list[Task],
         context: ImplementerContext,
     ) -> str:
         """Build prompt for phase-level execution.
 
-        The prompt invokes /speckit.implement which handles:
+        Loads the speckit.implement skill from .claude/commands/ and expands
+        its $ARGUMENTS placeholder with phase-specific instructions. This
+        gives the agent the full speckit implementation workflow:
         - Prerequisites check
         - Checklist verification
         - Loading spec artifacts (plan.md, data-model.md, etc.)
-        - Project setup verification
-        - Task parsing and execution
+        - Task parsing from tasks.md
+        - Task execution with subagent parallelization
+
+        Falls back to the arguments template alone if the skill file is
+        not found (the agent still receives actionable instructions).
 
         Args:
             phase_name: Name of the phase.
-            tasks: List of tasks in the phase (used for logging only).
-            context: Execution context.
+            context: Execution context (provides task_file path and cwd).
 
         Returns:
             Formatted prompt for Claude.
         """
-        return PHASE_EXECUTION_PROMPT.format(phase_name=phase_name)
+        arguments = PHASE_ARGUMENTS_TEMPLATE.format(
+            phase_name=phase_name,
+            task_file=context.task_file,
+        )
+
+        skill_content = self._load_skill(SPECKIT_IMPLEMENT_SKILL, context.cwd)
+        if skill_content:
+            expanded = skill_content.replace("$ARGUMENTS", arguments)
+            return PHASE_SKILL_PREAMBLE + expanded
+
+        logger.warning(
+            "speckit.implement skill not found, using fallback prompt",
+            cwd=str(context.cwd),
+        )
+        return arguments
+
+    @staticmethod
+    def _load_skill(
+        skill_filename: str,
+        cwd: Path | None = None,
+    ) -> str | None:
+        """Load a Claude Code custom command (skill) from .claude/commands/.
+
+        Searches the project directory for the skill file, strips YAML
+        frontmatter, and returns the prompt content.
+
+        Args:
+            skill_filename: Skill filename (e.g. "speckit.implement.md").
+            cwd: Project working directory to search from.
+
+        Returns:
+            Skill prompt content with frontmatter stripped, or None if
+            the skill file was not found.
+        """
+        search_root = cwd or Path.cwd()
+
+        for search_dir in SKILL_SEARCH_DIRS:
+            path = search_root / search_dir / skill_filename
+            if path.is_file():
+                content = path.read_text()
+                # Strip YAML frontmatter (--- ... ---)
+                if content.startswith("---"):
+                    end = content.find("---", 3)
+                    if end != -1:
+                        content = content[end + 3 :].lstrip("\n")
+                logger.debug(
+                    "Loaded skill from %s (%d chars)",
+                    path,
+                    len(content),
+                )
+                return content
+
+        return None

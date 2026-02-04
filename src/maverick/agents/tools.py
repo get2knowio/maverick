@@ -121,11 +121,13 @@ __all__: list[str] = [
 #: enable finding relevant code sections for review.
 REVIEWER_TOOLS: frozenset[str] = frozenset({"Read", "Glob", "Grep"})
 
-#: Code modification tools without command execution (ImplementerAgent).
+#: Code modification tools with subagent support (ImplementerAgent).
 #:
-#: Implementers write and edit code but cannot execute commands. The
-#: orchestration layer handles test execution and validation.
-IMPLEMENTER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep"})
+#: Implementers write and edit code and can spawn subagents for parallel
+#: task execution. The orchestration layer handles test execution and validation.
+IMPLEMENTER_TOOLS: frozenset[str] = frozenset(
+    {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
+)
 
 #: Minimal tools for targeted file fixes (FixerAgent).
 #:
