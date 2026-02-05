@@ -523,8 +523,10 @@ class TestRunFixRetryLoopValidationCommands:
     """Tests for validation_commands parameter passthrough."""
 
     @pytest.mark.asyncio
-    async def test_run_fix_retry_loop_passes_commands_to_build_prompt(self) -> None:
-        """Custom commands are passed to _build_fix_prompt."""
+    async def test_run_fix_retry_loop_does_not_pass_commands_to_build_prompt(
+        self,
+    ) -> None:
+        """_build_fix_prompt is called without validation commands."""
         validation_result = create_validation_result(success=False)
         custom_commands = {
             "lint": ("pylint", "src/"),
@@ -556,7 +558,8 @@ class TestRunFixRetryLoopValidationCommands:
 
             mock_prompt.assert_called_once()
             call_args = mock_prompt.call_args
-            assert call_args[0][3] == custom_commands  # 4th positional arg
+            # Only 3 positional args: result, stages, attempt_number
+            assert len(call_args[0]) == 3
 
     @pytest.mark.asyncio
     async def test_run_fix_retry_loop_passes_commands_to_run_validation(self) -> None:

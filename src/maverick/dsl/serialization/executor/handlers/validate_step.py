@@ -234,15 +234,37 @@ async def execute_validate_step(
                 )
             else:
                 error_count = len(stage_result.errors)
+                if error_count > 0:
+                    details = f"{duration_str} {error_count} errors"
+                else:
+                    # Stage failed but no structured errors parsed — show raw output
+                    first_line = (stage_result.output or "").strip().split("\n")[0][:80]
+                    details = (
+                        f"{duration_str} {first_line}" if first_line else duration_str
+                    )
                 await stream.emit_stage(
                     stage_result.stage_name,
                     status="failed",
-                    details=f"{duration_str} {error_count} errors",
+                    details=details,
                 )
                 logger.warning(
                     f"Validation stage '{stage_result.stage_name}' failed "
                     f"({stage_result.duration_ms}ms, {error_count} errors)"
                 )
+
+        # Emit "skipped" for stages the runner never reached
+        # (due to continue_on_failure=False causing early exit)
+        completed_stage_names = {sr.stage_name for sr in output.stages}
+        for stage in validation_stages:
+            if stage.name not in completed_stage_names:
+                await stream.emit_stage(stage.name, status="skipped")
+                stage_results[stage.name] = {
+                    "passed": False,
+                    "skipped": True,
+                    "duration_ms": 0,
+                    "output": "Skipped: prior stage failed",
+                    "errors": [],
+                }
 
         # Add skipped stages to results
         for name in skipped_stages:

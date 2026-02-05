@@ -156,7 +156,7 @@ async def run_fix_retry_loop(
                 try:
                     # Build fix context from validation errors
                     fix_prompt = _build_fix_prompt(
-                        current_result, stages, attempts, resolved_commands
+                        current_result, stages, attempts
                     )
 
                     # Invoke the fixer agent
@@ -427,7 +427,6 @@ def _build_fix_prompt(
     validation_result: dict[str, Any],
     stages: list[str],
     attempt_number: int,
-    validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> str:
     """Build a prompt for the fixer agent based on validation errors.
 
@@ -435,14 +434,10 @@ def _build_fix_prompt(
         validation_result: Validation result containing errors
         stages: Validation stages that were run
         attempt_number: Current fix attempt number
-        validation_commands: Optional mapping of stage name to command tuple.
-            If None, defaults to DEFAULT_STAGE_COMMANDS.
 
     Returns:
         Formatted prompt string for fixer agent
     """
-    commands = validation_commands or DEFAULT_STAGE_COMMANDS
-
     errors = []
     stage_results = validation_result.get("stage_results", {})
     for stage_name, stage_result in stage_results.items():
@@ -461,29 +456,16 @@ def _build_fix_prompt(
 
     errors_text = "\n".join(errors) if errors else "No specific errors provided"
 
-    # Build validation commands section so the fixer knows what tools to use
-    command_lines = []
-    for stage_name in stages:
-        cmd = commands.get(stage_name)
-        if cmd:
-            command_lines.append(f"  - {stage_name}: {' '.join(cmd)}")
-    commands_text = (
-        "\n".join(command_lines) if command_lines else "  (no commands configured)"
-    )
-
     return f"""Fix validation failures (Attempt {attempt_number}):
 
 Validation Stages Run: {", ".join(stages)}
 
-Validation Commands (use these, NOT npm/node commands):
-{commands_text}
-
 Errors:
 {errors_text}
 
-Please analyze these validation failures and apply minimal fixes to resolve them.
+Please analyze these validation failures and apply minimal, targeted fixes to resolve them.
 Focus on fixing the errors without refactoring unrelated code.
-Use only the validation commands listed above when checking your fixes.
+Do NOT run validation commands yourself. Validation is re-run automatically after your changes.
 """
 
 

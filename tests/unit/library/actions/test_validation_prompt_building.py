@@ -58,42 +58,30 @@ class TestBuildFixPrompt:
 
         assert "No specific errors provided" in prompt
 
-    def test_build_fix_prompt_includes_default_commands(self) -> None:
-        """Prompt includes default validation commands when none provided."""
+    def test_build_fix_prompt_says_validation_reruns_automatically(self) -> None:
+        """Prompt tells the fixer not to run validation commands itself."""
         result = create_validation_result(success=False)
         prompt = _build_fix_prompt(result, ["lint", "test"], attempt_number=1)
 
-        assert "Validation Commands" in prompt
-        assert "ruff check" in prompt
-        assert "pytest" in prompt
-        assert "NOT npm/node" in prompt
-
-    def test_build_fix_prompt_includes_custom_commands(self) -> None:
-        """Prompt includes custom validation commands when provided."""
-        custom_commands = {
-            "lint": ("pylint", "src/"),
-            "test": ("python", "-m", "pytest", "-v"),
-        }
-        result = create_validation_result(success=False)
-        prompt = _build_fix_prompt(
-            result,
-            ["lint", "test"],
-            attempt_number=1,
-            validation_commands=custom_commands,
-        )
-
-        assert "pylint src/" in prompt
-        assert "python -m pytest -v" in prompt
-        # Should NOT include default commands
+        assert "re-run automatically" in prompt.lower() or "re-run automatically" in prompt
+        # Must NOT include shell commands or a "Validation Commands" section
+        assert "Validation Commands" not in prompt
         assert "ruff check" not in prompt
+        assert "pytest" not in prompt
 
-    def test_build_fix_prompt_commands_from_validation_result(self) -> None:
-        """Prompt uses commands from validation result via _validation_commands."""
-        from maverick.library.actions.validation import DEFAULT_STAGE_COMMANDS
+    def test_build_fix_prompt_includes_raw_output_when_no_errors(self) -> None:
+        """Falls back to raw output when errors list is empty but stage failed."""
+        result = create_validation_result(
+            success=False,
+            stage_results={
+                "test": {
+                    "passed": False,
+                    "output": "FAILED tests/test_foo.py::test_bar - AssertionError",
+                    "errors": [],
+                },
+            },
+        )
+        prompt = _build_fix_prompt(result, ["test"], attempt_number=1)
 
-        result = create_validation_result(success=False)
-        # When no explicit commands passed, defaults are used
-        prompt = _build_fix_prompt(result, ["format"], attempt_number=1)
-
-        expected_cmd = " ".join(DEFAULT_STAGE_COMMANDS["format"])
-        assert expected_cmd in prompt
+        # Should contain the raw output since errors list was empty
+        assert "FAILED tests/test_foo.py::test_bar" in prompt
