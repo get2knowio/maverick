@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
@@ -112,6 +113,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         workflow: WorkflowFile,
         inputs: dict[str, Any],
         *,
+        session_log_path: Path | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
@@ -121,6 +123,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         Args:
             workflow: The workflow to execute.
             inputs: Input values for the workflow.
+            session_log_path: If provided, write session journal to this file.
             name: Widget name.
             id: Widget ID.
             classes: CSS classes.
@@ -128,6 +131,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         super().__init__(name=name, id=id, classes=classes)
         self._workflow = workflow
         self._inputs = inputs
+        self._session_log_path = session_log_path
         self._loop_states: dict[str, LoopIterationState] = {}
         self._cancel_requested = False
         self._executor_worker: Worker[WorkflowResult] | None = None
@@ -339,10 +343,22 @@ class WorkflowExecutionScreen(MaverickScreen):
         registry = create_registered_registry()
         executor = WorkflowFileExecutor(registry=registry)
 
+        # Set up session journal if requested
+        from maverick.session_journal import SessionJournal
+
+        journal: SessionJournal | None = None
+        if self._session_log_path is not None:
+            journal = SessionJournal(self._session_log_path)
+            journal.write_header(self._workflow.name, self._inputs)
+
         try:
             async for event in executor.execute(self._workflow, self._inputs):
                 if self._cancel_requested:
                     break
+
+                # Record event to session journal if active
+                if journal is not None:
+                    await journal.record(event)
 
                 # Handle events
                 if isinstance(event, ValidationStarted):
@@ -454,6 +470,12 @@ class WorkflowExecutionScreen(MaverickScreen):
             self.is_complete = True
             self.success = False
             raise
+
+        finally:
+            if journal is not None:
+                success = self.success if self.success is not None else False
+                journal.write_summary({"success": success})
+                journal.close()
 
     def _update_status(self, message: str) -> None:
         """Log status message (UI status bar was removed for cleaner layout).

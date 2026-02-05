@@ -48,16 +48,19 @@ class WorkflowExecutionApp(App[None]):
         self,
         workflow: WorkflowFile,
         inputs: dict[str, Any],
+        session_log_path: Path | None = None,
     ) -> None:
         """Initialize the workflow execution app.
 
         Args:
             workflow: The workflow to execute.
             inputs: Input values for the workflow.
+            session_log_path: If provided, write session journal to this file.
         """
         super().__init__()
         self._workflow = workflow
         self._inputs = inputs
+        self._session_log_path = session_log_path
         self._timer_start: float | None = None
         self._timer_running: bool = False
         self._current_workflow: str = ""
@@ -111,6 +114,7 @@ class WorkflowExecutionApp(App[None]):
         self._execution_screen = WorkflowExecutionScreen(
             workflow=self._workflow,
             inputs=self._inputs,
+            session_log_path=self._session_log_path,
         )
         await self.push_screen(self._execution_screen)
 
@@ -210,6 +214,7 @@ async def run_workflow_in_tui(
     restart: bool = False,
     validate: bool = True,
     only_step: int | None = None,
+    session_log_path: Path | None = None,
 ) -> int:
     """Run a workflow in TUI mode.
 
@@ -226,6 +231,7 @@ async def run_workflow_in_tui(
         restart: Whether to ignore checkpoint and restart from beginning.
         validate: Whether to validate before execution.
         only_step: If set, run only this step index.
+        session_log_path: If provided, write session journal to this file.
 
     Returns:
         Exit code (0 for success, 1 for failure).
@@ -262,7 +268,9 @@ async def run_workflow_in_tui(
         return 1
 
     # Create the dedicated workflow execution app
-    app = WorkflowExecutionApp(workflow=workflow_obj, inputs=inputs)
+    app = WorkflowExecutionApp(
+        workflow=workflow_obj, inputs=inputs, session_log_path=session_log_path
+    )
 
     # Configure logging to route to TUI (20 = logging.INFO)
     configure_tui_logging(app, level=20)

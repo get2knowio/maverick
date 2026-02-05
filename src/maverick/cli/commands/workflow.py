@@ -1244,6 +1244,7 @@ async def _execute_workflow_run(
                 restart=restart,
                 validate=not no_validate,
                 only_step=only_step_index,
+                session_log_path=session_log_path,
             )
             raise SystemExit(exit_code)
 
