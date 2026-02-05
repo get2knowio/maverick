@@ -105,15 +105,41 @@ async def test_send_request_non_200_with_json(
         assert len(mock_session.post_calls) == 2
 
 
-@pytest.mark.skip(reason="Notification code doesn't handle JSON parse errors")
 @pytest.mark.asyncio
 async def test_send_request_malformed_json(
     mock_config: NotificationConfig,
 ) -> None:
     """Test response when server returns malformed JSON on 200 OK.
 
-    Note: This test is skipped because the notification code doesn't currently
-    catch JSON parse errors. The test expectation (graceful degradation) would
-    require updating the notification code to catch ValueError/JSONDecodeError.
+    The notification code catches JSON parse errors (ValueError/JSONDecodeError)
+    and treats them as retryable errors, eventually returning graceful degradation.
     """
-    pass
+    # Simulate 200 OK but with malformed JSON (json_data=None triggers ValueError)
+    mock_response = MockResponse(
+        status=200,
+        json_data=None,  # This causes MockResponse.json() to raise ValueError
+        text_data="not valid json",
+    )
+    mock_session = MockClientSession(mock_response)
+
+    # Mock tenacity's async sleep to avoid delays
+    with (
+        patch(
+            "maverick.tools.notification.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch("tenacity.nap.sleep", new_callable=AsyncMock),
+    ):
+        success, message, notification_id = await _send_ntfy_request(
+            config=mock_config,
+            message="Test message",
+            max_retries=1,
+        )
+
+        # Should fail gracefully (return success=True but message indicates failure)
+        assert success is True
+        assert message == "Notification not delivered"
+        assert notification_id is None
+
+        # Should have retried (1 initial attempt + 1 retry = 2 calls)
+        assert len(mock_session.post_calls) == 2

@@ -329,3 +329,15 @@ class WorkflowWriter:
         result["steps"] = [
             self._serialize_step(child_step) for child_step in step.steps
         ]
+
+        # Add for_each if present
+        if step.for_each is not None:
+            result["for_each"] = step.for_each
+
+        # Serialize parallel or max_concurrency (mutually exclusive)
+        # Prefer parallel if it was explicitly set
+        if step.parallel is not None:
+            result["parallel"] = step.parallel
+        elif step.max_concurrency != 1:
+            # Only include max_concurrency if not the default value
+            result["max_concurrency"] = step.max_concurrency

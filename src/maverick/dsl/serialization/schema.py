@@ -258,10 +258,18 @@ class LoopStepRecord(StepRecord):
         for_each: Optional expression evaluating to a list for iteration.
             When provided, steps are executed once per item in the list,
             with the current item available as 'item' in expressions.
+        parallel: Shorthand for concurrency control.
+            - True: Unlimited concurrency (equivalent to max_concurrency: 0)
+            - False: Sequential execution (equivalent to max_concurrency: 1)
+            - None (default): Use max_concurrency value
         max_concurrency: Maximum number of concurrent iterations.
             - 1 (default): Sequential execution
             - N > 1: Up to N concurrent iterations
             - 0: Unlimited concurrency (fully parallel)
+
+    Note:
+        Cannot specify both 'parallel' and 'max_concurrency'. Use 'parallel: true'
+        for unlimited concurrency or 'max_concurrency: N' for a specific limit.
 
     Examples:
         # Sequential iteration (default)
@@ -273,7 +281,17 @@ class LoopStepRecord(StepRecord):
               type: agent
               agent: implementer
 
-        # Parallel iteration (3 at a time)
+        # Parallel iteration using shorthand
+        - name: run_reviews
+          type: loop
+          for_each: ${{ ['coderabbit', 'architecture', 'security'] }}
+          parallel: true
+          steps:
+            - name: review
+              type: agent
+              agent: ${{ item }}
+
+        # Parallel iteration with specific limit
         - name: run_reviews
           type: loop
           for_each: ${{ ['coderabbit', 'architecture', 'security'] }}
@@ -291,11 +309,33 @@ class LoopStepRecord(StepRecord):
     for_each: str | None = Field(
         None, description="Optional expression evaluating to a list for iteration"
     )
+    parallel: bool | None = Field(
+        None,
+        description=(
+            "Shorthand for concurrency: true=unlimited, false=sequential. "
+            "Mutually exclusive with max_concurrency."
+        ),
+    )
     max_concurrency: int = Field(
         1,
         ge=0,
         description="Max concurrent iterations (1=sequential, 0=unlimited)",
     )
+
+    @model_validator(mode="after")
+    def validate_parallel_max_concurrency_exclusive(self) -> LoopStepRecord:
+        """Ensure parallel and max_concurrency are not both specified."""
+        # Check if max_concurrency was explicitly set (not the default of 1)
+        # We need to detect if user provided both parallel and max_concurrency
+        # Since max_concurrency has a default of 1, we check if parallel is set
+        # and max_concurrency is not the default
+        if self.parallel is not None and self.max_concurrency != 1:
+            raise ValueError(
+                "Cannot specify both 'parallel' and 'max_concurrency' on a loop step. "
+                "Use 'parallel: true' for unlimited concurrency or "
+                "'max_concurrency: N' for a specific limit."
+            )
+        return self
 
     @field_validator("steps")
     @classmethod
@@ -308,6 +348,22 @@ class LoopStepRecord(StepRecord):
             duplicates = {name for name in names if names.count(name) > 1}
             raise ValueError(f"Duplicate step names in loop block: {duplicates}")
         return v
+
+    def get_effective_max_concurrency(self) -> int:
+        """Resolve parallel shorthand to max_concurrency value.
+
+        Returns:
+            The effective max_concurrency value:
+            - If parallel is True: 0 (unlimited)
+            - If parallel is False: 1 (sequential)
+            - Otherwise: the max_concurrency value
+        """
+        if self.parallel is True:
+            return 0  # Unlimited concurrency
+        elif self.parallel is False:
+            return 1  # Sequential
+        else:
+            return self.max_concurrency
 
 
 class CheckpointStepRecord(StepRecord):

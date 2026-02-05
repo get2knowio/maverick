@@ -139,6 +139,9 @@ async def execute_loop_step(
     if execute_step_fn is None:
         raise ValueError("execute_step_fn is required for loop step execution")
 
+    # Resolve parallel shorthand to effective max_concurrency
+    effective_max_concurrency = step.get_effective_max_concurrency()
+
     if step.for_each:
         # Execute steps for each item in the iteration list
         return await _execute_loop_for_each(
@@ -148,6 +151,7 @@ async def execute_loop_step(
             resume_iteration_index=resume_iteration_index,
             resume_after_nested_step_index=resume_after_nested_step_index,
             event_callback=event_callback,
+            effective_max_concurrency=effective_max_concurrency,
         )
     else:
         # Execute steps once with concurrency control
@@ -155,7 +159,7 @@ async def execute_loop_step(
             step.steps,
             context,
             execute_step_fn,
-            step.max_concurrency,
+            effective_max_concurrency,
             step_name=step.name,
             event_callback=event_callback,
         )
@@ -354,6 +358,7 @@ async def _execute_loop_for_each(
     resume_iteration_index: int | None = None,
     resume_after_nested_step_index: int | None = None,
     event_callback: EventCallback | None = None,
+    effective_max_concurrency: int | None = None,
 ) -> Any:
     """Execute loop steps for each item in a list with concurrency control.
 
@@ -410,7 +415,12 @@ async def _execute_loop_for_each(
         )
 
     # Create semaphore for concurrency control (0 means unlimited)
-    max_concurrency = step.max_concurrency
+    # Use effective_max_concurrency if provided, otherwise fall back to step value
+    max_concurrency = (
+        effective_max_concurrency
+        if effective_max_concurrency is not None
+        else step.get_effective_max_concurrency()
+    )
     semaphore = anyio.Semaphore(max_concurrency) if max_concurrency > 0 else None
 
     async def run_iteration(

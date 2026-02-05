@@ -565,3 +565,237 @@ steps:
         result = executor.get_result()
         assert result.success is True
         assert len(result.final_output["results"]) == 3
+
+
+class TestParallelShorthand:
+    """Tests for the parallel: true/false shorthand in loop steps."""
+
+    @pytest.mark.asyncio
+    async def test_parallel_true_enables_concurrent_execution(self) -> None:
+        """Test that parallel: true enables unlimited concurrent execution.
+
+        When parallel: true is set, all tasks should be able to run
+        concurrently (equivalent to max_concurrency: 0).
+        """
+        yaml_content = """
+version: "1.0"
+name: parallel-shorthand
+description: Use parallel shorthand for concurrency
+
+steps:
+  - name: run_tasks
+    type: loop
+    parallel: true
+    steps:
+      - name: task_a
+        type: python
+        action: task_a
+      - name: task_b
+        type: python
+        action: task_b
+      - name: task_c
+        type: python
+        action: task_c
+"""
+
+        import time
+
+        start_times: list[float] = []
+        registry = ComponentRegistry()
+
+        @registry.actions.register("task_a")
+        async def task_a():
+            start_times.append(time.time())
+            return "A"
+
+        @registry.actions.register("task_b")
+        async def task_b():
+            start_times.append(time.time())
+            return "B"
+
+        @registry.actions.register("task_c")
+        async def task_c():
+            start_times.append(time.time())
+            return "C"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(workflow):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        assert len(result.final_output["results"]) == 3
+        # All tasks should have started nearly simultaneously (within 0.5 seconds)
+        # This verifies concurrent execution
+        assert len(start_times) == 3
+        time_span = max(start_times) - min(start_times)
+        assert time_span < 0.5, f"Tasks started too far apart: {time_span}s"
+
+    @pytest.mark.asyncio
+    async def test_parallel_false_enables_sequential_execution(self) -> None:
+        """Test that parallel: false ensures sequential execution.
+
+        When parallel: false is set, tasks should run one at a time
+        (equivalent to max_concurrency: 1).
+        """
+        yaml_content = """
+version: "1.0"
+name: sequential-shorthand
+description: "Use parallel: false for sequential execution"
+
+steps:
+  - name: run_tasks
+    type: loop
+    parallel: false
+    steps:
+      - name: task_a
+        type: python
+        action: task_a
+      - name: task_b
+        type: python
+        action: task_b
+"""
+
+        execution_order: list[str] = []
+        registry = ComponentRegistry()
+
+        @registry.actions.register("task_a")
+        async def task_a():
+            execution_order.append("a_start")
+            execution_order.append("a_end")
+            return "A"
+
+        @registry.actions.register("task_b")
+        async def task_b():
+            execution_order.append("b_start")
+            execution_order.append("b_end")
+            return "B"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(workflow):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        # Sequential execution means task_a completes before task_b starts
+        assert execution_order == ["a_start", "a_end", "b_start", "b_end"]
+
+    @pytest.mark.asyncio
+    async def test_parallel_true_with_for_each(self) -> None:
+        """Test parallel: true with for_each iteration.
+
+        All iterations should run concurrently.
+        """
+        yaml_content = """
+version: "1.0"
+name: parallel-for-each
+description: Parallel iteration with for_each
+
+inputs:
+  items:
+    type: array
+
+steps:
+  - name: process_items
+    type: loop
+    for_each: ${{ inputs.items }}
+    parallel: true
+    steps:
+      - name: process
+        type: python
+        action: process_item
+        kwargs:
+          item: ${{ item }}
+"""
+
+        registry = ComponentRegistry()
+        processed: list[str] = []
+
+        @registry.actions.register("process_item")
+        async def process_item(item):
+            processed.append(item)
+            return f"processed_{item}"
+
+        workflow = parse_workflow(yaml_content)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        async for _ in executor.execute(
+            workflow, inputs={"items": ["a", "b", "c", "d"]}
+        ):
+            pass
+
+        result = executor.get_result()
+        assert result.success is True
+        assert len(result.final_output["results"]) == 4
+        # All items should be processed
+        assert set(processed) == {"a", "b", "c", "d"}
+
+    @pytest.mark.asyncio
+    async def test_yaml_roundtrip_with_parallel(self) -> None:
+        """Test that parallel field survives YAML round-trip."""
+        yaml_content = """
+version: "1.0"
+name: roundtrip-test
+description: Test YAML round-trip with parallel
+
+steps:
+  - name: parallel_tasks
+    type: loop
+    parallel: true
+    steps:
+      - name: task1
+        type: python
+        action: task1
+"""
+
+        # Parse the original
+        workflow = parse_workflow(yaml_content)
+        loop_step = workflow.steps[0]
+        assert loop_step.parallel is True
+        assert loop_step.get_effective_max_concurrency() == 0
+
+        # Convert to YAML and back
+        yaml_output = workflow.to_yaml()
+        workflow_roundtrip = parse_workflow(yaml_output)
+
+        # Verify the parallel field survived
+        loop_step_rt = workflow_roundtrip.steps[0]
+        assert loop_step_rt.parallel is True
+        assert loop_step_rt.get_effective_max_concurrency() == 0
+
+    @pytest.mark.asyncio
+    async def test_yaml_roundtrip_with_parallel_false(self) -> None:
+        """Test that parallel: false survives YAML round-trip."""
+        yaml_content = """
+version: "1.0"
+name: roundtrip-test-false
+description: Test YAML round-trip with parallel false
+
+steps:
+  - name: sequential_tasks
+    type: loop
+    parallel: false
+    steps:
+      - name: task1
+        type: python
+        action: task1
+"""
+
+        # Parse the original
+        workflow = parse_workflow(yaml_content)
+        loop_step = workflow.steps[0]
+        assert loop_step.parallel is False
+        assert loop_step.get_effective_max_concurrency() == 1
+
+        # Convert to YAML and back
+        yaml_output = workflow.to_yaml()
+        workflow_roundtrip = parse_workflow(yaml_output)
+
+        # Verify the parallel field survived
+        loop_step_rt = workflow_roundtrip.steps[0]
+        assert loop_step_rt.parallel is False
+        assert loop_step_rt.get_effective_max_concurrency() == 1

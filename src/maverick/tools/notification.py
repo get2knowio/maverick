@@ -174,7 +174,13 @@ async def _send_ntfy_request(
                 session.post(url, data=message, headers=headers) as resp,
             ):
                 if resp.status == 200:
-                    response_data = await resp.json()
+                    try:
+                        response_data = await resp.json()
+                    except (ValueError, aiohttp.ContentTypeError) as e:
+                        # Malformed JSON response - treat as retryable
+                        raise _RetryableNotificationError(
+                            f"Malformed JSON response: {e}"
+                        ) from e
                     notification_id = response_data.get("id")
                     logger.info("Notification sent (id: %s)", notification_id)
                     return (True, "Notification sent", notification_id)
