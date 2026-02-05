@@ -101,3 +101,6 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/12-workflow-dsl.md
+---
+
+## src: ./slides/part2/13-expression-evaluation.md
