@@ -109,3 +109,7 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/14-step-execution.md
+
+---
+
+## src: ./slides/part2/15-agent-architecture.md
