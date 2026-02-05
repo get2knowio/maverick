@@ -414,9 +414,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                         self._mark_step_completed(
                             event.step_name,
                             event.duration_ms,
-                            input_tokens=event.input_tokens,
-                            output_tokens=event.output_tokens,
-                            cost_usd=event.cost_usd,
                             step_path=event.step_path,
                         )
                     else:
@@ -532,9 +529,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         self,
         step_name: str,
         duration_ms: int,
-        input_tokens: int | None = None,
-        output_tokens: int | None = None,
-        cost_usd: float | None = None,
         step_path: str | None = None,
     ) -> None:
         """Mark a step as completed.
@@ -542,9 +536,6 @@ class WorkflowExecutionScreen(MaverickScreen):
         Args:
             step_name: Name of the step.
             duration_ms: Duration in milliseconds.
-            input_tokens: Input tokens consumed (agent steps only).
-            output_tokens: Output tokens generated (agent steps only).
-            cost_usd: Cost in USD (agent steps only).
             step_path: Hierarchical path for tree navigation.
         """
         # Flush any remaining buffered streaming text for this step
@@ -568,12 +559,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         )
 
         # Update unified state with completion
-        self._unified_state.complete_step(
-            success=True,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=cost_usd,
-        )
+        self._unified_state.complete_step(success=True)
 
         # Add to unified stream
         entry = UnifiedStreamEntry(

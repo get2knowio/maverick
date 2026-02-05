@@ -281,13 +281,67 @@ class GeneratorAgent(ABC):
                 message=f"Query failed: {e}",
                 generator_name=self._name,
             ) from e
-        except Exception:
-            # Unexpected errors - log full traceback for debugging
-            logger.exception(
-                "Generator '%s' encountered unexpected error during query",
+        except Exception as e:
+            # Classify Claude SDK errors for better reporting
+            error_msg = self._classify_sdk_error(e)
+            logger.error(
+                "Generator '%s' query failed: %s",
                 self._name,
+                error_msg,
             )
-            raise
+            raise GeneratorError(
+                message=error_msg,
+                generator_name=self._name,
+            ) from e
+
+    @staticmethod
+    def _classify_sdk_error(error: Exception) -> str:
+        """Classify a Claude SDK error into a human-readable message.
+
+        Provides actionable context for common failure modes like capacity
+        exhaustion, authentication failures, and CLI process crashes.
+
+        Args:
+            error: The exception raised by the SDK.
+
+        Returns:
+            Descriptive error message.
+        """
+        error_str = str(error)
+        error_type = type(error).__name__
+
+        # Check for ProcessError attributes (SDK subprocess failures)
+        exit_code = getattr(error, "exit_code", None)
+
+        # Capacity / rate limit indicators
+        capacity_indicators = [
+            "capacity",
+            "rate limit",
+            "overloaded",
+            "529",
+            "too many requests",
+        ]
+        if any(indicator in error_str.lower() for indicator in capacity_indicators):
+            return f"Claude API capacity exhausted: {error_str}"
+
+        # Authentication errors
+        auth_indicators = ["auth", "api key", "unauthorized", "403", "401"]
+        if any(indicator in error_str.lower() for indicator in auth_indicators):
+            return f"Claude API authentication error: {error_str}"
+
+        # CLI process failures (exit code but no specific classification)
+        if exit_code is not None:
+            return (
+                f"Claude CLI process failed (exit code {exit_code}). "
+                f"This may indicate capacity exhaustion, a network error, "
+                f"or a CLI crash. Original error: {error_type}: {error_str}"
+            )
+
+        # Generic SDK errors
+        if "ClaudeSDK" in error_type or "CLI" in error_type:
+            return f"Claude SDK error ({error_type}): {error_str}"
+
+        return f"Unexpected error ({error_type}): {error_str}"
 
     def _extract_usage(self, messages: list[Any]) -> AgentUsage:
         """Extract usage statistics from messages (FR-014).

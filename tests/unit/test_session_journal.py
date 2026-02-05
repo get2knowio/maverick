@@ -58,23 +58,20 @@ class TestEventToDict:
         assert d["timestamp"] == 1000.0
 
     def test_step_completed_all_fields(self) -> None:
-        """StepCompleted includes optional token/cost fields."""
+        """StepCompleted includes all fields."""
         event = StepCompleted(
             step_name="review",
             step_type=StepType.AGENT,
             success=True,
             duration_ms=1500,
-            input_tokens=100,
-            output_tokens=50,
-            cost_usd=0.01,
+            error=None,
             timestamp=2000.0,
         )
         d = event.to_dict()
         assert d["event"] == "StepCompleted"
         assert d["step_type"] == "agent"
         assert d["success"] is True
-        assert d["input_tokens"] == 100
-        assert d["cost_usd"] == 0.01
+        assert d["duration_ms"] == 1500
 
     def test_preflight_started_tuple_to_list(self) -> None:
         """PreflightStarted converts prerequisites tuple to list."""

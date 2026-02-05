@@ -452,23 +452,6 @@ class WorkflowFileExecutor:
                 # Extract embedded events from step output (backward compat)
                 output, embedded_events = _extract_embedded_events(raw_output)
 
-                # Extract usage data from agent step results
-                input_tokens: int | None = None
-                output_tokens: int | None = None
-                cost_usd: float | None = None
-
-                # Agent steps return AgentResult with usage attribute
-                if (
-                    step_record.type == StepType.AGENT
-                    and output is not None
-                    and hasattr(output, "usage")
-                    and output.usage is not None
-                ):
-                    usage = output.usage
-                    input_tokens = getattr(usage, "input_tokens", None)
-                    output_tokens = getattr(usage, "output_tokens", None)
-                    cost_usd = getattr(usage, "total_cost_usd", None)
-
                 step_result = StepResult(
                     name=step_record.name,
                     step_type=step_record.type,
@@ -484,11 +467,6 @@ class WorkflowFileExecutor:
                         await handler_task
 
                 logger.exception(f"Step '{step_record.name}' failed")
-
-                # Initialize usage vars for failed steps (no usage data available)
-                input_tokens = None
-                output_tokens = None
-                cost_usd = None
 
                 step_result = StepResult(
                     name=step_record.name,
@@ -521,9 +499,6 @@ class WorkflowFileExecutor:
                 success=step_result.success,
                 duration_ms=step_result.duration_ms,
                 error=step_result.error,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost_usd=cost_usd,
                 step_path=step_record.name,
             )
 

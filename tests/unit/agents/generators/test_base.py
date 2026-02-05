@@ -246,8 +246,8 @@ class TestQuery:
             assert exc_info.value.generator_name == "test-generator"
 
     @pytest.mark.asyncio
-    async def test_query_reraises_unexpected_errors(self) -> None:
-        """Test that unexpected errors are re-raised, not wrapped."""
+    async def test_query_wraps_unexpected_errors_in_generator_error(self) -> None:
+        """Test that unexpected errors are wrapped in GeneratorError with classification."""
         generator = ConcreteGenerator()
 
         class UnexpectedError(Exception):
@@ -261,10 +261,11 @@ class TestQuery:
             "maverick.agents.generators.base.query",
             return_value=mock_query_error(),
         ):
-            with pytest.raises(UnexpectedError) as exc_info:
+            with pytest.raises(GeneratorError) as exc_info:
                 await generator._query("Test prompt")
 
-            assert "Something unexpected" in str(exc_info.value)
+            assert "Something unexpected" in exc_info.value.message
+            assert exc_info.value.generator_name == "test-generator"
 
     @pytest.mark.asyncio
     async def test_query_logs_debug_info(self) -> None:

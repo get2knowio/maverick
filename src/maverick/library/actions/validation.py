@@ -396,22 +396,25 @@ async def _run_validation(
 
         output = await runner.run()
 
-        # Convert ValidationOutput to dict format expected by the rest of the code
-        stage_results = []
+        # Convert ValidationOutput to dict format matching the initial validation
+        # result from execute_validate_step.  _build_fix_prompt() reads from
+        # ``stage_results`` (a dict keyed by stage name), so we must use the
+        # same schema here to avoid the fixer receiving "No specific errors".
+        stage_results: dict[str, Any] = {}
         for stage_result in output.stages:
-            stage_results.append(
-                {
-                    "stage": stage_result.stage_name,
-                    "success": stage_result.passed,
-                    "output": stage_result.output,
-                    "duration_ms": stage_result.duration_ms,
-                    "error": stage_result.output if not stage_result.passed else None,
-                }
-            )
+            stage_results[stage_result.stage_name] = {
+                "passed": stage_result.passed,
+                "duration_ms": stage_result.duration_ms,
+                "output": stage_result.output[:1000] if stage_result.output else None,
+                "errors": [
+                    {"file": e.file, "line": e.line, "message": e.message}
+                    for e in stage_result.errors
+                ],
+            }
 
         return {
             "success": output.success,
-            "stages": stage_results,
+            "stage_results": stage_results,
             "total_duration_ms": output.total_duration_ms,
         }
 
@@ -439,20 +442,37 @@ def _build_fix_prompt(
         Formatted prompt string for fixer agent
     """
     errors = []
+
+    # Support both dict-keyed stage_results (from validate step handler and
+    # _run_validation) and list-based stages (legacy/fallback).
     stage_results = validation_result.get("stage_results", {})
-    for stage_name, stage_result in stage_results.items():
-        if not stage_result.get("passed", True):
-            # Get error details from output or errors list
-            error_output = stage_result.get("output", "")
-            error_list = stage_result.get("errors", [])
-            if error_list:
-                error_msgs = [e.get("message", str(e)) for e in error_list]
-                error_msg = "; ".join(error_msgs)
-            elif error_output:
-                error_msg = error_output[:500]  # Truncate long output
-            else:
-                error_msg = "unknown error"
-            errors.append(f"- {stage_name}: {error_msg}")
+    if isinstance(stage_results, dict) and stage_results:
+        for stage_name, stage_result in stage_results.items():
+            if stage_name.startswith("_"):
+                continue  # Skip internal keys like _validation_commands
+            if not stage_result.get("passed", True):
+                error_output = stage_result.get("output", "")
+                error_list = stage_result.get("errors", [])
+                if error_list:
+                    error_msgs = [e.get("message", str(e)) for e in error_list]
+                    error_msg = "; ".join(error_msgs)
+                elif error_output:
+                    error_msg = error_output[:500]
+                else:
+                    error_msg = "unknown error"
+                errors.append(f"- {stage_name}: {error_msg}")
+    else:
+        # Fallback: try list-based "stages" key
+        stages_list = validation_result.get("stages", [])
+        if isinstance(stages_list, list):
+            for stage_entry in stages_list:
+                if isinstance(stage_entry, dict) and not stage_entry.get(
+                    "success", stage_entry.get("passed", True)
+                ):
+                    name = stage_entry.get("stage", stage_entry.get("name", "unknown"))
+                    error_output = stage_entry.get("error", stage_entry.get("output", ""))
+                    error_msg = error_output[:500] if error_output else "unknown error"
+                    errors.append(f"- {name}: {error_msg}")
 
     errors_text = "\n".join(errors) if errors else "No specific errors provided"
 
@@ -479,11 +499,21 @@ def _summarize_errors(validation_result: dict[str, Any]) -> str:
         Brief summary of errors
     """
     stage_results = validation_result.get("stage_results", {})
-    failed_stages = [
-        stage_name
-        for stage_name, result in stage_results.items()
-        if not result.get("passed", True)
-    ]
+    if isinstance(stage_results, dict) and stage_results:
+        failed_stages = [
+            stage_name
+            for stage_name, result in stage_results.items()
+            if not stage_name.startswith("_") and not result.get("passed", True)
+        ]
+    else:
+        # Fallback to list-based stages
+        stages_list = validation_result.get("stages", [])
+        failed_stages = [
+            s.get("stage", s.get("name", "unknown"))
+            for s in stages_list
+            if isinstance(s, dict)
+            and not s.get("success", s.get("passed", True))
+        ]
     if failed_stages:
         return f"{len(failed_stages)} stage(s): {', '.join(failed_stages)}"
     return "validation failures"
@@ -632,25 +662,41 @@ def _aggregate_stage_results(
         List of stage result dicts with name, passed, errors, duration_ms
     """
     stage_results = []
-    raw_stages = validation_result.get("stages", [])
 
-    # Build a lookup map for raw stage results
-    stage_map = {}
-    for raw_stage in raw_stages:
-        if isinstance(raw_stage, dict):
-            stage_name = raw_stage.get("stage", raw_stage.get("name", ""))
-            if stage_name:
-                stage_map[stage_name] = raw_stage
+    # Build a lookup map for raw stage results.
+    # Support two formats:
+    #   1. "stage_results" dict keyed by stage name (from validate_step and _run_validation)
+    #   2. "stages" list of dicts (legacy fallback)
+    stage_map: dict[str, dict[str, Any]] = {}
+    sr_dict = validation_result.get("stage_results", {})
+    if isinstance(sr_dict, dict) and sr_dict:
+        for sname, sdata in sr_dict.items():
+            if not sname.startswith("_") and isinstance(sdata, dict):
+                stage_map[sname] = sdata
+    else:
+        raw_stages = validation_result.get("stages", [])
+        for raw_stage in raw_stages:
+            if isinstance(raw_stage, dict):
+                stage_name = raw_stage.get("stage", raw_stage.get("name", ""))
+                if stage_name:
+                    stage_map[stage_name] = raw_stage
 
     # Build result for each expected stage
     for stage_name in stages:
         raw_result = stage_map.get(stage_name)
 
         if raw_result:
-            # Extract actual stage result
-            passed = raw_result.get("success", raw_result.get("passed", False))
-            error_msg = raw_result.get("error", raw_result.get("output", ""))
-            errors = [error_msg] if error_msg and not passed else []
+            # Extract actual stage result (handle both "passed" and "success" keys)
+            passed = raw_result.get("passed", raw_result.get("success", False))
+            error_output = raw_result.get("output", "")
+            error_list = raw_result.get("errors", [])
+            # Prefer structured errors, fall back to raw output
+            if error_list and not passed:
+                errors = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in error_list]
+            elif error_output and not passed:
+                errors = [error_output]
+            else:
+                errors = []
             duration_ms = raw_result.get("duration_ms", 0)
         else:
             # Stage wasn't run or not found in results

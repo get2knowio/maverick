@@ -284,10 +284,29 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
                 cli_path=getattr(error, "cli_path", None),
             )
         elif error_type == "ProcessError":
+            # Classify the process error with better context.
+            # The SDK hardcodes stderr to "Check stderr output for details"
+            # so we add heuristic classification based on exit code.
+            raw_msg = str(error)
+            exit_code = getattr(error, "exit_code", None)
+            stderr = getattr(error, "stderr", None)
+
+            # Exit code 1 with no useful stderr often means capacity
+            # exhaustion or a transient API failure.
+            if exit_code == 1 and (
+                not stderr or stderr == "Check stderr output for details"
+            ):
+                raw_msg = (
+                    f"Claude CLI process exited with code 1. "
+                    f"This commonly indicates API capacity exhaustion, "
+                    f"a rate-limit, or a transient network error. "
+                    f"Original: {raw_msg}"
+                )
+
             return ProcessError(
-                message=str(error),
-                exit_code=getattr(error, "exit_code", None),
-                stderr=getattr(error, "stderr", None),
+                message=raw_msg,
+                exit_code=exit_code,
+                stderr=stderr,
             )
         elif error_type == "TimeoutError":
             return MaverickTimeoutError(
