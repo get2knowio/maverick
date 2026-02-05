@@ -430,55 +430,12 @@ class TestDebounce:
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
         # Verify debounce tracking attributes exist
-        assert hasattr(screen, "_last_iteration_update")
         assert hasattr(screen, "_last_streaming_update")
-        assert hasattr(screen, "_pending_iteration_update")
         assert hasattr(screen, "_pending_streaming_update")
-        assert hasattr(screen, "_pending_iteration_step")
 
         # Verify initial values
-        assert screen._last_iteration_update == 0.0
         assert screen._last_streaming_update == 0.0
-        assert screen._pending_iteration_update is None
         assert screen._pending_streaming_update is None
-        assert screen._pending_iteration_step is None
-
-    def test_iteration_refresh_updates_last_time(self):
-        """Test that _refresh_iteration_widget updates last update time."""
-        import time
-
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        # Set up a loop state
-        from maverick.tui.models.enums import IterationStatus
-        from maverick.tui.models.widget_state import (
-            LoopIterationItem,
-            LoopIterationState,
-        )
-
-        screen._loop_states["test_loop"] = LoopIterationState(
-            step_name="test_loop",
-            iterations=[
-                LoopIterationItem(
-                    index=0,
-                    total=3,
-                    label="item-0",
-                    status=IterationStatus.PENDING,
-                )
-            ],
-            nesting_level=0,
-        )
-
-        # Ensure enough time has passed since "last update"
-        screen._last_iteration_update = 0.0
-
-        # Call refresh
-        before_call = time.time()
-        screen._refresh_iteration_widget("test_loop")
-
-        # Verify last update time was updated
-        assert screen._last_iteration_update >= before_call
 
     def test_streaming_refresh_updates_last_time(self):
         """Test that _refresh_streaming_panel updates last update time."""
@@ -509,53 +466,6 @@ class TestDebounce:
 
         # Verify last update time was updated
         assert screen._last_streaming_update >= before_call
-
-    @pytest.mark.asyncio
-    async def test_iteration_refresh_schedules_delayed_update(self):
-        """Test that rapid calls schedule delayed updates."""
-
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        # Set up a loop state
-        from maverick.tui.models.enums import IterationStatus
-        from maverick.tui.models.widget_state import (
-            LoopIterationItem,
-            LoopIterationState,
-        )
-
-        screen._loop_states["test_loop"] = LoopIterationState(
-            step_name="test_loop",
-            iterations=[
-                LoopIterationItem(
-                    index=0,
-                    total=3,
-                    label="item-0",
-                    status=IterationStatus.PENDING,
-                )
-            ],
-            nesting_level=0,
-        )
-
-        # First call should update immediately
-        screen._last_iteration_update = 0.0
-        screen._refresh_iteration_widget("test_loop")
-        first_update_time = screen._last_iteration_update
-
-        # Second rapid call should schedule delayed update
-        screen._refresh_iteration_widget("test_loop")
-
-        # The last update time should NOT have changed (debounced)
-        assert screen._last_iteration_update == first_update_time
-        # A pending update should be scheduled
-        assert screen._pending_iteration_update is not None
-        assert screen._pending_iteration_step == "test_loop"
-
-        # Clean up the pending task
-        if screen._pending_iteration_update:
-            screen._pending_iteration_update.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await screen._pending_iteration_update
 
     @pytest.mark.asyncio
     async def test_streaming_refresh_schedules_delayed_update(self):
@@ -596,65 +506,6 @@ class TestDebounce:
             with contextlib.suppress(asyncio.CancelledError):
                 await screen._pending_streaming_update
 
-    @pytest.mark.asyncio
-    async def test_debounce_interval_is_50ms(self):
-        """Test that debounce interval is 50ms per SC-003."""
-        import time
-
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        # Set up a loop state
-        from maverick.tui.models.enums import IterationStatus
-        from maverick.tui.models.widget_state import (
-            LoopIterationItem,
-            LoopIterationState,
-        )
-
-        screen._loop_states["test_loop"] = LoopIterationState(
-            step_name="test_loop",
-            iterations=[
-                LoopIterationItem(
-                    index=0,
-                    total=3,
-                    label="item-0",
-                    status=IterationStatus.PENDING,
-                )
-            ],
-            nesting_level=0,
-        )
-
-        # Set last update to just under 50ms ago
-        screen._last_iteration_update = time.time() - 0.049
-
-        # This should be debounced (not enough time elapsed)
-        screen._refresh_iteration_widget("test_loop")
-
-        # Should have scheduled a delayed update
-        assert screen._pending_iteration_update is not None
-
-        # Clean up first pending task
-        first_pending = screen._pending_iteration_update
-        first_pending.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await first_pending
-
-        # Now set last update to more than 50ms ago
-        screen._last_iteration_update = time.time() - 0.051
-        screen._pending_iteration_update = None  # Clear pending
-
-        # This should NOT be debounced
-        before_call = time.time()
-        screen._refresh_iteration_widget("test_loop")
-
-        # Last update time should have been updated
-        assert screen._last_iteration_update >= before_call
-
-        # Clean up any pending task
-        if screen._pending_iteration_update:
-            screen._pending_iteration_update.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await screen._pending_iteration_update
 
 
 # Steps Panel Visibility Tests

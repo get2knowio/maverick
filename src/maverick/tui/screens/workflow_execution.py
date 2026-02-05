@@ -37,7 +37,6 @@ from maverick.tui.screens.base import MaverickScreen
 from maverick.tui.step_durations import ETACalculator, StepDurationStore
 from maverick.tui.widgets.agent_streaming_panel import AgentStreamingPanel
 from maverick.tui.widgets.breadcrumb import BreadcrumbBar
-from maverick.tui.widgets.iteration_progress import IterationProgress
 from maverick.tui.widgets.step_tree import StepTreeWidget
 from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
@@ -148,11 +147,8 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._streaming_state = StreamingPanelState(visible=True)
 
         # T042: Debounce tracking for UI updates (50ms minimum per SC-003)
-        self._last_iteration_update: float = 0.0
         self._last_streaming_update: float = 0.0
-        self._pending_iteration_update: asyncio.Task[None] | None = None
         self._pending_streaming_update: asyncio.Task[None] | None = None
-        self._pending_iteration_step: str | None = None
         # Track which streaming entries have been displayed
         self._last_displayed_entry_index: int = 0
 
@@ -781,8 +777,6 @@ class WorkflowExecutionScreen(MaverickScreen):
                 ],
                 nesting_level=self._compute_nesting(event.parent_step_name),
             )
-            # Mount the widget for this loop
-            self._mount_iteration_widget(event.step_name)
 
         # Update iteration to running
         state = self._loop_states[event.step_name]
@@ -839,9 +833,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             )
             self._refresh_step_tree()
 
-        # Trigger UI update
-        self._refresh_iteration_widget(event.step_name)
-
     async def _handle_iteration_completed(
         self,
         event: LoopIterationCompleted,
@@ -878,15 +869,13 @@ class WorkflowExecutionScreen(MaverickScreen):
             self._tree_state.auto_collapse_completed(event.step_path)
             self._refresh_step_tree()
 
-        self._refresh_iteration_widget(event.step_name)
-
     def _mark_iterations_cancelled(self) -> None:
         """Mark all running iterations as CANCELLED and pending as SKIPPED.
 
         Called when the workflow is cancelled to ensure iteration states
         accurately reflect the final state.
         """
-        for step_name, state in self._loop_states.items():
+        for _step_name, state in self._loop_states.items():
             updated = False
             for item in state.iterations:
                 if item.status == IterationStatus.RUNNING:
@@ -896,7 +885,8 @@ class WorkflowExecutionScreen(MaverickScreen):
                     item.status = IterationStatus.SKIPPED
                     updated = True
             if updated:
-                self._refresh_iteration_widget(step_name)
+                # Update tree state for cancelled/skipped iterations
+                pass
 
     def _compute_nesting(self, parent_step_name: str | None) -> int:
         """Compute nesting level for a loop based on its parent.
@@ -915,97 +905,6 @@ class WorkflowExecutionScreen(MaverickScreen):
             return 0
 
         return parent_state.nesting_level + 1
-
-    def _mount_iteration_widget(self, step_name: str) -> None:
-        """Mount an IterationProgress widget for the given loop step.
-
-        The widget is mounted after the corresponding step widget if it exists,
-        otherwise it's appended to the step list container.
-
-        Args:
-            step_name: Name of the loop step to mount widget for.
-        """
-        state = self._loop_states.get(step_name)
-        if not state:
-            return
-
-        widget_id = f"iteration-{step_name}"
-
-        # Check if already mounted
-        try:
-            self.query_one(f"#{widget_id}", IterationProgress)
-            return  # Already exists
-        except NoMatches:
-            pass  # Not found, need to mount
-
-        # Create the widget
-        widget = IterationProgress(
-            state=state,
-            id=widget_id,
-            classes="iteration-progress",
-        )
-
-        # Mount into the tree content container
-        try:
-            container = self.query_one("#tree-content", ScrollableContainer)
-            container.mount(widget)
-        except NoMatches:
-            pass
-
-    def _refresh_iteration_widget(self, step_name: str) -> None:
-        """Refresh the IterationProgress widget for the given loop step.
-
-        Updates the widget with the current state from _loop_states.
-        Uses 50ms debouncing to prevent flickering (SC-003).
-
-        Args:
-            step_name: Name of the loop step whose widget should be refreshed.
-        """
-        now = time.time()
-        elapsed = now - self._last_iteration_update
-
-        # Track which step needs updating
-        self._pending_iteration_step = step_name
-
-        if elapsed < DEBOUNCE_INTERVAL_SECONDS:
-            # Cancel any pending update and schedule a new one
-            if (
-                self._pending_iteration_update is not None
-                and not self._pending_iteration_update.done()
-            ):
-                self._pending_iteration_update.cancel()
-            self._pending_iteration_update = asyncio.create_task(
-                self._delayed_iteration_refresh()
-            )
-            return
-
-        self._last_iteration_update = now
-        self._do_iteration_refresh(step_name)
-
-    async def _delayed_iteration_refresh(self) -> None:
-        """Execute a delayed iteration widget refresh after debounce period."""
-        await asyncio.sleep(DEBOUNCE_INTERVAL_SECONDS)
-        self._last_iteration_update = time.time()
-        if self._pending_iteration_step:
-            self._do_iteration_refresh(self._pending_iteration_step)
-
-    def _do_iteration_refresh(self, step_name: str) -> None:
-        """Perform the actual iteration widget refresh.
-
-        Args:
-            step_name: Name of the loop step whose widget should be refreshed.
-        """
-        state = self._loop_states.get(step_name)
-        if not state:
-            return
-
-        widget_id = f"iteration-{step_name}"
-        try:
-            widget = self.query_one(f"#{widget_id}", IterationProgress)
-            widget.update_state(state)
-        except NoMatches:
-            # Widget not found, try to mount it
-            self._mount_iteration_widget(step_name)
 
     async def _handle_stream_chunk(self, event: AgentStreamChunk) -> None:
         """Handle agent stream chunk event with newline-based buffering.

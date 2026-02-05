@@ -60,8 +60,6 @@ class TestHandleIterationStarted:
         )
 
         # Patch mount method to avoid Textual widget errors
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event)
 
@@ -85,8 +83,6 @@ class TestHandleIterationStarted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event)
 
@@ -106,8 +102,6 @@ class TestHandleIterationStarted:
             item_label="First Item",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event)
 
@@ -127,8 +121,6 @@ class TestHandleIterationStarted:
             item_label="Phase 1: Setup",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event)
 
@@ -150,8 +142,6 @@ class TestHandleIterationStarted:
             timestamp=timestamp,
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event)
 
@@ -172,8 +162,6 @@ class TestHandleIterationStarted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(event1)
 
@@ -193,46 +181,6 @@ class TestHandleIterationStarted:
         assert state.iterations[0].label == "Item 1"
         assert state.iterations[1].label == "Item 2"
         assert state.iterations[1].status == IterationStatus.RUNNING
-
-    @pytest.mark.asyncio
-    async def test_mounts_iteration_widget(self) -> None:
-        """Test that handler calls _mount_iteration_widget for new loops."""
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        event = LoopIterationStarted(
-            step_name="test_loop",
-            iteration_index=0,
-            total_iterations=3,
-            item_label="Item 1",
-        )
-
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
-
-        await screen._handle_iteration_started(event)
-
-        screen._mount_iteration_widget.assert_called_once_with("test_loop")
-
-    @pytest.mark.asyncio
-    async def test_refreshes_iteration_widget(self) -> None:
-        """Test that handler calls _refresh_iteration_widget."""
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        event = LoopIterationStarted(
-            step_name="test_loop",
-            iteration_index=0,
-            total_iterations=3,
-            item_label="Item 1",
-        )
-
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
-
-        await screen._handle_iteration_started(event)
-
-        screen._refresh_iteration_widget.assert_called_once_with("test_loop")
 
 
 # =============================================================================
@@ -257,8 +205,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -289,8 +235,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -321,8 +265,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -351,8 +293,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -382,8 +322,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -407,8 +345,6 @@ class TestHandleIterationCompleted:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._refresh_iteration_widget = MagicMock()
-
         # Try to complete an iteration for a loop that doesn't exist
         complete_event = LoopIterationCompleted(
             step_name="nonexistent_loop",
@@ -419,9 +355,6 @@ class TestHandleIterationCompleted:
 
         # Should not raise
         await screen._handle_iteration_completed(complete_event)
-
-        # Refresh should not be called since loop doesn't exist
-        screen._refresh_iteration_widget.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handles_out_of_bounds_index(self) -> None:
@@ -436,8 +369,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(start_event)
 
@@ -455,36 +386,6 @@ class TestHandleIterationCompleted:
         # Original iteration should be unchanged
         state = screen._loop_states["test_loop"]
         assert state.iterations[0].status == IterationStatus.RUNNING
-
-    @pytest.mark.asyncio
-    async def test_refreshes_iteration_widget(self) -> None:
-        """Test that handler calls _refresh_iteration_widget."""
-        mock_workflow = create_mock_workflow()
-        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
-        start_event = LoopIterationStarted(
-            step_name="test_loop",
-            iteration_index=0,
-            total_iterations=3,
-            item_label="Item 1",
-        )
-
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
-
-        await screen._handle_iteration_started(start_event)
-        screen._refresh_iteration_widget.reset_mock()
-
-        complete_event = LoopIterationCompleted(
-            step_name="test_loop",
-            iteration_index=0,
-            success=True,
-            duration_ms=1000,
-        )
-
-        await screen._handle_iteration_completed(complete_event)
-
-        screen._refresh_iteration_widget.assert_called_once_with("test_loop")
 
 
 # =============================================================================
@@ -763,8 +664,6 @@ class TestComputeNesting:
             parent_step_name=None,
         )
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         await screen._handle_iteration_started(parent_event)
 
@@ -791,8 +690,6 @@ class TestComputeNesting:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         # Create level 0 loop
         await screen._handle_iteration_started(
@@ -847,8 +744,6 @@ class TestEventHandlerIntegration:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
 
         # Start iteration 0
         await screen._handle_iteration_started(
@@ -914,8 +809,6 @@ class TestEventHandlerIntegration:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._mount_iteration_widget = MagicMock()
-        screen._refresh_iteration_widget = MagicMock()
         screen._refresh_streaming_panel = MagicMock()
 
         # Start loop 1
