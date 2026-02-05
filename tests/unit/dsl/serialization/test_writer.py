@@ -366,6 +366,154 @@ class TestWorkflowWriterStepTypes:
         assert step["steps"][0]["name"] == "task1"
         assert step["steps"][1]["name"] == "task2"
 
+    def test_loop_step_with_parallel_true_to_dict(self) -> None:
+        """Test serializing LoopStepRecord with parallel: true."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="test-workflow",
+            steps=[
+                LoopStepRecord(
+                    name="parallel_tasks",
+                    type=StepType.LOOP,
+                    parallel=True,
+                    steps=[
+                        PythonStepRecord(
+                            name="task1",
+                            type=StepType.PYTHON,
+                            action="task1",
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        writer = WorkflowWriter()
+        result = writer.to_dict(workflow)
+
+        step = result["steps"][0]
+        assert step["type"] == "loop"
+        assert step["parallel"] is True
+        assert "max_concurrency" not in step
+
+    def test_loop_step_with_parallel_false_to_dict(self) -> None:
+        """Test serializing LoopStepRecord with parallel: false."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="test-workflow",
+            steps=[
+                LoopStepRecord(
+                    name="parallel_tasks",
+                    type=StepType.LOOP,
+                    parallel=False,
+                    steps=[
+                        PythonStepRecord(
+                            name="task1",
+                            type=StepType.PYTHON,
+                            action="task1",
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        writer = WorkflowWriter()
+        result = writer.to_dict(workflow)
+
+        step = result["steps"][0]
+        assert step["type"] == "loop"
+        assert step["parallel"] is False
+        assert "max_concurrency" not in step
+
+    def test_loop_step_with_max_concurrency_to_dict(self) -> None:
+        """Test serializing LoopStepRecord with max_concurrency."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="test-workflow",
+            steps=[
+                LoopStepRecord(
+                    name="parallel_tasks",
+                    type=StepType.LOOP,
+                    max_concurrency=3,
+                    steps=[
+                        PythonStepRecord(
+                            name="task1",
+                            type=StepType.PYTHON,
+                            action="task1",
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        writer = WorkflowWriter()
+        result = writer.to_dict(workflow)
+
+        step = result["steps"][0]
+        assert step["type"] == "loop"
+        assert step["max_concurrency"] == 3
+        assert "parallel" not in step
+
+    def test_loop_step_with_for_each_to_dict(self) -> None:
+        """Test serializing LoopStepRecord with for_each."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="test-workflow",
+            steps=[
+                LoopStepRecord(
+                    name="process_items",
+                    type=StepType.LOOP,
+                    for_each="${{ inputs.items }}",
+                    parallel=True,
+                    steps=[
+                        PythonStepRecord(
+                            name="process",
+                            type=StepType.PYTHON,
+                            action="process",
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        writer = WorkflowWriter()
+        result = writer.to_dict(workflow)
+
+        step = result["steps"][0]
+        assert step["type"] == "loop"
+        assert step["for_each"] == "${{ inputs.items }}"
+        assert step["parallel"] is True
+
+    def test_loop_step_default_values_not_serialized(self) -> None:
+        """Test that default values (sequential) are not serialized."""
+        workflow = WorkflowFile(
+            version="1.0",
+            name="test-workflow",
+            steps=[
+                LoopStepRecord(
+                    name="parallel_tasks",
+                    type=StepType.LOOP,
+                    steps=[
+                        PythonStepRecord(
+                            name="task1",
+                            type=StepType.PYTHON,
+                            action="task1",
+                        ),
+                    ],
+                    # parallel=None (default)
+                    # max_concurrency=1 (default)
+                )
+            ],
+        )
+
+        writer = WorkflowWriter()
+        result = writer.to_dict(workflow)
+
+        step = result["steps"][0]
+        assert step["type"] == "loop"
+        # Neither parallel nor max_concurrency should be in output when using defaults
+        assert "parallel" not in step
+        assert "max_concurrency" not in step
+
 
 # =============================================================================
 # Expression Preservation Tests

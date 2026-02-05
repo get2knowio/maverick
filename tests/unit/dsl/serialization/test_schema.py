@@ -1346,6 +1346,66 @@ class TestLoopStepRecord:
         with pytest.raises(Exception):
             LoopStepRecord(name="loop", steps=[])
 
+    def test_parallel_true_shorthand(self):
+        """Test that parallel: true is valid and sets unlimited concurrency."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        step = LoopStepRecord(name="loop", steps=steps, parallel=True)
+        assert step.parallel is True
+        assert step.max_concurrency == 1  # Default value preserved
+        assert step.get_effective_max_concurrency() == 0  # Resolves to unlimited
+
+    def test_parallel_false_shorthand(self):
+        """Test that parallel: false is valid and sets sequential execution."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        step = LoopStepRecord(name="loop", steps=steps, parallel=False)
+        assert step.parallel is False
+        assert step.max_concurrency == 1  # Default value preserved
+        assert step.get_effective_max_concurrency() == 1  # Resolves to sequential
+
+    def test_parallel_none_uses_max_concurrency(self):
+        """Test that parallel: None (default) uses max_concurrency."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        step = LoopStepRecord(name="loop", steps=steps, max_concurrency=3)
+        assert step.parallel is None
+        assert step.max_concurrency == 3
+        assert step.get_effective_max_concurrency() == 3
+
+    def test_parallel_and_max_concurrency_mutually_exclusive(self):
+        """Test that specifying both parallel and max_concurrency raises error."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        with pytest.raises(
+            Exception,
+            match="Cannot specify both 'parallel' and 'max_concurrency'",
+        ):
+            LoopStepRecord(
+                name="loop", steps=steps, parallel=True, max_concurrency=3
+            )
+
+    def test_parallel_true_with_default_max_concurrency_is_valid(self):
+        """Test that parallel: true with default max_concurrency is valid."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        # max_concurrency defaults to 1, so parallel=True should be allowed
+        step = LoopStepRecord(name="loop", steps=steps, parallel=True)
+        assert step.parallel is True
+        assert step.max_concurrency == 1  # Default
+        assert step.get_effective_max_concurrency() == 0  # Unlimited
+
+    def test_parallel_false_with_default_max_concurrency_is_valid(self):
+        """Test that parallel: false with default max_concurrency is valid."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        step = LoopStepRecord(name="loop", steps=steps, parallel=False)
+        assert step.parallel is False
+        assert step.max_concurrency == 1
+        assert step.get_effective_max_concurrency() == 1  # Sequential
+
+    def test_default_behavior_is_sequential(self):
+        """Test default behavior (no parallel, no max_concurrency) is sequential."""
+        steps = [PythonStepRecord(name="task1", action="func1")]
+        step = LoopStepRecord(name="loop", steps=steps)
+        assert step.parallel is None
+        assert step.max_concurrency == 1
+        assert step.get_effective_max_concurrency() == 1  # Sequential
+
 
 # =============================================================================
 # Discriminated Union Tests
