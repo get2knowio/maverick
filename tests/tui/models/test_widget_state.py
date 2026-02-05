@@ -46,10 +46,6 @@ class TestUnifiedStreamStateDetailTracking:
         state = UnifiedStreamState()
         assert state.current_step_type is None
         assert state.current_step_started_at is None
-        assert state.current_step_tokens == 0
-        assert state.current_step_cost == 0.0
-        assert state.total_tokens == 0
-        assert state.total_cost == 0.0
         assert state.completed_steps == 0
         assert state.failed_steps == 0
 
@@ -63,8 +59,6 @@ class TestUnifiedStreamStateDetailTracking:
         assert state.current_step_type == "agent"
         assert state.current_step_started_at is not None
         assert state.current_step_started_at > 0
-        assert state.current_step_tokens == 0
-        assert state.current_step_cost == 0.0
         assert state.current_step_number == 1
 
     def test_start_step_increments_step_number(self) -> None:
@@ -100,89 +94,23 @@ class TestUnifiedStreamStateDetailTracking:
         assert state.completed_steps == 0
         assert state.failed_steps == 1
 
-    def test_complete_step_with_usage(self) -> None:
-        """Test complete_step with token/cost usage data."""
-        state = UnifiedStreamState(total_steps=1)
-        state.start_step("agent_step", "agent")
-
-        state.complete_step(
-            success=True,
-            input_tokens=1000,
-            output_tokens=500,
-            cost_usd=0.0045,
-        )
-
-        # Current step should have tokens and cost
-        assert state.current_step_tokens == 1500  # input + output
-        assert state.current_step_cost == 0.0045
-        # Totals should be updated
-        assert state.total_tokens == 1500
-        assert state.total_cost == 0.0045
-
-    def test_complete_step_accumulates_totals(self) -> None:
-        """Test that complete_step accumulates totals across steps."""
+    def test_complete_step_accumulates_counts(self) -> None:
+        """Test that complete_step accumulates success/failure counts."""
         state = UnifiedStreamState(total_steps=3)
 
-        # First agent step
         state.start_step("step1", "agent")
-        state.complete_step(
-            success=True,
-            input_tokens=1000,
-            output_tokens=500,
-            cost_usd=0.005,
-        )
-        assert state.total_tokens == 1500
-        assert state.total_cost == 0.005
-
-        # Second agent step
-        state.start_step("step2", "agent")
-        state.complete_step(
-            success=True,
-            input_tokens=2000,
-            output_tokens=800,
-            cost_usd=0.010,
-        )
-        assert state.total_tokens == 4300  # 1500 + 2800
-        assert state.total_cost == 0.015  # 0.005 + 0.010
-
-        # Non-agent step (no usage)
-        state.start_step("step3", "python")
         state.complete_step(success=True)
-        assert state.total_tokens == 4300  # No change
-        assert state.total_cost == 0.015  # No change
+        assert state.completed_steps == 1
+        assert state.failed_steps == 0
 
-    def test_complete_step_with_none_usage(self) -> None:
-        """Test complete_step with None usage values (non-agent steps)."""
-        state = UnifiedStreamState(total_steps=1)
-        state.start_step("python_step", "python")
+        state.start_step("step2", "agent")
+        state.complete_step(success=True)
+        assert state.completed_steps == 2
 
-        state.complete_step(
-            success=True,
-            input_tokens=None,
-            output_tokens=None,
-            cost_usd=None,
-        )
-
-        assert state.current_step_tokens == 0
-        assert state.current_step_cost == 0.0
-        assert state.total_tokens == 0
-        assert state.total_cost == 0.0
-
-    def test_complete_step_with_partial_usage(self) -> None:
-        """Test complete_step with partial usage data."""
-        state = UnifiedStreamState(total_steps=1)
-        state.start_step("agent_step", "agent")
-
-        state.complete_step(
-            success=True,
-            input_tokens=500,
-            output_tokens=None,  # Output tokens unavailable
-            cost_usd=0.002,
-        )
-
-        assert state.current_step_tokens == 500  # Only input tokens
-        assert state.total_tokens == 500
-        assert state.total_cost == 0.002
+        state.start_step("step3", "python")
+        state.complete_step(success=False)
+        assert state.completed_steps == 2
+        assert state.failed_steps == 1
 
     def test_current_step_elapsed_formatted(self) -> None:
         """Test current_step_elapsed_formatted property."""

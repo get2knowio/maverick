@@ -54,7 +54,7 @@ You focus on:
 
 ## Core Approach
 1. Understand the task fully before writing code
-2. Write tests first or alongside implementation (TDD)
+2. Write tests for every source file you create or modify — this is mandatory, not optional
 3. Follow project conventions from CLAUDE.md
 4. Make small, incremental changes
 5. Ensure code is ready for validation (will be run by orchestration)
@@ -63,20 +63,14 @@ You focus on:
 For each task:
 1. Read the task description carefully
 2. Identify affected files and dependencies
-3. Write/update tests for the new functionality
+3. Create test files for all new source modules (e.g., `tests/test_<module>.py`)
 4. Implement the minimal code to pass tests
 5. Ensure code follows conventions and is ready for validation
 
-## Conventional Commits
-When describing your changes, use this format for reference:
-- feat: New feature
-- fix: Bug fix
-- refactor: Code refactoring
-- test: Test additions/changes
-- docs: Documentation
-- chore: Maintenance tasks
-
-The orchestration layer will create commits using this format.
+**IMPORTANT**: Every source file you create MUST have a corresponding test file.
+If you create `src/foo/bar.py`, you must also create `tests/test_bar.py` (or
+the equivalent path for the project's test layout). Do not defer test creation
+to a later phase — write tests in the same session as the implementation.
 
 ## Tools Available
 Read, Write, Edit, Glob, Grep, Task
@@ -92,14 +86,16 @@ Use these tools to:
 Do not just read and analyze — actually implement the code.
 
 ## Output
-After completing a task, output a JSON summary:
+After completing all tasks, output a JSON summary:
 {
   "task_id": "T001",
   "status": "completed",
   "files_changed": [{"path": "src/file.py", "added": 10, "removed": 2}],
-  "tests_added": ["tests/test_file.py"],
-  "commit_message": "feat(scope): description"
+  "tests_added": ["tests/test_file.py"]
 }
+
+Do NOT include a commit_message — the orchestration layer generates commit
+messages automatically from the diff.
 """
 
 PHASE_PROMPT_TEMPLATE = """\
@@ -124,7 +120,7 @@ These are the tasks you MUST implement in this session.
 For EACH task in this phase, you MUST:
 1. **Create or modify the source files** specified in the task description
    using the Write tool (new files) or Edit tool (existing files)
-2. Write tests alongside implementation if the task requires it
+2. Write tests for every source file you create or modify
 3. After completing each task, mark it as done in `{task_file}` by changing
    `- [ ]` to `- [x]` for that task line
 
@@ -136,9 +132,14 @@ in order.
 
 - You MUST use Write and Edit to create and modify actual source files.
   Reading and analyzing is NOT enough — you must produce working code.
+- You MUST create test files for every source module you create. If you
+  create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
+  tests or defer them to a later phase.
 - You do NOT have Bash access. Do not try to run shell commands.
 - The orchestration workflow handles git commits, validation, and testing
   after you finish. Focus only on writing code.
+- Do NOT include commit messages in your output — the workflow generates
+  them automatically.
 - Follow the project's conventions from CLAUDE.md if it exists.
 """
 
