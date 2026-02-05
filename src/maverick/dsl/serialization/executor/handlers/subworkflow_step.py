@@ -9,6 +9,7 @@ from typing import Any
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
+from maverick.dsl.events import WorkflowCompleted, WorkflowStarted
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import SubWorkflowStepRecord, WorkflowFile
 
@@ -66,8 +67,13 @@ async def execute_subworkflow_step(
     )
     # Process and forward events to parent workflow
     async for event in sub_executor.execute(workflow, inputs=sub_inputs):
-        # Forward events to parent for real-time streaming
-        if event_callback is not None:
+        # Forward events to parent for real-time streaming, but filter out
+        # sub-workflow lifecycle events (WorkflowStarted/Completed) since
+        # those are internal to this sub-workflow and would be misinterpreted
+        # by the parent as the top-level workflow completing.
+        if event_callback is not None and not isinstance(
+            event, (WorkflowStarted, WorkflowCompleted)
+        ):
             await event_callback(event)
 
     # Get final result from sub-executor
