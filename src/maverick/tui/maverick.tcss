@@ -1865,7 +1865,7 @@ HelpPanel .help-description {
 }
 
 #step-tree .tree-node.completed {
-    color: $text;
+    color: $success;
 }
 
 #step-tree .tree-node.failed {

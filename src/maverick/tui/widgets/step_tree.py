@@ -25,15 +25,6 @@ _STATUS_ICONS: dict[str, str] = {
     "skipped": "\u2014",  # —
 }
 
-# Status colors for Rich markup
-_STATUS_COLORS: dict[str, str] = {
-    "pending": "grey50",
-    "running": "dodger_blue1",
-    "completed": "green3",
-    "failed": "red1",
-    "skipped": "grey50",
-}
-
 # Expand/collapse icons
 _EXPAND_ICON = "\u25bc"  # ▼
 _COLLAPSE_ICON = "\u25b7"  # ▷
@@ -87,7 +78,7 @@ class StepTreeWidget(Widget):
     }
 
     StepTreeWidget .tree-node.completed {
-        color: $text;
+        color: $success;
     }
 
     StepTreeWidget .tree-node.failed {
@@ -155,9 +146,8 @@ class StepTreeWidget(Widget):
         else:
             expand_str = "  "
 
-        # Status icon with color
+        # Status icon (color inherited from CSS class on the row widget)
         status_icon = _STATUS_ICONS.get(node.status, "?")
-        status_color = _STATUS_COLORS.get(node.status, "white")
 
         # Duration
         duration_str = ""
@@ -178,7 +168,7 @@ class StepTreeWidget(Widget):
 
         line = (
             f"{indent}{expand_str}{node.label}"
-            f"  [{status_color}]{status_icon}[/]"
+            f"  {status_icon}"
             f"[dim]{duration_str}[/]"
         )
 
