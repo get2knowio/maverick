@@ -62,6 +62,12 @@ from maverick.cli.context import async_command
     default=None,
     help="Run only specified step (name or number). Use --list-steps to see options.",
 )
+@click.option(
+    "--session-log",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write session journal (JSONL) to this file path.",
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -74,6 +80,7 @@ async def fly(
     no_validate: bool,
     list_steps: bool,
     only_step: str | None,
+    session_log: Path | None,
 ) -> None:
     """Execute a DSL workflow.
 
@@ -131,4 +138,5 @@ async def fly(
         no_validate,
         list_steps,
         only_step,
+        session_log_path=session_log,
     )
