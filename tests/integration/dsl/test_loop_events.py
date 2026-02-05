@@ -782,13 +782,42 @@ steps:
         # Verify workflow structure events
         workflow_started = [e for e in events if isinstance(e, WorkflowStarted)]
         workflow_completed = [e for e in events if isinstance(e, WorkflowCompleted)]
-        step_started = [e for e in events if isinstance(e, StepStarted)]
-        step_completed = [e for e in events if isinstance(e, StepCompleted)]
+        # Root-level StepStarted/StepCompleted (single-segment paths)
+        root_step_started = [
+            e
+            for e in events
+            if isinstance(e, StepStarted)
+            and (e.step_path is None or "/" not in e.step_path)
+        ]
+        root_step_completed = [
+            e
+            for e in events
+            if isinstance(e, StepCompleted)
+            and (e.step_path is None or "/" not in e.step_path)
+        ]
+        # Nested StepStarted/StepCompleted emitted by loop handler
+        nested_step_started = [
+            e
+            for e in events
+            if isinstance(e, StepStarted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+        nested_step_completed = [
+            e
+            for e in events
+            if isinstance(e, StepCompleted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
 
         assert len(workflow_started) == 1
         assert len(workflow_completed) == 1
-        assert len(step_started) == 2  # get_data + process_items
-        assert len(step_completed) == 2
+        assert len(root_step_started) == 2  # get_data + process_items
+        assert len(root_step_completed) == 2
+        # 3 nested "transform" steps (one per iteration)
+        assert len(nested_step_started) == 3
+        assert len(nested_step_completed) == 3
 
         # Verify loop events
         loop_started = [e for e in events if isinstance(e, LoopIterationStarted)]
@@ -1009,3 +1038,269 @@ steps:
         assert first_started_index < step_completed_index, (
             "First LoopIterationStarted should appear before StepCompleted"
         )
+
+
+class TestNestedStepLifecycleEvents:
+    """Integration tests for StepStarted/StepCompleted events from nested steps.
+
+    Verifies that loop handlers emit StepStarted/StepCompleted for every
+    nested step they execute.  This enables the TUI step tree to
+    transition nodes from running (filled circle) to completed (checkmark).
+    """
+
+    @pytest.fixture
+    def registry(self) -> ComponentRegistry:
+        """Create a component registry with test actions."""
+        reg = ComponentRegistry()
+
+        @reg.actions.register("str_upper")
+        def str_upper(value: str) -> str:
+            return value.upper()
+
+        @reg.actions.register("double")
+        def double(n: int) -> int:
+            return n * 2
+
+        @reg.actions.register("failing_action")
+        def failing_action(value: str) -> None:
+            raise ValueError("Intentional failure")
+
+        return reg
+
+    @pytest.mark.asyncio
+    async def test_for_each_emits_nested_step_lifecycle(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """Each nested step inside a for_each loop emits lifecycle events."""
+        workflow_yaml = """
+version: "1.0"
+name: test-nested-step-lifecycle
+description: Test nested step lifecycle events
+
+inputs:
+  items:
+    type: array
+    required: true
+
+steps:
+  - name: my_loop
+    type: loop
+    for_each: ${{ inputs.items }}
+    max_concurrency: 1
+    steps:
+      - name: step_a
+        type: python
+        action: str_upper
+        kwargs:
+          value: ${{ item }}
+      - name: step_b
+        type: python
+        action: str_upper
+        kwargs:
+          value: ${{ item }}
+"""
+        workflow = parse_workflow(workflow_yaml)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        events = []
+        async for event in executor.execute(
+            workflow, inputs={"items": ["x", "y"]}
+        ):
+            events.append(event)
+
+        # Nested StepStarted events (paths contain "/" separators)
+        nested_started = [
+            e for e in events
+            if isinstance(e, StepStarted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+        nested_completed = [
+            e for e in events
+            if isinstance(e, StepCompleted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+
+        # 2 items x 2 steps = 4 nested started + 4 nested completed
+        assert len(nested_started) == 4
+        assert len(nested_completed) == 4
+
+        # Verify paths are correct (loop_name/[index]/step_name)
+        paths = {e.step_path for e in nested_started}
+        assert "my_loop/[0]/step_a" in paths
+        assert "my_loop/[0]/step_b" in paths
+        assert "my_loop/[1]/step_a" in paths
+        assert "my_loop/[1]/step_b" in paths
+
+        # All should be successful
+        assert all(e.success is True for e in nested_completed)
+
+    @pytest.mark.asyncio
+    async def test_for_each_nested_step_failure_emits_completed(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """A nested step that fails should still emit StepCompleted(success=False)."""
+        workflow_yaml = """
+version: "1.0"
+name: test-nested-failure-lifecycle
+description: Test nested step failure lifecycle
+
+inputs:
+  items:
+    type: array
+    required: true
+
+steps:
+  - name: my_loop
+    type: loop
+    for_each: ${{ inputs.items }}
+    max_concurrency: 1
+    steps:
+      - name: maybe_fail
+        type: python
+        action: failing_action
+        kwargs:
+          value: ${{ item }}
+"""
+        workflow = parse_workflow(workflow_yaml)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        events = []
+        async for event in executor.execute(
+            workflow, inputs={"items": ["boom"]}
+        ):
+            events.append(event)
+
+        nested_completed = [
+            e for e in events
+            if isinstance(e, StepCompleted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+
+        # Should have 1 nested StepCompleted for the failed step
+        assert len(nested_completed) == 1
+        assert nested_completed[0].success is False
+        assert nested_completed[0].error is not None
+        assert nested_completed[0].step_path == "my_loop/[0]/maybe_fail"
+
+    @pytest.mark.asyncio
+    async def test_loop_tasks_emit_nested_step_lifecycle(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """Loop without for_each should also emit nested step lifecycle events."""
+        workflow_yaml = """
+version: "1.0"
+name: test-task-loop-lifecycle
+description: Test task loop lifecycle events
+
+steps:
+  - name: task_loop
+    type: loop
+    steps:
+      - name: task_a
+        type: python
+        action: str_upper
+        kwargs:
+          value: hello
+      - name: task_b
+        type: python
+        action: double
+        kwargs:
+          n: 5
+"""
+        workflow = parse_workflow(workflow_yaml)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        events = []
+        async for event in executor.execute(workflow):
+            events.append(event)
+
+        nested_started = [
+            e for e in events
+            if isinstance(e, StepStarted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+        nested_completed = [
+            e for e in events
+            if isinstance(e, StepCompleted)
+            and e.step_path is not None
+            and "/" in e.step_path
+        ]
+
+        # 2 tasks = 2 nested started + 2 nested completed
+        assert len(nested_started) == 2
+        assert len(nested_completed) == 2
+
+        # Verify paths (task_loop/[index]/step_name)
+        paths = {e.step_path for e in nested_started}
+        assert "task_loop/[0]/task_a" in paths
+        assert "task_loop/[1]/task_b" in paths
+
+        assert all(e.success is True for e in nested_completed)
+
+    @pytest.mark.asyncio
+    async def test_nested_step_events_arrive_before_loop_completes(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """Nested StepStarted/StepCompleted should arrive before loop StepCompleted."""
+        workflow_yaml = """
+version: "1.0"
+name: test-nested-event-ordering
+description: Test nested events arrive before loop completes
+
+inputs:
+  items:
+    type: array
+    required: true
+
+steps:
+  - name: my_loop
+    type: loop
+    for_each: ${{ inputs.items }}
+    max_concurrency: 1
+    steps:
+      - name: process
+        type: python
+        action: str_upper
+        kwargs:
+          value: ${{ item }}
+"""
+        workflow = parse_workflow(workflow_yaml)
+        executor = WorkflowFileExecutor(registry=registry)
+
+        events = []
+        async for event in executor.execute(
+            workflow, inputs={"items": ["a", "b"]}
+        ):
+            events.append(event)
+
+        # Find indices of nested step events and loop StepCompleted
+        loop_completed_idx = None
+        nested_step_indices = []
+        for i, event in enumerate(events):
+            if (
+                isinstance(event, StepCompleted)
+                and event.step_path is not None
+                and "/" not in event.step_path
+                and event.step_name == "my_loop"
+            ):
+                loop_completed_idx = i
+            elif (
+                isinstance(event, (StepStarted, StepCompleted))
+                and event.step_path is not None
+                and "/" in event.step_path
+            ):
+                nested_step_indices.append(i)
+
+        assert loop_completed_idx is not None
+        assert len(nested_step_indices) > 0
+
+        # All nested step events should appear before the loop StepCompleted
+        for idx in nested_step_indices:
+            assert idx < loop_completed_idx, (
+                f"Nested step event at index {idx} should appear before "
+                f"loop StepCompleted at index {loop_completed_idx}"
+            )

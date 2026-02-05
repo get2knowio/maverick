@@ -14,7 +14,12 @@ import anyio
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import LoopStepExecutionError
-from maverick.dsl.events import LoopIterationCompleted, LoopIterationStarted
+from maverick.dsl.events import (
+    LoopIterationCompleted,
+    LoopIterationStarted,
+    StepCompleted,
+    StepStarted,
+)
 from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.step_path import make_prefix_callback
@@ -253,6 +258,19 @@ async def _execute_loop_tasks(
             success = True
             error_msg: str | None = None
 
+            # Emit StepStarted for nested step so the TUI can
+            # track lifecycle (running -> completed/failed).
+            nested_step_name = getattr(step_record, "name", None)
+            nested_step_type = getattr(step_record, "type", None)
+            if iter_callback is not None and nested_step_name and nested_step_type:
+                await iter_callback(
+                    StepStarted(
+                        step_name=nested_step_name,
+                        step_type=nested_step_type,
+                        step_path=nested_step_name,
+                    )
+                )
+
             try:
                 results[index] = await execute_step_fn(
                     step_record, context, iter_callback
@@ -265,6 +283,19 @@ async def _execute_loop_tasks(
 
             # Calculate duration
             duration_ms = int((time.time() - start_time) * 1000)
+
+            # Emit StepCompleted for nested step
+            if iter_callback is not None and nested_step_name and nested_step_type:
+                await iter_callback(
+                    StepCompleted(
+                        step_name=nested_step_name,
+                        step_type=nested_step_type,
+                        success=success,
+                        duration_ms=duration_ms,
+                        error=error_msg,
+                        step_path=nested_step_name,
+                    )
+                )
 
             # Emit LoopIterationCompleted event
             completed_event = LoopIterationCompleted(
@@ -467,10 +498,56 @@ async def _execute_loop_for_each(
                         step_results.append(None)  # Placeholder for skipped step
                         continue
 
+                    # Emit StepStarted for nested step so the TUI can
+                    # track lifecycle (running -> completed/failed).
+                    # The iter_callback prefixes with [index], and the
+                    # outer event_callback prefixes with the loop step
+                    # name, producing paths like
+                    # "implement_by_phase/[0]/implement_phase".
+                    nested_step_start = time.time()
+                    if iter_callback is not None:
+                        await iter_callback(
+                            StepStarted(
+                                step_name=s.name,
+                                step_type=s.type,
+                                step_path=s.name,
+                            )
+                        )
+
                     try:
                         result = await execute_step_fn(s, item_context, iter_callback)
                         step_results.append(result)
+
+                        # Emit StepCompleted (success) for nested step
+                        if iter_callback is not None:
+                            nested_duration = int(
+                                (time.time() - nested_step_start) * 1000
+                            )
+                            await iter_callback(
+                                StepCompleted(
+                                    step_name=s.name,
+                                    step_type=s.type,
+                                    success=True,
+                                    duration_ms=nested_duration,
+                                    step_path=s.name,
+                                )
+                            )
                     except BaseException as exc:
+                        # Emit StepCompleted (failure) for nested step
+                        if iter_callback is not None:
+                            nested_duration = int(
+                                (time.time() - nested_step_start) * 1000
+                            )
+                            await iter_callback(
+                                StepCompleted(
+                                    step_name=s.name,
+                                    step_type=s.type,
+                                    success=False,
+                                    duration_ms=nested_duration,
+                                    error=str(exc),
+                                    step_path=s.name,
+                                )
+                            )
                         step_results.append(exc)
                         success = False
                         error_msg = str(exc)

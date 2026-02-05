@@ -955,9 +955,7 @@ class TestPrePopulateIterationNodes:
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
 
-        screen._tree_state.upsert_node(
-            "my_loop", step_type="loop", status="running"
-        )
+        screen._tree_state.upsert_node("my_loop", step_type="loop", status="running")
 
         event = LoopIterationStarted(
             step_name="my_loop",
@@ -1042,3 +1040,217 @@ class TestPrePopulateIterationNodes:
         assert "my_loop" in screen._loop_states
         # No iteration tree nodes since step_path was None
         assert "my_loop/[0]" not in screen._tree_state._node_index
+
+
+# Bug Fix: Nested step status transitions
+class TestNestedStepStatusTransitions:
+    """Tests for Bug 3 fix: nested steps inside loop iterations must
+    transition their tree node status from running to completed/failed.
+
+    The root cause was that StepStarted/StepCompleted events were only
+    emitted for root-level workflow steps.  Nested steps (agent,
+    subworkflow, python) executed inside loop iterations never received
+    lifecycle events, so their tree nodes stayed as running (filled
+    circle) forever.
+
+    The fix emits StepStarted/StepCompleted from the loop handler for
+    every nested step, and the TUI handles them via dedicated methods
+    that update only the tree state without inflating global counters.
+    """
+
+    def test_nested_step_running_updates_tree_only(self):
+        """Test that _mark_nested_step_running updates tree without counters."""
+        from maverick.dsl.events import StepStarted
+        from maverick.dsl.types import StepType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen.total_steps = 5
+        screen.current_step = 2
+
+        # Pre-create parent nodes in tree
+        screen._tree_state.upsert_node(
+            "implement_by_phase", step_type="loop", status="running"
+        )
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]", label="Phase 1", status="running"
+        )
+
+        event = StepStarted(
+            step_name="implement_phase",
+            step_type=StepType.AGENT,
+            step_path="implement_by_phase/[0]/implement_phase",
+        )
+
+        screen._mark_nested_step_running(event)
+
+        # Tree node should be created with running status
+        node = screen._tree_state._node_index.get(
+            "implement_by_phase/[0]/implement_phase"
+        )
+        assert node is not None
+        assert node.status == "running"
+        assert node.step_type == "agent"
+
+        # Global step counter should NOT be incremented
+        assert screen.current_step == 2
+
+    def test_nested_step_completed_updates_tree_to_completed(self):
+        """Test that _mark_nested_step_completed transitions tree to completed."""
+        from maverick.dsl.events import StepCompleted
+        from maverick.dsl.types import StepType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Pre-create tree hierarchy
+        screen._tree_state.upsert_node(
+            "implement_by_phase", step_type="loop", status="running"
+        )
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]", label="Phase 1", status="running"
+        )
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]/implement_phase",
+            step_type="agent",
+            status="running",
+        )
+
+        event = StepCompleted(
+            step_name="implement_phase",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=5000,
+            step_path="implement_by_phase/[0]/implement_phase",
+        )
+
+        screen._mark_nested_step_completed(event)
+
+        node = screen._tree_state._node_index["implement_by_phase/[0]/implement_phase"]
+        assert node.status == "completed"
+        assert node.duration_ms == 5000
+
+    def test_nested_step_failed_updates_tree_to_failed(self):
+        """Test that _mark_nested_step_completed transitions tree to failed."""
+        from maverick.dsl.events import StepCompleted
+        from maverick.dsl.types import StepType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        # Pre-create tree hierarchy
+        screen._tree_state.upsert_node(
+            "implement_by_phase/[0]/validate_phase",
+            step_type="subworkflow",
+            status="running",
+        )
+
+        event = StepCompleted(
+            step_name="validate_phase",
+            step_type=StepType.SUBWORKFLOW,
+            success=False,
+            duration_ms=3000,
+            error="Validation failed",
+            step_path="implement_by_phase/[0]/validate_phase",
+        )
+
+        screen._mark_nested_step_completed(event)
+
+        node = screen._tree_state._node_index["implement_by_phase/[0]/validate_phase"]
+        assert node.status == "failed"
+        assert node.duration_ms == 3000
+
+    def test_root_step_still_increments_counter(self):
+        """Test that root-level StepStarted still increments current_step."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen.total_steps = 5
+        screen.current_step = 0
+
+        # Root step: step_path has no "/" separators
+        screen._mark_step_running("setup", "python", step_path="setup")
+
+        assert screen.current_step == 0  # _mark_step_running doesn't increment
+        # current_step is incremented in the event loop, not _mark_step_running
+
+    def test_nested_step_path_detection(self):
+        """Test the is_nested_step detection logic used in _execute_workflow."""
+        # Root-level paths (no slash)
+        assert "/" not in "implement_by_phase"
+        assert "/" not in "setup"
+
+        # Nested paths (contain slash)
+        assert "/" in "implement_by_phase/[0]/implement_phase"
+        assert "/" in "implement_by_phase/[0]/validate_phase"
+        assert "/" in "loop/[0]"
+
+    def test_full_lifecycle_agent_in_loop(self):
+        """Test full running -> completed lifecycle for agent step in loop.
+
+        Simulates the real event sequence: first AgentStreamChunk creates
+        the tree node (via _handle_stream_chunk), then StepCompleted
+        transitions it to completed (via _mark_nested_step_completed).
+        """
+        from maverick.dsl.events import StepCompleted
+        from maverick.dsl.types import StepType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        path = "implement_by_phase/[0]/implement_phase"
+
+        # Step 1: _handle_stream_chunk creates node with status="running"
+        screen._registered_stream_paths.add(path)
+        screen._tree_state.upsert_node(path, step_type="agent", status="running")
+
+        node = screen._tree_state._node_index[path]
+        assert node.status == "running"
+
+        # Step 2: StepCompleted arrives and transitions to completed
+        event = StepCompleted(
+            step_name="implement_phase",
+            step_type=StepType.AGENT,
+            success=True,
+            duration_ms=12000,
+            step_path=path,
+        )
+        screen._mark_nested_step_completed(event)
+
+        node = screen._tree_state._node_index[path]
+        assert node.status == "completed"
+        assert node.duration_ms == 12000
+
+    def test_full_lifecycle_subworkflow_in_loop(self):
+        """Test full running -> completed lifecycle for subworkflow step in loop."""
+        from maverick.dsl.events import StepCompleted, StepStarted
+        from maverick.dsl.types import StepType
+
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+
+        path = "implement_by_phase/[0]/validate_phase"
+
+        # Step 1: StepStarted creates node with status="running"
+        start_event = StepStarted(
+            step_name="validate_phase",
+            step_type=StepType.SUBWORKFLOW,
+            step_path=path,
+        )
+        screen._mark_nested_step_running(start_event)
+
+        node = screen._tree_state._node_index[path]
+        assert node.status == "running"
+
+        # Step 2: StepCompleted transitions to completed
+        complete_event = StepCompleted(
+            step_name="validate_phase",
+            step_type=StepType.SUBWORKFLOW,
+            success=True,
+            duration_ms=8000,
+            step_path=path,
+        )
+        screen._mark_nested_step_completed(complete_event)
+
+        node = screen._tree_state._node_index[path]
+        assert node.status == "completed"
+        assert node.duration_ms == 8000

@@ -46,7 +46,9 @@ if TYPE_CHECKING:
         AgentStreamChunk,
         LoopIterationCompleted,
         LoopIterationStarted,
+        StepCompleted,
         StepOutput,
+        StepStarted,
     )
     from maverick.dsl.results import WorkflowResult
     from maverick.dsl.serialization.schema import WorkflowFile
@@ -366,19 +368,37 @@ class WorkflowExecutionScreen(MaverickScreen):
                     self._update_status(f"Running {event.workflow_name}...")
 
                 elif isinstance(event, StepStarted):
-                    self.current_step += 1
-                    self._update_progress()
-                    step_type_str = (
-                        event.step_type.value
-                        if hasattr(event.step_type, "value")
-                        else str(event.step_type)
+                    # Nested steps (inside loop iterations) have multi-segment
+                    # paths like "implement_by_phase/[0]/implement_phase"
+                    # whereas root steps have single-segment paths like
+                    # "implement_by_phase".  Only root steps count toward the
+                    # "Step X/Y" header and global tracking state.
+                    is_nested_step = (
+                        event.step_path is not None and "/" in event.step_path
                     )
-                    self._mark_step_running(
-                        event.step_name, step_type_str, step_path=event.step_path
-                    )
+                    if is_nested_step:
+                        self._mark_nested_step_running(event)
+                    else:
+                        self.current_step += 1
+                        self._update_progress()
+                        step_type_str = (
+                            event.step_type.value
+                            if hasattr(event.step_type, "value")
+                            else str(event.step_type)
+                        )
+                        self._mark_step_running(
+                            event.step_name,
+                            step_type_str,
+                            step_path=event.step_path,
+                        )
 
                 elif isinstance(event, StepCompleted):
-                    if event.success:
+                    is_nested_step = (
+                        event.step_path is not None and "/" in event.step_path
+                    )
+                    if is_nested_step:
+                        self._mark_nested_step_completed(event)
+                    elif event.success:
                         self._mark_step_completed(
                             event.step_name,
                             event.duration_ms,
@@ -589,6 +609,48 @@ class WorkflowExecutionScreen(MaverickScreen):
             step_path=path,
         )
         self._add_unified_entry(entry)
+
+    def _mark_nested_step_running(self, event: StepStarted) -> None:
+        """Mark a nested step (inside a loop iteration) as running.
+
+        Unlike _mark_step_running, this only updates the tree node status
+        without touching global step counters, the compact header, or
+        unified-state tracking.  This prevents the "Step X/Y" counter
+        from inflating when nested steps start.
+
+        Args:
+            event: The StepStarted event for the nested step.
+        """
+        path = event.step_path or event.step_name
+        step_type_str = (
+            event.step_type.value
+            if hasattr(event.step_type, "value")
+            else str(event.step_type)
+        )
+        self._tree_state.upsert_node(path, step_type=step_type_str, status="running")
+        self._refresh_step_tree()
+
+    def _mark_nested_step_completed(self, event: StepCompleted) -> None:
+        """Mark a nested step (inside a loop iteration) as completed or failed.
+
+        Updates only the tree node status and auto-collapse logic.
+        Does not touch global step counters, ETA tracking, or the
+        unified-state step-number counter.
+
+        Args:
+            event: The StepCompleted event for the nested step.
+        """
+        path = event.step_path or event.step_name
+        if event.success:
+            self._tree_state.upsert_node(
+                path, status="completed", duration_ms=event.duration_ms
+            )
+            self._tree_state.auto_collapse_completed(path)
+        else:
+            self._tree_state.upsert_node(
+                path, status="failed", duration_ms=event.duration_ms
+            )
+        self._refresh_step_tree()
 
     def _show_error(self, error: str) -> None:
         """Log an error message (errors are shown in the unified stream)."""
