@@ -203,12 +203,14 @@ class ValidationCommands:
     All commands are represented as tuples for immutability.
 
     Attributes:
+        sync_cmd: Command for dependency sync (e.g., ("uv", "sync")).
         format_cmd: Command for formatting (e.g., ("ruff", "format", ".")).
         lint_cmd: Command for linting (e.g., ("ruff", "check", "--fix", ".")).
         typecheck_cmd: Command for type checking (e.g., ("mypy", ".")).
         test_cmd: Command for testing (e.g., ("pytest", "-x", "--tb=short")).
     """
 
+    sync_cmd: tuple[str, ...] | None = None
     format_cmd: tuple[str, ...] | None = None
     lint_cmd: tuple[str, ...] | None = None
     typecheck_cmd: tuple[str, ...] | None = None
@@ -221,6 +223,7 @@ class ValidationCommands:
             Dictionary with command lists (None values preserved).
         """
         return {
+            "sync_cmd": list(self.sync_cmd) if self.sync_cmd else None,
             "format_cmd": list(self.format_cmd) if self.format_cmd else None,
             "lint_cmd": list(self.lint_cmd) if self.lint_cmd else None,
             "typecheck_cmd": list(self.typecheck_cmd) if self.typecheck_cmd else None,
@@ -458,6 +461,7 @@ class InitValidationConfig(BaseModel):
     """Validation configuration section for generated maverick.yaml.
 
     Attributes:
+        sync_cmd: Dependency sync command as list of strings.
         format_cmd: Formatting command as list of strings.
         lint_cmd: Linting command as list of strings.
         typecheck_cmd: Type checking command as list of strings.
@@ -466,6 +470,7 @@ class InitValidationConfig(BaseModel):
         max_errors: Maximum errors to return.
     """
 
+    sync_cmd: list[str] | None = None
     format_cmd: list[str] | None = None
     lint_cmd: list[str] | None = None
     typecheck_cmd: list[str] | None = None
@@ -646,24 +651,28 @@ class InitResult:
 
 VALIDATION_DEFAULTS: dict[ProjectType, ValidationCommands] = {
     ProjectType.PYTHON: ValidationCommands(
+        sync_cmd=("uv", "sync"),
         format_cmd=("ruff", "format", "."),
         lint_cmd=("ruff", "check", "--fix", "."),
         typecheck_cmd=("mypy", "."),
         test_cmd=("pytest", "-x", "--tb=short"),
     ),
     ProjectType.NODEJS: ValidationCommands(
+        sync_cmd=("npm", "install"),
         format_cmd=("prettier", "--write", "."),
         lint_cmd=("eslint", "--fix", "."),
         typecheck_cmd=("tsc", "--noEmit"),
         test_cmd=("npm", "test"),
     ),
     ProjectType.GO: ValidationCommands(
+        sync_cmd=("go", "mod", "download"),
         format_cmd=("gofmt", "-w", "."),
         lint_cmd=("golangci-lint", "run"),
         typecheck_cmd=None,  # Compiled language
         test_cmd=("go", "test", "./..."),
     ),
     ProjectType.RUST: ValidationCommands(
+        sync_cmd=("cargo", "build"),
         format_cmd=("cargo", "fmt"),
         lint_cmd=("cargo", "clippy", "--fix", "--allow-dirty"),
         typecheck_cmd=None,  # Compiled language
@@ -682,6 +691,7 @@ VALIDATION_DEFAULTS: dict[ProjectType, ValidationCommands] = {
         test_cmd=("ansible-playbook", "--syntax-check", "site.yml"),
     ),
     ProjectType.UNKNOWN: ValidationCommands(
+        sync_cmd=("uv", "sync"),
         format_cmd=("ruff", "format", "."),
         lint_cmd=("ruff", "check", "--fix", "."),
         typecheck_cmd=("mypy", "."),

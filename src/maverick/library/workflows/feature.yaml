@@ -160,6 +160,16 @@ steps:
     when: ${{ not inputs.dry_run and steps.get_phases.output }}
     for_each: ${{ steps.get_phases.output }}
     steps:
+      # Sync dependencies before implementation/validation
+      - name: sync_deps
+        type: python
+        action: sync_dependencies
+        metadata:
+          progress:
+            stage: "dependencies"
+            phase: ${{ item }}
+            weight: 2
+
       # Execute all tasks in this phase
       - name: implement_phase
         type: agent

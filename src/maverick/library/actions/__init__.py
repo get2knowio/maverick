@@ -26,6 +26,7 @@ from maverick.library.actions.cleanup import (
     generate_cleanup_summary,
     process_selected_issues,
 )
+from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
     create_git_branch,
@@ -61,6 +62,8 @@ __all__ = [
     "run_preflight_checks",
     # Workspace actions
     "init_workspace",
+    # Dependency actions
+    "sync_dependencies",
     # Task actions
     "get_phase_names",
     # Git actions
@@ -114,6 +117,9 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         init_workspace,
         requires=("git", "git_repo", "git_remote"),
     )
+
+    # Dependency actions (no requires - command availability is best-effort)
+    registry.actions.register("sync_dependencies", sync_dependencies)
 
     # Task actions (no external deps)
     registry.actions.register("get_phase_names", get_phase_names)

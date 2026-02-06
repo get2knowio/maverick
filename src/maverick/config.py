@@ -69,6 +69,7 @@ class ValidationConfig(BaseModel):
     """Settings for validation commands.
 
     Attributes:
+        sync_cmd: Command to sync/install dependencies (auto-detected if omitted).
         format_cmd: Command to run for formatting (default: ruff format .)
         lint_cmd: Command to run for linting (default: ruff check --fix .)
         typecheck_cmd: Command to run for type checking (default: mypy .)
@@ -78,6 +79,10 @@ class ValidationConfig(BaseModel):
         project_root: Project root directory for running commands (default: cwd)
     """
 
+    sync_cmd: list[str] | None = Field(
+        default=None,
+        description="Command to sync/install dependencies (auto-detected if omitted)",
+    )
     format_cmd: list[str] = Field(default_factory=lambda: ["ruff", "format", "."])
     lint_cmd: list[str] = Field(default_factory=lambda: ["ruff", "check", "--fix", "."])
     typecheck_cmd: list[str] = Field(default_factory=lambda: ["mypy", "."])
