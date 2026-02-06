@@ -9,26 +9,25 @@ Date: 2026-01-17
 
 from __future__ import annotations
 
-from rich.markup import escape as escape_markup
+from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Horizontal, ScrollableContainer
+from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import RichLog, Static
 
 from maverick.tui.models.enums import StreamEntryType
 from maverick.tui.models.widget_state import UnifiedStreamEntry, UnifiedStreamState
 
 # Rich colour names for badge text per entry type.
-# These are applied as inline markup: [colour]badge[/]
 _BADGE_COLORS: dict[StreamEntryType, str] = {
     StreamEntryType.STEP_START: "dodger_blue1",
     StreamEntryType.STEP_COMPLETE: "green3",
     StreamEntryType.STEP_FAILED: "red1",
     StreamEntryType.STEP_OUTPUT: "grey62",
-    StreamEntryType.AGENT_OUTPUT: "white",
+    StreamEntryType.AGENT_OUTPUT: "medium_purple2",
     StreamEntryType.AGENT_THINKING: "grey62 italic",
-    StreamEntryType.TOOL_CALL: "grey50",
+    StreamEntryType.TOOL_CALL: "grey42",
     StreamEntryType.TOOL_RESULT: "grey50",
     StreamEntryType.LOOP_START: "gold1",
     StreamEntryType.LOOP_COMPLETE: "gold1",
@@ -43,6 +42,23 @@ _LEVEL_COLORS: dict[str, str] = {
     "error": "red1",
 }
 
+# Rich style applied to content text (not badge) per entry type.
+# Entry types not listed here receive no inline content styling.
+_CONTENT_STYLES: dict[StreamEntryType, str] = {
+    StreamEntryType.STEP_START: "bold",
+    StreamEntryType.STEP_COMPLETE: "green3",
+    StreamEntryType.STEP_FAILED: "red1 bold",
+    StreamEntryType.AGENT_THINKING: "dim italic",
+    StreamEntryType.TOOL_CALL: "grey42",
+    StreamEntryType.TOOL_RESULT: "dim",
+    StreamEntryType.LOOP_START: "bold",
+    StreamEntryType.LOOP_COMPLETE: "bold",
+    StreamEntryType.ERROR: "red1",
+}
+
+# Entry types that are part of a tool call group.
+_TOOL_GROUP_TYPES = frozenset({StreamEntryType.TOOL_CALL, StreamEntryType.TOOL_RESULT})
+
 
 class UnifiedStreamWidget(Widget):
     """Widget for displaying unified workflow event stream.
@@ -52,6 +68,7 @@ class UnifiedStreamWidget(Widget):
     - Type-specific styling with badges and colors
     - Auto-scroll with pause indicator
     - Compact header with workflow status
+    - Blank line spacing between tool call groups and agent output
     - FIFO buffer management for memory efficiency
 
     Attributes:
@@ -97,43 +114,12 @@ class UnifiedStreamWidget(Widget):
         color: $text-disabled;
     }
 
-    /* Stream content area */
-    UnifiedStreamWidget .stream-content {
+    /* Stream content area (now a RichLog) */
+    UnifiedStreamWidget #stream-content {
         height: 1fr;
-        padding: 0;
+        padding: 0 1;
         scrollbar-background: $surface;
         scrollbar-color: $text-disabled;
-    }
-
-    /* Individual stream entries - flat Static widgets with inline Rich markup */
-    UnifiedStreamWidget .stream-entry {
-        height: auto;
-        width: 100%;
-        padding: 0 1;
-    }
-
-    /* Entry type styling applied to the whole Static widget */
-    UnifiedStreamWidget .stream-entry.step-output.level-error {
-        color: $error;
-    }
-
-    UnifiedStreamWidget .stream-entry.agent-thinking {
-        color: $text-muted;
-        text-style: italic;
-    }
-
-    UnifiedStreamWidget .stream-entry.tool-result {
-        color: $text-muted;
-    }
-
-    UnifiedStreamWidget .stream-entry.error {
-        color: $error;
-    }
-
-    /* Continuation lines for multi-line content */
-    UnifiedStreamWidget .continuation {
-        padding-left: 2;
-        color: $text-muted;
     }
 
     /* Auto-scroll paused indicator */
@@ -174,6 +160,7 @@ class UnifiedStreamWidget(Widget):
         self._last_displayed_index: int = 0
         self._filter_step: str | None = None
         self._filter_path: str | None = None
+        self._last_written_entry_type: StreamEntryType | None = None
 
     @property
     def filter_step(self) -> str | None:
@@ -234,22 +221,52 @@ class UnifiedStreamWidget(Widget):
         path = entry.step_path or entry.step_name or ""
         return path == self._filter_path or path.startswith(self._filter_path + "/")
 
+    def _needs_blank_separator(self, entry: UnifiedStreamEntry) -> bool:
+        """Check if a blank separator line should be inserted before this entry.
+
+        Inserts a blank line when leaving a tool call group — i.e. the
+        previous entry was TOOL_CALL/TOOL_RESULT and the new entry is not.
+
+        Args:
+            entry: The entry about to be written.
+
+        Returns:
+            True if a blank line should be inserted before this entry.
+        """
+        return (
+            self._last_written_entry_type in _TOOL_GROUP_TYPES
+            and entry.entry_type not in _TOOL_GROUP_TYPES
+        )
+
+    def _write_entry_to_richlog(
+        self, richlog: RichLog, entry: UnifiedStreamEntry
+    ) -> None:
+        """Write a single entry to the RichLog, with optional blank separator.
+
+        Args:
+            richlog: The RichLog widget to write to.
+            entry: The entry to render and write.
+        """
+        if self._needs_blank_separator(entry):
+            richlog.write(Text(""))
+
+        richlog.write(self._render_entry(entry))
+        self._last_written_entry_type = entry.entry_type
+
     def _rerender_with_filter(self) -> None:
         """Clear displayed entries and re-render with current filter applied."""
         if not self.is_mounted:
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
-            # Remove all existing entry widgets
-            for child in list(content.children):
-                child.remove()
+            richlog = self.query_one("#stream-content", RichLog)
+            richlog.clear()
+            self._last_written_entry_type = None
 
             # Re-render matching entries from state
             for entry in self._state.entries:
                 if self._matches_filter(entry):
-                    widget = self._create_entry_widget(entry)
-                    content.mount(widget)
+                    self._write_entry_to_richlog(richlog, entry)
 
             # Reset tracking index to current total (so refresh_entries
             # won't re-add already-rendered entries)
@@ -257,7 +274,7 @@ class UnifiedStreamWidget(Widget):
 
             # Scroll to bottom
             if self._state.auto_scroll:
-                content.scroll_end(animate=False)
+                richlog.scroll_end(animate=False)
         except NoMatches:
             pass
 
@@ -274,19 +291,33 @@ class UnifiedStreamWidget(Widget):
             id="unified-header",
         )
 
-        # Scrollable stream content
-        with ScrollableContainer(classes="stream-content", id="stream-content"):
-            # Render existing entries (respecting current filter)
-            for entry in self._state.entries:
-                if self._matches_filter(entry):
-                    yield self._create_entry_widget(entry)
+        # RichLog for streaming content
+        richlog = RichLog(
+            id="stream-content",
+            markup=False,
+            wrap=True,
+            auto_scroll=self._state.auto_scroll,
+            max_lines=5000,
+        )
+        yield richlog
 
         # Scroll paused indicator
         yield Static(
-            "⏸ Auto-scroll paused - press 'f' to follow",
+            "\u23f8 Auto-scroll paused - press 'f' to follow",
             classes="scroll-indicator",
             id="scroll-indicator",
         )
+
+    def on_mount(self) -> None:
+        """Write existing entries when the widget is mounted."""
+        try:
+            richlog = self.query_one("#stream-content", RichLog)
+            for entry in self._state.entries:
+                if self._matches_filter(entry):
+                    self._write_entry_to_richlog(richlog, entry)
+            self._last_displayed_index = len(self._state.entries)
+        except NoMatches:
+            pass
 
     def _format_header(self) -> str:
         """Format the compact header text.
@@ -308,24 +339,19 @@ class UnifiedStreamWidget(Widget):
 
         return f"[bold]{name}[/bold]  {step_info}  [dim]{elapsed}[/dim]"
 
-    def _create_entry_widget(self, entry: UnifiedStreamEntry) -> Widget:
-        """Create a widget for a single stream entry.
+    def _render_entry(self, entry: UnifiedStreamEntry) -> Text:
+        """Render a stream entry as a Rich Text object.
+
+        Uses Text.append() with style arguments instead of Rich markup
+        strings, so brackets in user content are never interpreted.
 
         Args:
             entry: The stream entry to render.
 
         Returns:
-            A widget representing the entry.
+            A rich.text.Text object representing the entry.
         """
-        # Determine CSS class from entry type
-        type_class = entry.entry_type.value.replace("_", "-")
-
-        # Add level-based class for step_output entries
-        level_class = ""
-        if entry.entry_type == StreamEntryType.STEP_OUTPUT and entry.level != "info":
-            level_class = f" level-{entry.level}"
-
-        # Format the content with duration if present
+        # Format content with duration if present
         content = entry.content
         if entry.duration_ms is not None:
             duration_sec = entry.duration_ms / 1000
@@ -336,26 +362,23 @@ class UnifiedStreamWidget(Widget):
             else:
                 content = f"{content} ({duration_sec:.1f}s)"
 
-        # Build a flat Static with inline Rich markup for badge colour.
-        # Badge and content are escaped to prevent bracket interpretation,
-        # then the badge is wrapped in a colour tag we control.
-        badge_escaped = escape_markup(entry.badge)
-        content_escaped = escape_markup(content)
-
+        # Determine badge colour
         badge_color = _BADGE_COLORS.get(entry.entry_type)
         if entry.entry_type == StreamEntryType.STEP_OUTPUT and entry.level != "info":
             badge_color = _LEVEL_COLORS.get(entry.level, badge_color)
-        if badge_color:
-            badge_markup = f"[{badge_color}]{badge_escaped}[/]"
-        else:
-            badge_markup = badge_escaped
 
-        line = f"{badge_markup} {content_escaped}"
+        # Determine content style
+        content_style = _CONTENT_STYLES.get(entry.entry_type)
+        if entry.entry_type == StreamEntryType.STEP_OUTPUT and entry.level != "info":
+            content_style = _LEVEL_COLORS.get(entry.level, content_style)
 
-        return Static(
-            line,
-            classes=f"stream-entry {type_class}{level_class}",
-        )
+        # Build Text object with styled spans
+        text = Text()
+        text.append(entry.badge, style=badge_color or "")
+        text.append(" ")
+        text.append(content, style=content_style or "")
+
+        return text
 
     def add_entry(self, entry: UnifiedStreamEntry) -> None:
         """Add a new entry to the stream.
@@ -381,24 +404,23 @@ class UnifiedStreamWidget(Widget):
             self._mount_entry(entry)
 
     def _mount_entry(self, entry: UnifiedStreamEntry) -> None:
-        """Mount a new entry widget to the stream content.
+        """Write a new entry to the RichLog.
 
-        Only mounts the entry if it passes the current filter.
+        Only writes the entry if it passes the current filter.
 
         Args:
-            entry: The entry to mount.
+            entry: The entry to write.
         """
         if not self._matches_filter(entry):
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
-            widget = self._create_entry_widget(entry)
-            content.mount(widget)
+            richlog = self.query_one("#stream-content", RichLog)
+            self._write_entry_to_richlog(richlog, entry)
 
             # Auto-scroll if enabled
             if self._state.auto_scroll:
-                content.scroll_end(animate=False)
+                richlog.scroll_end(animate=False)
         except NoMatches:
             pass
 
@@ -412,7 +434,7 @@ class UnifiedStreamWidget(Widget):
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
+            richlog = self.query_one("#stream-content", RichLog)
             entries = self._state.entries
             total = len(entries)
 
@@ -420,12 +442,11 @@ class UnifiedStreamWidget(Widget):
                 entry = entries[self._last_displayed_index]
                 self._last_displayed_index += 1
                 if self._matches_filter(entry):
-                    widget = self._create_entry_widget(entry)
-                    content.mount(widget)
+                    self._write_entry_to_richlog(richlog, entry)
 
             # Auto-scroll if enabled
             if self._state.auto_scroll:
-                content.scroll_end(animate=False)
+                richlog.scroll_end(animate=False)
         except NoMatches:
             pass
 
@@ -454,6 +475,12 @@ class UnifiedStreamWidget(Widget):
             enabled: Whether to auto-scroll on new entries.
         """
         self._state.auto_scroll = enabled
+        if self.is_mounted:
+            try:
+                richlog = self.query_one("#stream-content", RichLog)
+                richlog.auto_scroll = enabled
+            except NoMatches:
+                pass
         self._update_scroll_indicator()
 
     def toggle_auto_scroll(self) -> None:
@@ -480,8 +507,8 @@ class UnifiedStreamWidget(Widget):
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
-            content.scroll_home(animate=False)
+            richlog = self.query_one("#stream-content", RichLog)
+            richlog.scroll_home(animate=False)
             # Pause auto-scroll when manually scrolling
             self.set_auto_scroll(False)
         except NoMatches:
@@ -493,8 +520,8 @@ class UnifiedStreamWidget(Widget):
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
-            content.scroll_end(animate=False)
+            richlog = self.query_one("#stream-content", RichLog)
+            richlog.scroll_end(animate=False)
         except NoMatches:
             pass
 
@@ -502,14 +529,14 @@ class UnifiedStreamWidget(Widget):
         """Clear all entries from the stream."""
         self._state.clear()
         self._last_displayed_index = 0
+        self._last_written_entry_type = None
 
         if not self.is_mounted:
             return
 
         try:
-            content = self.query_one("#stream-content", ScrollableContainer)
-            for child in list(content.children):
-                child.remove()
+            richlog = self.query_one("#stream-content", RichLog)
+            richlog.clear()
             self._update_header()
         except NoMatches:
             pass

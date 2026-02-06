@@ -17,7 +17,11 @@ from maverick.dsl.events import (
     LoopIterationCompleted,
     LoopIterationStarted,
 )
-from maverick.tui.models.enums import IterationStatus, StreamChunkType
+from maverick.tui.models.enums import (
+    IterationStatus,
+    StreamChunkType,
+    StreamEntryType,
+)
 from maverick.tui.models.widget_state import (
     LoopIterationItem,
     LoopIterationState,
@@ -574,6 +578,46 @@ class TestHandleStreamChunk:
         await screen._handle_stream_chunk(event)
 
         screen._add_unified_entry.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_tool_call_text_gets_tool_call_entry_type(self) -> None:
+        """Tool calls (└ prefix) are mapped to TOOL_CALL entry type."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen._add_unified_entry = MagicMock()
+
+        event = AgentStreamChunk(
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="\u2514 Read: src/main.py\n",
+            chunk_type="output",
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        screen._add_unified_entry.assert_called_once()
+        entry = screen._add_unified_entry.call_args[0][0]
+        assert entry.entry_type == StreamEntryType.TOOL_CALL
+
+    @pytest.mark.asyncio
+    async def test_regular_output_not_mapped_to_tool_call(self) -> None:
+        """Regular agent text is still mapped to AGENT_OUTPUT."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen._add_unified_entry = MagicMock()
+
+        event = AgentStreamChunk(
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Analyzing the code...\n",
+            chunk_type="output",
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        screen._add_unified_entry.assert_called_once()
+        entry = screen._add_unified_entry.call_args[0][0]
+        assert entry.entry_type == StreamEntryType.AGENT_OUTPUT
 
 
 # =============================================================================
