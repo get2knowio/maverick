@@ -70,6 +70,11 @@ async def execute_python_step(
 
         resolved_inputs["stream_callback"] = stream_to_event
 
+    # Check if action accepts event_callback parameter
+    # If so, pass it through so actions can emit StepOutput events directly
+    if "event_callback" in action_sig.parameters and event_callback is not None:
+        resolved_inputs["event_callback"] = event_callback
+
     # Call the action with resolved kwargs
     result = action(**resolved_inputs)
 

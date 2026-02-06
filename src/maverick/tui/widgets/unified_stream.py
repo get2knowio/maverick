@@ -238,16 +238,38 @@ class UnifiedStreamWidget(Widget):
             and entry.entry_type not in _TOOL_GROUP_TYPES
         )
 
+    def _needs_step_separator(self, entry: UnifiedStreamEntry) -> bool:
+        """Check if a visual step separator should be inserted before this entry.
+
+        Inserts a horizontal rule when a new root-level step starts and
+        there was already prior content in the stream. This creates clear
+        visual breaks between workflow phases.
+
+        Args:
+            entry: The entry about to be written.
+
+        Returns:
+            True if a step separator should be inserted before this entry.
+        """
+        return (
+            entry.entry_type == StreamEntryType.STEP_START
+            and self._last_written_entry_type is not None
+        )
+
     def _write_entry_to_richlog(
         self, richlog: RichLog, entry: UnifiedStreamEntry
     ) -> None:
-        """Write a single entry to the RichLog, with optional blank separator.
+        """Write a single entry to the RichLog, with optional separators.
 
         Args:
             richlog: The RichLog widget to write to.
             entry: The entry to render and write.
         """
-        if self._needs_blank_separator(entry):
+        if self._needs_step_separator(entry):
+            richlog.write(Text(""))
+            richlog.write(Text("\u2500" * 60, style="dim"))
+            richlog.write(Text(""))
+        elif self._needs_blank_separator(entry):
             richlog.write(Text(""))
 
         richlog.write(self._render_entry(entry))
