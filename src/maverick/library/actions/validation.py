@@ -265,13 +265,17 @@ async def _invoke_fixer_agent(
 ) -> dict[str, Any]:
     """Invoke the FixerAgent to apply fixes based on the prompt.
 
+    The agent uses tools (Read, Write, Edit) to apply fixes directly.
+    Success here means the agent ran without errors; the caller re-runs
+    validation afterward to determine whether the fix actually worked.
+
     Args:
         fix_prompt: The prompt describing fixes to apply
         cwd: Working directory for the agent
         stream_callback: Optional callback for streaming agent output
 
     Returns:
-        Dict with success status and fix details or error message
+        Dict with success status and a description of changes made
     """
     try:
         # Import here to avoid circular imports
@@ -296,25 +300,12 @@ async def _invoke_fixer_agent(
         # Execute the agent
         result = await agent.execute(context)
 
-        # Parse the result
         if result.success:
-            # Try to extract structured info from output
             output = result.output or ""
-            try:
-                import json
-
-                parsed = json.loads(output)
-                return {
-                    "success": True,
-                    "file_modified": parsed.get("file_modified", False),
-                    "file_path": parsed.get("file_path", ""),
-                    "changes_made": parsed.get("changes_made", "Fix applied"),
-                }
-            except (json.JSONDecodeError, TypeError):
-                return {
-                    "success": True,
-                    "changes_made": output[:200] if output else "Fix applied",
-                }
+            return {
+                "success": True,
+                "changes_made": output[:200] if output else "Fix applied",
+            }
         else:
             # Extract error message from result
             error_messages = []
