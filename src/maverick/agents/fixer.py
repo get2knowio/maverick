@@ -7,7 +7,6 @@ agent with the smallest tool set (Read, Write, Edit only).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
@@ -29,31 +28,62 @@ logger = get_logger(__name__)
 # =============================================================================
 
 FIXER_SYSTEM_PROMPT = """You are a validation fixer.
-You apply targeted corrections to specific files.
+You apply targeted corrections to specific files within an orchestrated workflow.
 
-Your role:
-- Apply the exact fix described in the prompt
-- Make minimal, focused changes
-- Preserve existing code style and formatting
-- Verify the fix addresses the stated error
+## Your Role
 
-You have access to:
-- Read: Read file contents
-- Write: Create or overwrite files
-- Edit: Make precise edits to existing files
+You apply the exact fix described in the prompt. The orchestration layer handles:
+- Running validation pipelines (format, lint, type check, tests)
+- Deciding which fixes to apply and in what order
+- Re-running validation after your changes to verify the fix worked
 
-Constraints:
-- You receive explicit file paths - do not search for files
+You focus on:
+- Reading the file to understand context before making changes
+- Applying the minimal, focused change that addresses the stated error
+- Preserving existing code style and formatting
+
+## Tool Usage Guidelines
+
+You have access to: **Read, Write, Edit**
+
+### Read
+- Use Read to examine files before modifying them. You MUST read a file before
+  using Edit on it.
+- Read the specific file mentioned in the fix prompt to understand context
+  around the error before applying changes.
+
+### Edit
+- Use Edit for targeted replacements in existing files. This is your primary
+  tool for applying fixes.
+- You MUST Read a file before using Edit on it. Edit will fail otherwise.
+- The `old_string` must be unique in the file. If it is not unique, include
+  more surrounding context to disambiguate.
+- Preserve exact indentation (tabs/spaces) from the file content.
+
+### Write
+- Use Write only when a complete file rewrite is necessary. Prefer Edit for
+  targeted fixes.
+- Write overwrites the entire file content — use it with care.
+
+## Code Quality Principles
+
+- **Minimal changes only**: Make only the changes necessary to fix the stated
+  error. Do not refactor surrounding code.
+- **No feature additions**: Do not add features, improvements, or enhancements
+  beyond what is needed to resolve the error.
+- **Security awareness**: Do not introduce command injection, XSS, or other
+  vulnerabilities when applying fixes. Validate at system boundaries.
+- **Read before writing**: Always read and understand the file before modifying
+  it. Do not guess at file contents or structure.
+- **Match existing style**: Preserve the coding style, naming conventions, and
+  formatting of the surrounding code.
+
+## Constraints
+
+- You receive explicit file paths — do not search for files
 - Make only the changes necessary to fix the stated error
 - Do not refactor surrounding code
 - Do not add features or improvements
-
-Output your result as JSON with these fields:
-- success: boolean
-- file_modified: boolean
-- file_path: string
-- changes_made: string description
-- error: string or null
 """
 
 
@@ -125,6 +155,10 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
     async def execute(self, context: AgentContext) -> AgentResult:
         """Apply a targeted fix based on the provided context.
 
+        The agent uses its tools (Read, Write, Edit) to apply fixes.
+        Success is determined by whether the agent completed without errors;
+        the caller re-runs validation afterward to verify the fix worked.
+
         Args:
             context: Runtime context containing:
                 - prompt: Description of the fix to apply (from context.extra)
@@ -133,10 +167,8 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
 
         Returns:
             AgentResult with:
-                - success: True if fix was applied successfully
-                - output: JSON string with fix details
-                - metadata: Optional additional information
-                - errors: List of any errors encountered
+                - success: True if the agent ran without errors
+                - output: Agent's text output (for logging/debugging)
                 - usage: Token usage statistics
 
         Raises:
@@ -172,42 +204,14 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
             output = extract_all_text(messages)
             usage = self._extract_usage(messages)
 
-            # Try to parse the output as JSON
-            try:
-                parsed = json.loads(output)
-                success = parsed.get("success", False)
-
-                # Return success or failure based on the fix result
-                if success:
-                    return AgentResult.success_result(
-                        output=output,
-                        usage=usage,
-                        metadata={"file_path": parsed.get("file_path")},
-                    )
-                else:
-                    return AgentResult.failure_result(
-                        errors=[
-                            AgentError(
-                                message=parsed.get("error", "Fix failed"),
-                                agent_name=self.name,
-                            )
-                        ],
-                        usage=usage,
-                        output=output,
-                    )
-
-            except json.JSONDecodeError as e:
-                logger.error("Failed to parse agent output as JSON: %s", e)
-                return AgentResult.failure_result(
-                    errors=[
-                        AgentError(
-                            message=f"Malformed JSON output: {e}",
-                            agent_name=self.name,
-                        )
-                    ],
-                    usage=usage,
-                    output=output,
-                )
+            # The agent's job is to apply fixes via tools. Whether the
+            # fix actually resolved validation errors is determined by
+            # re-running validation in the retry loop, not by the
+            # agent's self-report.
+            return AgentResult.success_result(
+                output=output,
+                usage=usage,
+            )
 
         except AgentError as e:
             # Wrap AgentError in failure result (don't re-raise)

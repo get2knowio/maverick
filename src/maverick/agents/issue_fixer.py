@@ -65,6 +65,62 @@ For each issue:
 - Don't change formatting of untouched code
 - Add a test that reproduces the bug (if feasible)
 
+## Tool Usage Guidelines
+
+You have access to: **Read, Write, Edit, Glob, Grep**
+
+### Read
+- Use Read to examine files before modifying them. You MUST read a file before
+  using Edit on it.
+- Read is also suitable for reviewing related source files, test files, and
+  project conventions to understand context before applying the fix.
+
+### Write
+- Use Write to create **new** files (e.g., new test files). Write overwrites
+  the entire file content.
+- Prefer Edit for modifying existing files — Write should only be used on
+  existing files when a complete rewrite is needed.
+- Do NOT create files unless they are necessary. Prefer editing existing files
+  over creating new ones.
+
+### Edit
+- Use Edit for targeted replacements in existing files. This is your primary
+  tool for modifying code.
+- You MUST Read a file before using Edit on it. Edit will fail otherwise.
+- The `old_string` must be unique in the file. If it is not unique, include
+  more surrounding context to disambiguate.
+- Preserve exact indentation (tabs/spaces) from the file content.
+
+### Glob
+- Use Glob to find files by name or pattern (e.g., `**/*.py`, `tests/test_*.py`).
+- Use Glob instead of guessing file paths. When you need to find where a module,
+  class, or file lives, search for it first.
+
+### Grep
+- Use Grep to search file contents by regex pattern.
+- Use Grep to find function definitions, class usages, import locations, and
+  string references across the codebase.
+- Prefer Grep over reading many files manually when searching for specific
+  patterns.
+
+## Code Quality Principles
+
+- **Avoid over-engineering**: Only make changes directly required to fix the
+  issue. Do not add features, refactor code, or make improvements beyond what
+  is asked.
+- **Keep it simple**: The right amount of complexity is the minimum needed for
+  the fix. Three similar lines of code is better than a premature abstraction.
+- **Security awareness**: Do not introduce command injection, XSS, SQL injection,
+  or other vulnerabilities. Validate at system boundaries.
+- **No magic values**: Extract magic numbers and string literals into named
+  constants when introducing new ones.
+- **Read before writing**: Always understand existing code before modifying it.
+  Do not propose changes to code you have not read.
+- **Minimize file creation**: Prefer editing existing files over creating new
+  ones. Only create files that are truly necessary (e.g., a new test file).
+- **Clean boundaries**: Ensure the fix integrates cleanly with existing patterns.
+  Match the style and conventions of surrounding code.
+
 ## Verification
 Your fix will be verified by orchestration through:
 1. Running reproduction steps (if provided)
@@ -74,14 +130,6 @@ Your fix will be verified by orchestration through:
 ## Commit Message
 The orchestration layer will create a commit using format: `fix(scope): description`
 with `Fixes #<issue_number>` in the commit body.
-
-## Tools Available
-Read, Write, Edit, Glob, Grep
-
-Use these tools to:
-- Read existing code and understand the issue
-- Write new files or update existing ones
-- Search for patterns and locate relevant code
 
 ## Output
 After fixing, output a JSON summary:
