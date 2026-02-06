@@ -168,9 +168,9 @@ async def execute_validate_step(
     if not validation_stages:
         logger.info("No validation stages configured to run")
         # Include skipped stage results so callers know they were intentional
-        stage_results: dict[str, Any] = {}
+        skipped_results: dict[str, Any] = {}
         for name in skipped_stages:
-            stage_results[name] = {
+            skipped_results[name] = {
                 "passed": True,
                 "skipped": True,
                 "duration_ms": 0,
@@ -180,7 +180,7 @@ async def execute_validate_step(
         return ValidationResult(
             success=True,
             stages=list(stages),
-            stage_results=stage_results,
+            stage_results=skipped_results,
         )
 
     # Create streaming context for progress events
