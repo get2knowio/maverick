@@ -129,3 +129,7 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/19-checkpointing.md
+
+---
+
+## src: ./slides/part2/20-tui-layer.md
