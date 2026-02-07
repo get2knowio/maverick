@@ -113,3 +113,6 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/15-agent-architecture.md
+---
+
+## src: ./slides/part2/16-implementer-agent.md
