@@ -67,6 +67,31 @@ class TestImplementerAgentToolPermissions:
         assert "Grep" in agent.allowed_tools
 
 
+    def test_implementer_agent_with_validation_mcp_server(self) -> None:
+        """Test ImplementerAgent adds MCP validation tool when server is present."""
+        from maverick.tools.validation import create_validation_tools_server
+
+        server = create_validation_tools_server()
+        agent = ImplementerAgent(mcp_servers={"validation-tools": server})
+
+        assert "mcp__validation-tools__run_validation" in agent.allowed_tools
+        # Base tools should still be present
+        assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS | {
+            "mcp__validation-tools__run_validation"
+        }
+
+    def test_implementer_agent_without_validation_server(self) -> None:
+        """Test ImplementerAgent without validation server has base tools only."""
+        agent = ImplementerAgent()
+        assert "mcp__validation-tools__run_validation" not in agent.allowed_tools
+        assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS
+
+    def test_implementer_agent_with_other_mcp_server(self) -> None:
+        """Test non-validation MCP server doesn't add validation tool."""
+        agent = ImplementerAgent(mcp_servers={"other-server": {"name": "other"}})
+        assert "mcp__validation-tools__run_validation" not in agent.allowed_tools
+
+
 class TestCodeReviewerAgentToolPermissions:
     """Tests for CodeReviewerAgent tool permissions."""
 

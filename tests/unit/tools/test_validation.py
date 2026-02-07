@@ -447,6 +447,7 @@ class TestRunValidation:
             lint_cmd = ["ruff", "check", "."]
             typecheck_cmd = ["mypy", "."]
             test_cmd = ["pytest"]
+            sync_cmd = None
             project_root = validation_config.project_root
             timeout_seconds = 300
 
@@ -485,6 +486,58 @@ class TestRunValidation:
 
         assert "stdout message" in output
         assert "stderr message" in output
+
+    @pytest.mark.asyncio
+    async def test_run_validation_sync_type(
+        self,
+        mock_subprocess_exec: AsyncMock,
+        mock_process: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test running validation with sync type uses sync_cmd."""
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(
+            return_value=(b"Dependencies synced", b"")
+        )
+
+        config = ValidationConfig(
+            sync_cmd=["uv", "sync"],
+            project_root=tmp_path,
+        )
+        server = create_validation_tools_server(config=config)
+        run_validation, _ = _get_tools_from_server(server)
+
+        with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
+            response = await run_validation.handler({"types": ["sync"]})
+
+        response_data = json.loads(response["content"][0]["text"])
+
+        assert response_data["success"] is True
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["type"] == "sync"
+        assert response_data["results"][0]["success"] is True
+        assert response_data["results"][0]["output"] == "Dependencies synced"
+
+    @pytest.mark.asyncio
+    async def test_run_validation_sync_no_command(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test sync type with no command configured reports failure."""
+        config = ValidationConfig(
+            sync_cmd=None,
+            project_root=tmp_path,
+        )
+        server = create_validation_tools_server(config=config)
+        run_validation, _ = _get_tools_from_server(server)
+
+        response = await run_validation.handler({"types": ["sync"]})
+
+        response_data = json.loads(response["content"][0]["text"])
+
+        assert response_data["success"] is False
+        assert response_data["results"][0]["status"] == "failed"
+        assert "No command configured" in response_data["results"][0]["output"]
 
     @pytest.mark.asyncio
     async def test_run_validation_mixed_results(
@@ -860,7 +913,8 @@ class TestConstants:
 
     def test_validation_types_contains_all_types(self) -> None:
         """Test VALIDATION_TYPES contains expected types."""
-        assert {"format", "lint", "build", "typecheck", "test"} == VALIDATION_TYPES
+        expected = {"format", "lint", "build", "typecheck", "test", "sync"}
+        assert expected == VALIDATION_TYPES
 
     def test_server_name_value(self) -> None:
         """Test SERVER_NAME is set correctly."""

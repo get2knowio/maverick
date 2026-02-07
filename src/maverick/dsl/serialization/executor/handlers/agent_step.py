@@ -106,8 +106,23 @@ async def execute_agent_step(
             f"Expected a class or callable, got {type(agent_class).__name__}"
         )
 
+    # Build kwargs for agent construction
+    agent_kwargs: dict[str, Any] = {}
+
+    # Inject validation MCP server for implementer agent
+    if step.agent == "implementer":
+        try:
+            from maverick.config import load_config
+            from maverick.tools.validation import create_validation_tools_server
+
+            maverick_config = load_config()
+            val_server = create_validation_tools_server(maverick_config.validation)
+            agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
+        except Exception:
+            pass  # Graceful fallback - agent works without validation tools
+
     try:
-        agent_instance = agent_class()  # type: ignore[call-arg]
+        agent_instance = agent_class(**agent_kwargs)
     except TypeError as e:
         logger.error(
             "failed_to_instantiate_agent",

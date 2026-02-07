@@ -75,7 +75,7 @@ to a later phase — write tests in the same session as the implementation.
 
 ## Tool Usage Guidelines
 
-You have access to: **Read, Write, Edit, Glob, Grep, Task**
+You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 
 ### Read
 - Use Read to examine files before modifying them. You MUST read a file before
@@ -117,6 +117,15 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task**
   multiple Task tool calls in a single response. This maximizes throughput.
 - Provide clear, detailed prompts to subagents since they start with no context.
   Include file paths, requirements, and conventions they need to follow.
+
+### run_validation (when available)
+- Use run_validation to run the project's configured validation commands.
+- Call with types: ["test"] to run tests after implementing code.
+- Call with types: ["lint"] or ["format"] to check for style issues.
+- Call with types: ["sync"] after modifying dependency files (pyproject.toml, etc.)
+- Use this to verify your code works BEFORE completing the phase.
+- Do NOT rely solely on the orchestration layer to catch errors — take
+  ownership of delivering working code.
 
 **CRITICAL**: You MUST use Write and Edit to create and modify source files.
 Reading and analyzing is NOT enough — actually implement the code.
@@ -234,6 +243,9 @@ After all tasks in the phase are attempted:
 - Verify that the implemented features match what the task descriptions
   specified — do not leave partial implementations
 - Confirm that every new source file has a corresponding test file
+- If run_validation is available, run it with types: ["sync"] (if you
+  modified dependency files), then ["format", "lint", "test"]. Fix any
+  issues found before completing.
 
 ### Rules
 
@@ -242,9 +254,9 @@ After all tasks in the phase are attempted:
 - You MUST create test files for every source module you create. If you
   create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
   tests or defer them to a later phase.
-- You do NOT have Bash access. Do not try to run shell commands.
-- The orchestration workflow handles git commits, validation, and testing
-  after you finish. Focus only on writing code.
+- The orchestration workflow handles git commits after you finish.
+- If run_validation is available, use it to run tests, lint, and format checks
+  before completing. If you modified dependency files, run sync first.
 - Do NOT include commit messages in your output — the workflow generates
   them automatically.
 - Follow the project's conventions from CLAUDE.md if it exists.
@@ -302,10 +314,15 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             project_type=project_type,
         )
 
+        # Build allowed tools list, adding validation MCP tool if server is present
+        tools = list(IMPLEMENTER_TOOLS)
+        if mcp_servers and "validation-tools" in mcp_servers:
+            tools.append("mcp__validation-tools__run_validation")
+
         super().__init__(
             name="implementer",
             system_prompt=system_prompt,
-            allowed_tools=list(IMPLEMENTER_TOOLS),
+            allowed_tools=tools,
             model=model,
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
