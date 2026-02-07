@@ -205,7 +205,21 @@ def create_validation_tools_server(
             "npm install, etc.). You do NOT have Bash — use this tool for "
             "all validation and dependency operations."
         ),
-        {"types": list},
+        {
+            "type": "object",
+            "properties": {
+                "types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        'Validation types to run. '
+                        'Valid values: "format", "lint", "typecheck", '
+                        '"test", "sync".'
+                    ),
+                },
+            },
+            "required": ["types"],
+        },
     )
     async def run_validation(args: dict[str, Any]) -> dict[str, Any]:
         """Run validation commands based on ValidationConfig.
