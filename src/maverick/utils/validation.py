@@ -14,7 +14,7 @@ from tenacity import (
     AsyncRetrying,
     RetryError,
     stop_after_attempt,
-    wait_fixed,
+    wait_exponential,
 )
 
 from maverick.logging import get_logger
@@ -176,7 +176,7 @@ async def run_validation_pipeline(
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(retries),
-                wait=wait_fixed(0),  # Immediate retry for auto-fix steps
+                wait=wait_exponential(multiplier=1, min=1, max=10),
                 reraise=False,
             ):
                 with attempt:

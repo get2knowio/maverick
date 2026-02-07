@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from types import TracebackType
 from typing import TYPE_CHECKING
 
 from aiolimiter import AsyncLimiter
@@ -150,6 +151,44 @@ class GitHubClient:
             self._rate_limiter: AsyncLimiter | None = AsyncLimiter(rate_limit, period)
         else:
             self._rate_limiter = None
+
+    # =========================================================================
+    # Context Manager Protocol
+    # =========================================================================
+
+    async def __aenter__(self) -> GitHubClient:
+        """Enter the async context manager.
+
+        Returns:
+            The GitHubClient instance.
+        """
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the async context manager, closing the underlying connection."""
+        self.close()
+
+    def __enter__(self) -> GitHubClient:
+        """Enter the sync context manager.
+
+        Returns:
+            The GitHubClient instance.
+        """
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the sync context manager, closing the underlying connection."""
+        self.close()
 
     @property
     def rate_limiter(self) -> AsyncLimiter | None:

@@ -109,8 +109,8 @@ def mock_aiohttp_session(mock_aiohttp_response: Mock) -> MockClientSession:
 def notification_tools(mock_config: NotificationConfig) -> dict[str, Any]:
     """Create notification tools with test config."""
     server_dict = create_notification_tools_server(config=mock_config)
-    # Access tools via _test_tools key added by factory for testing
-    return server_dict["_test_tools"]
+    # Access tools via _tools key added by factory for testing
+    return server_dict["_tools"]
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ def disabled_notification_tools(
 ) -> dict[str, Any]:
     """Create notification tools with disabled config."""
     server_dict = create_notification_tools_server(config=mock_disabled_config)
-    return server_dict["_test_tools"]
+    return server_dict["_tools"]
 
 
 # =============================================================================
@@ -1104,7 +1104,7 @@ class TestRateLimiting:
             rate_limit=10,
             rate_period=1.0,
         )
-        notification_tools = server["_test_tools"]
+        notification_tools = server["_tools"]
         send_notification = notification_tools["send_notification"]
 
         with patch(
@@ -1134,7 +1134,7 @@ class TestRateLimiting:
             rate_limit=10,
             rate_period=1.0,
         )
-        notification_tools = server["_test_tools"]
+        notification_tools = server["_tools"]
         send_workflow_update = notification_tools["send_workflow_update"]
 
         with patch(

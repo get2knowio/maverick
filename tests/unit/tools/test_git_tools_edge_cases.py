@@ -60,7 +60,7 @@ async def test_git_commit_unicode_message(mock_git_repo: MagicMock) -> None:
         return_value=mock_git_repo,
     ):
         server = create_git_tools_server()
-        result = await server["tools"]["git_commit"].handler(
+        result = await server["_tools"]["git_commit"].handler(
             {"message": "add 🚀 support", "type": "feat"}
         )
 

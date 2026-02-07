@@ -1631,3 +1631,210 @@ class TestStepExecutionEdgeCases:
         result = executor.get_result()
         assert result.success is True
         assert result.final_output == "Generated content"
+
+
+
+# =============================================================================
+# Agent Step MCP Server Loading Exception Handling Tests
+# =============================================================================
+
+
+class TestAgentStepValidationToolsExceptionHandling:
+    """Tests for narrowed exception handling when loading validation MCP server.
+
+    The implementer agent step attempts to load validation tools. Expected
+    exceptions (ImportError, ConfigError) should be caught gracefully with
+    debug logging, while unexpected exceptions (e.g., TypeError, RuntimeError)
+    should propagate.
+
+    These tests call execute_agent_step directly to isolate the MCP server
+    loading logic from ImplementerContext construction.
+    """
+
+    @pytest.fixture
+    def implementer_registry(self):
+        """Create a registry with a mock implementer agent."""
+        reg = ComponentRegistry()
+
+        class MockImplementerAgent:
+            """Mock implementer agent for testing."""
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def execute(self, context):
+                return "Implementer executed"
+
+        reg.agents.register("implementer", MockImplementerAgent, validate=False)
+        return reg
+
+    @pytest.fixture
+    def implementer_step(self, tmp_path):
+        """Create an implementer agent step record with valid context."""
+        task_file = tmp_path / "tasks.md"
+        task_file.write_text("# Tasks\n- [ ] Implement feature\n")
+        return AgentStepRecord(
+            name="run_implementer",
+            type=StepType.AGENT,
+            agent="implementer",
+            context={
+                "task_file": str(task_file),
+                "branch": "main",
+            },
+        )
+
+    @pytest.fixture
+    def workflow_context(self):
+        """Create a minimal workflow context."""
+        from maverick.dsl.context import WorkflowContext
+
+        return WorkflowContext(inputs={})
+
+    @pytest.mark.asyncio
+    async def test_import_error_caught_gracefully(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that ImportError during validation tool loading is caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=ImportError("No module named 'missing_module'"),
+        ):
+            result = await execute_agent_step(
+                step=implementer_step,
+                resolved_inputs=implementer_step.context,
+                context=workflow_context,
+                registry=implementer_registry,
+            )
+
+        # Agent should still execute successfully without validation tools
+        assert result.result == "Implementer executed"
+
+    @pytest.mark.asyncio
+    async def test_module_not_found_error_caught_gracefully(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that ModuleNotFoundError (subclass of ImportError) is caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=ModuleNotFoundError(
+                "No module named 'maverick.tools.validation'"
+            ),
+        ):
+            result = await execute_agent_step(
+                step=implementer_step,
+                resolved_inputs=implementer_step.context,
+                context=workflow_context,
+                registry=implementer_registry,
+            )
+
+        assert result.result == "Implementer executed"
+
+    @pytest.mark.asyncio
+    async def test_config_error_caught_gracefully(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that ConfigError during validation tool loading is caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+        from maverick.exceptions import ConfigError
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=ConfigError(
+                message="Invalid config", field="validation", value=None,
+            ),
+        ):
+            result = await execute_agent_step(
+                step=implementer_step,
+                resolved_inputs=implementer_step.context,
+                context=workflow_context,
+                registry=implementer_registry,
+            )
+
+        assert result.result == "Implementer executed"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_runtime_error_propagates(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that RuntimeError from validation tool loading is NOT caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=RuntimeError("Unexpected programming error"),
+        ):
+            with pytest.raises(RuntimeError, match="Unexpected programming error"):
+                await execute_agent_step(
+                    step=implementer_step,
+                    resolved_inputs=implementer_step.context,
+                    context=workflow_context,
+                    registry=implementer_registry,
+                )
+
+    @pytest.mark.asyncio
+    async def test_unexpected_type_error_propagates(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that TypeError from validation tool loading is NOT caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=TypeError("wrong argument type"),
+        ):
+            with pytest.raises(TypeError, match="wrong argument type"):
+                await execute_agent_step(
+                    step=implementer_step,
+                    resolved_inputs=implementer_step.context,
+                    context=workflow_context,
+                    registry=implementer_registry,
+                )
+
+    @pytest.mark.asyncio
+    async def test_unexpected_attribute_error_propagates(
+        self, implementer_registry, implementer_step, workflow_context
+    ):
+        """Test that AttributeError from validation tool loading is NOT caught."""
+        from unittest.mock import patch
+
+        from maverick.dsl.serialization.executor.handlers.agent_step import (
+            execute_agent_step,
+        )
+
+        with patch(
+            "maverick.config.load_config",
+            side_effect=AttributeError("object has no attribute 'validation'"),
+        ):
+            with pytest.raises(
+                AttributeError, match="object has no attribute 'validation'"
+            ):
+                await execute_agent_step(
+                    step=implementer_step,
+                    resolved_inputs=implementer_step.context,
+                    context=workflow_context,
+                    registry=implementer_registry,
+                )

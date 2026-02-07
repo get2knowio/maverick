@@ -21,6 +21,7 @@ from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import AgentStepRecord
+from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 from maverick.models.implementation import ImplementerContext
 
@@ -121,8 +122,18 @@ async def execute_agent_step(
             # Remove test-only _tools key that breaks SDK serialization
             val_server.pop("_tools", None)  # type: ignore[misc]
             agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
-        except Exception:
-            pass  # Graceful fallback - agent works without validation tools
+        except (ImportError, ModuleNotFoundError) as e:
+            logger.debug(
+                "validation_tools_unavailable",
+                error=str(e),
+                reason="module_not_found",
+            )
+        except ConfigError as e:
+            logger.debug(
+                "validation_tools_config_failed",
+                error=str(e),
+                reason="config_error",
+            )
 
     try:
         agent_instance = agent_class(**agent_kwargs)

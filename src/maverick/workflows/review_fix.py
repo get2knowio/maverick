@@ -344,6 +344,9 @@ async def _create_issues_for_unresolved(
 async def _get_repo_name(cwd: Path) -> str:
     """Get the GitHub repo name from git remote.
 
+    Uses AsyncGitRepository for git operations per Architectural Guardrail #6
+    (one canonical wrapper per external system).
+
     Args:
         cwd: Working directory.
 
@@ -353,24 +356,15 @@ async def _get_repo_name(cwd: Path) -> str:
     Raises:
         ValueError: If repo name cannot be determined.
     """
-    import asyncio
     import re
 
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "remote",
-        "get-url",
-        "origin",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
+    from maverick.git import AsyncGitRepository
 
-    if proc.returncode != 0:
+    repo = AsyncGitRepository(cwd)
+    url = await repo.get_remote_url()
+
+    if url is None:
         raise ValueError("Failed to get git remote URL")
-
-    url = stdout.decode().strip()
 
     # Parse GitHub URL formats
     # SSH: git@github.com:owner/repo.git

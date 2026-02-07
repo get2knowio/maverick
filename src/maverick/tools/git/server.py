@@ -92,6 +92,6 @@ def create_git_tools_server(
 
     # Add tools to the server dict for test access
     # Type ignore because we're adding to the dict for test purposes
-    server["tools"] = tools  # type: ignore[typeddict-unknown-key]
+    server["_tools"] = tools  # type: ignore[typeddict-unknown-key]
 
     return server
