@@ -81,11 +81,11 @@ steps:
         # Verify result
         result = executor.get_result()
         assert result.success is True
-        assert "results" in result.final_output
-        assert len(result.final_output["results"]) == 3
+        assert isinstance(result.final_output, list)
+        assert len(result.final_output) == 3
 
         # Each iteration should have results from its step
-        for iteration_result in result.final_output["results"]:
+        for iteration_result in result.final_output:
             assert isinstance(iteration_result, (list, tuple))
             assert len(iteration_result) == 1
 
@@ -136,10 +136,10 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        assert len(result.final_output) == 3
 
         # Each iteration has 2 steps
-        for iteration_result in result.final_output["results"]:
+        for iteration_result in result.final_output:
             assert len(iteration_result) == 2
 
     @pytest.mark.asyncio
@@ -190,8 +190,8 @@ steps:
         result = executor.get_result()
         assert result.success is True
         # First step output contains parallel results
-        assert result.step_results[0].output["results"]
-        assert len(result.step_results[0].output["results"]) == 4
+        assert result.step_results[0].output
+        assert len(result.step_results[0].output) == 4
         # Final output is from the check_completion step
         assert result.final_output == "completed"
 
@@ -240,10 +240,10 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
-        assert "A" in result.final_output["results"]
-        assert "B" in result.final_output["results"]
-        assert "C" in result.final_output["results"]
+        assert len(result.final_output) == 3
+        assert "A" in result.final_output
+        assert "B" in result.final_output
+        assert "C" in result.final_output
 
     @pytest.mark.asyncio
     async def test_parallel_for_each_empty_list_yaml(self) -> None:
@@ -283,7 +283,7 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert result.final_output["results"] == []
+        assert result.final_output == []
 
     @pytest.mark.asyncio
     async def test_parallel_for_each_with_partial_failure_yaml(self) -> None:
@@ -564,7 +564,7 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        assert len(result.final_output) == 3
 
 
 class TestParallelShorthand:
@@ -626,7 +626,7 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        assert len(result.final_output) == 3
         # All tasks should have started nearly simultaneously (within 0.5 seconds)
         # This verifies concurrent execution
         assert len(start_times) == 3
@@ -730,7 +730,7 @@ steps:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 4
+        assert len(result.final_output) == 4
         # All items should be processed
         assert set(processed) == {"a", "b", "c", "d"}
 

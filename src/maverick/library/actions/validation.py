@@ -155,9 +155,7 @@ async def run_fix_retry_loop(
 
                 try:
                     # Build fix context from validation errors
-                    fix_prompt = _build_fix_prompt(
-                        current_result, stages, attempts
-                    )
+                    fix_prompt = _build_fix_prompt(current_result, stages, attempts)
 
                     # Invoke the fixer agent
                     fix_result = await _invoke_fixer_agent(
@@ -265,13 +263,17 @@ async def _invoke_fixer_agent(
 ) -> dict[str, Any]:
     """Invoke the FixerAgent to apply fixes based on the prompt.
 
+    The agent uses tools (Read, Write, Edit) to apply fixes directly.
+    Success here means the agent ran without errors; the caller re-runs
+    validation afterward to determine whether the fix actually worked.
+
     Args:
         fix_prompt: The prompt describing fixes to apply
         cwd: Working directory for the agent
         stream_callback: Optional callback for streaming agent output
 
     Returns:
-        Dict with success status and fix details or error message
+        Dict with success status and a description of changes made
     """
     try:
         # Import here to avoid circular imports
@@ -296,25 +298,12 @@ async def _invoke_fixer_agent(
         # Execute the agent
         result = await agent.execute(context)
 
-        # Parse the result
         if result.success:
-            # Try to extract structured info from output
             output = result.output or ""
-            try:
-                import json
-
-                parsed = json.loads(output)
-                return {
-                    "success": True,
-                    "file_modified": parsed.get("file_modified", False),
-                    "file_path": parsed.get("file_path", ""),
-                    "changes_made": parsed.get("changes_made", "Fix applied"),
-                }
-            except (json.JSONDecodeError, TypeError):
-                return {
-                    "success": True,
-                    "changes_made": output[:200] if output else "Fix applied",
-                }
+            return {
+                "success": True,
+                "changes_made": output[:200] if output else "Fix applied",
+            }
         else:
             # Extract error message from result
             error_messages = []
@@ -470,7 +459,9 @@ def _build_fix_prompt(
                     "success", stage_entry.get("passed", True)
                 ):
                     name = stage_entry.get("stage", stage_entry.get("name", "unknown"))
-                    error_output = stage_entry.get("error", stage_entry.get("output", ""))
+                    error_output = stage_entry.get(
+                        "error", stage_entry.get("output", "")
+                    )
                     error_msg = error_output[:500] if error_output else "unknown error"
                     errors.append(f"- {name}: {error_msg}")
 
@@ -511,8 +502,7 @@ def _summarize_errors(validation_result: dict[str, Any]) -> str:
         failed_stages = [
             s.get("stage", s.get("name", "unknown"))
             for s in stages_list
-            if isinstance(s, dict)
-            and not s.get("success", s.get("passed", True))
+            if isinstance(s, dict) and not s.get("success", s.get("passed", True))
         ]
     if failed_stages:
         return f"{len(failed_stages)} stage(s): {', '.join(failed_stages)}"
@@ -692,7 +682,10 @@ def _aggregate_stage_results(
             error_list = raw_result.get("errors", [])
             # Prefer structured errors, fall back to raw output
             if error_list and not passed:
-                errors = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in error_list]
+                errors = [
+                    e.get("message", str(e)) if isinstance(e, dict) else str(e)
+                    for e in error_list
+                ]
             elif error_output and not passed:
                 errors = [error_output]
             else:

@@ -10,6 +10,14 @@ import time
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts.common import (
+    CODE_QUALITY_PRINCIPLES,
+    TOOL_USAGE_EDIT,
+    TOOL_USAGE_GLOB,
+    TOOL_USAGE_GREP,
+    TOOL_USAGE_READ,
+    TOOL_USAGE_WRITE,
+)
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.agents.utils import (
     detect_file_changes,
@@ -26,7 +34,7 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-ISSUE_FIXER_SYSTEM_PROMPT = """You are an expert software engineer.
+ISSUE_FIXER_SYSTEM_PROMPT = f"""You are an expert software engineer.
 You focus on minimal, targeted bug fixes within an orchestrated workflow.
 
 ## Your Role
@@ -65,6 +73,29 @@ For each issue:
 - Don't change formatting of untouched code
 - Add a test that reproduces the bug (if feasible)
 
+## Tool Usage Guidelines
+
+You have access to: **Read, Write, Edit, Glob, Grep**
+
+### Read
+{TOOL_USAGE_READ}
+- Read is also suitable for reviewing related source files, test files, and
+  project conventions to understand context before applying the fix.
+
+### Write
+{TOOL_USAGE_WRITE}
+
+### Edit
+{TOOL_USAGE_EDIT}
+
+### Glob
+{TOOL_USAGE_GLOB}
+
+### Grep
+{TOOL_USAGE_GREP}
+
+{CODE_QUALITY_PRINCIPLES}
+
 ## Verification
 Your fix will be verified by orchestration through:
 1. Running reproduction steps (if provided)
@@ -75,23 +106,15 @@ Your fix will be verified by orchestration through:
 The orchestration layer will create a commit using format: `fix(scope): description`
 with `Fixes #<issue_number>` in the commit body.
 
-## Tools Available
-Read, Write, Edit, Glob, Grep
-
-Use these tools to:
-- Read existing code and understand the issue
-- Write new files or update existing ones
-- Search for patterns and locate relevant code
-
 ## Output
 After fixing, output a JSON summary:
-{
+{{
   "issue_number": 42,
   "root_cause": "Description of root cause",
   "fix_description": "What was changed to fix it",
-  "files_changed": [{"path": "src/file.py", "added": 5, "removed": 2}],
+  "files_changed": [{{"path": "src/file.py", "added": 5, "removed": 2}}],
   "verification": "How the fix was verified"
-}
+}}
 """
 
 

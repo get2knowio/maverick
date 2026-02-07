@@ -857,7 +857,7 @@ steps:
     type: python
     action: count_results
     kwargs:
-      results: ${{ steps.process_loop.output.results }}
+      results: ${{ steps.process_loop.output }}
 """
         workflow = parse_workflow(workflow_yaml)
         executor = WorkflowFileExecutor(registry=registry)
@@ -1103,20 +1103,20 @@ steps:
         executor = WorkflowFileExecutor(registry=registry)
 
         events = []
-        async for event in executor.execute(
-            workflow, inputs={"items": ["x", "y"]}
-        ):
+        async for event in executor.execute(workflow, inputs={"items": ["x", "y"]}):
             events.append(event)
 
         # Nested StepStarted events (paths contain "/" separators)
         nested_started = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, StepStarted)
             and e.step_path is not None
             and "/" in e.step_path
         ]
         nested_completed = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, StepCompleted)
             and e.step_path is not None
             and "/" in e.step_path
@@ -1167,13 +1167,12 @@ steps:
         executor = WorkflowFileExecutor(registry=registry)
 
         events = []
-        async for event in executor.execute(
-            workflow, inputs={"items": ["boom"]}
-        ):
+        async for event in executor.execute(workflow, inputs={"items": ["boom"]}):
             events.append(event)
 
         nested_completed = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, StepCompleted)
             and e.step_path is not None
             and "/" in e.step_path
@@ -1218,13 +1217,15 @@ steps:
             events.append(event)
 
         nested_started = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, StepStarted)
             and e.step_path is not None
             and "/" in e.step_path
         ]
         nested_completed = [
-            e for e in events
+            e
+            for e in events
             if isinstance(e, StepCompleted)
             and e.step_path is not None
             and "/" in e.step_path
@@ -1272,9 +1273,7 @@ steps:
         executor = WorkflowFileExecutor(registry=registry)
 
         events = []
-        async for event in executor.execute(
-            workflow, inputs={"items": ["a", "b"]}
-        ):
+        async for event in executor.execute(workflow, inputs={"items": ["a", "b"]}):
             events.append(event)
 
         # Find indices of nested step events and loop StepCompleted

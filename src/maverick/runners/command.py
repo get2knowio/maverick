@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -23,6 +22,7 @@ from tenacity import (
 
 from maverick.exceptions import WorkingDirectoryError
 from maverick.runners.models import CommandResult, StreamLine
+from maverick.utils.secrets import _COMPILED_SENSITIVE_PATTERNS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -50,34 +50,6 @@ class RetryableCommandError(Exception):
         """
         super().__init__(message)
         self.result = result
-
-
-# Secret scrubbing patterns
-_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    # GitHub tokens (gh_, gho_, ghp_, ghs_, ghu_)
-    (re.compile(r"\b(gh[opsu]_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
-    (re.compile(r"\b(gh_[A-Za-z0-9_]{36,})\b"), "[GITHUB_TOKEN]"),
-    # Bearer tokens
-    (
-        re.compile(r"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
-        r"\1[BEARER_TOKEN]",
-    ),
-    # API keys in common formats (key=value, key: value)
-    (
-        re.compile(
-            r"(api[_-]?key\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?",
-            re.IGNORECASE,
-        ),
-        r"\1[API_KEY]",
-    ),
-    (
-        re.compile(
-            r"(apikey\s*[:=]\s*)['\"]?[A-Za-z0-9\-._]{16,}['\"]?",
-            re.IGNORECASE,
-        ),
-        r"\1[API_KEY]",
-    ),
-]
 
 
 class CommandRunner:
@@ -168,6 +140,9 @@ class CommandRunner:
     def _scrub_secrets(self, text: str) -> str:
         """Scrub sensitive patterns from text.
 
+        Uses the canonical ``SENSITIVE_PATTERNS`` from
+        ``maverick.utils.secrets``.
+
         Args:
             text: Text that may contain secrets.
 
@@ -175,7 +150,7 @@ class CommandRunner:
             Text with secrets replaced by placeholders.
         """
         result = text
-        for pattern, replacement in _SECRET_PATTERNS:
+        for pattern, replacement in _COMPILED_SENSITIVE_PATTERNS:
             result = pattern.sub(replacement, result)
         return result
 

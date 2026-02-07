@@ -114,6 +114,129 @@ def _filter_diff(diff: str, exclude_patterns: tuple[str, ...]) -> str:
     return "".join(filtered_sections)
 
 
+async def _detect_pr_for_branch(
+    runner: CommandRunner,
+    branch: str,
+) -> int | None:
+    """Detect the PR number for a given branch.
+
+    Args:
+        runner: CommandRunner for executing gh CLI
+        branch: Branch name to find PR for
+
+    Returns:
+        PR number if found, None otherwise
+    """
+    pr_list_result = await runner.run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--json",
+            "number",
+            "--limit",
+            "1",
+        ],
+    )
+    if pr_list_result.success:
+        pr_list = json.loads(pr_list_result.stdout)
+        if pr_list:
+            return int(pr_list[0]["number"])
+        logger.warning(f"No PR found for branch '{branch}', proceeding with local diff")
+    else:
+        logger.warning(
+            f"Failed to list PRs: {pr_list_result.stderr}, proceeding with local diff"
+        )
+    return None
+
+
+async def _fetch_pr_metadata(
+    runner: CommandRunner,
+    pr_number: int,
+    base_branch: str,
+) -> PRMetadata:
+    """Fetch PR metadata from GitHub.
+
+    Args:
+        runner: CommandRunner for executing gh CLI
+        pr_number: PR number to fetch
+        base_branch: Base branch for the PR
+
+    Returns:
+        PRMetadata with fetched data, or minimal metadata on failure
+    """
+    pr_view_result = await runner.run(
+        [
+            "gh",
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "number,title,body,author,labels",
+        ],
+    )
+    if pr_view_result.success:
+        pr_data = json.loads(pr_view_result.stdout)
+        return PRMetadata(
+            number=pr_data["number"],
+            title=pr_data.get("title"),
+            description=pr_data.get("body"),
+            author=pr_data.get("author", {}).get("login"),
+            labels=tuple(label["name"] for label in pr_data.get("labels", [])),
+            base_branch=base_branch,
+        )
+    return PRMetadata(
+        number=pr_number,
+        title=None,
+        description=None,
+        author=None,
+        labels=(),
+        base_branch=base_branch,
+    )
+
+
+async def _get_diff_and_changed_files(
+    repo: AsyncGitRepository,
+    base_branch: str,
+    exclude_patterns: tuple[str, ...],
+) -> tuple[str, tuple[str, ...]]:
+    """Get diff and changed files, applying exclusion filters.
+
+    Args:
+        repo: Git repository
+        base_branch: Base branch for comparison
+        exclude_patterns: Patterns to exclude from diff/files
+
+    Returns:
+        Tuple of (filtered_diff, filtered_changed_files)
+    """
+    # Get diff against base branch using three-dot syntax (base...HEAD)
+    raw_diff = await repo.diff(base=f"{base_branch}...HEAD")
+
+    # Get changed files using three-dot syntax
+    changed_files_list = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
+    raw_changed_files = tuple(changed_files_list)
+
+    # Apply exclusion filters to scope the review
+    if exclude_patterns:
+        changed_files = _filter_changed_files(raw_changed_files, exclude_patterns)
+        diff = _filter_diff(raw_diff, exclude_patterns)
+        excluded_count = len(raw_changed_files) - len(changed_files)
+        if excluded_count > 0:
+            logger.info(
+                "Excluded %d files from review scope",
+                excluded_count,
+                patterns=exclude_patterns,
+            )
+    else:
+        changed_files = raw_changed_files
+        diff = raw_diff
+
+    return diff, changed_files
+
+
 async def gather_pr_context(
     pr_number: int | None,
     base_branch: str,
@@ -140,102 +263,36 @@ async def gather_pr_context(
         exclude_patterns = DEFAULT_EXCLUDE_PATTERNS
     elif isinstance(exclude_patterns, list):
         exclude_patterns = tuple(exclude_patterns)
-    try:
-        # Initialize git repository
-        repo = AsyncGitRepository()
 
-        # Create runner instance for GitHub CLI operations
+    try:
+        repo = AsyncGitRepository()
         runner = CommandRunner(timeout=60.0)
 
         # Auto-detect PR number if not provided
         current_branch = None
         if pr_number is None:
             current_branch = await repo.current_branch()
+            pr_number = await _detect_pr_for_branch(runner, current_branch)
 
-            # Try to find PR for current branch
-            pr_list_result = await runner.run(
-                [
-                    "gh",
-                    "pr",
-                    "list",
-                    "--head",
-                    current_branch,
-                    "--json",
-                    "number",
-                    "--limit",
-                    "1",
-                ],
+        # Fetch PR metadata
+        if pr_number is not None:
+            pr_metadata = await _fetch_pr_metadata(runner, pr_number, base_branch)
+        else:
+            pr_metadata = PRMetadata(
+                number=None,
+                title=None,
+                description=None,
+                author=None,
+                labels=(),
+                base_branch=base_branch,
             )
-            if pr_list_result.success:
-                pr_list = json.loads(pr_list_result.stdout)
-                if pr_list:
-                    pr_number = pr_list[0]["number"]
-                else:
-                    logger.warning(
-                        f"No PR found for current branch '{current_branch}', "
-                        "proceeding with local diff"
-                    )
-            else:
-                logger.warning(
-                    f"Failed to list PRs: {pr_list_result.stderr}, "
-                    "proceeding with local diff"
-                )
 
-        # Fetch PR metadata if we have a PR number
-        pr_metadata = PRMetadata(
-            number=pr_number,
-            title=None,
-            description=None,
-            author=None,
-            labels=(),
-            base_branch=base_branch,
+        # Get diff and changed files with exclusion filtering
+        diff, changed_files = await _get_diff_and_changed_files(
+            repo, base_branch, exclude_patterns
         )
 
-        if pr_number is not None:
-            pr_view_result = await runner.run(
-                [
-                    "gh",
-                    "pr",
-                    "view",
-                    str(pr_number),
-                    "--json",
-                    "number,title,body,author,labels",
-                ],
-            )
-            if pr_view_result.success:
-                pr_data = json.loads(pr_view_result.stdout)
-                pr_metadata = PRMetadata(
-                    number=pr_data["number"],
-                    title=pr_data.get("title"),
-                    description=pr_data.get("body"),
-                    author=pr_data.get("author", {}).get("login"),
-                    labels=tuple(label["name"] for label in pr_data.get("labels", [])),
-                    base_branch=base_branch,
-                )
-
-        # Get diff against base branch using three-dot syntax (base...HEAD)
-        raw_diff = await repo.diff(base=f"{base_branch}...HEAD")
-
-        # Get changed files using three-dot syntax
-        changed_files_list = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
-        raw_changed_files = tuple(changed_files_list)
-
-        # Apply exclusion filters to scope the review
-        if exclude_patterns:
-            changed_files = _filter_changed_files(raw_changed_files, exclude_patterns)
-            diff = _filter_diff(raw_diff, exclude_patterns)
-            excluded_count = len(raw_changed_files) - len(changed_files)
-            if excluded_count > 0:
-                logger.info(
-                    "Excluded %d files from review scope",
-                    excluded_count,
-                    patterns=exclude_patterns,
-                )
-        else:
-            changed_files = raw_changed_files
-            diff = raw_diff
-
-        # Get commit messages since base branch (two-dot syntax)
+        # Get commit messages since base branch
         commit_messages = await repo.commit_messages_since(ref=base_branch)
         commits = tuple(commit_messages)
 

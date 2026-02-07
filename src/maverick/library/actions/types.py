@@ -39,6 +39,34 @@ class WorkspaceState:
 
 
 # =============================================================================
+# Dependency Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class DependencySyncResult:
+    """Result of dependency sync operation."""
+
+    success: bool
+    command: str | None
+    output: str | None
+    skipped: bool
+    reason: str | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "command": self.command,
+            "output": self.output,
+            "skipped": self.skipped,
+            "reason": self.reason,
+            "error": self.error,
+        }
+
+
+# =============================================================================
 # Git Types
 # =============================================================================
 

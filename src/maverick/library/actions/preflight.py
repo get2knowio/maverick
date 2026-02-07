@@ -8,17 +8,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from maverick.config import MaverickConfig, load_config
+from maverick.dsl.events import StepOutput
 from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
-from maverick.runners.models import ValidationStage
 from maverick.runners.preflight import AnthropicAPIValidator
-from maverick.runners.validation import ValidationRunner
 
 logger = get_logger(__name__)
 
@@ -67,6 +65,37 @@ class PreflightCheckResult:
         }
 
 
+async def _emit_check(
+    event_callback: Any | None,
+    name: str,
+    passed: bool,
+    detail: str = "",
+) -> None:
+    """Emit a StepOutput event for a preflight check result.
+
+    Args:
+        event_callback: Optional callback to emit events.
+        name: Display name of the check.
+        passed: Whether the check passed.
+        detail: Optional detail message.
+    """
+    if event_callback is None:
+        return
+    icon = "\u2713" if passed else "\u2717"
+    level = "success" if passed else "error"
+    message = f" {icon} {name}"
+    if detail:
+        message = f"{message} \u2014 {detail}"
+    await event_callback(
+        StepOutput(
+            step_name="preflight",
+            message=message,
+            level=level,
+            source="preflight",
+        )
+    )
+
+
 async def run_preflight_checks(
     check_api: bool = True,
     check_git: bool = True,
@@ -74,6 +103,7 @@ async def run_preflight_checks(
     check_validation_tools: bool = True,
     validation_stages: list[str] | None = None,
     fail_on_error: bool = True,
+    event_callback: Any | None = None,
 ) -> PreflightCheckResult:
     """Run preflight validation checks before workflow execution.
 
@@ -152,8 +182,18 @@ async def run_preflight_checks(
             api_available = False
             errors.extend(api_result.errors)
             logger.error("Anthropic API check failed", errors=api_result.errors)
+            api_err = (
+                api_result.errors[0] if api_result.errors else "credentials missing"
+            )
+            await _emit_check(event_callback, "Anthropic API", False, api_err)
         else:
             logger.info("Anthropic API credentials found")
+            await _emit_check(
+                event_callback,
+                "Anthropic API",
+                True,
+                "credentials found",
+            )
 
     # Check git
     if check_git:
@@ -164,8 +204,10 @@ async def run_preflight_checks(
             git_available = False
             errors.append("Git is not installed or not on PATH")
             logger.error("Git not found")
+            await _emit_check(event_callback, "Git", False, "not installed")
         else:
             logger.info("Git is available")
+            await _emit_check(event_callback, "Git", True, "installed")
             # Also check git identity is configured (required for commits)
             try:
                 proc = await asyncio.wait_for(
@@ -186,6 +228,14 @@ async def run_preflight_checks(
                         "Run: git config --global user.name 'Your Name'"
                     )
                     logger.error("Git user.name not configured")
+                    await _emit_check(
+                        event_callback,
+                        "Git user.name",
+                        False,
+                        "not configured",
+                    )
+                else:
+                    await _emit_check(event_callback, "Git user.name", True)
 
                 proc = await asyncio.wait_for(
                     asyncio.create_subprocess_exec(
@@ -205,6 +255,14 @@ async def run_preflight_checks(
                         "Run: git config --global user.email 'you@example.com'"
                     )
                     logger.error("Git user.email not configured")
+                    await _emit_check(
+                        event_callback,
+                        "Git user.email",
+                        False,
+                        "not configured",
+                    )
+                else:
+                    await _emit_check(event_callback, "Git user.email", True)
 
                 if git_available:
                     logger.info("Git identity is configured")
@@ -228,6 +286,7 @@ async def run_preflight_checks(
                 "Install from: https://cli.github.com/"
             )
             logger.warning("GitHub CLI not found")
+            await _emit_check(event_callback, "GitHub CLI (gh)", False, "not installed")
         else:
             # Check if authenticated using async subprocess
             try:
@@ -249,8 +308,20 @@ async def run_preflight_checks(
                         "Run 'gh auth login' to authenticate."
                     )
                     logger.warning("GitHub CLI not authenticated")
+                    await _emit_check(
+                        event_callback,
+                        "GitHub CLI (gh)",
+                        False,
+                        "not authenticated",
+                    )
                 else:
                     logger.info("GitHub CLI is available and authenticated")
+                    await _emit_check(
+                        event_callback,
+                        "GitHub CLI (gh)",
+                        True,
+                        "authenticated",
+                    )
             except TimeoutError:
                 warnings.append("GitHub CLI auth check timed out")
                 logger.warning("GitHub CLI auth check timed out")
@@ -262,54 +333,97 @@ async def run_preflight_checks(
                     error_type=type(e).__name__,
                 )
 
-    # Check validation tools
+    # Check validation tools (from maverick.yaml config)
     if check_validation_tools:
+        import shutil as _shutil
+
         logger.info("Checking validation tools...")
         validation_config = config.validation
-        timeout = validation_config.timeout_seconds
 
-        # Map stage names to commands
+        # Build list of (display_name, command_list) from config
+        tools_to_check: list[tuple[str, list[str]]] = []
+        if validation_config.sync_cmd:
+            tools_to_check.append(("sync", validation_config.sync_cmd))
         stage_to_cmd = {
             "format": validation_config.format_cmd,
             "lint": validation_config.lint_cmd,
             "typecheck": validation_config.typecheck_cmd,
             "test": validation_config.test_cmd,
         }
-
-        # Build ValidationStage objects for requested stages
-        stages_to_check: list[ValidationStage] = []
         for stage_name in validation_stages:
             cmd = stage_to_cmd.get(stage_name)
             if cmd:
-                stages_to_check.append(
-                    ValidationStage(
-                        name=stage_name,
-                        command=tuple(cmd),
-                        fixable=False,
-                        fix_command=None,
-                        timeout_seconds=timeout,
-                    )
-                )
+                tools_to_check.append((stage_name, cmd))
 
-        if stages_to_check:
-            # Use ValidationRunner's validate method to check tools
-            cwd = validation_config.project_root or Path.cwd()
-            runner = ValidationRunner(stages=stages_to_check, cwd=cwd)
-            tool_result = await runner.validate()
-
-            if not tool_result.success:
+        # Check each tool via shutil.which on the first command
+        for stage_name, cmd in tools_to_check:
+            tool_name = cmd[0]
+            tool_path = _shutil.which(tool_name)
+            cmd_display = " ".join(cmd[:2])
+            if tool_path is None:
                 validation_tools_available = False
-                for error in tool_result.errors:
-                    errors.append(error)
-                    logger.error("Validation tool check failed", error=error)
+                errors.append(
+                    f"Tool '{tool_name}' (stage '{stage_name}') not found on PATH"
+                )
+                logger.error(
+                    "Validation tool check failed",
+                    tool=tool_name,
+                    stage=stage_name,
+                )
+                await _emit_check(
+                    event_callback,
+                    f"{stage_name} ({cmd_display})",
+                    False,
+                    "not found",
+                )
             else:
-                logger.info(
-                    "All validation tools available",
-                    stages=validation_stages,
+                logger.debug(
+                    "Tool found",
+                    tool=tool_name,
+                    path=tool_path,
+                    stage=stage_name,
+                )
+                await _emit_check(
+                    event_callback,
+                    f"{stage_name} ({cmd_display})",
+                    True,
                 )
 
-            # Add warnings
-            warnings.extend(tool_result.warnings)
+        # Check custom tools from preflight config
+        preflight_config = config.preflight
+        for custom in preflight_config.custom_tools:
+            tool_path = _shutil.which(custom.command)
+            if tool_path is None:
+                msg = f"Custom tool '{custom.name}' ({custom.command}) not found"
+                if custom.hint:
+                    msg = f"{msg}. {custom.hint}"
+                if custom.required:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
+                logger.warning(
+                    "Custom tool not found",
+                    name=custom.name,
+                    command=custom.command,
+                    required=custom.required,
+                )
+                await _emit_check(
+                    event_callback,
+                    custom.name,
+                    False,
+                    "not found",
+                )
+            else:
+                logger.debug(
+                    "Custom tool found",
+                    name=custom.name,
+                    path=tool_path,
+                )
+                await _emit_check(
+                    event_callback,
+                    custom.name,
+                    True,
+                )
 
     # Determine overall success
     # Fail on errors, but not on warnings

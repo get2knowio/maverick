@@ -17,7 +17,11 @@ from maverick.dsl.events import (
     LoopIterationCompleted,
     LoopIterationStarted,
 )
-from maverick.tui.models.enums import IterationStatus, StreamChunkType
+from maverick.tui.models.enums import (
+    IterationStatus,
+    StreamChunkType,
+    StreamEntryType,
+)
 from maverick.tui.models.widget_state import (
     LoopIterationItem,
     LoopIterationState,
@@ -83,7 +87,6 @@ class TestHandleIterationStarted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -102,7 +105,6 @@ class TestHandleIterationStarted:
             item_label="First Item",
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -120,7 +122,6 @@ class TestHandleIterationStarted:
             total_iterations=3,
             item_label="Phase 1: Setup",
         )
-
 
         await screen._handle_iteration_started(event)
 
@@ -142,7 +143,6 @@ class TestHandleIterationStarted:
             timestamp=timestamp,
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -161,7 +161,6 @@ class TestHandleIterationStarted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(event1)
 
@@ -205,7 +204,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(start_event)
 
         # Now complete the iteration
@@ -234,7 +232,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -265,7 +262,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(start_event)
 
         complete_event = LoopIterationCompleted(
@@ -292,7 +288,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -321,7 +316,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -368,7 +362,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -575,6 +568,46 @@ class TestHandleStreamChunk:
 
         screen._add_unified_entry.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_tool_call_text_gets_tool_call_entry_type(self) -> None:
+        """Tool calls (└ prefix) are mapped to TOOL_CALL entry type."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen._add_unified_entry = MagicMock()
+
+        event = AgentStreamChunk(
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="\u2514 Read: src/main.py\n",
+            chunk_type="output",
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        screen._add_unified_entry.assert_called_once()
+        entry = screen._add_unified_entry.call_args[0][0]
+        assert entry.entry_type == StreamEntryType.TOOL_CALL
+
+    @pytest.mark.asyncio
+    async def test_regular_output_not_mapped_to_tool_call(self) -> None:
+        """Regular agent text is still mapped to AGENT_OUTPUT."""
+        mock_workflow = create_mock_workflow()
+        screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
+        screen._add_unified_entry = MagicMock()
+
+        event = AgentStreamChunk(
+            step_name="test_step",
+            agent_name="TestAgent",
+            text="Analyzing the code...\n",
+            chunk_type="output",
+        )
+
+        await screen._handle_stream_chunk(event)
+
+        screen._add_unified_entry.assert_called_once()
+        entry = screen._add_unified_entry.call_args[0][0]
+        assert entry.entry_type == StreamEntryType.AGENT_OUTPUT
+
 
 # =============================================================================
 # Nesting Level Computation Tests
@@ -664,7 +697,6 @@ class TestComputeNesting:
             parent_step_name=None,
         )
 
-
         await screen._handle_iteration_started(parent_event)
 
         # Parent should have nesting level 0
@@ -689,7 +721,6 @@ class TestComputeNesting:
         """Test nesting level computation for deeply nested loops."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
 
         # Create level 0 loop
         await screen._handle_iteration_started(
@@ -743,7 +774,6 @@ class TestEventHandlerIntegration:
         """Test complete loop iteration lifecycle from start to completion."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
 
         # Start iteration 0
         await screen._handle_iteration_started(

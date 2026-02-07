@@ -12,10 +12,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts.common import (
+    CODE_QUALITY_PRINCIPLES,
+    TOOL_USAGE_EDIT,
+    TOOL_USAGE_GLOB,
+    TOOL_USAGE_GREP,
+    TOOL_USAGE_READ,
+    TOOL_USAGE_TASK,
+    TOOL_USAGE_WRITE,
+)
 from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.agents.utils import detect_file_changes, extract_streaming_text
-from maverick.exceptions import TaskParseError
+from maverick.exceptions import AgentError, TaskParseError
 from maverick.logging import get_logger
 from maverick.models.implementation import (
     FileChange,
@@ -36,7 +45,7 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE = """You are an expert software engineer.
+IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE = f"""You are an expert software engineer.
 You focus on methodical, test-driven implementation within an orchestrated workflow.
 
 $skill_guidance
@@ -54,7 +63,8 @@ You focus on:
 
 ## Core Approach
 1. Understand the task fully before writing code
-2. Write tests for every source file you create or modify — this is mandatory, not optional
+2. Write tests for every source file you create or modify — this is
+   mandatory, not optional
 3. Follow project conventions from CLAUDE.md
 4. Make small, incremental changes
 5. Ensure code is ready for validation (will be run by orchestration)
@@ -72,30 +82,47 @@ If you create `src/foo/bar.py`, you must also create `tests/test_bar.py` (or
 the equivalent path for the project's test layout). Do not defer test creation
 to a later phase — write tests in the same session as the implementation.
 
-## Tools Available
-Read, Write, Edit, Glob, Grep, Task
+## Tool Usage Guidelines
 
-Use these tools to:
-- Read existing code and understand context
-- Write new files or update existing ones
-- Edit existing files with targeted replacements
-- Search for patterns and locate relevant code (Glob for files, Grep for content)
-- Spawn subagents for parallel task execution (Task)
+You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 
-**IMPORTANT**: You MUST use Write and Edit to create and modify source files.
-Do not just read and analyze — actually implement the code.
+### Read
+{TOOL_USAGE_READ}
+- Read is also suitable for reviewing spec files, CLAUDE.md, and existing code
+  to understand context and conventions before writing new code.
 
-## Output
-After completing all tasks, output a JSON summary:
-{
-  "task_id": "T001",
-  "status": "completed",
-  "files_changed": [{"path": "src/file.py", "added": 10, "removed": 2}],
-  "tests_added": ["tests/test_file.py"]
-}
+### Write
+{TOOL_USAGE_WRITE}
 
-Do NOT include a commit_message — the orchestration layer generates commit
-messages automatically from the diff.
+### Edit
+{TOOL_USAGE_EDIT}
+
+### Glob
+{TOOL_USAGE_GLOB}
+
+### Grep
+{TOOL_USAGE_GREP}
+
+### Task (Subagents)
+{TOOL_USAGE_TASK}
+- When tasks are marked **[P]** (parallel), launch them simultaneously via
+  multiple Task tool calls in a single response. This maximizes throughput.
+
+### run_validation
+- You do NOT have Bash access. To run commands use run_validation instead.
+- Call with types: ["sync"] to install or update dependencies. Always do
+  this after modifying pyproject.toml, package.json, or similar files.
+- Call with types: ["test"] to run tests after implementing code.
+- Call with types: ["lint"] or ["format"] to check for style issues.
+- Call with types: ["format", "lint", "test"] to run multiple checks at once.
+- Use this to verify your code works BEFORE completing the phase.
+- Do NOT rely solely on the orchestration layer to catch errors — take
+  ownership of delivering working code.
+
+**CRITICAL**: You MUST use Write and Edit to create and modify source files.
+Reading and analyzing is NOT enough — actually implement the code.
+
+{CODE_QUALITY_PRINCIPLES}
 """
 
 PHASE_PROMPT_TEMPLATE = """\
@@ -105,28 +132,96 @@ You are implementing a single phase from the task file at `{task_file}`.
 
 ### Step 1: Load Context
 
-Read the following spec artifacts to understand the project:
+Read and internalize the following spec artifacts before writing any code:
 - **REQUIRED**: Read `{task_file}` for the complete task list
-- **REQUIRED**: Read the spec directory for plan.md (tech stack, architecture)
-- **IF EXISTS**: Read data-model.md, contracts/, research.md, quickstart.md
+- **REQUIRED**: Read the spec directory for `plan.md` (tech stack, architecture,
+  directory structure, key design decisions)
+- **REQUIRED**: Read `CLAUDE.md` (if it exists) for project conventions, coding
+  standards, and development patterns you must follow
+- **IF EXISTS**: Read `data-model.md` for schema definitions and entity relationships
+- **IF EXISTS**: Read files in `contracts/` for API contracts and interface definitions
+- **IF EXISTS**: Read `research.md` for technology choices, trade-offs, and decisions
+- **IF EXISTS**: Read `quickstart.md` for setup patterns and project entry points
 
-### Step 2: Identify Tasks
+Internalize the tech stack, directory layout, naming conventions, and testing
+patterns from these artifacts. All code you write must align with them.
+
+### Step 2: Project Setup Verification
+
+Before implementing features, verify that the project has appropriate ignore
+files (`.gitignore`, etc.) for its tech stack. If `plan.md` specifies a tech
+stack and no ignore files exist yet, create them with standard patterns for
+that technology.
+
+Common patterns by technology:
+- **Python**: `__pycache__/`, `*.pyc`, `.venv/`, `dist/`, `*.egg-info/`,
+  `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`
+- **Node.js**: `node_modules/`, `dist/`, `.next/`, `.nuxt/`, `coverage/`
+- **Rust**: `target/`, `Cargo.lock` (for libraries)
+- **Go**: `vendor/` (if vendoring), binary outputs
+- **General**: `.env`, `.env.local`, `*.log`, `.DS_Store`, `*.swp`
+
+### Step 3: Identify Tasks
 
 From `{task_file}`, find ALL tasks listed under the **"{phase_name}"** section.
+
+Parse the task structure carefully:
+- Extract task IDs (e.g., `T001`, `T002`) and their full descriptions
+- Identify dependency markers — tasks that reference other task IDs as
+  prerequisites must wait until those complete
+- Identify **[P]** parallel markers — these tasks have no inter-dependencies
+  and can execute simultaneously
+- Determine execution flow: sequential tasks first, then parallel batches,
+  then any sequential tasks that depend on the parallel batch
+
 These are the tasks you MUST implement in this session.
 
-### Step 3: Execute Tasks
+### Step 4: Execute Tasks
 
-For EACH task in this phase, you MUST:
-1. **Create or modify the source files** specified in the task description
-   using the Write tool (new files) or Edit tool (existing files)
-2. Write tests for every source file you create or modify
-3. After completing each task, mark it as done in `{task_file}` by changing
-   `- [ ]` to `- [x]` for that task line
+Implement tasks using a TDD (Test-Driven Development) approach:
 
-Tasks marked with **[P]** can be executed simultaneously by spawning
-separate subagents via the Task tool. Sequential tasks must be completed
-in order.
+**For each task:**
+1. **Read** existing files that will be affected (use Read tool)
+2. **Write tests first** — create or update test files that define the expected
+   behavior. Test files must cover the public API of any new module.
+3. **Implement the source code** — use Write (new files) or Edit (existing files)
+   to create the minimal implementation that satisfies the tests
+4. **Verify consistency** — re-read modified files to confirm edits applied
+   correctly and the code is syntactically valid
+
+**Parallel task execution ([P] markers):**
+- Tasks marked with **[P]** can be executed simultaneously by spawning
+  separate subagents via the Task tool
+- Launch all [P] tasks in a single response with multiple Task tool calls
+- Each subagent prompt must include: the task description, relevant file paths,
+  project conventions from CLAUDE.md, and the tech stack context
+- Sequential tasks must be completed in order before moving to the next
+
+**Phase ordering:**
+- Complete all tasks in a phase before the orchestration layer advances to
+  the next phase. You only handle the current phase.
+
+### Step 5: Progress Tracking
+
+After completing each task:
+- Mark it as done in `{task_file}` by changing `- [ ]` to `- [x]` for that
+  task line using the Edit tool
+- If a task fails or cannot be completed, leave it unchecked and continue
+  with the next task — do not let one failure block the entire phase
+- If a parallel [P] subagent fails, continue with remaining tasks and report
+  the failure
+
+### Step 6: Completion Validation
+
+After all tasks in the phase are attempted:
+- Re-read `{task_file}` to verify all tasks in **"{phase_name}"** are marked
+  `[x]` (or documented as failed with a reason)
+- Verify that the implemented features match what the task descriptions
+  specified — do not leave partial implementations
+- Confirm that every new source file has a corresponding test file
+- Run run_validation with types: ["sync"] (if you modified dependency
+  files), then ["format", "lint", "test"]. Fix any issues found before
+  completing.
 
 ### Rules
 
@@ -135,12 +230,15 @@ in order.
 - You MUST create test files for every source module you create. If you
   create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
   tests or defer them to a later phase.
-- You do NOT have Bash access. Do not try to run shell commands.
-- The orchestration workflow handles git commits, validation, and testing
-  after you finish. Focus only on writing code.
+- You do NOT have Bash access. Use run_validation for all commands.
+- The orchestration workflow handles git commits after you finish.
+- Use run_validation to run tests, lint, and format checks before
+  completing. If you modified dependency files, run sync first.
 - Do NOT include commit messages in your output — the workflow generates
   them automatically.
 - Follow the project's conventions from CLAUDE.md if it exists.
+- Read files before editing them. Do not guess at file contents.
+- Prefer Edit over Write for existing files to make targeted changes.
 """
 
 
@@ -193,10 +291,15 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             project_type=project_type,
         )
 
+        # Build allowed tools list, adding validation MCP tool if server is present
+        tools = list(IMPLEMENTER_TOOLS)
+        if mcp_servers and "validation-tools" in mcp_servers:
+            tools.append("mcp__validation-tools__run_validation")
+
         super().__init__(
             name="implementer",
             system_prompt=system_prompt,
-            allowed_tools=list(IMPLEMENTER_TOOLS),
+            allowed_tools=tools,
             model=model,
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
@@ -502,7 +605,14 @@ After completion, provide a summary of changes made.
                     )
                 )
             else:
-                assert isinstance(result, TaskResult)
+                if not isinstance(result, TaskResult):
+                    raise AgentError(
+                        message=(
+                            f"Expected TaskResult from parallel task"
+                            f" {task.id}, got {type(result).__name__}"
+                        ),
+                        agent_name=self.name,
+                    )
                 task_results.append(result)
 
         return task_results
@@ -527,8 +637,16 @@ After completion, provide a summary of changes made.
         """
         start_time = time.monotonic()
 
-        assert context.task_file is not None
-        assert context.phase_name is not None
+        if context.task_file is None:
+            raise AgentError(
+                message="task_file is required for phase mode execution",
+                agent_name=self.name,
+            )
+        if context.phase_name is None:
+            raise AgentError(
+                message="phase_name is required for phase mode execution",
+                agent_name=self.name,
+            )
 
         try:
             # Verify task file exists (Claude can't read a nonexistent file)

@@ -330,6 +330,7 @@ class TestValidationDefaults:
     def test_python_defaults(self) -> None:
         """Test Python default validation commands."""
         python = VALIDATION_DEFAULTS[ProjectType.PYTHON]
+        assert python.sync_cmd == ("uv", "sync")
         assert python.format_cmd == ("ruff", "format", ".")
         assert python.lint_cmd == ("ruff", "check", "--fix", ".")
         assert python.typecheck_cmd == ("mypy", ".")
@@ -338,6 +339,7 @@ class TestValidationDefaults:
     def test_nodejs_defaults(self) -> None:
         """Test Node.js default validation commands."""
         nodejs = VALIDATION_DEFAULTS[ProjectType.NODEJS]
+        assert nodejs.sync_cmd == ("npm", "install")
         assert nodejs.format_cmd == ("prettier", "--write", ".")
         assert nodejs.lint_cmd == ("eslint", "--fix", ".")
         assert nodejs.typecheck_cmd == ("tsc", "--noEmit")
@@ -346,6 +348,7 @@ class TestValidationDefaults:
     def test_go_defaults(self) -> None:
         """Test Go default validation commands."""
         go = VALIDATION_DEFAULTS[ProjectType.GO]
+        assert go.sync_cmd == ("go", "mod", "download")
         assert go.format_cmd == ("gofmt", "-w", ".")
         assert go.lint_cmd == ("golangci-lint", "run")
         assert go.typecheck_cmd is None  # Compiled language
@@ -354,6 +357,7 @@ class TestValidationDefaults:
     def test_rust_defaults(self) -> None:
         """Test Rust default validation commands."""
         rust = VALIDATION_DEFAULTS[ProjectType.RUST]
+        assert rust.sync_cmd == ("cargo", "build")
         assert rust.format_cmd == ("cargo", "fmt")
         assert rust.lint_cmd == ("cargo", "clippy", "--fix", "--allow-dirty")
         assert rust.typecheck_cmd is None  # Compiled language
@@ -363,6 +367,7 @@ class TestValidationDefaults:
         """Test that UNKNOWN type defaults match Python defaults."""
         unknown = VALIDATION_DEFAULTS[ProjectType.UNKNOWN]
         python = VALIDATION_DEFAULTS[ProjectType.PYTHON]
+        assert unknown.sync_cmd == python.sync_cmd
         assert unknown.format_cmd == python.format_cmd
         assert unknown.lint_cmd == python.lint_cmd
         assert unknown.typecheck_cmd == python.typecheck_cmd
@@ -405,6 +410,7 @@ class TestValidationCommands:
     def test_create_with_no_commands(self) -> None:
         """Test creating ValidationCommands with default None values."""
         commands = ValidationCommands()
+        assert commands.sync_cmd is None
         assert commands.format_cmd is None
         assert commands.lint_cmd is None
         assert commands.typecheck_cmd is None
@@ -430,6 +436,7 @@ class TestValidationCommands:
     def test_to_dict_with_all_commands(self) -> None:
         """Test to_dict with all commands specified."""
         commands = ValidationCommands(
+            sync_cmd=("uv", "sync"),
             format_cmd=("ruff", "format", "."),
             lint_cmd=("ruff", "check", "."),
             typecheck_cmd=("mypy", "."),
@@ -437,6 +444,7 @@ class TestValidationCommands:
         )
         result = commands.to_dict()
         assert result == {
+            "sync_cmd": ["uv", "sync"],
             "format_cmd": ["ruff", "format", "."],
             "lint_cmd": ["ruff", "check", "."],
             "typecheck_cmd": ["mypy", "."],
@@ -450,6 +458,7 @@ class TestValidationCommands:
             typecheck_cmd=None,
         )
         result = commands.to_dict()
+        assert result["sync_cmd"] is None
         assert result["format_cmd"] == ["ruff", "format", "."]
         assert result["lint_cmd"] is None
         assert result["typecheck_cmd"] is None
@@ -987,6 +996,7 @@ class TestInitValidationConfig:
     def test_create_with_defaults(self) -> None:
         """Test creating InitValidationConfig with default values."""
         config = InitValidationConfig()
+        assert config.sync_cmd is None
         assert config.format_cmd is None
         assert config.lint_cmd is None
         assert config.typecheck_cmd is None
@@ -997,6 +1007,7 @@ class TestInitValidationConfig:
     def test_create_with_all_fields(self) -> None:
         """Test creating InitValidationConfig with all fields."""
         config = InitValidationConfig(
+            sync_cmd=["uv", "sync"],
             format_cmd=["ruff", "format", "."],
             lint_cmd=["ruff", "check", "."],
             typecheck_cmd=["mypy", "."],
@@ -1004,6 +1015,7 @@ class TestInitValidationConfig:
             timeout_seconds=600,
             max_errors=100,
         )
+        assert config.sync_cmd == ["uv", "sync"]
         assert config.format_cmd == ["ruff", "format", "."]
         assert config.lint_cmd == ["ruff", "check", "."]
         assert config.typecheck_cmd == ["mypy", "."]

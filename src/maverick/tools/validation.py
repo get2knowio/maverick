@@ -40,7 +40,7 @@ SERVER_NAME: str = "validation-tools"
 SERVER_VERSION: str = "1.0.0"
 
 #: Valid validation types
-VALIDATION_TYPES: set[str] = {"format", "lint", "build", "typecheck", "test"}
+VALIDATION_TYPES: set[str] = {"format", "lint", "build", "typecheck", "test", "sync"}
 
 #: Ruff output pattern: path:line:col: code message
 RUFF_PATTERN: re.Pattern[str] = re.compile(
@@ -197,8 +197,29 @@ def create_validation_tools_server(
 
     @tool(
         "run_validation",
-        "Run project validation commands (format, lint, typecheck, test)",
-        {"types": list},
+        (
+            "Run project validation commands. "
+            "Pass types: a list of one or more of "
+            '"format", "lint", "typecheck", "test", "sync". '
+            'Use "sync" to install/update dependencies (replaces uv sync, '
+            "npm install, etc.). You do NOT have Bash — use this tool for "
+            "all validation and dependency operations."
+        ),
+        {
+            "type": "object",
+            "properties": {
+                "types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Validation types to run. "
+                        'Valid values: "format", "lint", "typecheck", '
+                        '"test", "sync".'
+                    ),
+                },
+            },
+            "required": ["types"],
+        },
     )
     async def run_validation(args: dict[str, Any]) -> dict[str, Any]:
         """Run validation commands based on ValidationConfig.
@@ -250,6 +271,7 @@ def create_validation_tools_server(
                 "build": _config.typecheck_cmd,  # build is an alias for typecheck
                 "typecheck": _config.typecheck_cmd,
                 "test": _config.test_cmd,
+                "sync": _config.sync_cmd,
             }
 
             results: list[dict[str, Any]] = []

@@ -39,7 +39,7 @@ from maverick.dsl.prerequisites import (
 )
 from maverick.dsl.results import RollbackError, StepResult, WorkflowResult
 from maverick.dsl.serialization.executor import checkpointing, conditions, context
-from maverick.dsl.serialization.executor.handlers import get_handler
+from maverick.dsl.serialization.executor.handlers import HandlerOutput, get_handler
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.step_path import make_prefix_callback
 from maverick.dsl.serialization.registry import ComponentRegistry
@@ -80,13 +80,13 @@ def _extract_embedded_events(
 ) -> tuple[Any, list[EmbeddedEventType]]:
     """Extract embedded events from step output.
 
-    Step handlers (like loop_step and agent_step) may return outputs
-    containing embedded events in the format:
-    - {"result": <actual_result>, "events": [<events>]} for agent steps
-    - {"results": <actual_results>, "events": [<events>]} for loop steps
+    Step handlers (like loop_step and agent_step) return ``HandlerOutput``
+    instances containing both the result value and emitted progress events.
+    This function unpacks those into (result, events) for the executor.
 
-    This function extracts the events for streaming and returns the
-    actual result for storage.
+    Legacy dict-based returns (``{"result": ..., "events": [...]}`` and
+    ``{"results": ..., "events": [...]}``) are still supported for backward
+    compatibility but new code should use ``HandlerOutput``.
 
     Args:
         output: Raw output from step handler.
@@ -95,10 +95,22 @@ def _extract_embedded_events(
         Tuple of (actual_output, list_of_events).
         If no events are embedded, returns (output, []).
     """
+    # Preferred path: typed HandlerOutput dataclass
+    if isinstance(output, HandlerOutput):
+        events: list[EmbeddedEventType] = []
+        for event in output.events:
+            if isinstance(
+                event,
+                (AgentStreamChunk, LoopIterationStarted, LoopIterationCompleted),
+            ):
+                events.append(event)
+        return output.result, events
+
+    # Legacy dict-based path (backward compatibility)
     if not isinstance(output, dict):
         return output, []
 
-    events: list[EmbeddedEventType] = []
+    legacy_events: list[EmbeddedEventType] = []
 
     # Check for events key
     if "events" in output:
@@ -110,16 +122,15 @@ def _extract_embedded_events(
                     event,
                     (AgentStreamChunk, LoopIterationStarted, LoopIterationCompleted),
                 ):
-                    events.append(event)
+                    legacy_events.append(event)
 
     # Extract actual result based on output format
     if "result" in output and "events" in output:
         # Agent step format: {"result": ..., "events": [...]}
-        return output["result"], events
+        return output["result"], legacy_events
     elif "results" in output and "events" in output:
         # Loop step format: {"results": [...], "events": [...]}
-        # Keep the results structure for backward compatibility
-        return {"results": output["results"]}, events
+        return output["results"], legacy_events
 
     # No embedded events or unknown format - return as-is
     return output, []

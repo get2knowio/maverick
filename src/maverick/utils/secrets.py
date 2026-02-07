@@ -1,16 +1,23 @@
-"""Secret detection utilities for Maverick.
+"""Secret detection and scrubbing utilities for Maverick.
 
-This module provides secret detection functionality to scan text content
-for potential secrets like API keys, tokens, and passwords.
+This is the canonical module for all secret/sensitive-data handling. It provides:
 
-Uses Yelp's detect-secrets library for robust, well-maintained secret detection
-with support for many secret types including AWS keys, GitHub tokens, private keys,
-JWT tokens, and various other API keys.
+1. **Regex-based output scrubbing** -- ``SENSITIVE_PATTERNS`` and the helper
+   functions ``scrub_secrets`` / ``is_potentially_secret`` replace sensitive
+   values in log output, command stderr, and hook payloads.
+
+2. **File-scanning via detect-secrets** -- ``DEFAULT_DETECTORS`` and
+   ``detect_secrets()`` use Yelp's detect-secrets library for robust,
+   plugin-based secret detection in file content.
+
+All other modules that need secret patterns MUST import from here.
 """
 
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,14 +32,158 @@ if TYPE_CHECKING:
     from detect_secrets.plugins.base import BasePlugin
 
 __all__ = [
+    # Regex-based scrubbing
+    "SENSITIVE_PATTERNS",
+    "scrub_secrets",
+    "is_potentially_secret",
+    # detect-secrets plugin scanning
     "detect_secrets",
     "load_baseline",
     "DEFAULT_DETECTORS",
 ]
 
+# ---------------------------------------------------------------------------
+# 1. Consolidated regex patterns for output scrubbing
+# ---------------------------------------------------------------------------
+# Each entry is ``(raw_pattern, replacement)``.  Patterns are applied in order
+# so more specific patterns (GitHub PATs, AWS keys) come before generic ones
+# (password=, token=).  All patterns are case-insensitive.
+#
+# The tuple is the single source of truth -- every consumer should reference
+# ``SENSITIVE_PATTERNS`` (or the pre-compiled helpers below) instead of
+# defining its own copy.
 
-# Default detectors to use for secret scanning
-# These cover the most common secret types with low false positive rates
+SENSITIVE_PATTERNS: tuple[tuple[str, str], ...] = (
+    # --- Specific token formats (order matters: most specific first) ---
+    # GitHub PATs  (ghp_, ghs_, gho_, ghu_, gh_)
+    (r"\b(gh[opsu]_[A-Za-z0-9_]{36,})\b", "***GITHUB_TOKEN***"),
+    (r"\b(gh_[A-Za-z0-9_]{36,})\b", "***GITHUB_TOKEN***"),
+    # OpenAI / Anthropic API keys  (sk-...)
+    (r"sk-[a-zA-Z0-9]{32,}", "***API_KEY***"),
+    # AWS access keys  (AKIA...)
+    (r"AKIA[0-9A-Z]{16}", "***AWS_KEY***"),
+    # --- Auth headers ---
+    (r"(bearer|authorization)\s+\S+", r"\1 ***REDACTED***"),
+    # --- Generic credential assignments  (key=value / key: value) ---
+    (r"(password|passwd|pwd)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
+    (r"(api[_\-]?key|apikey)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
+    (r"(secret|token)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
+    (r"(credentials)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
+    # --- Broad catch-all (Base64 blobs) -- intentionally last ---
+    (r"[a-zA-Z0-9+/]{40,}={0,2}", "***BASE64_REDACTED***"),
+)
+
+# Pre-compiled versions for callers that iterate many times.
+_COMPILED_SENSITIVE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE), replacement)
+    for pattern, replacement in SENSITIVE_PATTERNS
+)
+
+# Convenience partition used by hooks/logging for its two-phase approach:
+# "specific" patterns (first 4 entries) never use group back-references in
+# the replacement, while "generic" patterns (the rest) may.
+_COMPILED_SPECIFIC_PATTERNS: list[tuple[re.Pattern[str], str]] = list(
+    _COMPILED_SENSITIVE_PATTERNS[:4]
+)
+_COMPILED_GENERIC_PATTERNS: list[tuple[re.Pattern[str], str]] = list(
+    _COMPILED_SENSITIVE_PATTERNS[4:]
+)
+
+
+# ---------------------------------------------------------------------------
+# 2. scrub_secrets / is_potentially_secret  (regex-based helpers)
+# ---------------------------------------------------------------------------
+
+
+def _make_safe_replacer(replacement: str) -> Callable[[re.Match[str]], str]:
+    """Create a replacer that skips already-redacted text.
+
+    Generic patterns (password=, token=, etc.) might re-match output that
+    was already redacted by a more specific pattern.  This factory returns
+    a ``re.sub`` callable that leaves such matches untouched.
+
+    Args:
+        replacement: The replacement template string (may contain group
+            back-references such as ``\\1``).
+
+    Returns:
+        A function suitable for ``re.sub``.
+    """
+
+    def _replacer(match: re.Match[str]) -> str:
+        if "***" in match.group(0):
+            return match.group(0)
+        return match.expand(replacement)
+
+    return _replacer
+
+
+def scrub_secrets(text: str) -> str:
+    """Remove potential secrets from text.
+
+    Replaces various types of secrets with redaction markers:
+
+    - GitHub PATs (ghp_, ghs_, gho_, ghu_, gh_) -> ``***GITHUB_TOKEN***``
+    - OpenAI/Anthropic API keys (sk-...) -> ``***API_KEY***``
+    - AWS access keys (AKIA...) -> ``***AWS_KEY***``
+    - Generic credentials (api_key=, password=, etc.) -> ``***REDACTED***``
+    - Bearer / Authorization tokens -> ``***REDACTED***``
+    - Long Base64-encoded blobs -> ``***BASE64_REDACTED***``
+
+    Args:
+        text: The text to scrub.
+
+    Returns:
+        The text with secrets replaced by redaction markers.
+
+    Example:
+        >>> scrub_secrets("token=ghp_1234567890abcdefghijklmnopqrstuvwxyz")
+        'token=***GITHUB_TOKEN***'
+        >>> scrub_secrets("api_key=sk-test123456789abcdefghijk")
+        'api_key=***API_KEY***'
+    """
+    if not text:
+        return text
+
+    result = text
+    for compiled_pattern, replacement in _COMPILED_SENSITIVE_PATTERNS:
+        result = compiled_pattern.sub(_make_safe_replacer(replacement), result)
+    return result
+
+
+def is_potentially_secret(text: str) -> bool:
+    """Detect if text contains potential secrets.
+
+    Checks if the text matches any known secret pattern from
+    ``SENSITIVE_PATTERNS``.
+
+    Args:
+        text: The text to check.
+
+    Returns:
+        True if the text appears to contain secrets, False otherwise.
+
+    Example:
+        >>> is_potentially_secret("ghp_1234567890abcdefghijklmnopqrstuvwxyz")
+        True
+        >>> is_potentially_secret("This is a normal description")
+        False
+    """
+    if not text:
+        return False
+
+    return any(
+        compiled_pattern.search(text)
+        for compiled_pattern, _replacement in _COMPILED_SENSITIVE_PATTERNS
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. detect-secrets plugin-based file scanning
+# ---------------------------------------------------------------------------
+
+# Default detectors to use for secret scanning.
+# These cover the most common secret types with low false positive rates.
 DEFAULT_DETECTORS: tuple[str, ...] = (
     "AWS Access Key",
     "GitHub Token",

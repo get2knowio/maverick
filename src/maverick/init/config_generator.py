@@ -93,6 +93,9 @@ def generate_config(
     # Build validation config from validation commands
     # Convert tuples to lists for Pydantic model compatibility
     validation_config = InitValidationConfig(
+        sync_cmd=list(validation_commands.sync_cmd)
+        if validation_commands.sync_cmd
+        else None,
         format_cmd=list(validation_commands.format_cmd)
         if validation_commands.format_cmd
         else None,

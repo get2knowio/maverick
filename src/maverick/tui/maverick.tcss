@@ -1724,102 +1724,13 @@ HelpPanel .help-description {
     color: $text-dim;
 }
 
-/* Stream content area */
-#unified-stream .stream-content {
+/* Stream content area (RichLog — styling is inline via rich.text.Text) */
+#unified-stream #stream-content {
     height: 1fr;
-    padding: 0;
+    padding: 0 1;
     scrollbar-background: $surface;
     scrollbar-color: $text-dim;
     background: $background;
-}
-
-/* Individual stream entries */
-#unified-stream .stream-entry {
-    height: auto;
-    width: 100%;
-    padding: 0 1;
-}
-
-#unified-stream .stream-entry .badge {
-    min-width: 12;
-    margin-right: 1;
-}
-
-#unified-stream .stream-entry .content {
-    width: 1fr;
-}
-
-/* Entry type styling - step events */
-#unified-stream .stream-entry.step-start .badge {
-    color: $accent;
-    text-style: bold;
-}
-
-#unified-stream .stream-entry.step-complete .badge {
-    color: $success;
-    text-style: bold;
-}
-
-#unified-stream .stream-entry.step-failed .badge {
-    color: $error;
-    text-style: bold;
-}
-
-/* Entry type styling - agent output */
-#unified-stream .stream-entry.agent-output .badge {
-    color: $text;
-}
-
-#unified-stream .stream-entry.agent-thinking .badge {
-    color: $text-muted;
-    text-style: italic;
-}
-
-#unified-stream .stream-entry.agent-thinking .content {
-    color: $text-muted;
-    text-style: italic;
-}
-
-/* Entry type styling - tool calls */
-#unified-stream .stream-entry.tool-call .badge {
-    color: $info;
-}
-
-#unified-stream .stream-entry.tool-result .badge {
-    color: $text-muted;
-}
-
-#unified-stream .stream-entry.tool-result .content {
-    color: $text-muted;
-}
-
-/* Entry type styling - loops */
-#unified-stream .stream-entry.loop-start .badge {
-    color: $warning;
-}
-
-#unified-stream .stream-entry.loop-complete .badge {
-    color: $warning;
-}
-
-/* Entry type styling - errors and info */
-#unified-stream .stream-entry.error .badge {
-    color: $error;
-    text-style: bold;
-}
-
-#unified-stream .stream-entry.error .content {
-    color: $error;
-}
-
-#unified-stream .stream-entry.info .badge {
-    color: $info;
-}
-
-/* Continuation lines for multi-line content */
-#unified-stream .continuation {
-    padding-left: 2;
-    color: $text-muted;
 }
 
 /* Auto-scroll paused indicator */

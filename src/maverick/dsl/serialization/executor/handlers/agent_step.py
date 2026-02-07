@@ -18,6 +18,7 @@ from maverick.dsl.serialization.executor.context_resolution import (
     resolve_context_builder,
 )
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import AgentStepRecord
 from maverick.logging import get_logger
@@ -47,7 +48,7 @@ async def execute_agent_step(
         config: Optional configuration (unused).
 
     Returns:
-        Dictionary containing:
+        HandlerOutput containing:
         - result: Agent execution result
         - events: List of AgentStreamChunk events emitted during execution
 
@@ -106,8 +107,25 @@ async def execute_agent_step(
             f"Expected a class or callable, got {type(agent_class).__name__}"
         )
 
+    # Build kwargs for agent construction
+    agent_kwargs: dict[str, Any] = {}
+
+    # Inject validation MCP server for implementer agent
+    if step.agent == "implementer":
+        try:
+            from maverick.config import load_config
+            from maverick.tools.validation import create_validation_tools_server
+
+            maverick_config = load_config()
+            val_server = create_validation_tools_server(maverick_config.validation)
+            # Remove test-only _tools key that breaks SDK serialization
+            val_server.pop("_tools", None)  # type: ignore[misc]
+            agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
+        except Exception:
+            pass  # Graceful fallback - agent works without validation tools
+
     try:
-        agent_instance = agent_class()  # type: ignore[call-arg]
+        agent_instance = agent_class(**agent_kwargs)
     except TypeError as e:
         logger.error(
             "failed_to_instantiate_agent",
@@ -260,8 +278,8 @@ async def execute_agent_step(
 
             context_module.register_rollback(context, step.name, rollback_wrapper)
 
-    # Return result with events (matches loop handler pattern)
-    return {"result": result, "events": emitted_events}
+    # Return result with events using typed HandlerOutput
+    return HandlerOutput(result=result, events=emitted_events)
 
 
 def _extract_output_text(result: Any) -> str:

@@ -23,6 +23,7 @@ from textual.reactive import reactive
 from textual.widgets import Static
 from textual.worker import Worker, WorkerState
 
+from maverick.dsl.events import AgentStreamChunk
 from maverick.logging import get_logger
 from maverick.tui.models.enums import IterationStatus, StreamChunkType, StreamEntryType
 from maverick.tui.models.step_tree import StepTreeState
@@ -43,7 +44,6 @@ from maverick.tui.widgets.unified_stream import UnifiedStreamWidget
 
 if TYPE_CHECKING:
     from maverick.dsl.events import (
-        AgentStreamChunk,
         LoopIterationCompleted,
         LoopIterationStarted,
         StepCompleted,
@@ -185,7 +185,7 @@ class WorkflowExecutionScreen(MaverickScreen):
         self._stream_buffer_paths: dict[
             str, str | None
         ] = {}  # agent_key -> step_path (for filtering)
-        self._stream_buffer_flush_delay: float = 0.3  # Flush stale buffers after 300ms
+        self._stream_buffer_flush_delay: float = 1.0  # Flush stale buffers after 1s
         self._stream_buffer_flush_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
@@ -1041,31 +1041,25 @@ class WorkflowExecutionScreen(MaverickScreen):
             if now - last_update >= stale_threshold:
                 buffer = self._stream_buffers.get(agent_key, "")
                 if buffer.strip():
-                    # Flush the entire buffer as-is
+                    # Build a synthetic event for _flush_stream_text
                     parts = agent_key.split(":", 1)
                     step_name = parts[0] if len(parts) > 0 else "unknown"
                     agent_name = parts[1] if len(parts) > 1 else "unknown"
                     step_path = self._stream_buffer_paths.get(agent_key)
 
-                    unified_entry = UnifiedStreamEntry(
-                        timestamp=now,
-                        entry_type=StreamEntryType.AGENT_OUTPUT,
-                        source=agent_name,
-                        content=buffer.rstrip(),
-                        level="info",
-                        step_name=step_name,
-                        step_path=step_path,
-                    )
-                    self._add_unified_entry(unified_entry)
-
-                    legacy_entry = AgentStreamEntry(
-                        timestamp=now,
+                    synthetic_event = AgentStreamChunk(
                         step_name=step_name,
                         agent_name=agent_name,
-                        text=buffer.rstrip(),
-                        chunk_type=StreamChunkType.OUTPUT,
+                        text=buffer,
+                        chunk_type="output",
+                        timestamp=now,
+                        step_path=step_path,
                     )
-                    self._streaming_state.add_entry(legacy_entry)
+                    await self._flush_stream_text(
+                        buffer,
+                        synthetic_event,
+                        StreamChunkType.OUTPUT,
+                    )
 
                     # Clear this buffer
                     self._stream_buffers[agent_key] = ""
@@ -1078,6 +1072,10 @@ class WorkflowExecutionScreen(MaverickScreen):
     ) -> None:
         """Flush buffered text to the unified stream.
 
+        Splits text at tool-call boundaries so that tool call lines
+        (└-prefixed) get their own entries with correct TOOL_CALL
+        classification, even when buffered together with agent output.
+
         Args:
             text: The text to flush.
             event: The original event (for metadata).
@@ -1087,32 +1085,88 @@ class WorkflowExecutionScreen(MaverickScreen):
         if not text.strip():
             return
 
-        # Map StreamChunkType to StreamEntryType
-        if chunk_type == StreamChunkType.THINKING:
-            entry_type = StreamEntryType.AGENT_THINKING
-        elif chunk_type == StreamChunkType.ERROR:
-            entry_type = StreamEntryType.ERROR
-        else:
-            entry_type = StreamEntryType.AGENT_OUTPUT
+        # For thinking/error chunks, emit as a single entry (no splitting)
+        if chunk_type in (StreamChunkType.THINKING, StreamChunkType.ERROR):
+            entry_type = (
+                StreamEntryType.AGENT_THINKING
+                if chunk_type == StreamChunkType.THINKING
+                else StreamEntryType.ERROR
+            )
+            self._emit_stream_entry(text, entry_type, event, chunk_type)
+            return
 
-        # Create unified stream entry
+        # Split at tool-call boundaries so └-prefixed lines get their
+        # own entries even when buffered with preceding agent text.
+        for segment, is_tool in self._split_tool_call_segments(text):
+            entry_type = (
+                StreamEntryType.TOOL_CALL if is_tool else StreamEntryType.AGENT_OUTPUT
+            )
+            self._emit_stream_entry(segment, entry_type, event, chunk_type)
+
+    def _split_tool_call_segments(self, text: str) -> list[tuple[str, bool]]:
+        """Split text into segments separating tool-call lines from regular text.
+
+        Handles tool-call markers (└) that appear mid-line (without a
+        preceding newline) by inserting a split before each └ character.
+        Then groups consecutive lines by type.
+
+        Args:
+            text: The text to split.
+
+        Returns:
+            List of (segment_text, is_tool_call) pairs.
+        """
+        # First, ensure every └ starts on its own line.
+        # Insert a newline before └ when it appears mid-line.
+        normalized = text.replace("\u2514", "\n\u2514")
+
+        lines = normalized.split("\n")
+        segments: list[tuple[list[str], bool]] = []
+
+        for line in lines:
+            is_tool = line.startswith("\u2514")
+            if segments and segments[-1][1] == is_tool:
+                segments[-1][0].append(line)
+            else:
+                segments.append(([line], is_tool))
+
+        return [("\n".join(group), is_tool) for group, is_tool in segments]
+
+    def _emit_stream_entry(
+        self,
+        text: str,
+        entry_type: StreamEntryType,
+        event: AgentStreamChunk,
+        chunk_type: StreamChunkType,
+    ) -> None:
+        """Create and add a single stream entry.
+
+        Args:
+            text: The text content for the entry.
+            entry_type: The classified entry type.
+            event: The original event (for metadata).
+            chunk_type: The original chunk type (for legacy state).
+        """
+        content = text.rstrip()
+        if not content.strip():
+            return
+
         unified_entry = UnifiedStreamEntry(
             timestamp=event.timestamp,
             entry_type=entry_type,
             source=event.agent_name,
-            content=text.rstrip(),  # Remove trailing whitespace for cleaner display
+            content=content,
             level="error" if chunk_type == StreamChunkType.ERROR else "info",
             step_name=event.step_name,
             step_path=event.step_path,
         )
         self._add_unified_entry(unified_entry)
 
-        # Also add to legacy streaming state
         legacy_entry = AgentStreamEntry(
             timestamp=event.timestamp,
             step_name=event.step_name,
             agent_name=event.agent_name,
-            text=text.rstrip(),
+            text=content,
             chunk_type=chunk_type,
         )
         self._streaming_state.add_entry(legacy_entry)
@@ -1121,34 +1175,33 @@ class WorkflowExecutionScreen(MaverickScreen):
         """Flush all remaining text in stream buffers.
 
         Called when a step completes to ensure no text is left unbuffered.
+        Uses _split_tool_call_segments so tool-call lines get their own
+        entries even in timeout/completion flushes.
         """
         for agent_key, buffer in list(self._stream_buffers.items()):
             if buffer.strip():
-                # Create a minimal entry for the remaining text
                 parts = agent_key.split(":", 1)
                 step_name = parts[0] if len(parts) > 0 else "unknown"
                 agent_name = parts[1] if len(parts) > 1 else "unknown"
                 step_path = self._stream_buffer_paths.get(agent_key)
 
-                unified_entry = UnifiedStreamEntry(
-                    timestamp=time.time(),
-                    entry_type=StreamEntryType.AGENT_OUTPUT,
-                    source=agent_name,
-                    content=buffer.rstrip(),
-                    level="info",
-                    step_name=step_name,
-                    step_path=step_path,
-                )
-                self._add_unified_entry(unified_entry)
-
-                legacy_entry = AgentStreamEntry(
-                    timestamp=time.time(),
+                synthetic_event = AgentStreamChunk(
                     step_name=step_name,
                     agent_name=agent_name,
-                    text=buffer.rstrip(),
-                    chunk_type=StreamChunkType.OUTPUT,
+                    text=buffer,
+                    chunk_type="output",
+                    timestamp=time.time(),
+                    step_path=step_path,
                 )
-                self._streaming_state.add_entry(legacy_entry)
+                for segment, is_tool in self._split_tool_call_segments(buffer):
+                    entry_type = (
+                        StreamEntryType.TOOL_CALL
+                        if is_tool
+                        else StreamEntryType.AGENT_OUTPUT
+                    )
+                    self._emit_stream_entry(
+                        segment, entry_type, synthetic_event, StreamChunkType.OUTPUT
+                    )
 
         # Clear all buffers
         self._stream_buffers.clear()

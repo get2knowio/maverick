@@ -9,45 +9,20 @@ from typing import Any
 from maverick.hooks.config import LoggingConfig
 from maverick.hooks.types import ToolExecutionLog
 from maverick.logging import get_logger
+from maverick.utils.secrets import (
+    _COMPILED_GENERIC_PATTERNS,
+    _COMPILED_SPECIFIC_PATTERNS,
+    SENSITIVE_PATTERNS,
+)
 
 logger = get_logger(__name__)
 
 # Debug output preview length for truncation
 DEBUG_OUTPUT_PREVIEW_LENGTH = 100
 
-# Default sensitive patterns for sanitization (FR-013)
-# Order matters - more specific patterns first
-DEFAULT_SENSITIVE_PATTERNS: list[tuple[str, str]] = [
-    # GitHub PAT (must come before generic token pattern)
-    (r"ghp_[a-zA-Z0-9]{36}", "***GITHUB_TOKEN***"),
-    # OpenAI/Anthropic API keys
-    (r"sk-[a-zA-Z0-9]{48}", "***API_KEY***"),
-    # AWS keys
-    (r"AKIA[0-9A-Z]{16}", "***AWS_KEY***"),
-    # Auth headers
-    (r"(bearer|authorization)\s+\S+", r"\1 ***REDACTED***"),
-    # Password assignments
-    (r"(password|passwd|pwd)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
-    # API keys
-    (r"(api[_-]?key|apikey)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
-    # Tokens and secrets
-    (r"(secret|token)\s*[=:]\s*\S+", r"\1=***REDACTED***"),
-    # Base64 encoded secrets (long strings) - last as it's very broad
-    (r"[a-zA-Z0-9+/]{40,}={0,2}", "***BASE64_REDACTED***"),
-]
-
-# Pre-compiled patterns for performance (compiled once at module load)
-# Specific token patterns (exact matches, no group references)
-_COMPILED_SPECIFIC_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(pattern, re.IGNORECASE), replacement)
-    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[:3]
-]
-
-# Generic patterns (may have group references in replacement)
-_COMPILED_GENERIC_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(pattern, re.IGNORECASE), replacement)
-    for pattern, replacement in DEFAULT_SENSITIVE_PATTERNS[3:]
-]
+# Backward-compatible alias -- consumers that referenced the old name from
+# this module will continue to work without modification.
+DEFAULT_SENSITIVE_PATTERNS: list[tuple[str, str]] = list(SENSITIVE_PATTERNS)
 
 
 def _make_redaction_replacer(replacement: str) -> Callable[[re.Match[str]], str]:

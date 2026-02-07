@@ -20,6 +20,7 @@ from maverick.dsl.serialization.executor.handlers.base import (
     StepHandler,
     with_error_handling,
 )
+from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.types import StepType
 
 # Handler registry: maps step types to their execution handlers
@@ -66,6 +67,7 @@ def get_handler(step_type: StepType) -> StepHandler:
 
 
 __all__ = [
+    "HandlerOutput",
     "StepHandler",
     "with_error_handling",
     "get_handler",

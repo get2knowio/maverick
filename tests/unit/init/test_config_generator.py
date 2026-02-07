@@ -36,6 +36,7 @@ class TestGenerateConfig:
         assert config.github.default_branch == "main"
 
         # Verify validation config uses Python defaults
+        assert config.validation.sync_cmd == ["uv", "sync"]
         assert config.validation.format_cmd == ["ruff", "format", "."]
         assert config.validation.lint_cmd == ["ruff", "check", "--fix", "."]
         assert config.validation.typecheck_cmd == ["mypy", "."]
@@ -57,6 +58,7 @@ class TestGenerateConfig:
         )
 
         # Verify NodeJS validation commands are used
+        assert config.validation.sync_cmd == ["npm", "install"]
         assert config.validation.format_cmd == ["prettier", "--write", "."]
         assert config.validation.lint_cmd == ["eslint", "--fix", "."]
         assert config.validation.typecheck_cmd == ["tsc", "--noEmit"]
@@ -69,6 +71,7 @@ class TestGenerateConfig:
         config = generate_config(git_info=git_info, detection=None)
 
         # Verify Python defaults are used
+        assert config.validation.sync_cmd == ["uv", "sync"]
         assert config.validation.format_cmd == ["ruff", "format", "."]
         assert config.validation.lint_cmd == ["ruff", "check", "--fix", "."]
         assert config.validation.typecheck_cmd == ["mypy", "."]
@@ -85,6 +88,7 @@ class TestGenerateConfig:
         )
 
         # Verify Rust validation commands are used
+        assert config.validation.sync_cmd == ["cargo", "build"]
         assert config.validation.format_cmd == ["cargo", "fmt"]
         expected_lint = ["cargo", "clippy", "--fix", "--allow-dirty"]
         assert config.validation.lint_cmd == expected_lint
@@ -115,6 +119,7 @@ class TestGenerateConfig:
 
         config = generate_config(git_info=git_info, detection=detection)
 
+        assert config.validation.sync_cmd == ["go", "mod", "download"]
         assert config.validation.format_cmd == ["gofmt", "-w", "."]
         assert config.validation.lint_cmd == ["golangci-lint", "run"]
         assert config.validation.typecheck_cmd is None  # Compiled language
@@ -130,6 +135,7 @@ class TestGenerateConfig:
 
         config = generate_config(git_info=git_info, detection=detection)
 
+        assert config.validation.sync_cmd is None  # No sync for Ansible
         assert config.validation.format_cmd == ["yamllint", "."]
         assert config.validation.lint_cmd == ["ansible-lint"]
         assert config.validation.typecheck_cmd is None
