@@ -197,7 +197,14 @@ def create_validation_tools_server(
 
     @tool(
         "run_validation",
-        "Run project validation commands (format, lint, typecheck, test, sync)",
+        (
+            "Run project validation commands. "
+            "Pass types: a list of one or more of "
+            '"format", "lint", "typecheck", "test", "sync". '
+            'Use "sync" to install/update dependencies (replaces uv sync, '
+            "npm install, etc.). You do NOT have Bash — use this tool for "
+            "all validation and dependency operations."
+        ),
         {"types": list},
     )
     async def run_validation(args: dict[str, Any]) -> dict[str, Any]:

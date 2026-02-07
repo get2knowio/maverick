@@ -118,11 +118,13 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 - Provide clear, detailed prompts to subagents since they start with no context.
   Include file paths, requirements, and conventions they need to follow.
 
-### run_validation (when available)
-- Use run_validation to run the project's configured validation commands.
+### run_validation
+- You do NOT have Bash access. To run commands use run_validation instead.
+- Call with types: ["sync"] to install or update dependencies. Always do
+  this after modifying pyproject.toml, package.json, or similar files.
 - Call with types: ["test"] to run tests after implementing code.
 - Call with types: ["lint"] or ["format"] to check for style issues.
-- Call with types: ["sync"] after modifying dependency files (pyproject.toml, etc.)
+- Call with types: ["format", "lint", "test"] to run multiple checks at once.
 - Use this to verify your code works BEFORE completing the phase.
 - Do NOT rely solely on the orchestration layer to catch errors — take
   ownership of delivering working code.
@@ -243,9 +245,9 @@ After all tasks in the phase are attempted:
 - Verify that the implemented features match what the task descriptions
   specified — do not leave partial implementations
 - Confirm that every new source file has a corresponding test file
-- If run_validation is available, run it with types: ["sync"] (if you
-  modified dependency files), then ["format", "lint", "test"]. Fix any
-  issues found before completing.
+- Run run_validation with types: ["sync"] (if you modified dependency
+  files), then ["format", "lint", "test"]. Fix any issues found before
+  completing.
 
 ### Rules
 
@@ -254,9 +256,10 @@ After all tasks in the phase are attempted:
 - You MUST create test files for every source module you create. If you
   create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
   tests or defer them to a later phase.
+- You do NOT have Bash access. Use run_validation for all commands.
 - The orchestration workflow handles git commits after you finish.
-- If run_validation is available, use it to run tests, lint, and format checks
-  before completing. If you modified dependency files, run sync first.
+- Use run_validation to run tests, lint, and format checks before
+  completing. If you modified dependency files, run sync first.
 - Do NOT include commit messages in your output — the workflow generates
   them automatically.
 - Follow the project's conventions from CLAUDE.md if it exists.
