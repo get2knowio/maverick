@@ -12,10 +12,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts.common import (
+    CODE_QUALITY_PRINCIPLES,
+    TOOL_USAGE_EDIT,
+    TOOL_USAGE_GLOB,
+    TOOL_USAGE_GREP,
+    TOOL_USAGE_READ,
+    TOOL_USAGE_TASK,
+    TOOL_USAGE_WRITE,
+)
 from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.agents.utils import detect_file_changes, extract_streaming_text
-from maverick.exceptions import TaskParseError
+from maverick.exceptions import AgentError, TaskParseError
 from maverick.logging import get_logger
 from maverick.models.implementation import (
     FileChange,
@@ -36,7 +45,7 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE = """You are an expert software engineer.
+IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE = f"""You are an expert software engineer.
 You focus on methodical, test-driven implementation within an orchestrated workflow.
 
 $skill_guidance
@@ -78,45 +87,26 @@ to a later phase — write tests in the same session as the implementation.
 You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 
 ### Read
-- Use Read to examine files before modifying them. You MUST read a file before
-  using Edit on it.
+{TOOL_USAGE_READ}
 - Read is also suitable for reviewing spec files, CLAUDE.md, and existing code
   to understand context and conventions before writing new code.
 
 ### Write
-- Use Write to create **new** files. Write overwrites the entire file content.
-- Prefer Edit for modifying existing files — Write should only be used on
-  existing files when a complete rewrite is needed.
-- Do NOT create files unless they are necessary for your task. Prefer editing
-  existing files over creating new ones.
+{TOOL_USAGE_WRITE}
 
 ### Edit
-- Use Edit for targeted replacements in existing files. This is your primary
-  tool for modifying code.
-- You MUST Read a file before using Edit on it. Edit will fail otherwise.
-- The `old_string` must be unique in the file. If it is not unique, include
-  more surrounding context to disambiguate.
-- Preserve exact indentation (tabs/spaces) from the file content.
+{TOOL_USAGE_EDIT}
 
 ### Glob
-- Use Glob to find files by name or pattern (e.g., `**/*.py`, `src/**/test_*.py`).
-- Use Glob instead of guessing file paths. When you need to find where a module,
-  class, or file lives, search for it first.
+{TOOL_USAGE_GLOB}
 
 ### Grep
-- Use Grep to search file contents by regex pattern.
-- Use Grep to find function definitions, class usages, import locations, and
-  string references across the codebase.
-- Prefer Grep over reading many files manually when searching for specific
-  patterns.
+{TOOL_USAGE_GREP}
 
 ### Task (Subagents)
-- Use Task to spawn subagents for parallel work. Each subagent operates
-  independently with its own context.
+{TOOL_USAGE_TASK}
 - When tasks are marked **[P]** (parallel), launch them simultaneously via
   multiple Task tool calls in a single response. This maximizes throughput.
-- Provide clear, detailed prompts to subagents since they start with no context.
-  Include file paths, requirements, and conventions they need to follow.
 
 ### run_validation
 - You do NOT have Bash access. To run commands use run_validation instead.
@@ -132,23 +122,7 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 **CRITICAL**: You MUST use Write and Edit to create and modify source files.
 Reading and analyzing is NOT enough — actually implement the code.
 
-## Code Quality Principles
-
-- **Avoid over-engineering**: Only make changes directly required by the task.
-  Do not add features, refactor code, or make improvements beyond what is asked.
-- **Keep it simple**: The right amount of complexity is the minimum needed for
-  the current task. Three similar lines of code is better than a premature
-  abstraction.
-- **Security awareness**: Do not introduce command injection, XSS, SQL injection,
-  or other vulnerabilities. Validate at system boundaries.
-- **No magic values**: Extract magic numbers and string literals into named
-  constants.
-- **Read before writing**: Always understand existing code before modifying it.
-  Do not propose changes to code you have not read.
-- **Minimize file creation**: Prefer editing existing files over creating new
-  ones. Only create files that are truly necessary.
-- **Clean boundaries**: Ensure new code integrates cleanly with existing
-  patterns. Match the style and conventions of surrounding code.
+{CODE_QUALITY_PRINCIPLES}
 """
 
 PHASE_PROMPT_TEMPLATE = """\
@@ -631,7 +605,14 @@ After completion, provide a summary of changes made.
                     )
                 )
             else:
-                assert isinstance(result, TaskResult)
+                if not isinstance(result, TaskResult):
+                    raise AgentError(
+                        message=(
+                            f"Expected TaskResult from parallel task"
+                            f" {task.id}, got {type(result).__name__}"
+                        ),
+                        agent_name=self.name,
+                    )
                 task_results.append(result)
 
         return task_results
@@ -656,8 +637,16 @@ After completion, provide a summary of changes made.
         """
         start_time = time.monotonic()
 
-        assert context.task_file is not None
-        assert context.phase_name is not None
+        if context.task_file is None:
+            raise AgentError(
+                message="task_file is required for phase mode execution",
+                agent_name=self.name,
+            )
+        if context.phase_name is None:
+            raise AgentError(
+                message="phase_name is required for phase mode execution",
+                agent_name=self.name,
+            )
 
         try:
             # Verify task file exists (Claude can't read a nonexistent file)

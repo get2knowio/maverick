@@ -110,9 +110,7 @@ class TestSyncDependencies:
                 return_value=make_result(stdout="Resolved 42 packages")
             )
 
-            result = await sync_dependencies(
-                cwd=str(tmp_path), sync_cmd=explicit_cmd
-            )
+            result = await sync_dependencies(cwd=str(tmp_path), sync_cmd=explicit_cmd)
 
             assert result.success is True
             assert result.skipped is False
@@ -135,9 +133,7 @@ class TestSyncDependencies:
             assert result.success is True
             assert result.skipped is False
             assert result.command == "uv sync"
-            mock_runner.run.assert_called_once_with(
-                ["uv", "sync"], cwd=tmp_path
-            )
+            mock_runner.run.assert_called_once_with(["uv", "sync"], cwd=tmp_path)
 
     @pytest.mark.asyncio
     async def test_auto_detects_pyproject(self, tmp_path: Path) -> None:
@@ -205,9 +201,7 @@ class TestSyncDependencies:
         with patch("maverick.library.actions.dependencies._runner") as mock_runner:
             mock_runner.run = AsyncMock(return_value=make_result())
 
-            result = await sync_dependencies(
-                cwd=str(tmp_path), sync_cmd=explicit_cmd
-            )
+            result = await sync_dependencies(cwd=str(tmp_path), sync_cmd=explicit_cmd)
 
             assert result.command == "poetry install"
             mock_runner.run.assert_called_once_with(explicit_cmd, cwd=tmp_path)

@@ -22,6 +22,7 @@ from maverick.dsl.events import (
 )
 from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.executor.step_path import make_prefix_callback
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import LoopStepRecord
@@ -172,7 +173,7 @@ async def _execute_loop_tasks(
     max_concurrency: int = 1,
     step_name: str = "loop",
     event_callback: EventCallback | None = None,
-) -> dict[str, Any]:
+) -> HandlerOutput:
     """Execute a list of steps with concurrency control.
 
     Emits LoopIterationStarted and LoopIterationCompleted events for each
@@ -187,10 +188,10 @@ async def _execute_loop_tasks(
         step_name: Name of the loop step (for event emission).
 
     Returns:
-        Dictionary with results list preserving step order and emitted events.
+        HandlerOutput with results list preserving step order and emitted events.
     """
     if not steps:
-        return {"results": [], "events": []}
+        return HandlerOutput(result=[], events=[])
 
     total_steps = len(steps)
 
@@ -348,7 +349,7 @@ async def _execute_loop_tasks(
     # Check for failures and raise if any iterations failed
     _check_for_failures(results, step_name)
 
-    return {"results": results, "events": emitted_events}
+    return HandlerOutput(result=results, events=emitted_events)
 
 
 async def _execute_loop_for_each(
@@ -388,7 +389,7 @@ async def _execute_loop_for_each(
     items = evaluate_for_each_expression(step.for_each, context)
 
     if not items:
-        return {"results": [], "events": []}
+        return HandlerOutput(result=[], events=[])
 
     total_iterations = len(items)
 
@@ -638,4 +639,4 @@ async def _execute_loop_for_each(
     # Check for failures and raise if any iterations failed
     _check_for_failures(iteration_results, step.name)
 
-    return {"results": iteration_results, "events": emitted_events}
+    return HandlerOutput(result=iteration_results, events=emitted_events)

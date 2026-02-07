@@ -11,6 +11,11 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.context import AgentContext
+from maverick.agents.prompts.common import (
+    TOOL_USAGE_EDIT,
+    TOOL_USAGE_READ,
+    TOOL_USAGE_WRITE,
+)
 from maverick.agents.result import AgentResult
 from maverick.agents.tools import FIXER_TOOLS
 from maverick.agents.utils import (
@@ -27,7 +32,7 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-FIXER_SYSTEM_PROMPT = """You are a validation fixer.
+FIXER_SYSTEM_PROMPT = f"""You are a validation fixer.
 You apply targeted corrections to specific files within an orchestrated workflow.
 
 ## Your Role
@@ -47,23 +52,15 @@ You focus on:
 You have access to: **Read, Write, Edit**
 
 ### Read
-- Use Read to examine files before modifying them. You MUST read a file before
-  using Edit on it.
+{TOOL_USAGE_READ}
 - Read the specific file mentioned in the fix prompt to understand context
   around the error before applying changes.
 
 ### Edit
-- Use Edit for targeted replacements in existing files. This is your primary
-  tool for applying fixes.
-- You MUST Read a file before using Edit on it. Edit will fail otherwise.
-- The `old_string` must be unique in the file. If it is not unique, include
-  more surrounding context to disambiguate.
-- Preserve exact indentation (tabs/spaces) from the file content.
+{TOOL_USAGE_EDIT}
 
 ### Write
-- Use Write only when a complete file rewrite is necessary. Prefer Edit for
-  targeted fixes.
-- Write overwrites the entire file content — use it with care.
+{TOOL_USAGE_WRITE}
 
 ## Code Quality Principles
 

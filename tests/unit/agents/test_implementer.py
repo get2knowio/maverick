@@ -193,9 +193,7 @@ class TestImplementerAgentInitialization:
         # The output JSON template should not contain commit_message
         assert '"commit_message"' not in prompt
 
-    def test_system_prompt_requires_tests(
-        self, agent: ImplementerAgent
-    ) -> None:
+    def test_system_prompt_requires_tests(self, agent: ImplementerAgent) -> None:
         """Test system prompt makes test creation mandatory, not optional."""
         prompt = agent.system_prompt
         assert "mandatory" in prompt.lower() or "must" in prompt.lower()

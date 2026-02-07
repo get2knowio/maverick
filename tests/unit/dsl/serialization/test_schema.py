@@ -1377,9 +1377,7 @@ class TestLoopStepRecord:
             Exception,
             match="Cannot specify both 'parallel' and 'max_concurrency'",
         ):
-            LoopStepRecord(
-                name="loop", steps=steps, parallel=True, max_concurrency=3
-            )
+            LoopStepRecord(name="loop", steps=steps, parallel=True, max_concurrency=3)
 
     def test_parallel_true_with_default_max_concurrency_is_valid(self):
         """Test that parallel: true with default max_concurrency is valid."""

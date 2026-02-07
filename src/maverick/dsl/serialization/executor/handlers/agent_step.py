@@ -18,6 +18,7 @@ from maverick.dsl.serialization.executor.context_resolution import (
     resolve_context_builder,
 )
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
+from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import AgentStepRecord
 from maverick.logging import get_logger
@@ -47,7 +48,7 @@ async def execute_agent_step(
         config: Optional configuration (unused).
 
     Returns:
-        Dictionary containing:
+        HandlerOutput containing:
         - result: Agent execution result
         - events: List of AgentStreamChunk events emitted during execution
 
@@ -277,8 +278,8 @@ async def execute_agent_step(
 
             context_module.register_rollback(context, step.name, rollback_wrapper)
 
-    # Return result with events (matches loop handler pattern)
-    return {"result": result, "events": emitted_events}
+    # Return result with events using typed HandlerOutput
+    return HandlerOutput(result=result, events=emitted_events)
 
 
 def _extract_output_text(result: Any) -> str:

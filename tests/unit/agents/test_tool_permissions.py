@@ -66,7 +66,6 @@ class TestImplementerAgentToolPermissions:
         assert "Glob" in agent.allowed_tools
         assert "Grep" in agent.allowed_tools
 
-
     def test_implementer_agent_with_validation_mcp_server(self) -> None:
         """Test ImplementerAgent adds MCP validation tool when server is present."""
         from maverick.tools.validation import create_validation_tools_server

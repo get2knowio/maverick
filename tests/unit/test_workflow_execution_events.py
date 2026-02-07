@@ -87,7 +87,6 @@ class TestHandleIterationStarted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -106,7 +105,6 @@ class TestHandleIterationStarted:
             item_label="First Item",
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -124,7 +122,6 @@ class TestHandleIterationStarted:
             total_iterations=3,
             item_label="Phase 1: Setup",
         )
-
 
         await screen._handle_iteration_started(event)
 
@@ -146,7 +143,6 @@ class TestHandleIterationStarted:
             timestamp=timestamp,
         )
 
-
         await screen._handle_iteration_started(event)
 
         state = screen._loop_states["test_loop"]
@@ -165,7 +161,6 @@ class TestHandleIterationStarted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(event1)
 
@@ -209,7 +204,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(start_event)
 
         # Now complete the iteration
@@ -238,7 +232,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -269,7 +262,6 @@ class TestHandleIterationCompleted:
             item_label="Item 1",
         )
 
-
         await screen._handle_iteration_started(start_event)
 
         complete_event = LoopIterationCompleted(
@@ -296,7 +288,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -325,7 +316,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -372,7 +362,6 @@ class TestHandleIterationCompleted:
             total_iterations=3,
             item_label="Item 1",
         )
-
 
         await screen._handle_iteration_started(start_event)
 
@@ -708,7 +697,6 @@ class TestComputeNesting:
             parent_step_name=None,
         )
 
-
         await screen._handle_iteration_started(parent_event)
 
         # Parent should have nesting level 0
@@ -733,7 +721,6 @@ class TestComputeNesting:
         """Test nesting level computation for deeply nested loops."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
 
         # Create level 0 loop
         await screen._handle_iteration_started(
@@ -787,7 +774,6 @@ class TestEventHandlerIntegration:
         """Test complete loop iteration lifecycle from start to completion."""
         mock_workflow = create_mock_workflow()
         screen = WorkflowExecutionScreen(workflow=mock_workflow, inputs={})
-
 
         # Start iteration 0
         await screen._handle_iteration_started(

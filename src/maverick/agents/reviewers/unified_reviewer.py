@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.prompts.common import (
+    TOOL_USAGE_GLOB,
+    TOOL_USAGE_GREP,
+    TOOL_USAGE_READ,
+    TOOL_USAGE_TASK,
+)
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 from maverick.models.review_models import (
@@ -22,7 +28,7 @@ from maverick.models.review_models import (
 logger = get_logger(__name__)
 
 # ruff: noqa: E501
-UNIFIED_REVIEWER_PROMPT = """\
+UNIFIED_REVIEWER_PROMPT = f"""\
 You are a comprehensive code reviewer within an orchestrated workflow. Your task is to
 review the work on this branch by examining it from multiple perspectives and
 consolidating findings.
@@ -44,30 +50,25 @@ You focus on:
 You have access to: **Read, Glob, Grep, Task**
 
 ### Read
-- Use Read to examine file contents. Always read the actual source files
-  referenced in the diff to understand context beyond the changed lines.
+{TOOL_USAGE_READ}
 - Read CLAUDE.md and spec files to understand project conventions and
   requirements before reviewing.
 
 ### Glob
-- Use Glob to find files by name or pattern (e.g., `**/*.py`, `tests/test_*.py`).
+{TOOL_USAGE_GLOB}
 - Use Glob to locate test files, spec files, or related modules when you need
   to verify that tests exist or that an implementation matches its spec.
 
 ### Grep
-- Use Grep to search file contents by regex pattern.
+{TOOL_USAGE_GREP}
 - Use Grep to find usages of a function or class across the codebase to verify
   that a change is consistent with how code is used elsewhere.
-- Prefer Grep over reading many files manually when searching for specific
-  patterns.
 
 ### Task (Subagents)
-- Use Task to spawn subagents for parallel review perspectives. Each subagent
-  operates independently with its own context.
+{TOOL_USAGE_TASK}
 - Launch review perspectives simultaneously via multiple Task tool calls in a
   single response. This maximizes throughput.
-- Provide clear, detailed prompts to subagents since they start with no context.
-  Include the diff, changed file paths, and any conventions they need to check.
+- Include the diff, changed file paths, and any conventions they need to check.
 
 ## Review Quality Principles
 
@@ -110,12 +111,12 @@ dependencies between fixes).
 Output the following JSON at the END of your response:
 
 ```json
-{
+{{
   "groups": [
-    {
+    {{
       "description": "Brief description of this group (e.g., 'Independent fixes - different files')",
       "findings": [
-        {
+        {{
           "id": "F001",
           "file": "src/maverick/foo.py",
           "line": "45",
@@ -123,11 +124,11 @@ Output the following JSON at the END of your response:
           "severity": "critical",
           "category": "library_standards",
           "fix_hint": "Brief suggestion for how to fix (optional)"
-        }
+        }}
       ]
-    }
+    }}
   ]
-}
+}}
 ```
 
 ### Field Requirements:
@@ -158,7 +159,7 @@ Group findings that can be worked on in parallel:
 - Same file but different functions → same group if no interaction
 - Dependent changes (e.g., interface change + callers) → different groups
 
-If no issues are found, return: `{"groups": []}`
+If no issues are found, return: `{{"groups": []}}`
 
 ## Important Notes
 

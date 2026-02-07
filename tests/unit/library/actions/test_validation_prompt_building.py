@@ -63,7 +63,9 @@ class TestBuildFixPrompt:
         result = create_validation_result(success=False)
         prompt = _build_fix_prompt(result, ["lint", "test"], attempt_number=1)
 
-        assert "re-run automatically" in prompt.lower() or "re-run automatically" in prompt
+        assert (
+            "re-run automatically" in prompt.lower() or "re-run automatically" in prompt
+        )
         # Must NOT include shell commands or a "Validation Commands" section
         assert "Validation Commands" not in prompt
         assert "ruff check" not in prompt

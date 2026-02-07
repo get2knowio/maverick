@@ -155,9 +155,7 @@ async def run_fix_retry_loop(
 
                 try:
                     # Build fix context from validation errors
-                    fix_prompt = _build_fix_prompt(
-                        current_result, stages, attempts
-                    )
+                    fix_prompt = _build_fix_prompt(current_result, stages, attempts)
 
                     # Invoke the fixer agent
                     fix_result = await _invoke_fixer_agent(
@@ -461,7 +459,9 @@ def _build_fix_prompt(
                     "success", stage_entry.get("passed", True)
                 ):
                     name = stage_entry.get("stage", stage_entry.get("name", "unknown"))
-                    error_output = stage_entry.get("error", stage_entry.get("output", ""))
+                    error_output = stage_entry.get(
+                        "error", stage_entry.get("output", "")
+                    )
                     error_msg = error_output[:500] if error_output else "unknown error"
                     errors.append(f"- {name}: {error_msg}")
 
@@ -502,8 +502,7 @@ def _summarize_errors(validation_result: dict[str, Any]) -> str:
         failed_stages = [
             s.get("stage", s.get("name", "unknown"))
             for s in stages_list
-            if isinstance(s, dict)
-            and not s.get("success", s.get("passed", True))
+            if isinstance(s, dict) and not s.get("success", s.get("passed", True))
         ]
     if failed_stages:
         return f"{len(failed_stages)} stage(s): {', '.join(failed_stages)}"
@@ -683,7 +682,10 @@ def _aggregate_stage_results(
             error_list = raw_result.get("errors", [])
             # Prefer structured errors, fall back to raw output
             if error_list and not passed:
-                errors = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in error_list]
+                errors = [
+                    e.get("message", str(e)) if isinstance(e, dict) else str(e)
+                    for e in error_list
+                ]
             elif error_output and not passed:
                 errors = [error_output]
             else:

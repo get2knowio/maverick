@@ -212,7 +212,7 @@ def create_validation_tools_server(
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        'Validation types to run. '
+                        "Validation types to run. "
                         'Valid values: "format", "lint", "typecheck", '
                         '"test", "sync".'
                     ),

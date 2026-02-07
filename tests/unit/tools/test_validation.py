@@ -496,9 +496,7 @@ class TestRunValidation:
     ) -> None:
         """Test running validation with sync type uses sync_cmd."""
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Dependencies synced", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"Dependencies synced", b""))
 
         config = ValidationConfig(
             sync_cmd=["uv", "sync"],

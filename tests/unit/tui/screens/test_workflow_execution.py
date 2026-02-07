@@ -507,7 +507,6 @@ class TestDebounce:
                 await screen._pending_streaming_update
 
 
-
 # Steps Panel Visibility Tests
 class TestStepsPanelVisibility:
     """Tests for steps panel default visibility."""

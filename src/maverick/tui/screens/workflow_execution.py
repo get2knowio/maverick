@@ -1098,7 +1098,9 @@ class WorkflowExecutionScreen(MaverickScreen):
         # Split at tool-call boundaries so └-prefixed lines get their
         # own entries even when buffered with preceding agent text.
         for segment, is_tool in self._split_tool_call_segments(text):
-            entry_type = StreamEntryType.TOOL_CALL if is_tool else StreamEntryType.AGENT_OUTPUT
+            entry_type = (
+                StreamEntryType.TOOL_CALL if is_tool else StreamEntryType.AGENT_OUTPUT
+            )
             self._emit_stream_entry(segment, entry_type, event, chunk_type)
 
     def _split_tool_call_segments(self, text: str) -> list[tuple[str, bool]]:

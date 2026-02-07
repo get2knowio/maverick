@@ -145,9 +145,7 @@ class TestRenderEntryContentStyling:
         self, entry_type: StreamEntryType, expected_style: str
     ) -> None:
         """Content text is rendered with the correct Rich style."""
-        entry = _make_entry(
-            entry_type=entry_type, content="hello world", source="test"
-        )
+        entry = _make_entry(entry_type=entry_type, content="hello world", source="test")
         rendered = self._render(entry)
 
         # The plain text should contain the content
@@ -177,9 +175,7 @@ class TestRenderEntryContentStyling:
         self, entry_type: StreamEntryType
     ) -> None:
         """Agent output and info content have no inline style on content."""
-        entry = _make_entry(
-            entry_type=entry_type, content="plain text", source="agent"
-        )
+        entry = _make_entry(entry_type=entry_type, content="plain text", source="agent")
         rendered = self._render(entry)
 
         # Content should be present

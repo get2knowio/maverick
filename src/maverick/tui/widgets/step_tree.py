@@ -166,11 +166,7 @@ class StepTreeWidget(Widget):
         if selected:
             css_classes += " selected"
 
-        line = (
-            f"{indent}{expand_str}{node.label}"
-            f"  {status_icon}"
-            f"[dim]{duration_str}[/]"
-        )
+        line = f"{indent}{expand_str}{node.label}  {status_icon}[dim]{duration_str}[/]"
 
         widget = Static(line, classes=css_classes)
         widget._step_tree_path = node.path  # type: ignore[attr-defined]

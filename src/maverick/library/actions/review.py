@@ -144,9 +144,7 @@ async def _detect_pr_for_branch(
         pr_list = json.loads(pr_list_result.stdout)
         if pr_list:
             return int(pr_list[0]["number"])
-        logger.warning(
-            f"No PR found for branch '{branch}', proceeding with local diff"
-        )
+        logger.warning(f"No PR found for branch '{branch}', proceeding with local diff")
     else:
         logger.warning(
             f"Failed to list PRs: {pr_list_result.stderr}, proceeding with local diff"

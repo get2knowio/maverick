@@ -1169,12 +1169,11 @@ class TestParallelStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        # Parallel step returns dict with results
-        assert isinstance(result.final_output, dict)
-        assert "results" in result.final_output
-        assert len(result.final_output["results"]) == 2
-        assert "result_1" in result.final_output["results"]
-        assert "result_2" in result.final_output["results"]
+        # Parallel step returns results list directly
+        assert isinstance(result.final_output, list)
+        assert len(result.final_output) == 2
+        assert "result_1" in result.final_output
+        assert "result_2" in result.final_output
 
     @pytest.mark.asyncio
     async def test_parallel_step_multiple_steps(self, registry):
@@ -1226,7 +1225,7 @@ class TestParallelStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        assert len(result.final_output) == 3
 
     @pytest.mark.asyncio
     async def test_parallel_step_with_exceptions(self, registry):
@@ -1325,9 +1324,9 @@ class TestParallelStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 2
-        assert "sync" in result.final_output["results"]
-        assert "async" in result.final_output["results"]
+        assert len(result.final_output) == 2
+        assert "sync" in result.final_output
+        assert "async" in result.final_output
 
     @pytest.mark.asyncio
     async def test_parallel_step_with_for_each(self, registry):
@@ -1364,10 +1363,10 @@ class TestParallelStepExecution:
         result = executor.get_result()
         assert result.success is True
         # for_each creates one iteration per item
-        assert "results" in result.final_output
-        assert len(result.final_output["results"]) == 3
+        assert isinstance(result.final_output, list)
+        assert len(result.final_output) == 3
         # Each iteration returns a list with results from its steps
-        for iteration_result in result.final_output["results"]:
+        for iteration_result in result.final_output:
             assert isinstance(iteration_result, (list, tuple))
             assert len(iteration_result) == 1  # One step per iteration
 
@@ -1415,9 +1414,9 @@ class TestParallelStepExecution:
 
         result = executor.get_result()
         assert result.success is True
-        assert len(result.final_output["results"]) == 3
+        assert len(result.final_output) == 3
         # Each iteration has 2 steps (double and square)
-        for iteration_result in result.final_output["results"]:
+        for iteration_result in result.final_output:
             assert len(iteration_result) == 2
 
     @pytest.mark.asyncio
@@ -1455,7 +1454,7 @@ class TestParallelStepExecution:
         result = executor.get_result()
         assert result.success is True
         # Empty list means no iterations
-        assert result.final_output["results"] == []
+        assert result.final_output == []
 
     @pytest.mark.asyncio
     async def test_parallel_step_for_each_invalid_expression(self, registry):

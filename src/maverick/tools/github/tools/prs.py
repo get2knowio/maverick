@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from claude_agent_sdk import tool
 from github import GithubException
@@ -9,47 +9,9 @@ from github import GithubException
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
 from maverick.logging import get_logger
 from maverick.tools.github.responses import error_response, success_response
-from maverick.utils.github_client import GitHubClient
-
-if TYPE_CHECKING:
-    pass
+from maverick.tools.github.tools._helpers import _get_client, _get_repo_name_async
 
 logger = get_logger(__name__)
-
-# Module-level client for lazy initialization
-_github_client: GitHubClient | None = None
-
-
-def _get_client() -> GitHubClient:
-    """Get or create the module-level GitHubClient.
-
-    Returns:
-        GitHubClient instance.
-
-    Raises:
-        GitHubCLINotFoundError: If gh CLI is not installed.
-        GitHubAuthError: If gh CLI is not authenticated.
-    """
-    global _github_client
-    if _github_client is None:
-        _github_client = GitHubClient()
-    return _github_client
-
-
-async def _get_repo_name_async() -> str:
-    """Get the current repository name from git remote asynchronously.
-
-    Uses shared utility from runner module per CLAUDE.md.
-
-    Returns:
-        Repository name in 'owner/repo' format.
-
-    Raises:
-        GitHubError: If unable to determine repository name.
-    """
-    from maverick.tools.github.runner import get_repo_name_async
-
-    return await get_repo_name_async()
 
 
 @tool(

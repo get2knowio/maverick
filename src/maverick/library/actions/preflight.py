@@ -183,17 +183,15 @@ async def run_preflight_checks(
             errors.extend(api_result.errors)
             logger.error("Anthropic API check failed", errors=api_result.errors)
             api_err = (
-                api_result.errors[0]
-                if api_result.errors
-                else "credentials missing"
+                api_result.errors[0] if api_result.errors else "credentials missing"
             )
-            await _emit_check(
-                event_callback, "Anthropic API", False, api_err
-            )
+            await _emit_check(event_callback, "Anthropic API", False, api_err)
         else:
             logger.info("Anthropic API credentials found")
             await _emit_check(
-                event_callback, "Anthropic API", True,
+                event_callback,
+                "Anthropic API",
+                True,
                 "credentials found",
             )
 
@@ -231,8 +229,10 @@ async def run_preflight_checks(
                     )
                     logger.error("Git user.name not configured")
                     await _emit_check(
-                        event_callback, "Git user.name",
-                        False, "not configured",
+                        event_callback,
+                        "Git user.name",
+                        False,
+                        "not configured",
                     )
                 else:
                     await _emit_check(event_callback, "Git user.name", True)
@@ -256,8 +256,10 @@ async def run_preflight_checks(
                     )
                     logger.error("Git user.email not configured")
                     await _emit_check(
-                        event_callback, "Git user.email",
-                        False, "not configured",
+                        event_callback,
+                        "Git user.email",
+                        False,
+                        "not configured",
                     )
                 else:
                     await _emit_check(event_callback, "Git user.email", True)
@@ -307,14 +309,18 @@ async def run_preflight_checks(
                     )
                     logger.warning("GitHub CLI not authenticated")
                     await _emit_check(
-                        event_callback, "GitHub CLI (gh)",
-                        False, "not authenticated",
+                        event_callback,
+                        "GitHub CLI (gh)",
+                        False,
+                        "not authenticated",
                     )
                 else:
                     logger.info("GitHub CLI is available and authenticated")
                     await _emit_check(
-                        event_callback, "GitHub CLI (gh)",
-                        True, "authenticated",
+                        event_callback,
+                        "GitHub CLI (gh)",
+                        True,
+                        "authenticated",
                     )
             except TimeoutError:
                 warnings.append("GitHub CLI auth check timed out")
@@ -337,9 +343,7 @@ async def run_preflight_checks(
         # Build list of (display_name, command_list) from config
         tools_to_check: list[tuple[str, list[str]]] = []
         if validation_config.sync_cmd:
-            tools_to_check.append(
-                ("sync", validation_config.sync_cmd)
-            )
+            tools_to_check.append(("sync", validation_config.sync_cmd))
         stage_to_cmd = {
             "format": validation_config.format_cmd,
             "lint": validation_config.lint_cmd,
@@ -359,22 +363,24 @@ async def run_preflight_checks(
             if tool_path is None:
                 validation_tools_available = False
                 errors.append(
-                    f"Tool '{tool_name}' (stage '{stage_name}') "
-                    "not found on PATH"
+                    f"Tool '{tool_name}' (stage '{stage_name}') not found on PATH"
                 )
                 logger.error(
                     "Validation tool check failed",
-                    tool=tool_name, stage=stage_name,
+                    tool=tool_name,
+                    stage=stage_name,
                 )
                 await _emit_check(
                     event_callback,
                     f"{stage_name} ({cmd_display})",
-                    False, "not found",
+                    False,
+                    "not found",
                 )
             else:
                 logger.debug(
                     "Tool found",
-                    tool=tool_name, path=tool_path,
+                    tool=tool_name,
+                    path=tool_path,
                     stage=stage_name,
                 )
                 await _emit_check(
@@ -388,10 +394,7 @@ async def run_preflight_checks(
         for custom in preflight_config.custom_tools:
             tool_path = _shutil.which(custom.command)
             if tool_path is None:
-                msg = (
-                    f"Custom tool '{custom.name}' "
-                    f"({custom.command}) not found"
-                )
+                msg = f"Custom tool '{custom.name}' ({custom.command}) not found"
                 if custom.hint:
                     msg = f"{msg}. {custom.hint}"
                 if custom.required:
@@ -405,16 +408,21 @@ async def run_preflight_checks(
                     required=custom.required,
                 )
                 await _emit_check(
-                    event_callback, custom.name,
-                    False, "not found",
+                    event_callback,
+                    custom.name,
+                    False,
+                    "not found",
                 )
             else:
                 logger.debug(
                     "Custom tool found",
-                    name=custom.name, path=tool_path,
+                    name=custom.name,
+                    path=tool_path,
                 )
                 await _emit_check(
-                    event_callback, custom.name, True,
+                    event_callback,
+                    custom.name,
+                    True,
                 )
 
     # Determine overall success
