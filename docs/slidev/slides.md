@@ -125,3 +125,7 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/18-safety-hooks.md
+
+---
+
+## src: ./slides/part2/19-checkpointing.md
