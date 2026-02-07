@@ -117,6 +117,8 @@ async def execute_agent_step(
 
             maverick_config = load_config()
             val_server = create_validation_tools_server(maverick_config.validation)
+            # Remove test-only _tools key that breaks SDK serialization
+            val_server.pop("_tools", None)  # type: ignore[misc]
             agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
         except Exception:
             pass  # Graceful fallback - agent works without validation tools
