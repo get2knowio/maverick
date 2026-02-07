@@ -117,6 +117,11 @@ The curriculum is organized into two parts:
 ---
 
 ## src: ./slides/part2/16-implementer-agent.md
+
 ---
 
 ## src: ./slides/part2/17-mcp-tools.md
+
+---
+
+## src: ./slides/part2/18-safety-hooks.md
