@@ -29,6 +29,14 @@ from maverick.exceptions.agent import (
 # Base exception
 from maverick.exceptions.base import MaverickError
 
+# Bead-related exceptions
+from maverick.exceptions.beads import (
+    BeadCreationError,
+    BeadDependencyError,
+    BeadError,
+    SpecKitParseError,
+)
+
 # Configuration exceptions
 from maverick.exceptions.config import ConfigError
 
@@ -95,6 +103,11 @@ from maverick.exceptions.workflow import (
 __all__ = [
     # Base
     "MaverickError",
+    # Beads
+    "BeadCreationError",
+    "BeadDependencyError",
+    "BeadError",
+    "SpecKitParseError",
     # Agent
     "AgentError",
     "AgentNotFoundError",

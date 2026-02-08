@@ -71,9 +71,7 @@ class TestGetRepoName:
     async def test_parses_ssh_url_without_dot_git(self) -> None:
         """Test _get_repo_name parses SSH URL without .git suffix."""
         mock_repo = AsyncMock()
-        mock_repo.get_remote_url = AsyncMock(
-            return_value="git@github.com:owner/repo"
-        )
+        mock_repo.get_remote_url = AsyncMock(return_value="git@github.com:owner/repo")
 
         with patch(
             "maverick.git.AsyncGitRepository",
@@ -89,10 +87,13 @@ class TestGetRepoName:
         mock_repo = AsyncMock()
         mock_repo.get_remote_url = AsyncMock(return_value=None)
 
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            return_value=mock_repo,
-        ), pytest.raises(ValueError, match="Failed to get git remote URL"):
+        with (
+            patch(
+                "maverick.git.AsyncGitRepository",
+                return_value=mock_repo,
+            ),
+            pytest.raises(ValueError, match="Failed to get git remote URL"),
+        ):
             await _get_repo_name(Path("/fake/path"))
 
     @pytest.mark.asyncio
@@ -103,10 +104,13 @@ class TestGetRepoName:
             return_value="https://gitlab.com/owner/repo.git"
         )
 
-        with patch(
-            "maverick.git.AsyncGitRepository",
-            return_value=mock_repo,
-        ), pytest.raises(ValueError, match="Could not parse repo name from URL"):
+        with (
+            patch(
+                "maverick.git.AsyncGitRepository",
+                return_value=mock_repo,
+            ),
+            pytest.raises(ValueError, match="Could not parse repo name from URL"),
+        ):
             await _get_repo_name(Path("/fake/path"))
 
     @pytest.mark.asyncio

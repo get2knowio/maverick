@@ -1633,7 +1633,6 @@ class TestStepExecutionEdgeCases:
         assert result.final_output == "Generated content"
 
 
-
 # =============================================================================
 # Agent Step MCP Server Loading Exception Handling Tests
 # =============================================================================
@@ -1756,7 +1755,9 @@ class TestAgentStepValidationToolsExceptionHandling:
         with patch(
             "maverick.config.load_config",
             side_effect=ConfigError(
-                message="Invalid config", field="validation", value=None,
+                message="Invalid config",
+                field="validation",
+                value=None,
             ),
         ):
             result = await execute_agent_step(

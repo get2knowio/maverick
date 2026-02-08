@@ -337,6 +337,36 @@ async def check_gh_auth() -> PrerequisiteResult:
 
 
 # =============================================================================
+# Beads CLI Prerequisites
+# =============================================================================
+
+
+@prerequisite_registry.register(
+    name="bd",
+    display_name="Beads CLI",
+    dependencies=("git",),
+    cost=1,
+    remediation="Install the Beads CLI from https://github.com/steveyegge/beads",
+)
+async def check_bd() -> PrerequisiteResult:
+    """Check that Beads CLI (bd) is available on PATH."""
+    start = time.monotonic()
+
+    if shutil.which("bd") is None:
+        return PrerequisiteResult(
+            success=False,
+            message="Beads CLI (bd) is not installed or not on PATH",
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    return PrerequisiteResult(
+        success=True,
+        message="Beads CLI found",
+        duration_ms=int((time.monotonic() - start) * 1000),
+    )
+
+
+# =============================================================================
 # Anthropic API Prerequisites
 # =============================================================================
 

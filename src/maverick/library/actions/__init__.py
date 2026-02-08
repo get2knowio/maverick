@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
 # Import action functions
+from maverick.library.actions.beads import (
+    create_beads,
+    parse_speckit,
+    wire_dependencies,
+)
 from maverick.library.actions.cleanup import (
     generate_cleanup_summary,
     process_selected_issues,
@@ -58,6 +63,10 @@ from maverick.library.actions.validation import (
 from maverick.library.actions.workspace import init_workspace
 
 __all__ = [
+    # Bead actions
+    "parse_speckit",
+    "create_beads",
+    "wire_dependencies",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions
@@ -208,6 +217,12 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
+
+    # Bead actions (no preflight requires - actions handle dry_run internally,
+    # and will fail naturally if bd is missing and dry_run=False)
+    registry.actions.register("parse_speckit", parse_speckit)
+    registry.actions.register("create_beads", create_beads)
+    registry.actions.register("wire_dependencies", wire_dependencies)
 
     # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)

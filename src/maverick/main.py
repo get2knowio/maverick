@@ -36,6 +36,7 @@ from maverick import __version__  # noqa: E402
 from maverick.cli.commands.config import config  # noqa: E402
 from maverick.cli.commands.fly import fly  # noqa: E402
 from maverick.cli.commands.init import init  # noqa: E402
+from maverick.cli.commands.refuel import refuel  # noqa: E402
 from maverick.cli.commands.review import review  # noqa: E402
 from maverick.cli.commands.status import status  # noqa: E402
 from maverick.cli.commands.uninstall import uninstall  # noqa: E402
@@ -190,6 +191,7 @@ cli.add_command(config)
 cli.add_command(workflow)
 cli.add_command(status)
 cli.add_command(init)
+cli.add_command(refuel)
 cli.add_command(uninstall)
 
 if __name__ == "__main__":

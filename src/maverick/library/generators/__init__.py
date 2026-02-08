@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 # Import generator classes
 from maverick.agents.generators import (
     CommitMessageGenerator,
+    DependencyExtractor,
     PRDescriptionGenerator,
     PRTitleGenerator,
 )
@@ -65,3 +66,6 @@ def register_all_generators(registry: ComponentRegistry) -> None:
 
     # Register PR title generator (used in create-pr-with-summary fragment)
     registry.generators.register("pr_title_generator", PRTitleGenerator)  # type: ignore[arg-type]
+
+    # Register dependency extractor (used in refuel-speckit workflow)
+    registry.generators.register("dependency_extractor", DependencyExtractor)  # type: ignore[arg-type]

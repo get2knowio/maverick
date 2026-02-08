@@ -281,6 +281,10 @@ async def _execute_workflow_run(
         # Execute workflow using WorkflowFileExecutor (CLI mode)
         from maverick.dsl.events import (
             AgentStreamChunk,
+            PreflightCheckFailed,
+            PreflightCheckPassed,
+            PreflightCompleted,
+            PreflightStarted,
             StepCompleted,
             StepStarted,
             WorkflowCompleted,
@@ -417,6 +421,33 @@ async def _execute_workflow_run(
                     )
                     click.echo(error_msg, err=True)
                     raise SystemExit(ExitCode.FAILURE)
+
+                elif isinstance(event, PreflightStarted):
+                    if event.prerequisites:
+                        msg = click.style("Running preflight checks...", fg="cyan")
+                        click.echo(msg)
+
+                elif isinstance(event, PreflightCheckPassed):
+                    check_mark = click.style("\u2713", fg="green")
+                    name = click.style(event.name, bold=True)
+                    click.echo(f"  {check_mark} {name}")
+
+                elif isinstance(event, PreflightCheckFailed):
+                    x_mark = click.style("\u2717", fg="red")
+                    name = click.style(event.name, bold=True)
+                    click.echo(f"  {x_mark} {name}: {event.message}")
+                    if event.remediation:
+                        hint = click.style(f"    Hint: {event.remediation}", dim=True)
+                        click.echo(hint)
+
+                elif isinstance(event, PreflightCompleted):
+                    if not event.success:
+                        error_msg = format_error(
+                            "Preflight checks failed",
+                            suggestion="Install missing prerequisites and try again.",
+                        )
+                        click.echo(error_msg, err=True)
+                    click.echo()
 
                 elif isinstance(event, WorkflowStarted):
                     # Track workflow nesting depth

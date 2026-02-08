@@ -545,6 +545,86 @@ class RefuelSummaryResult:
 # =============================================================================
 
 
+# =============================================================================
+# Bead Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class SpecKitParseResult:
+    """Result of parsing a SpecKit specification directory.
+
+    Attributes:
+        epic_definition: Serialized BeadDefinition for the epic.
+        work_definitions: Serialized BeadDefinitions for work beads.
+        tasks_content: Raw tasks.md content for dependency extraction.
+        dependency_section: Extracted "User Story Dependencies" text block.
+    """
+
+    epic_definition: dict[str, Any]
+    work_definitions: tuple[dict[str, Any], ...]
+    tasks_content: str
+    dependency_section: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "epic_definition": self.epic_definition,
+            "work_definitions": list(self.work_definitions),
+            "tasks_content": self.tasks_content,
+            "dependency_section": self.dependency_section,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class BeadCreationResult:
+    """Result of creating epic and work beads via bd CLI.
+
+    Attributes:
+        epic: Serialized CreatedBead for the epic (None if creation failed).
+        work_beads: Serialized CreatedBeads for work beads.
+        created_map: Mapping from bead title to bd_id.
+        errors: Errors encountered during creation.
+    """
+
+    epic: dict[str, Any] | None
+    work_beads: tuple[dict[str, Any], ...]
+    created_map: dict[str, str]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "epic": self.epic,
+            "work_beads": list(self.work_beads),
+            "created_map": dict(self.created_map),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DependencyWiringResult:
+    """Result of computing and wiring dependencies between beads.
+
+    Attributes:
+        dependencies: Serialized BeadDependency objects that were wired.
+        errors: Errors encountered during wiring.
+        success: Whether all dependencies were wired successfully.
+    """
+
+    dependencies: tuple[dict[str, Any], ...]
+    errors: tuple[str, ...]
+    success: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "dependencies": list(self.dependencies),
+            "errors": list(self.errors),
+            "success": self.success,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class TechDebtIssueResult:
     """Result of creating a tech debt issue.
