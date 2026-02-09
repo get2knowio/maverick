@@ -457,24 +457,24 @@ def _compute_dependencies(
         if b.category == BeadCategory.USER_STORY and b.title in created_map
     ]
 
-    # Foundation blocks all story beads
+    # Foundation blocks all story beads (stories depend on foundation)
     if foundation_bead:
         for _def, created in story_beads:
             deps.append(
                 BeadDependency(
-                    from_id=foundation_bead.bd_id,
-                    to_id=created.bd_id,
+                    blocker_id=foundation_bead.bd_id,
+                    blocked_id=created.bd_id,
                     dep_type=DependencyType.BLOCKS,
                 )
             )
 
-    # All story beads block cleanup
+    # All story beads block cleanup (cleanup depends on stories)
     if cleanup_bead:
         for _def, created in story_beads:
             deps.append(
                 BeadDependency(
-                    from_id=created.bd_id,
-                    to_id=cleanup_bead.bd_id,
+                    blocker_id=created.bd_id,
+                    blocked_id=cleanup_bead.bd_id,
                     dep_type=DependencyType.BLOCKS,
                 )
             )
@@ -500,8 +500,8 @@ def _compute_dependencies(
             if source_bead and source_bead.bd_id != target_bead.bd_id:
                 deps.append(
                     BeadDependency(
-                        from_id=source_bead.bd_id,
-                        to_id=target_bead.bd_id,
+                        blocker_id=source_bead.bd_id,
+                        blocked_id=target_bead.bd_id,
                         dep_type=DependencyType.BLOCKS,
                     )
                 )
@@ -510,8 +510,8 @@ def _compute_dependencies(
     if foundation_bead and cleanup_bead and not story_beads:
         deps.append(
             BeadDependency(
-                from_id=foundation_bead.bd_id,
-                to_id=cleanup_bead.bd_id,
+                blocker_id=foundation_bead.bd_id,
+                blocked_id=cleanup_bead.bd_id,
                 dep_type=DependencyType.BLOCKS,
             )
         )
@@ -662,11 +662,14 @@ async def generate_beads_from_speckit(
             await client.add_dependency(dep)
             wired_deps.append(dep)
         except Exception as e:
-            error_msg = f"Failed to wire dependency {dep.from_id} -> {dep.to_id}: {e}"
+            error_msg = (
+                f"Failed to wire: {dep.blocked_id} "
+                f"blocked-by {dep.blocker_id}: {e}"
+            )
             logger.error(
                 "dependency_wiring_failed",
-                from_id=dep.from_id,
-                to_id=dep.to_id,
+                blocker_id=dep.blocker_id,
+                blocked_id=dep.blocked_id,
                 error=str(e),
             )
             errors.append(error_msg)

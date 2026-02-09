@@ -151,7 +151,7 @@ class TestGenerateBeadsFromSpeckit:
         assert len(result.dependencies) > 0
 
         # Foundation should block story beads
-        foundation_deps = [d for d in result.dependencies if d.from_id == "bead-002"]
+        foundation_deps = [d for d in result.dependencies if d.blocker_id == "bead-002"]
         assert len(foundation_deps) > 0
 
     @pytest.mark.asyncio

@@ -551,6 +551,127 @@ class RefuelSummaryResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectNextBeadResult:
+    """Result of selecting the next ready bead from an epic.
+
+    Attributes:
+        found: Whether a ready bead was found.
+        bead_id: ID of the selected bead (empty if not found).
+        title: Title of the selected bead.
+        description: Description of the selected bead.
+        priority: Priority of the selected bead.
+        done: Whether the epic has no more ready beads.
+    """
+
+    found: bool
+    bead_id: str
+    title: str
+    description: str
+    priority: int
+    done: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "found": self.found,
+            "bead_id": self.bead_id,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority,
+            "done": self.done,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MarkBeadCompleteResult:
+    """Result of closing/completing a bead.
+
+    Attributes:
+        success: Whether the bead was closed successfully.
+        bead_id: ID of the bead that was closed.
+        error: Error message if closing failed.
+    """
+
+    success: bool
+    bead_id: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "bead_id": self.bead_id,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBeadsFromFailuresResult:
+    """Result of creating fix beads from validation failures.
+
+    Attributes:
+        created_count: Number of beads created.
+        bead_ids: IDs of created beads.
+        errors: Errors encountered during creation.
+    """
+
+    created_count: int
+    bead_ids: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "created_count": self.created_count,
+            "bead_ids": list(self.bead_ids),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBeadsFromFindingsResult:
+    """Result of creating fix beads from review findings.
+
+    Attributes:
+        created_count: Number of beads created.
+        bead_ids: IDs of created beads.
+        errors: Errors encountered during creation.
+    """
+
+    created_count: int
+    bead_ids: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "created_count": self.created_count,
+            "bead_ids": list(self.bead_ids),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CheckEpicDoneResult:
+    """Result of checking whether an epic has remaining ready beads.
+
+    Attributes:
+        done: Whether the epic has no more ready beads.
+        remaining_count: Number of remaining ready beads.
+    """
+
+    done: bool
+    remaining_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "done": self.done,
+            "remaining_count": self.remaining_count,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SpecKitParseResult:
     """Result of parsing a SpecKit specification directory.
 

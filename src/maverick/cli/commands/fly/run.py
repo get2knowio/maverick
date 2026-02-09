@@ -1,7 +1,7 @@
-"""Execute DSL workflows with clean syntax.
+"""``maverick fly run`` command.
 
-This module provides 'maverick fly' as the primary way to execute workflows,
-making it easy to run workflows from the library or custom workflow files.
+Runs arbitrary DSL workflows by name or file path — equivalent to the
+original ``maverick fly <name>`` before the group restructure.
 """
 
 from __future__ import annotations
@@ -10,14 +10,12 @@ from pathlib import Path
 
 import click
 
-# Import the helper function (not the command)
+from maverick.cli.commands.fly._group import fly
 from maverick.cli.commands.workflow import _execute_workflow_run
 from maverick.cli.context import async_command
 
 
-# Create 'fly' as a standalone command (not a group)
-# This makes 'maverick fly <workflow>' work directly
-@click.command("fly", context_settings={"ignore_unknown_options": True})
+@fly.command("run")
 @click.argument("name_or_file")
 @click.option(
     "-i",
@@ -70,7 +68,7 @@ from maverick.cli.context import async_command
 )
 @click.pass_context
 @async_command
-async def fly(
+async def run(
     ctx: click.Context,
     name_or_file: str,
     inputs: tuple[str, ...],
@@ -82,52 +80,16 @@ async def fly(
     only_step: str | None,
     session_log: Path | None,
 ) -> None:
-    """Execute a DSL workflow.
-
-    This command dynamically loads and executes workflows from the library
-    or from a file path. Workflows orchestrate complex development tasks
-    like feature implementation, tech-debt cleanup, and more.
+    """Run a DSL workflow by name or file path.
 
     NAME_OR_FILE can be:
     - A workflow name from the library (e.g., "feature", "cleanup")
     - A path to a workflow file (e.g., "./my-workflow.yaml")
 
-    By default, workflows resume from the last checkpoint if one exists.
-    Use --restart to ignore checkpoints and start fresh.
-
-    By default, workflows are validated before execution. Use --no-validate
-    to skip semantic validation (not recommended).
-
     Examples:
-        # Build a feature from spec
-        maverick fly feature -i branch_name=001-foo -i skip_review=true
-
-        # Fix tech-debt issues
-        maverick fly cleanup -i label=tech-debt -i limit=10
-
-        # Run from a custom workflow file
-        maverick fly ./custom-workflow.yaml -i branch=main
-
-        # Use input file
-        maverick fly feature --input-file inputs.json
-
-        # Preview without executing
-        maverick fly feature -i branch_name=001-foo --dry-run
-
-        # Restart from the beginning (ignore checkpoint)
-        maverick fly feature --restart
-
-        # Skip validation (not recommended)
-        maverick fly feature --no-validate
-
-        # List workflow steps
-        maverick fly feature --list-steps
-
-        # Run only a specific step (skips earlier steps)
-        maverick fly feature -i branch_name=001-foo --step init
-        maverick fly feature -i branch_name=001-foo --step 3
+        maverick fly run feature -i branch_name=001-foo -i skip_review=true
+        maverick fly run ./custom-workflow.yaml -i branch=main
     """
-    # Delegate to shared helper function
     await _execute_workflow_run(
         ctx,
         name_or_file,

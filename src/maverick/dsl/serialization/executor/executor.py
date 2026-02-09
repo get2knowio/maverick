@@ -48,6 +48,8 @@ from maverick.dsl.serialization.schema import (
     BranchStepRecord,
     CheckpointStepRecord,
     GenerateStepRecord,
+    InputDefinition,
+    InputType,
     LoopStepRecord,
     PythonStepRecord,
     SubWorkflowStepRecord,
@@ -73,6 +75,40 @@ StepRecordType = (
 
 # Event types that can be embedded in step outputs
 EmbeddedEventType = AgentStreamChunk | LoopIterationStarted | LoopIterationCompleted
+
+# String values that should coerce to boolean True/False
+_TRUTHY_STRINGS = frozenset({"true", "1", "yes"})
+_FALSY_STRINGS = frozenset({"false", "0", "no"})
+
+
+def _coerce_input_types(
+    inputs: dict[str, Any],
+    definitions: dict[str, InputDefinition],
+) -> dict[str, Any]:
+    """Coerce string inputs to their declared types.
+
+    CLI KEY=VALUE parsing may leave values as strings when ``json.loads``
+    fails (e.g., Python's ``"True"``/``"False"``). This converts them
+    based on the workflow's ``InputDefinition.type``.
+    """
+    coerced = dict(inputs)
+    for name, defn in definitions.items():
+        value = coerced.get(name)
+        if value is None or not isinstance(value, str):
+            continue
+        if defn.type == InputType.BOOLEAN:
+            lower = value.lower()
+            if lower in _TRUTHY_STRINGS:
+                coerced[name] = True
+            elif lower in _FALSY_STRINGS:
+                coerced[name] = False
+        elif defn.type == InputType.INTEGER:
+            with contextlib.suppress(ValueError):
+                coerced[name] = int(value)
+        elif defn.type == InputType.FLOAT:
+            with contextlib.suppress(ValueError):
+                coerced[name] = float(value)
+    return coerced
 
 
 def _extract_embedded_events(
@@ -301,6 +337,11 @@ class WorkflowFileExecutor:
                     # Optional input with no explicit default -> use None
                     inputs[input_name] = None
                 # Required inputs without a value will be caught during validation
+
+        # Coerce string inputs to declared types (defense-in-depth).
+        # CLI KEY=VALUE parsing may pass "False"/"True" as strings when
+        # json.loads() fails on Python-formatted booleans.
+        inputs = _coerce_input_types(inputs, workflow.inputs)
 
         # Handle checkpoint resume
         (

@@ -23,8 +23,13 @@ if TYPE_CHECKING:
 
 # Import action functions
 from maverick.library.actions.beads import (
+    check_epic_done,
     create_beads,
+    create_beads_from_failures,
+    create_beads_from_findings,
+    mark_bead_complete,
     parse_speckit,
+    select_next_bead,
     wire_dependencies,
 )
 from maverick.library.actions.cleanup import (
@@ -67,6 +72,11 @@ __all__ = [
     "parse_speckit",
     "create_beads",
     "wire_dependencies",
+    "select_next_bead",
+    "mark_bead_complete",
+    "check_epic_done",
+    "create_beads_from_failures",
+    "create_beads_from_findings",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions
@@ -218,11 +228,22 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
 
-    # Bead actions (no preflight requires - actions handle dry_run internally,
-    # and will fail naturally if bd is missing and dry_run=False)
+    # Bead actions - parse_speckit only reads spec files (no bd needed),
+    # but create_beads and wire_dependencies require the bd CLI.
     registry.actions.register("parse_speckit", parse_speckit)
-    registry.actions.register("create_beads", create_beads)
-    registry.actions.register("wire_dependencies", wire_dependencies)
+    registry.actions.register("create_beads", create_beads, requires=("bd",))
+    registry.actions.register("wire_dependencies", wire_dependencies, requires=("bd",))
+    registry.actions.register("select_next_bead", select_next_bead, requires=("bd",))
+    registry.actions.register(
+        "mark_bead_complete", mark_bead_complete, requires=("bd",)
+    )
+    registry.actions.register("check_epic_done", check_epic_done, requires=("bd",))
+    registry.actions.register(
+        "create_beads_from_failures", create_beads_from_failures, requires=("bd",)
+    )
+    registry.actions.register(
+        "create_beads_from_findings", create_beads_from_findings, requires=("bd",)
+    )
 
     # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)

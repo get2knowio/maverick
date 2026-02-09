@@ -334,6 +334,14 @@ class WorkflowWriter:
         if step.for_each is not None:
             result["for_each"] = step.for_each
 
+        # Add until if present
+        if step.until is not None:
+            result["until"] = step.until
+
+        # Add max_iterations if not the default (only relevant for until loops)
+        if step.max_iterations != 30:
+            result["max_iterations"] = step.max_iterations
+
         # Serialize parallel or max_concurrency (mutually exclusive)
         # Prefer parallel if it was explicitly set
         if step.parallel is not None:

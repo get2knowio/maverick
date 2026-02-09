@@ -58,15 +58,17 @@ async def speckit(
         maverick refuel speckit /path/to/spec --dry-run
         maverick refuel speckit /path/to/spec --list-steps
     """
+    # Use str.lower() so Python's "True"/"False" become JSON-compatible
+    # "true"/"false" which json.loads() can parse to actual booleans.
     await _execute_workflow_run(
         ctx,
         "refuel-speckit",
         (
             f"spec_dir={spec_dir.resolve()}",
-            f"dry_run={dry_run}",
+            f"dry_run={str(dry_run).lower()}",
         ),
         None,  # input_file
-        False,  # dry_run (workflow-level, not bead-level)
+        dry_run,  # CLI-level dry_run: show plan and exit (skips preflight)
         False,  # restart
         False,  # no_validate
         list_steps,

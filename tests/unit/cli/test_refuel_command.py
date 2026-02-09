@@ -121,9 +121,34 @@ class TestRefuelSpeckitCommand:
 
         mock_execute.assert_called_once()
         args = mock_execute.call_args[0]
-        # args[2] = inputs tuple
+        # args[2] = inputs tuple (workflow-level dry_run input)
         inputs_tuple = args[2]
-        assert any("dry_run=True" in i for i in inputs_tuple)
+        assert any("dry_run=true" in i for i in inputs_tuple)
+        # args[4] = CLI-level dry_run flag (skips preflight/executor)
+        assert args[4] is True
+
+    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
+    def test_cli_dry_run_is_false_by_default(
+        self,
+        mock_execute: AsyncMock,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        spec_dir_for_cli: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        cli_runner.invoke(
+            cli,
+            ["refuel", "speckit", str(spec_dir_for_cli)],
+        )
+
+        mock_execute.assert_called_once()
+        args = mock_execute.call_args[0]
+        # args[4] = CLI-level dry_run flag
+        assert args[4] is False
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_passes_spec_dir_as_input(

@@ -14,6 +14,8 @@ Models are re-exported from maverick.init.models.
 
 from __future__ import annotations
 
+import asyncio
+import shutil
 from pathlib import Path
 
 from maverick.exceptions.init import ConfigExistsError, PrerequisiteError
@@ -76,6 +78,68 @@ __all__ = [
 # =============================================================================
 
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# Beads Initialization (best-effort)
+# =============================================================================
+
+_BD_INIT_TIMEOUT_SECONDS = 10
+
+
+async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
+    """Initialize beads if ``bd`` is available and ``.beads/`` doesn't exist.
+
+    This is best-effort: if ``bd`` isn't installed or ``bd init`` fails, the
+    error is logged but never raised.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log progress.
+
+    Returns:
+        True if beads were successfully initialized, False otherwise.
+    """
+    if shutil.which("bd") is None:
+        if verbose:
+            logger.debug(
+                "bd_not_found", message="bd CLI not on PATH, skipping beads init"
+            )
+        return False
+
+    beads_dir = project_path / ".beads"
+    if beads_dir.exists():
+        if verbose:
+            logger.debug("beads_already_initialized", path=str(beads_dir))
+        return False
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "bd",
+            "init",
+            "--stealth",
+            cwd=str(project_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=_BD_INIT_TIMEOUT_SECONDS,
+        )
+        if proc.returncode == 0:
+            if verbose:
+                logger.info("beads_initialized", path=str(beads_dir))
+            return True
+        else:
+            logger.debug(
+                "bd_init_failed",
+                returncode=proc.returncode,
+                stderr=stderr.decode(errors="replace").strip(),
+            )
+            return False
+    except (TimeoutError, OSError) as exc:
+        logger.debug("bd_init_error", error=str(exc))
+        return False
 
 
 # =============================================================================
@@ -241,6 +305,9 @@ async def run_init(
     if verbose:
         logger.info("config_written", config_path=str(config_path))
 
+    # Step 6: Initialize beads (best-effort, if bd is available)
+    beads_initialized = await _maybe_init_beads(effective_path, verbose)
+
     # Build and return result
     return InitResult(
         success=True,
@@ -250,4 +317,5 @@ async def run_init(
         config=config,
         detection=detection,
         findings_printed=verbose,
+        beads_initialized=beads_initialized,
     )

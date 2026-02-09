@@ -30,11 +30,15 @@ class BeadCategory(str, Enum):
         FOUNDATION: Setup/infrastructure work that blocks other beads.
         USER_STORY: Feature work derived from a user story phase.
         CLEANUP: Polish/cross-cutting work that depends on all stories.
+        VALIDATION: Fix bead for lint/type/test failures.
+        REVIEW: Fix bead for code review findings.
     """
 
     FOUNDATION = "foundation"
     USER_STORY = "user_story"
     CLEANUP = "cleanup"
+    VALIDATION = "validation"
+    REVIEW = "review"
 
 
 class DependencyType(str, Enum):
@@ -96,14 +100,17 @@ class CreatedBead(BaseModel):
 class BeadDependency(BaseModel):
     """Dependency relationship between two beads.
 
+    Uses ``bd dep add <blocked_id> --blocked-by <blocker_id> --type blocks``
+    semantics: ``blocker_id`` must complete before ``blocked_id`` can start.
+
     Attributes:
-        from_id: ID of the bead that blocks.
-        to_id: ID of the bead that is blocked.
+        blocker_id: ID of the prerequisite bead (must finish first).
+        blocked_id: ID of the dependent bead (waits for blocker).
         dep_type: Type of dependency relationship.
     """
 
-    from_id: str = Field(min_length=1, description="Source bead ID")
-    to_id: str = Field(min_length=1, description="Target bead ID")
+    blocker_id: str = Field(min_length=1, description="Prerequisite bead ID")
+    blocked_id: str = Field(min_length=1, description="Dependent bead ID")
     dep_type: DependencyType = Field(
         default=DependencyType.BLOCKS, description="Dependency type"
     )
@@ -141,3 +148,89 @@ class BeadGenerationResult(BaseModel):
     def total_beads(self) -> int:
         """Total number of beads created (epic + work beads)."""
         return (1 if self.epic else 0) + len(self.work_beads)
+
+
+class ReadyBead(BaseModel):
+    """A bead returned by ``bd ready`` that is available for work.
+
+    Attributes:
+        id: Bead identifier.
+        title: Human-readable bead title.
+        priority: Numeric priority (lower = higher priority).
+        bead_type: Whether this is an epic or task.
+        description: Full bead description.
+        parent_id: Parent bead ID (epic ID) if any.
+    """
+
+    id: str = Field(min_length=1, description="Bead ID")
+    title: str = Field(description="Bead title")
+    priority: int = Field(description="Priority (1 = highest)")
+    bead_type: str = Field(default="task", description="Bead type")
+    description: str = Field(default="", description="Full description")
+    parent_id: str | None = Field(default=None, description="Parent bead ID")
+
+    model_config = ConfigDict(frozen=True)
+
+
+class ClosedBead(BaseModel):
+    """Result of closing a bead via ``bd close``.
+
+    Attributes:
+        id: Bead identifier.
+        status: Final status after closing.
+        closed_at: ISO timestamp when the bead was closed.
+    """
+
+    id: str = Field(min_length=1, description="Bead ID")
+    status: str = Field(description="Final status")
+    closed_at: str = Field(default="", description="ISO close timestamp")
+
+    model_config = ConfigDict(frozen=True)
+
+
+class BeadDetails(BaseModel):
+    """Full details of a bead from ``bd show``.
+
+    Attributes:
+        id: Bead identifier.
+        title: Human-readable bead title.
+        description: Full bead description.
+        bead_type: Whether this is an epic or task.
+        priority: Numeric priority.
+        status: Current bead status.
+        parent_id: Parent bead ID if any.
+        labels: Labels attached to the bead.
+        state: Arbitrary key-value state metadata.
+    """
+
+    id: str = Field(min_length=1, description="Bead ID")
+    title: str = Field(description="Bead title")
+    description: str = Field(default="", description="Full description")
+    bead_type: str = Field(default="task", description="Bead type")
+    priority: int = Field(default=1, description="Priority")
+    status: str = Field(default="open", description="Current status")
+    parent_id: str | None = Field(default=None, description="Parent bead ID")
+    labels: list[str] = Field(default_factory=list, description="Labels")
+    state: dict[str, str] = Field(default_factory=dict, description="State metadata")
+
+    model_config = ConfigDict(frozen=True)
+
+
+class BeadSummary(BaseModel):
+    """Lightweight bead summary from ``bd children`` or ``bd query``.
+
+    Attributes:
+        id: Bead identifier.
+        title: Human-readable bead title.
+        status: Current bead status.
+        priority: Numeric priority.
+        bead_type: Whether this is an epic or task.
+    """
+
+    id: str = Field(min_length=1, description="Bead ID")
+    title: str = Field(description="Bead title")
+    status: str = Field(default="open", description="Current status")
+    priority: int = Field(default=1, description="Priority")
+    bead_type: str = Field(default="task", description="Bead type")
+
+    model_config = ConfigDict(frozen=True)

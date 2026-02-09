@@ -9,10 +9,14 @@ from maverick.beads.models import (
     BeadCategory,
     BeadDefinition,
     BeadDependency,
+    BeadDetails,
     BeadGenerationResult,
+    BeadSummary,
     BeadType,
+    ClosedBead,
     CreatedBead,
     DependencyType,
+    ReadyBead,
 )
 
 
@@ -40,6 +44,12 @@ class TestBeadCategory:
 
     def test_cleanup_value(self) -> None:
         assert BeadCategory.CLEANUP.value == "cleanup"
+
+    def test_validation_value(self) -> None:
+        assert BeadCategory.VALIDATION.value == "validation"
+
+    def test_review_value(self) -> None:
+        assert BeadCategory.REVIEW.value == "review"
 
 
 class TestDependencyType:
@@ -141,18 +151,20 @@ class TestBeadDependency:
     """Tests for BeadDependency model."""
 
     def test_creation(self) -> None:
-        dep = BeadDependency(from_id="a", to_id="b")
-        assert dep.from_id == "a"
-        assert dep.to_id == "b"
+        dep = BeadDependency(blocker_id="a", blocked_id="b")
+        assert dep.blocker_id == "a"
+        assert dep.blocked_id == "b"
         assert dep.dep_type == DependencyType.BLOCKS
 
     def test_frozen(self) -> None:
-        dep = BeadDependency(from_id="a", to_id="b")
+        dep = BeadDependency(blocker_id="a", blocked_id="b")
         with pytest.raises(ValidationError):
-            dep.from_id = "changed"  # type: ignore[misc]
+            dep.blocker_id = "changed"  # type: ignore[misc]
 
     def test_explicit_dep_type(self) -> None:
-        dep = BeadDependency(from_id="a", to_id="b", dep_type=DependencyType.BLOCKS)
+        dep = BeadDependency(
+            blocker_id="a", blocked_id="b", dep_type=DependencyType.BLOCKS
+        )
         assert dep.dep_type == DependencyType.BLOCKS
 
 
@@ -202,3 +214,103 @@ class TestBeadGenerationResult:
     def test_not_success_without_epic(self) -> None:
         result = BeadGenerationResult(errors=["Epic creation failed"])
         assert not result.success
+
+
+class TestReadyBead:
+    """Tests for ReadyBead model."""
+
+    def test_creation(self) -> None:
+        bead = ReadyBead(
+            id="bead-001",
+            title="Fix lint errors",
+            priority=5,
+            bead_type="task",
+            description="Fix all lint errors",
+            parent_id="epic-001",
+        )
+        assert bead.id == "bead-001"
+        assert bead.title == "Fix lint errors"
+        assert bead.priority == 5
+        assert bead.parent_id == "epic-001"
+
+    def test_frozen(self) -> None:
+        bead = ReadyBead(id="bead-001", title="Test", priority=1)
+        with pytest.raises(ValidationError):
+            bead.id = "changed"  # type: ignore[misc]
+
+    def test_defaults(self) -> None:
+        bead = ReadyBead(id="bead-001", title="Test", priority=1)
+        assert bead.bead_type == "task"
+        assert bead.description == ""
+        assert bead.parent_id is None
+
+
+class TestClosedBead:
+    """Tests for ClosedBead model."""
+
+    def test_creation(self) -> None:
+        bead = ClosedBead(
+            id="bead-001",
+            status="closed",
+            closed_at="2025-01-01T00:00:00Z",
+        )
+        assert bead.id == "bead-001"
+        assert bead.status == "closed"
+        assert bead.closed_at == "2025-01-01T00:00:00Z"
+
+    def test_frozen(self) -> None:
+        bead = ClosedBead(id="bead-001", status="closed")
+        with pytest.raises(ValidationError):
+            bead.status = "open"  # type: ignore[misc]
+
+
+class TestBeadDetails:
+    """Tests for BeadDetails model."""
+
+    def test_creation(self) -> None:
+        details = BeadDetails(
+            id="bead-001",
+            title="Implementation task",
+            description="Full description",
+            bead_type="task",
+            priority=3,
+            status="open",
+            parent_id="epic-001",
+            labels=["feature", "core"],
+            state={"branch": "main"},
+        )
+        assert details.id == "bead-001"
+        assert details.labels == ["feature", "core"]
+        assert details.state == {"branch": "main"}
+
+    def test_defaults(self) -> None:
+        details = BeadDetails(id="bead-001", title="Test")
+        assert details.description == ""
+        assert details.bead_type == "task"
+        assert details.priority == 1
+        assert details.status == "open"
+        assert details.parent_id is None
+        assert details.labels == []
+        assert details.state == {}
+
+
+class TestBeadSummary:
+    """Tests for BeadSummary model."""
+
+    def test_creation(self) -> None:
+        summary = BeadSummary(
+            id="bead-001",
+            title="Test task",
+            status="open",
+            priority=2,
+            bead_type="task",
+        )
+        assert summary.id == "bead-001"
+        assert summary.title == "Test task"
+        assert summary.status == "open"
+
+    def test_defaults(self) -> None:
+        summary = BeadSummary(id="bead-001", title="Test")
+        assert summary.status == "open"
+        assert summary.priority == 1
+        assert summary.bead_type == "task"
