@@ -459,9 +459,9 @@ async def check_epic_done(epic_id: str) -> CheckEpicDoneResult:
 
 # Priority constants for validation failure beads
 _PRIORITY_TEST = 1
-_PRIORITY_LINT = 5
-_PRIORITY_TYPECHECK = 5
-_PRIORITY_FORMAT = 8
+_PRIORITY_LINT = 3
+_PRIORITY_TYPECHECK = 3
+_PRIORITY_FORMAT = 4
 
 
 async def create_beads_from_failures(
@@ -511,7 +511,7 @@ async def create_beads_from_failures(
         errors_list = stage.get("errors", [])
         error_text = "\n".join(str(e) for e in errors_list[:20])
 
-        priority = priority_map.get(stage_name, 5)
+        priority = priority_map.get(stage_name, 3)
 
         definitions.append(
             BeadDefinition(
@@ -557,9 +557,9 @@ async def create_beads_from_failures(
 
 
 # Priority constants for review finding beads
-_PRIORITY_CRITICAL = 3
-_PRIORITY_MAJOR = 10
-_PRIORITY_MINOR = 20
+_PRIORITY_CRITICAL = 1
+_PRIORITY_MAJOR = 2
+_PRIORITY_MINOR = 4
 
 
 async def create_beads_from_findings(

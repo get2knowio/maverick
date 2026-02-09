@@ -67,7 +67,7 @@ class BeadDefinition(BaseModel):
 
     title: str = Field(min_length=1, description="Bead title")
     bead_type: BeadType = Field(description="Epic or task")
-    priority: int = Field(ge=1, description="Priority (1 = highest)")
+    priority: int = Field(ge=0, le=4, description="Priority (0 = highest, max 4)")
     category: BeadCategory = Field(description="Bead category")
     description: str = Field(default="", description="Full bead description")
     phase_names: list[str] = Field(

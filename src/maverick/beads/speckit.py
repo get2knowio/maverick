@@ -208,7 +208,7 @@ def group_phases_into_beads(
             story_phases.append(name)
 
     beads: list[BeadDefinition] = []
-    priority = 1
+    priority = 1  # Clamped to 0-4 (bd's P0-P4 range) when assigned
 
     # Foundation bead (merged)
     if foundation_phases:
@@ -217,7 +217,7 @@ def group_phases_into_beads(
             BeadDefinition(
                 title="Foundation",
                 bead_type=BeadType.TASK,
-                priority=priority,
+                priority=min(priority, 4),
                 category=BeadCategory.FOUNDATION,
                 phase_names=foundation_phases,
                 task_ids=all_task_ids,
@@ -234,7 +234,7 @@ def group_phases_into_beads(
             BeadDefinition(
                 title=title,
                 bead_type=BeadType.TASK,
-                priority=priority,
+                priority=min(priority, 4),
                 category=BeadCategory.USER_STORY,
                 phase_names=[name],
                 user_story_id=us_id,
@@ -250,7 +250,7 @@ def group_phases_into_beads(
             BeadDefinition(
                 title="Cleanup",
                 bead_type=BeadType.TASK,
-                priority=priority,
+                priority=min(priority, 4),
                 category=BeadCategory.CLEANUP,
                 phase_names=cleanup_phases,
                 task_ids=all_task_ids,

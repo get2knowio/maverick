@@ -119,12 +119,12 @@ class TestBeadDefinition:
                 category=BeadCategory.FOUNDATION,
             )
 
-    def test_zero_priority_rejected(self) -> None:
+    def test_priority_above_max_rejected(self) -> None:
         with pytest.raises(ValidationError):
             BeadDefinition(
                 title="Test",
                 bead_type=BeadType.TASK,
-                priority=0,
+                priority=5,
                 category=BeadCategory.FOUNDATION,
             )
 
