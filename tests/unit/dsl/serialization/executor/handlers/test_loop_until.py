@@ -70,11 +70,10 @@ class TestExecuteLoopUntil:
         ) -> Any:
             nonlocal call_count
             call_count += 1
-            # Simulate setting the check_done result on 2nd iteration
+            # Return the check_done result directly — the handler stores it
             if step.name == "check_done":
                 done = call_count >= 4
-                # Use store_step_output so evaluate_condition can access it
-                context.store_step_output("check_done", {"done": done}, "python")
+                return {"done": done}
             return {"executed": True}
 
         loop = _make_until_loop(
@@ -110,9 +109,8 @@ class TestExecuteLoopUntil:
         ) -> Any:
             nonlocal call_count
             call_count += 1
-            # Never set done to True
-            context.store_step_output("check", {"done": False}, "python")
-            return {"executed": True}
+            # Never set done to True — return directly, handler stores it
+            return {"done": False}
 
         loop = _make_until_loop(
             until="${{ steps.check.output.done }}",
@@ -144,7 +142,7 @@ class TestExecuteLoopUntil:
             if step.name == "counter":
                 iteration += 1
                 value = iteration >= 2
-                context.store_step_output("counter", {"reached": value}, "python")
+                # Return directly — handler stores the output automatically
                 return {"reached": value}
             return {}
 
@@ -181,8 +179,8 @@ class TestExecuteLoopUntil:
         ) -> Any:
             nonlocal call_count
             call_count += 1
-            context.store_step_output("check", {"done": call_count >= 1}, "python")
-            return {}
+            # Return directly — handler stores the output automatically
+            return {"done": call_count >= 1}
 
         loop = _make_until_loop(
             until="${{ steps.check.output.done }}",

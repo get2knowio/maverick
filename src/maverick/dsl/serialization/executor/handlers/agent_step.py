@@ -83,6 +83,7 @@ async def execute_agent_step(
         if isinstance(task_file_str, bool):
             task_file_str = None
         task_file = Path(task_file_str) if task_file_str else None
+        task_description = agent_context.get("task_description")
         branch = agent_context.get("branch", "")
         phase_name = agent_context.get("phase_name")
         cwd_str = agent_context.get("cwd")
@@ -90,6 +91,7 @@ async def execute_agent_step(
 
         agent_context = ImplementerContext(
             task_file=task_file,
+            task_description=task_description,
             phase_name=phase_name,
             branch=branch,
             cwd=cwd,

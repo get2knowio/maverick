@@ -562,11 +562,12 @@ class TestCreateBeadsFromFailures:
             epic_id="epic-1",
             validation_result={
                 "passed": False,
-                "stages": [
-                    {"name": "test", "passed": False, "errors": ["test failed"]},
-                    {"name": "lint", "passed": False, "errors": ["lint error"]},
-                    {"name": "format", "passed": True, "errors": []},
-                ],
+                "stages": ["test", "lint", "format"],
+                "stage_results": {
+                    "test": {"passed": False, "errors": ["test failed"]},
+                    "lint": {"passed": False, "errors": ["lint error"]},
+                    "format": {"passed": True, "errors": []},
+                },
             },
             dry_run=True,
         )
@@ -597,9 +598,13 @@ class TestCreateBeadsFromFailures:
                 epic_id="epic-1",
                 validation_result={
                     "passed": False,
-                    "stages": [
-                        {"name": "test", "passed": False, "errors": ["test failed"]},
-                    ],
+                    "stages": ["test"],
+                    "stage_results": {
+                        "test": {
+                            "passed": False,
+                            "errors": ["test failed"],
+                        },
+                    },
                 },
             )
         assert result.created_count == 1

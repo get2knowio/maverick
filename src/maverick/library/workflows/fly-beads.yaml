@@ -60,9 +60,7 @@ steps:
         agent: implementer
         when: ${{ steps.select_bead.output.found }}
         context:
-          bead_id: ${{ steps.select_bead.output.bead_id }}
-          bead_title: ${{ steps.select_bead.output.title }}
-          bead_description: ${{ steps.select_bead.output.description }}
+          task_description: ${{ steps.select_bead.output.description }}
           branch: ${{ inputs.branch_name }}
 
       - name: validate

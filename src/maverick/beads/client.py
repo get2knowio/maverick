@@ -67,7 +67,7 @@ class BeadClient:
         error_cls: type[BeadError] = BeadError,
         error_msg: str = "bd command failed",
         **error_kwargs: str | None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         """Run a bd command and parse JSON output.
 
         Args:
@@ -77,7 +77,7 @@ class BeadClient:
             **error_kwargs: Additional keyword arguments for the exception.
 
         Returns:
-            Parsed JSON output as a dict.
+            Parsed JSON output (dict or list).
 
         Raises:
             BeadError (or subclass): If the command fails or output is invalid JSON.
@@ -88,7 +88,7 @@ class BeadClient:
                 f"{error_msg}: {result.stderr.strip()}", **error_kwargs
             )
         try:
-            parsed: dict[str, Any] = json.loads(result.stdout)
+            parsed: dict[str, Any] | list[Any] = json.loads(result.stdout)
             return parsed
         except json.JSONDecodeError as e:
             raise error_cls(
@@ -305,6 +305,15 @@ class BeadClient:
             error_msg=f"Failed to close bead {bead_id}",
             bead_id=bead_id,
         )
+
+        # bd close --json may return a list; take the first element
+        if isinstance(data, list):
+            if not data:
+                raise BeadCloseError(
+                    f"bd close returned empty list for {bead_id}",
+                    bead_id=bead_id,
+                )
+            data = data[0]
 
         closed = ClosedBead.model_validate(data)
 

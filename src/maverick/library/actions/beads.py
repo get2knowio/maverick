@@ -488,8 +488,14 @@ async def create_beads_from_failures(
             errors=(),
         )
 
-    stages = validation_result.get("stages", [])
-    failed_stages = [s for s in stages if not s.get("passed", True)]
+    # The validate step returns stage_results as a dict keyed by stage name,
+    # each value being a dict with 'passed', 'output', 'errors', etc.
+    stage_results = validation_result.get("stage_results", {})
+    failed_stages: list[tuple[str, dict[str, Any]]] = [
+        (name, data)
+        for name, data in stage_results.items()
+        if isinstance(data, dict) and not data.get("passed", True)
+    ]
 
     if not failed_stages:
         return CreateBeadsFromFailuresResult(
@@ -506,10 +512,11 @@ async def create_beads_from_failures(
     }
 
     definitions: list[BeadDefinition] = []
-    for stage in failed_stages:
-        stage_name = stage.get("name", "unknown")
-        errors_list = stage.get("errors", [])
-        error_text = "\n".join(str(e) for e in errors_list[:20])
+    for stage_name, stage_data in failed_stages:
+        errors_list = stage_data.get("errors", [])
+        output_text = stage_data.get("output", "")
+        # Use output as error context when errors list is empty
+        error_text = "\n".join(str(e) for e in errors_list[:20]) or output_text
 
         priority = priority_map.get(stage_name, 3)
 

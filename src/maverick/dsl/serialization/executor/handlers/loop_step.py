@@ -25,6 +25,7 @@ from maverick.dsl.serialization.executor.conditions import (
     evaluate_condition,
     evaluate_for_each_expression,
 )
+from maverick.dsl.serialization.executor.context import validate_step_output
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.executor.step_path import make_prefix_callback
@@ -743,6 +744,35 @@ async def _execute_loop_until(
             # Execute body steps sequentially
             try:
                 for _step_idx, s in enumerate(step.steps):
+                    # Evaluate when condition (skip step if false)
+                    if s.when:
+                        try:
+                            should_run = evaluate_condition(s.when, iter_context)
+                            if not should_run:
+                                logger.debug(
+                                    "loop_body_step_skipped",
+                                    step_name=s.name,
+                                    condition=s.when,
+                                )
+                                # Store None output so later expressions
+                                # can reference this step
+                                iter_context.store_step_output(
+                                    s.name, None, s.type
+                                )
+                                step_results.append(None)
+                                continue
+                        except Exception as cond_exc:
+                            logger.warning(
+                                "loop_body_when_eval_failed",
+                                step_name=s.name,
+                                error=str(cond_exc),
+                            )
+                            iter_context.store_step_output(
+                                s.name, None, s.type
+                            )
+                            step_results.append(None)
+                            continue
+
                     nested_step_start = time.time()
                     if iter_callback is not None:
                         await iter_callback(
@@ -756,6 +786,12 @@ async def _execute_loop_until(
                     try:
                         result = await execute_step_fn(s, iter_context, iter_callback)
                         step_results.append(result)
+
+                        # Store body step output in context so subsequent
+                        # steps (and the until expression) can reference it
+                        # via ${{ steps.<name>.output }}.
+                        validated = validate_step_output(result, s.name, s.type)
+                        iter_context.store_step_output(s.name, validated, s.type)
 
                         if iter_callback is not None:
                             nested_duration = int(

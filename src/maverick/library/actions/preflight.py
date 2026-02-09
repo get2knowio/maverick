@@ -100,6 +100,7 @@ async def run_preflight_checks(
     check_api: bool = True,
     check_git: bool = True,
     check_github: bool = True,
+    check_bd: bool = False,
     check_validation_tools: bool = True,
     validation_stages: list[str] | None = None,
     fail_on_error: bool = True,
@@ -115,6 +116,7 @@ async def run_preflight_checks(
         check_api: Whether to validate Anthropic API access.
         check_git: Whether to validate git is available.
         check_github: Whether to validate GitHub CLI is authenticated.
+        check_bd: Whether to validate the ``bd`` CLI is available.
         check_validation_tools: Whether to validate validation tools are installed.
         validation_stages: List of validation stages to check tools for.
             Defaults to ["format", "lint", "typecheck", "test"].
@@ -332,6 +334,22 @@ async def run_preflight_checks(
                     error=str(e),
                     error_type=type(e).__name__,
                 )
+
+    # Check bd CLI
+    if check_bd:
+        import shutil as _shutil_bd
+
+        logger.info("Checking bd CLI availability...")
+        if _shutil_bd.which("bd") is None:
+            errors.append(
+                "bd CLI is not installed or not on PATH. "
+                "Run 'maverick init' to initialise the beads tracker."
+            )
+            logger.error("bd CLI not found")
+            await _emit_check(event_callback, "bd CLI", False, "not installed")
+        else:
+            logger.info("bd CLI is available")
+            await _emit_check(event_callback, "bd CLI", True, "installed")
 
     # Check validation tools (from maverick.yaml config)
     if check_validation_tools:
