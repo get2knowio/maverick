@@ -14,6 +14,7 @@ import pytest
 
 from maverick.library.actions.git import (
     create_git_branch,
+    git_add,
     git_check_and_stage,
     git_commit,
     git_merge,
@@ -761,4 +762,65 @@ class TestGitMerge:
 
             assert result["success"] is False
             assert result["merge_commit"] is None
+            assert result["error"] is not None
+
+
+class TestGitAdd:
+    """Tests for git_add action."""
+
+    @pytest.mark.asyncio
+    async def test_stages_default_paths(self) -> None:
+        """Test stages '.' by default."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [create_mock_process(0)]
+
+            result = await git_add()
+
+            assert result["success"] is True
+            call_args = mock_exec.call_args_list[0][0]
+            assert call_args == ("git", "add", ".")
+
+    @pytest.mark.asyncio
+    async def test_stages_specific_paths(self) -> None:
+        """Test stages specific paths."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [create_mock_process(0)]
+
+            result = await git_add(paths=[".beads/issues.jsonl"])
+
+            assert result["success"] is True
+            call_args = mock_exec.call_args_list[0][0]
+            assert call_args == ("git", "add", ".beads/issues.jsonl")
+
+    @pytest.mark.asyncio
+    async def test_uses_force_flag(self) -> None:
+        """Test passes -f flag when force=True."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [create_mock_process(0)]
+
+            result = await git_add(paths=[".beads/issues.jsonl"], force=True)
+
+            assert result["success"] is True
+            call_args = mock_exec.call_args_list[0][0]
+            assert call_args == ("git", "add", "-f", ".beads/issues.jsonl")
+
+    @pytest.mark.asyncio
+    async def test_handles_failure(self) -> None:
+        """Test handles git add failure gracefully."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr="fatal: not a git repository")
+            ]
+
+            result = await git_add(paths=["missing.txt"])
+
+            assert result["success"] is False
             assert result["error"] is not None

@@ -112,6 +112,47 @@ async def git_check_and_stage() -> dict[str, Any]:
     return status
 
 
+async def git_add(
+    paths: list[str] | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Stage specific paths (with optional force for excluded files).
+
+    Args:
+        paths: File paths to stage. Defaults to ["."] if not provided.
+        force: Use ``git add -f`` to override .gitignore / info/exclude.
+
+    Returns:
+        Dict with:
+        - success: True if staging succeeded
+        - error: Error message if staging failed, None otherwise
+    """
+    if not paths:
+        paths = ["."]
+
+    try:
+        cmd = ["git", "add"]
+        if force:
+            cmd.append("-f")
+        cmd.extend(paths)
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"git add failed: {stderr.decode()}")
+
+        logger.debug("Staged paths", paths=paths, force=force)
+        return {"success": True, "error": None}
+
+    except (RuntimeError, OSError) as e:
+        logger.error(f"Git add failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
 async def git_stage_all() -> dict[str, Any]:
     """Stage all changes including untracked files (git add .).
 

@@ -112,7 +112,26 @@ steps:
         weight: 10
 
   # ============================================================================
-  # Step 6: Commit Beads
+  # Step 6: Stage Beads
+  # ============================================================================
+  # Force-stages .beads/issues.jsonl (which may be in .git/info/exclude
+  # when bd uses stealth mode) so that the commit step picks it up.
+  # Skipped in dry-run mode.
+  - name: stage_beads
+    type: python
+    action: git_add
+    when: ${{ not inputs.dry_run }}
+    kwargs:
+      paths:
+        - .beads/issues.jsonl
+      force: true
+    metadata:
+      progress:
+        stage: "stage"
+        weight: 1
+
+  # ============================================================================
+  # Step 7: Commit Beads
   # ============================================================================
   # Commits .beads/issues.jsonl changes on the spec branch.
   # Skipped in dry-run mode.
@@ -122,13 +141,14 @@ steps:
     when: ${{ not inputs.dry_run }}
     kwargs:
       message: "refuel(speckit): create beads for ${{ inputs.spec }}"
+      add_all: false
     metadata:
       progress:
         stage: "commit"
         weight: 3
 
   # ============================================================================
-  # Step 7: Checkout Main
+  # Step 8: Checkout Main
   # ============================================================================
   # Switches back to main before merging.
   # Skipped in dry-run mode.
@@ -144,7 +164,7 @@ steps:
         weight: 2
 
   # ============================================================================
-  # Step 8: Merge Spec Branch
+  # Step 9: Merge Spec Branch
   # ============================================================================
   # Merges the spec branch into main, bringing spec files and bead data.
   # Skipped in dry-run mode.

@@ -40,6 +40,7 @@ from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
     create_git_branch,
+    git_add,
     git_check_and_stage,
     git_commit,
     git_has_changes,
@@ -87,6 +88,7 @@ __all__ = [
     # Task actions
     "get_phase_names",
     # Git actions
+    "git_add",
     "git_commit",
     "git_push",
     "git_check_and_stage",
@@ -146,6 +148,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("get_phase_names", get_phase_names)
 
     # Git actions - require git CLI and identity for commits
+    registry.actions.register(
+        "git_add",
+        git_add,
+        requires=("git", "git_repo"),
+    )
     registry.actions.register(
         "git_commit",
         git_commit,

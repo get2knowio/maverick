@@ -198,6 +198,7 @@ class TestSpecificWorkflows:
         assert "checkout_branch" in step_names
         assert "parse_spec" in step_names
         assert "create_beads" in step_names
+        assert "stage_beads" in step_names
         assert "commit_beads" in step_names
         assert "checkout_main" in step_names
         assert "merge_spec" in step_names
