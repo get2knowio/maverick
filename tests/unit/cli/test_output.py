@@ -35,7 +35,6 @@ class TestOutputFormat:
 
     def test_enum_values(self) -> None:
         """Test all OutputFormat enum values are defined correctly."""
-        assert OutputFormat.TUI.value == "tui"
         assert OutputFormat.JSON.value == "json"
         assert OutputFormat.MARKDOWN.value == "markdown"
         assert OutputFormat.TEXT.value == "text"
@@ -53,7 +52,6 @@ class TestOutputFormat:
 
     def test_can_compare_with_string(self) -> None:
         """Test OutputFormat members can be compared with strings."""
-        assert OutputFormat.TUI == "tui"
         assert OutputFormat.JSON == "json"
         assert OutputFormat.MARKDOWN == "markdown"
         assert OutputFormat.TEXT == "text"
@@ -61,12 +59,12 @@ class TestOutputFormat:
     def test_all_members_present(self) -> None:
         """Test all expected members are present."""
         members = {member.name for member in OutputFormat}
-        expected = {"TUI", "JSON", "MARKDOWN", "TEXT"}
+        expected = {"JSON", "MARKDOWN", "TEXT"}
         assert members == expected
 
     def test_enum_membership(self) -> None:
         """Test can check membership using 'in' operator."""
-        assert "tui" in [fmt.value for fmt in OutputFormat]
+        assert "json" in [fmt.value for fmt in OutputFormat]
         assert "json" in [fmt.value for fmt in OutputFormat]
         assert "invalid" not in [fmt.value for fmt in OutputFormat]
 

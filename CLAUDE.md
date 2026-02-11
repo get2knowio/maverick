@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Maverick is a Python CLI/TUI application that automates AI-powered development workflows using the Claude Agent SDK and Textual. It orchestrates multi-phase workflows: feature implementation from task lists, parallel code review, convention updates, and PR management.
+Maverick is a Python CLI application that automates AI-powered development workflows using the Claude Agent SDK. It orchestrates multi-phase workflows: feature implementation from task lists, parallel code review, convention updates, and PR management.
 
 ## Technology Stack
 
@@ -14,8 +14,8 @@ Maverick is a Python CLI/TUI application that automates AI-powered development w
 | Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
 | Build System    | Make                    | AI-friendly commands with minimal output |
 | AI/Agents       | Claude Agent SDK        | `claude-agent-sdk` package               |
-| TUI             | Textual                 | `textual` package                        |
 | CLI             | Click                   | `click` package                          |
+| CLI Output      | Rich                    | `rich` package (auto TTY detection)      |
 | Validation      | Pydantic                | For configuration and data models        |
 | Testing         | pytest + pytest-asyncio | Parallel via xdist (`-n auto`)           |
 | Linting         | Ruff                    | Fast, comprehensive Python linter        |
@@ -120,10 +120,6 @@ src/maverick/
 │   └── refuel.py        # RefuelWorkflow - tech-debt resolution
 ├── tools/               # MCP tool definitions
 ├── hooks/               # Safety and logging hooks
-├── tui/                 # Textual application
-│   ├── app.py           # Main Textual App
-│   ├── screens/         # Screen components
-│   └── widgets/         # Reusable widgets
 └── utils/               # Shared utilities
 ```
 
@@ -131,7 +127,6 @@ src/maverick/
 
 - **Agents**: Know HOW to do a task (system prompts, tool selection, Claude SDK interaction)
 - **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing)
-- **TUI**: Presents state and captures input (no business logic)
 - **Tools**: Wrap external systems (GitHub CLI, git, notifications)
 
 ## Workflow Architecture: YAML-Based DSL
@@ -228,7 +223,7 @@ If you have existing Python decorator workflows, see `docs/migrating-from-decora
 
 See `.specify/memory/constitution.md` for the authoritative reference.
 
-1. **Async-First**: All agent interactions and workflows MUST be async. Use `asyncio` patterns; no threading for I/O. Workflows yield progress updates as async generators for TUI consumption.
+1. **Async-First**: All agent interactions and workflows MUST be async. Use `asyncio` patterns; no threading for I/O. Workflows yield progress updates as async generators for CLI consumption.
 
 2. **Dependency Injection**: Agents and workflows receive configuration and dependencies, not global state. MCP tool servers are passed in, not created internally.
 
@@ -271,7 +266,7 @@ The default stance is full ownership of the repository state while you work. “
 
 - Docstrings: Google-style format with Args, Returns, Raises sections
 - Exceptions: Hierarchy from `MaverickError` → `AgentError`, `WorkflowError`, `ConfigError`
-- No `print()` for output; use logging or TUI updates
+- No `print()` for output; use logging or Rich Console
 - No `shell=True` in subprocess calls without explicit security justification
 
 ## Debt Prevention Guidelines
@@ -299,7 +294,6 @@ Use these patterns to prevent the common “god file” failures seen in this re
 
 - **CLI**: keep `src/maverick/main.py` as a thin entrypoint; put each Click command in `src/maverick/cli/commands/<command>.py`; keep shared Click options/error handling in `src/maverick/cli/common.py`.
 - **Workflows**: use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `dsl.py`/`constants.py`, and `workflow.py`.
-- **TUI models**: split `src/maverick/tui/models.py` into a `src/maverick/tui/models/` package grouped by domain (enums, dialogs, widget state, screen state, theme).
 - **Tools (MCP servers)**: split into a package with `runner.py` (subprocess), `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules.
 - **DSL execution**: isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small.
 - **Tests**: split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste.
@@ -337,31 +331,18 @@ When splitting a public module, preserve import stability:
 
 These “truisms” are required to preserve the clarity and layer boundaries described in `.specify/memory/constitution.md` and the Slidev training. If a change would violate any item below, stop and refactor the design before proceeding.
 
-### 1. TUI is display-only
-
-- `src/maverick/tui/**` MUST NOT execute subprocesses (`subprocess.run`, `asyncio.create_subprocess_exec`) or make network calls.
-- TUI code MUST delegate external interactions to runners/services and only update reactive state + render results.
-
-**Streaming-First Design**: The TUI follows a streaming-first philosophy where the primary
-content area is a unified, scrolling event stream (inspired by Claude Code's interface):
-
-- Single-column streaming output as the main focus
-- Minimal chrome, maximum content—every pixel should convey information
-- Chronological workflow events (step starts, agent outputs, tool calls, completions)
-- All workflow step types contribute via `StepOutput` or type-specific events
-
-### 2. Async-first means “no blocking on the event loop”
+### 1. Async-first means "no blocking on the event loop"
 
 - Never call `subprocess.run` from an `async def` path.
 - Prefer `CommandRunner` (`src/maverick/runners/command.py`) for subprocess execution with timeouts.
-- DSL `PythonStep` callables MUST be async, or must be run off-thread (e.g., `asyncio.to_thread`) to avoid freezing the TUI/workflows.
+- DSL `PythonStep` callables MUST be async, or must be run off-thread (e.g., `asyncio.to_thread`) to avoid blocking workflows.
 
-### 3. Deterministic ops belong to workflows/runners, not agents
+### 2. Deterministic ops belong to workflows/runners, not agents
 
 - Agents provide judgment (implementation/review/fix suggestions). They MUST NOT own deterministic side effects like git commits/pushes or running validation.
 - Workflows (or DSL steps/actions) own deterministic execution, retries, checkpointing, and error recovery policies.
 
-### 4. Actions must have a single, typed contract
+### 3. Actions must have a single, typed contract
 
 - Workflow actions MUST not return ad-hoc `dict[str, Any]` blobs.
 - Use one canonical contract:
@@ -369,12 +350,12 @@ content area is a unified, scrolling event stream (inspired by Claude Code's int
   - acceptable: `TypedDict` + validation at boundaries.
 - Keep action outputs stable across versions; treat them as public interfaces.
 
-### 5. Resilience features must be real, not stubs
+### 4. Resilience features must be real, not stubs
 
 - “Retry/fix loops” and “recovery” must actually invoke the fixer/retry validation or be removed.
 - If the DSL/workflow definition is the right place for retry logic, implement it there rather than simulating it in a Python action.
 
-### 6. One canonical wrapper per external system
+### 5. One canonical wrapper per external system
 
 - Do not create new `git`/`gh`/validation subprocess wrappers in random modules.
 - Prefer:
@@ -382,35 +363,11 @@ content area is a unified, scrolling event stream (inspired by Claude Code's int
   - `src/maverick/tools/**` for MCP surfaces (delegate to runners/utilities)
   - `src/maverick/dsl/context_builders.py` for context composition (delegate; no subprocess re-implementation)
 
-### 7. Tool server factories must be async-safe and consistent
+### 6. Tool server factories must be async-safe and consistent
 
 - Factory functions MUST NOT call `asyncio.run()` internally.
 - Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
 - Return concrete, correct types (avoid `Any` on public APIs).
-
-### 8. TUI streaming follows the unified event pattern
-
-All workflow step types MUST contribute to the unified stream via standardized events:
-
-- **Agent steps**: Use `AgentStreamChunk` for streaming output and thinking
-- **Python/deterministic steps**: Use `StepOutput` for progress and status messages
-- **All steps**: Emit `StepStarted`/`StepCompleted` for lifecycle tracking
-- The `UnifiedStreamWidget` is the canonical display component for workflow execution
-- FIFO buffer management (100KB limit) prevents memory exhaustion
-- 50ms debounced updates prevent UI flickering during rapid event bursts
-
-**StepOutput pattern**:
-```python
-from maverick.dsl.events import StepOutput
-
-if event_callback:
-    await event_callback(StepOutput(
-        step_name="fetch_pr",
-        message=f"Fetching PR #{pr_number}...",
-        level="info",  # "info", "success", "warning", "error"
-        source="github",  # Optional source identifier
-    ))
-```
 
 ## Workflows
 
@@ -479,7 +436,7 @@ Maverick development involves two distinct repositories. **Never confuse them.**
 
 | Repository | Purpose | Remote URL |
 |------------|---------|------------|
-| **maverick** | Core CLI/TUI application | `get2knowio/maverick.git` |
+| **maverick** | Core CLI application | `get2knowio/maverick.git` |
 | **sample-maverick-project** | E2E test project | `get2knowio/sample-maverick-project.git` |
 
 ### Branch Naming Conventions
@@ -506,61 +463,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
 
 ## Active Technologies
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Pydantic, PyYAML, GitPython (028-maverick-init)
-- YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`) (028-maverick-init)
-- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Claude Agent SDK (`claude-agent-sdk`), Click, Pydantic, PyYAML (030-tui-execution-visibility)
-- N/A (in-memory state during workflow execution; streaming buffer with 100KB FIFO limit) (030-tui-execution-visibility)
 
-- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic (001-maverick-foundation)
-- YAML config files (project: `maverick.yaml`, user: `~/.config/maverick/config.yaml`) (001-maverick-foundation)
-- Claude Agent SDK (`claude-agent-sdk`), Pydantic for MaverickAgent base class (002-base-agent)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI (003-code-reviewer-agent)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, GitHub CLI (`gh`) (004-implementer-issue-fixer-agents)
-- N/A (file system for task files, Git for commits) (004-implementer-issue-fixer-agents)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), GitHub CLI (`gh`) (005-github-mcp-tools)
-- N/A (tools interact with GitHub API via CLI) (005-github-mcp-tools)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI, ntfy.sh (HTTP API) (006-utility-mcp-tools)
-- N/A (tools interact with external systems: git, ntfy.sh, validation commands) (006-utility-mcp-tools)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (for configuration models) (007-safety-hooks)
-- N/A (metrics in-memory with rolling window; logs via standard Python logging) (007-safety-hooks)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, asyncio (008-validation-workflow)
-- N/A (in-memory state during workflow execution) (008-validation-workflow)
-- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (009-fly-workflow)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (BaseModel), dataclasses (frozen/slots), asyncio (010-refuel-workflow)
-- N/A (no persistence; in-memory state during workflow execution) (010-refuel-workflow)
-- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Click (CLI entry point), Pydantic (for configuration models) (011-tui-layout-theming)
-- N/A (in-memory state; workflows provide state via async generators) (011-tui-layout-theming)
-- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Rich (syntax highlighting via Textual's built-in support) (012-workflow-widgets)
-- N/A (in-memory state; widgets receive immutable snapshots) (012-workflow-widgets)
-- Python 3.10+ (with `from __future__ import annotations`) + Textual 0.40+, Click (CLI), Pydantic (configuration models) (013-tui-interactive-screens)
-- JSON file at `~/.config/maverick/history.json` for workflow history (013-tui-interactive-screens)
-- Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Textual (TUI), Pydantic (config validation), existing workflows (FlyWorkflow, RefuelWorkflow) (014-cli-entry-point)
-- Python 3.10+ (with `from __future__ import annotations`) + pytest>=7.0.0, pytest-asyncio>=0.21.0, pytest-cov>=4.0.0, ruff, mypy, textual (for pilot testing), click (for CliRunner) (015-testing-infrastructure)
-- N/A (no persistent storage; in-memory state during test execution) (015-testing-infrastructure)
-- Python 3.10+ (with `from __future__ import annotations`) + subprocess (stdlib), dataclasses (stdlib), pathlib (stdlib) (016-git-operations)
-- N/A (operates on git repositories) (016-git-operations)
-- Python 3.10+ with `from __future__ import annotations` + asyncio (stdlib), dataclasses (stdlib), pathlib (stdlib), signal (stdlib) (017-subprocess-runners)
-- N/A (in-memory state during execution) (017-subprocess-runners)
-- Python 3.10+ (with `from __future__ import annotations`) + pathlib (stdlib), logging (stdlib), re (stdlib), existing GitOperations utility (018-context-builder)
-- N/A (read-only file access, no persistence) (018-context-builder)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic (for input models), standard logging (019-generator-agents)
-- N/A (stateless text generation, no persistence) (019-generator-agents)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Click, asyncio (020-workflow-refactor)
-- N/A (in-memory state during workflow execution; git for persistence) (020-workflow-refactor)
-- N/A (no persistence changes) (021-agent-tool-permissions)
-- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (BaseModel for configuration/results), dataclasses (frozen/slots for events), asyncio (async workflow execution), Claude Agent SDK (for agent/generate steps) (022-workflow-dsl)
-- N/A (in-memory state during workflow execution; results are returned to caller) (022-workflow-dsl)
-- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, pydantic, asyncio (stdlib), pathlib (stdlib), hashlib (stdlib), json (stdlib) (023-dsl-flow-control)
-- JSON files under `.maverick/checkpoints/` for checkpoint persistence (023-dsl-flow-control)
-- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, Textual 0.40+, Click, Pydantic, PyYAML (for YAML parsing) (024-workflow-serialization-viz)
-- N/A (workflow files are user-managed; no Maverick-owned persistence) (024-workflow-serialization-viz)
-- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, Pydantic, PyYAML, Click, Textual, pathlib (stdlib) (025-builtin-workflow-library)
-- N/A (workflow files are user-managed YAML/Python; no Maverick-owned persistence) (025-builtin-workflow-library)
-- Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, Pydantic, PyYAML, asyncio (stdlib), subprocess (stdlib), shutil (stdlib) for workflow actions; DSL-based workflow definitions with YAML serialization (026-dsl-builtin-workflows)
-- N/A for persistence; in-memory state during workflow execution; optional JSON checkpoints under `.maverick/checkpoints/` (026-dsl-builtin-workflows)
-
-## Recent Changes
-
-- 003-code-reviewer-agent: Added Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, Git CLI
-- 002-base-agent: Added MaverickAgent abstract base class with Claude Agent SDK integration
-- 001-maverick-foundation: Added Python 3.10+ (with `from __future__ import annotations`) + claude-agent-sdk, textual, click, pyyaml, pydantic
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Rich, Pydantic, PyYAML, GitPython
+- YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`)
+- JSON files under `.maverick/checkpoints/` for checkpoint persistence
+- DSL-based workflow definitions with YAML serialization

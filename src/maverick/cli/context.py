@@ -8,21 +8,18 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, TypeVar
 
-from maverick.cli.output import OutputFormat
 from maverick.config import MaverickConfig
 
 __all__ = [
     "ExitCode",
     "CLIContext",
     "async_command",
-    "ReviewCommandInputs",
 ]
 
 
@@ -51,27 +48,12 @@ class CLIContext:
         config_path: Path to config file (if specified via --config).
         verbosity: Verbosity level (0=default, 1=INFO, 2+=DEBUG).
         quiet: Suppress non-essential output.
-        no_tui: Disable TUI mode regardless of TTY.
     """
 
     config: MaverickConfig
     config_path: Path | None = None
     verbosity: int = 0
     quiet: bool = False
-    no_tui: bool = False
-
-    @property
-    def use_tui(self) -> bool:
-        """Whether TUI should be used (considers TTY detection).
-
-        Returns:
-            True if TUI should be enabled, False otherwise.
-        """
-        if self.no_tui:
-            return False
-        if self.quiet:
-            return False
-        return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -100,18 +82,3 @@ def async_command(f: F) -> F:
         return asyncio.run(f(*args, **kwargs))
 
     return wrapper  # type: ignore[return-value]
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewCommandInputs:
-    """Inputs for review command execution.
-
-    Attributes:
-        pr_number: Pull request number to review.
-        fix: Automatically apply suggested fixes.
-        output_format: Output format (tui, json, markdown).
-    """
-
-    pr_number: int
-    fix: bool = False
-    output_format: OutputFormat = OutputFormat.TUI

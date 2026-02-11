@@ -4,11 +4,10 @@ Tests comprehensive global options functionality:
 - --config option for specifying custom config file
 - --verbose stacking (-v, -vv, -vvv) for verbosity levels
 - --quiet flag for suppressing non-essential output
-- --no-tui flag for disabling TUI mode
 - --version output
 - --help output
 - Precedence rules (quiet takes precedence over verbose)
-- TTY and pipe auto-detection for interactive mode
+- TTY and pipe auto-detection
 """
 
 from __future__ import annotations
@@ -250,54 +249,6 @@ def test_quiet_short_flag(
 
 
 # =============================================================================
-# T021: Test --no-tui flag
-# =============================================================================
-
-
-def test_no_tui_flag_disables_tui(
-    cli_runner: CliRunner,
-    temp_dir: Path,
-    clean_env: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that --no-tui flag is recognized and stored in context."""
-    import os
-
-    os.chdir(temp_dir)
-    monkeypatch.setattr(Path, "home", lambda: temp_dir)
-
-    result = cli_runner.invoke(cli, ["--no-tui"])
-
-    # Should succeed
-    assert result.exit_code == 0
-
-    # CLIContext.use_tui should be False (we'll verify in implementation)
-
-
-def test_no_tui_with_tty_still_disables_tui(
-    cli_runner: CliRunner,
-    temp_dir: Path,
-    clean_env: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that --no-tui disables TUI even when TTY is available."""
-    import os
-
-    os.chdir(temp_dir)
-    monkeypatch.setattr(Path, "home", lambda: temp_dir)
-
-    # Mock TTY detection to return True
-    with (
-        patch("sys.stdin.isatty", return_value=True),
-        patch("sys.stdout.isatty", return_value=True),
-    ):
-        result = cli_runner.invoke(cli, ["--no-tui"])
-
-        assert result.exit_code == 0
-        # Even with TTY, --no-tui should disable TUI
-
-
-# =============================================================================
 # T022: Test --version output
 # =============================================================================
 
@@ -336,7 +287,6 @@ def test_help_option_output(cli_runner: CliRunner) -> None:
     assert "--config" in result.output or "-c" in result.output
     assert "--verbose" in result.output or "-v" in result.output
     assert "--quiet" in result.output or "-q" in result.output
-    assert "--no-tui" in result.output
     assert "--version" in result.output
     assert "--help" in result.output
 
@@ -422,7 +372,7 @@ def test_piped_stdin_detected(
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
-        # CLIContext.use_tui should be False when stdin is not a TTY
+        # Rich Console auto-detects non-TTY stdin
 
 
 def test_piped_stdout_detected(
@@ -441,7 +391,7 @@ def test_piped_stdout_detected(
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
-        # CLIContext.use_tui should be False when stdout is not a TTY
+        # Rich Console auto-detects non-TTY stdout
 
 
 def test_both_stdin_stdout_not_tty(
@@ -463,7 +413,7 @@ def test_both_stdin_stdout_not_tty(
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
-        # CLIContext.use_tui should be False
+        # Rich Console auto-detects non-TTY environment
 
 
 def test_tty_environment_enables_tui(
@@ -472,7 +422,7 @@ def test_tty_environment_enables_tui(
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that TUI is enabled when both stdin and stdout are TTY."""
+    """Test that CLI works when both stdin and stdout are TTY."""
     import os
 
     os.chdir(temp_dir)
@@ -485,7 +435,7 @@ def test_tty_environment_enables_tui(
         result = cli_runner.invoke(cli, [])
 
         assert result.exit_code == 0
-        # CLIContext.use_tui should be True when both are TTY
+        # Rich Console auto-detects TTY environment
 
 
 # =============================================================================
@@ -515,7 +465,6 @@ def test_all_options_together(
             "--config",
             str(custom_config),
             "-vv",
-            "--no-tui",
         ],
     )
 
@@ -536,7 +485,7 @@ def test_cli_context_stored_in_click_context(
 
     # This test will verify that ctx.obj["cli_ctx"] contains a CLIContext instance
     # We'll need to add a test command to verify this in the implementation
-    result = cli_runner.invoke(cli, ["-v", "--no-tui"])
+    result = cli_runner.invoke(cli, ["-v"])
 
     assert result.exit_code == 0
     # In implementation, we'll verify CLIContext is in ctx.obj

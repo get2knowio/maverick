@@ -68,27 +68,18 @@ from maverick.exceptions import ConfigError  # noqa: E402
     default=False,
     help="Suppress non-essential output (ERROR level only).",
 )
-@click.option(
-    "--no-tui",
-    is_flag=True,
-    default=False,
-    help="Disable TUI mode (headless operation).",
-)
 @click.pass_context
 def cli(
     ctx: click.Context,
     config_file: str | None,
     verbose: int,
     quiet: bool,
-    no_tui: bool,
 ) -> None:
     """Maverick - AI-powered development workflow orchestration."""
     # Ensure ctx.obj exists for subcommands
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
-    ctx.obj["no_tui"] = no_tui
-
     # Load configuration first (before logging setup)
     try:
         # If --config specified, load from that path
@@ -112,7 +103,6 @@ def cli(
         config_path=Path(config_file) if config_file else None,
         verbosity=verbose,
         quiet=quiet,
-        no_tui=no_tui,
     )
     ctx.obj["cli_ctx"] = cli_ctx
 

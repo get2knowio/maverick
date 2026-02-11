@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [
     { name = "Maverick Contributors" }
 ]
-keywords = ["ai", "automation", "workflow", "cli", "tui", "claude"]
+keywords = ["ai", "automation", "workflow", "cli", "claude"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -44,7 +44,7 @@ dependencies = [
     "pyyaml>=6.0,<7",
     "structlog>=24.1,<26",
     "tenacity>=8.2,<10",
-    "textual>=0.40.0,<1",
+    "rich>=13.0,<14",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
 ]
@@ -135,12 +135,7 @@ addopts = [
 markers = [
     "slow: marks tests as slow (>5s execution time)",
     "integration: marks tests requiring external services",
-    "tui: marks TUI-specific tests requiring Textual pilot",
     "benchmark: marks performance benchmark tests",
-    "e2e: marks end-to-end tests (slow, require MCP TUI driver or full app)",
-    "visual: marks visual regression tests with snapshot comparison",
-    "performance: marks performance benchmark tests for response times",
-    "accessibility: marks accessibility compliance tests (keyboard nav, focus)",
 ]
 timeout = 30  # 30-second default timeout for async tests (FR-026)
 
