@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from maverick.library.actions.git import (
+    _parse_untracked_conflicts,
     create_git_branch,
     git_add,
     git_check_and_stage,
@@ -783,6 +784,69 @@ class TestGitMerge:
             assert result["success"] is False
             assert result["merge_commit"] is None
             assert result["error"] is not None
+
+    @pytest.mark.asyncio
+    async def test_retries_after_removing_untracked_conflicts(self) -> None:
+        """Test removes untracked files and retries merge on conflict."""
+        branch = "feature/beads"
+        untracked_error = (
+            "error: The following untracked working tree files "
+            "would be overwritten by merge:\n"
+            "\t.beads/issues.jsonl\n"
+            "Please move or remove them before you merge.\n"
+            "Aborting\n"
+        )
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr=untracked_error),  # first merge fails
+                create_mock_process(0),  # rm -f .beads/issues.jsonl
+                create_mock_process(0, stdout="Merge made\n"),  # retry merge
+                create_mock_process(0, stdout="abc123\n"),  # git rev-parse HEAD
+            ]
+
+            result = await git_merge(branch)
+
+            assert result["success"] is True
+            assert result["merge_commit"] == "abc123"
+
+            # Verify rm was called for the conflicting file
+            rm_call = mock_exec.call_args_list[1]
+            assert rm_call[0] == ("rm", "-f", ".beads/issues.jsonl")
+
+
+class TestParseUntrackedConflicts:
+    """Tests for _parse_untracked_conflicts helper."""
+
+    def test_parses_single_file(self) -> None:
+        output = (
+            "error: The following untracked working tree files "
+            "would be overwritten by merge:\n"
+            "\t.beads/issues.jsonl\n"
+            "Please move or remove them before you merge.\n"
+        )
+        assert _parse_untracked_conflicts(output) == [".beads/issues.jsonl"]
+
+    def test_parses_multiple_files(self) -> None:
+        output = (
+            "error: The following untracked working tree files "
+            "would be overwritten by merge:\n"
+            "\t.beads/issues.jsonl\n"
+            "\t.beads/config.yaml\n"
+            "\tREADME.md\n"
+            "Please move or remove them before you merge.\n"
+        )
+        assert _parse_untracked_conflicts(output) == [
+            ".beads/issues.jsonl",
+            ".beads/config.yaml",
+            "README.md",
+        ]
+
+    def test_returns_empty_for_unrelated_error(self) -> None:
+        output = "CONFLICT (content): Merge conflict in file.py"
+        assert _parse_untracked_conflicts(output) == []
 
 
 class TestGitAdd:

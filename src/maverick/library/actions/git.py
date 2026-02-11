@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
+
+_UNTRACKED_CONFLICT_RE = re.compile(r"^\t(.+)$", re.MULTILINE)
+
+
+def _parse_untracked_conflicts(git_output: str) -> list[str]:
+    """Extract file paths from a git 'untracked working tree files' error.
+
+    Git outputs conflicting paths indented with a tab character between
+    the header and the 'Please move or remove' footer.
+    """
+    # Only look at lines between the header and footer markers
+    start = git_output.find("would be overwritten by merge:")
+    end = git_output.find("Please move or remove")
+    if start == -1 or end == -1:
+        return []
+    section = git_output[start:end]
+    return [m.group(1).strip() for m in _UNTRACKED_CONFLICT_RE.finditer(section)]
 
 
 async def git_has_changes() -> dict[str, Any]:
@@ -386,6 +404,34 @@ async def git_merge(branch: str, no_ff: bool = False) -> dict[str, Any]:
             if "already up to date" in combined.lower():
                 # Not an error — target branch already contains the source
                 pass
+            elif "untracked working tree files would be overwritten" in combined:
+                # A background process (e.g. bd daemon) recreated files that
+                # git removed during checkout.  Remove the conflicting
+                # untracked files and retry — the merge will bring the correct
+                # versions from the source branch.
+                untracked = _parse_untracked_conflicts(combined)
+                for path in untracked:
+                    logger.info("Removing untracked conflict", path=path)
+                    rm_proc = await asyncio.create_subprocess_exec(
+                        "rm", "-f", path,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await rm_proc.wait()
+
+                # Retry the merge
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    retry_combined = (stdout + stderr).decode(errors="replace")
+                    raise RuntimeError(
+                        f"git merge failed after removing untracked conflicts: "
+                        f"{retry_combined}"
+                    )
             else:
                 raise RuntimeError(f"git merge failed: {combined}")
 
