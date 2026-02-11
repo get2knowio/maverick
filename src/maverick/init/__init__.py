@@ -88,8 +88,9 @@ _BD_INIT_TIMEOUT_SECONDS = 10
 
 
 async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
-    """Initialize beads if ``bd`` is available and ``.beads/`` doesn't exist.
+    """Initialize beads if ``bd`` is available.
 
+    Uses ``--force`` and ``--stealth`` to handle both fresh and re-init cases.
     This is best-effort: if ``bd`` isn't installed or ``bd init`` fails, the
     error is logged but never raised.
 
@@ -107,18 +108,14 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
             )
         return False
 
-    beads_dir = project_path / ".beads"
-    if beads_dir.exists():
-        if verbose:
-            logger.debug("beads_already_initialized", path=str(beads_dir))
-        return False
-
     try:
         proc = await asyncio.create_subprocess_exec(
             "bd",
             "init",
             "--stealth",
+            "--force",
             cwd=str(project_path),
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -128,7 +125,7 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
         )
         if proc.returncode == 0:
             if verbose:
-                logger.info("beads_initialized", path=str(beads_dir))
+                logger.info("beads_initialized", path=str(project_path / ".beads"))
             return True
         else:
             logger.debug(
