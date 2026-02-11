@@ -89,7 +89,10 @@ async def execute_agent_step(
         if not branch:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "git", "rev-parse", "--abbrev-ref", "HEAD",
+                    "git",
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -135,7 +138,7 @@ async def execute_agent_step(
             maverick_config = load_config()
             val_server = create_validation_tools_server(maverick_config.validation)
             # Remove test-only _tools key that breaks SDK serialization
-            val_server.pop("_tools", None)  # type: ignore[misc]
+            val_server.pop("_tools", None)  # type: ignore[typeddict-item]
             agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
         except (ImportError, ModuleNotFoundError) as e:
             logger.debug(

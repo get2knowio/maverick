@@ -247,7 +247,7 @@ class TestQuery:
 
     @pytest.mark.asyncio
     async def test_query_wraps_unexpected_errors_in_generator_error(self) -> None:
-        """Test that unexpected errors are wrapped in GeneratorError with classification."""
+        """Test unexpected errors are wrapped in GeneratorError."""
         generator = ConcreteGenerator()
 
         class UnexpectedError(Exception):

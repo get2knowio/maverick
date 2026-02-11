@@ -65,9 +65,7 @@ class TestExecuteLoopUntil:
         context = _make_context()
         call_count = 0
 
-        async def mock_execute_step(
-            step: Any, ctx: Any, callback: Any = None
-        ) -> Any:
+        async def mock_execute_step(step: Any, ctx: Any, callback: Any = None) -> Any:
             nonlocal call_count
             call_count += 1
             # Return the check_done result directly — the handler stores it
@@ -104,9 +102,7 @@ class TestExecuteLoopUntil:
         context = _make_context()
         call_count = 0
 
-        async def mock_execute_step(
-            step: Any, ctx: Any, callback: Any = None
-        ) -> Any:
+        async def mock_execute_step(step: Any, ctx: Any, callback: Any = None) -> Any:
             nonlocal call_count
             call_count += 1
             # Never set done to True — return directly, handler stores it
@@ -135,9 +131,7 @@ class TestExecuteLoopUntil:
         context = _make_context()
         iteration = 0
 
-        async def mock_execute_step(
-            step: Any, ctx: Any, callback: Any = None
-        ) -> Any:
+        async def mock_execute_step(step: Any, ctx: Any, callback: Any = None) -> Any:
             nonlocal iteration
             if step.name == "counter":
                 iteration += 1
@@ -174,9 +168,7 @@ class TestExecuteLoopUntil:
 
         call_count = 0
 
-        async def mock_execute_step(
-            step: Any, ctx: Any, callback: Any = None
-        ) -> Any:
+        async def mock_execute_step(step: Any, ctx: Any, callback: Any = None) -> Any:
             nonlocal call_count
             call_count += 1
             # Return directly — handler stores the output automatically
@@ -213,9 +205,7 @@ class TestExecuteLoopUntil:
         """Loop should stop when a body step raises an exception."""
         context = _make_context()
 
-        async def mock_execute_step(
-            step: Any, ctx: Any, callback: Any = None
-        ) -> Any:
+        async def mock_execute_step(step: Any, ctx: Any, callback: Any = None) -> Any:
             raise RuntimeError("body step failed")
 
         loop = _make_until_loop(

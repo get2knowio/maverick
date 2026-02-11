@@ -189,9 +189,7 @@ async def execute_workflow_run(
 
         # Show execution plan for dry run
         if dry_run:
-            console.print(
-                f"Dry run: Would execute workflow '{workflow_obj.name}'"
-            )
+            console.print(f"Dry run: Would execute workflow '{workflow_obj.name}'")
             console.print(f"  Version: {workflow_obj.version}")
             console.print(f"  Steps: {len(workflow_obj.steps)}")
             if input_dict:
@@ -345,18 +343,14 @@ async def execute_workflow_run(
                         console.print("[cyan]Running preflight checks...[/]")
 
                 elif isinstance(event, PreflightCheckPassed):
-                    console.print(
-                        f"  [green]\u2713[/] [bold]{event.name}[/]"
-                    )
+                    console.print(f"  [green]\u2713[/] [bold]{event.name}[/]")
 
                 elif isinstance(event, PreflightCheckFailed):
                     console.print(
                         f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}"
                     )
                     if event.remediation:
-                        console.print(
-                            f"    [dim]Hint: {event.remediation}[/]"
-                        )
+                        console.print(f"    [dim]Hint: {event.remediation}[/]")
 
                 elif isinstance(event, PreflightCompleted):
                     if not event.success:
@@ -450,8 +444,7 @@ async def execute_workflow_run(
                         )
                     else:
                         console.print(
-                            f"[bold red]Workflow failed[/] "
-                            f"after {total_sec:.2f}s"
+                            f"[bold red]Workflow failed[/] after {total_sec:.2f}s"
                         )
         finally:
             if journal is not None:

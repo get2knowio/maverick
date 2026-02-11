@@ -330,8 +330,7 @@ async def wire_dependencies(
             wired.append(dep)
         except Exception as e:
             error_msg = (
-                f"Failed to wire: {dep.blocked_id} "
-                f"blocked-by {dep.blocker_id}: {e}"
+                f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
             )
             logger.error(
                 "dependency_wiring_failed",
@@ -551,8 +550,7 @@ async def create_beads_from_failures(
                 priority=priority,
                 category=BeadCategory.VALIDATION,
                 description=(
-                    f"Fix {stage_name} validation failures.\n\n"
-                    f"Errors:\n{error_text}"
+                    f"Fix {stage_name} validation failures.\n\nErrors:\n{error_text}"
                 ),
             )
         )
@@ -725,9 +723,7 @@ async def verify_bead_completion(
             remaining = review_result.get("issues_remaining", 0)
             if isinstance(remaining, list):
                 remaining = len(remaining)
-            reasons.append(
-                f"Review requests changes ({remaining} issues remaining)"
-            )
+            reasons.append(f"Review requests changes ({remaining} issues remaining)")
 
     passed = len(reasons) == 0
     if passed:

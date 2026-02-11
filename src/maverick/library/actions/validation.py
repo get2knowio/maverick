@@ -474,9 +474,10 @@ Validation Stages Run: {", ".join(stages)}
 Errors:
 {errors_text}
 
-Please analyze these validation failures and apply minimal, targeted fixes to resolve them.
+Please analyze these validation failures and apply minimal, targeted fixes.
 Focus on fixing the errors without refactoring unrelated code.
-Do NOT run validation commands yourself. Validation is re-run automatically after your changes.
+Do NOT run validation commands yourself.
+Validation is re-run automatically after your changes.
 """
 
 
@@ -655,7 +656,8 @@ def _aggregate_stage_results(
 
     # Build a lookup map for raw stage results.
     # Support two formats:
-    #   1. "stage_results" dict keyed by stage name (from validate_step and _run_validation)
+    #   1. "stage_results" dict keyed by stage name
+    #      (from validate_step and _run_validation)
     #   2. "stages" list of dicts (legacy fallback)
     stage_map: dict[str, dict[str, Any]] = {}
     sr_dict = validation_result.get("stage_results", {})

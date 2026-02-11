@@ -250,9 +250,7 @@ class TestGitCommit:
         ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
-                create_mock_process(
-                    1, stdout="nothing to commit, working tree clean"
-                ),
+                create_mock_process(1, stdout="nothing to commit, working tree clean"),
             ]
 
             result = await git_commit(message)
@@ -272,9 +270,7 @@ class TestGitCommit:
         ) as mock_exec:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
-                create_mock_process(
-                    1, stderr="fatal: could not write commit object"
-                ),
+                create_mock_process(1, stderr="fatal: could not write commit object"),
             ]
 
             result = await git_commit(message)

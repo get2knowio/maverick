@@ -756,9 +756,7 @@ async def _execute_loop_until(
                                 )
                                 # Store None output so later expressions
                                 # can reference this step
-                                iter_context.store_step_output(
-                                    s.name, None, s.type
-                                )
+                                iter_context.store_step_output(s.name, None, s.type)
                                 step_results.append(None)
                                 continue
                         except Exception as cond_exc:
@@ -767,9 +765,7 @@ async def _execute_loop_until(
                                 step_name=s.name,
                                 error=str(cond_exc),
                             )
-                            iter_context.store_step_output(
-                                s.name, None, s.type
-                            )
+                            iter_context.store_step_output(s.name, None, s.type)
                             step_results.append(None)
                             continue
 
@@ -909,9 +905,7 @@ async def _execute_loop_until(
             if isinstance(r, BaseException):
                 raise LoopStepExecutionError(
                     step_name=step.name,
-                    failed_iterations=[
-                        (len(all_iteration_results) - 1, str(r))
-                    ],
+                    failed_iterations=[(len(all_iteration_results) - 1, str(r))],
                     total_iterations=len(all_iteration_results),
                 )
 

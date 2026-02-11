@@ -54,13 +54,15 @@ def _beads_to_dicts(beads: list[ReadyBead] | list[BeadSummary]) -> list[dict[str
     for bead in beads:
         bead_type = getattr(bead, "bead_type", "task")
         status = getattr(bead, "status", "ready")
-        result.append({
-            "id": bead.id,
-            "title": bead.title,
-            "priority": str(bead.priority),
-            "type": bead_type,
-            "status": status,
-        })
+        result.append(
+            {
+                "id": bead.id,
+                "title": bead.title,
+                "priority": str(bead.priority),
+                "type": bead_type,
+                "status": status,
+            }
+        )
     return result
 
 
@@ -192,12 +194,14 @@ async def _briefing_epic(
         status = child.status
         if child.id in ready_ids and status not in ("closed", "done"):
             status = "ready"
-        rows.append([
-            child.id,
-            child.title,
-            str(child.priority),
-            child.bead_type,
-            status,
-        ])
+        rows.append(
+            [
+                child.id,
+                child.title,
+                str(child.priority),
+                child.bead_type,
+                status,
+            ]
+        )
 
     click.echo(format_table(_TABLE_HEADERS, rows))

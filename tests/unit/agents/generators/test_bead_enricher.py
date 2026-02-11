@@ -62,12 +62,14 @@ class TestBeadEnricherGenerate:
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
-            result = await enricher.generate({
-                "title": "Implement greeting CLI",
-                "category": "USER_STORY",
-                "tasks": "- Add click command",
-                "checkpoints": "- greet command exists",
-            })
+            result = await enricher.generate(
+                {
+                    "title": "Implement greeting CLI",
+                    "category": "USER_STORY",
+                    "tasks": "- Add click command",
+                    "checkpoints": "- greet command exists",
+                }
+            )
 
         assert "Objective" in result
         assert "Acceptance Criteria" in result
@@ -112,11 +114,13 @@ class TestBeadEnricherGenerate:
             new_callable=AsyncMock,
             return_value="enriched",
         ) as mock_query:
-            await enricher.generate({
-                "title": "Add user auth",
-                "category": "USER_STORY",
-                "tasks": "- Implement login",
-            })
+            await enricher.generate(
+                {
+                    "title": "Add user auth",
+                    "category": "USER_STORY",
+                    "tasks": "- Implement login",
+                }
+            )
 
         prompt = mock_query.call_args[0][0]
         assert "Add user auth" in prompt
@@ -133,12 +137,14 @@ class TestBeadEnricherGenerate:
             new_callable=AsyncMock,
             return_value="enriched",
         ) as mock_query:
-            await enricher.generate({
-                "title": "Test bead",
-                "tasks": "- something",
-                "spec_content": "The spec content here",
-                "plan_content": "The plan content here",
-            })
+            await enricher.generate(
+                {
+                    "title": "Test bead",
+                    "tasks": "- something",
+                    "spec_content": "The spec content here",
+                    "plan_content": "The plan content here",
+                }
+            )
 
         prompt = mock_query.call_args[0][0]
         assert "The spec content here" in prompt
@@ -170,8 +176,10 @@ class TestBeadEnricherGenerate:
             new_callable=AsyncMock,
             return_value="enriched",
         ):
-            result = await enricher.generate({
-                "checkpoints": "- tests pass",
-            })
+            result = await enricher.generate(
+                {
+                    "checkpoints": "- tests pass",
+                }
+            )
 
         assert result == "enriched"

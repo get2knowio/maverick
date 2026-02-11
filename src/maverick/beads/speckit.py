@@ -663,8 +663,7 @@ async def generate_beads_from_speckit(
             wired_deps.append(dep)
         except Exception as e:
             error_msg = (
-                f"Failed to wire: {dep.blocked_id} "
-                f"blocked-by {dep.blocker_id}: {e}"
+                f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
             )
             logger.error(
                 "dependency_wiring_failed",

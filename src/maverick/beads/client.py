@@ -84,16 +84,12 @@ class BeadClient:
         """
         result = await self._runner.run(cmd, cwd=self._cwd)
         if not result.success:
-            raise error_cls(
-                f"{error_msg}: {result.stderr.strip()}", **error_kwargs
-            )
+            raise error_cls(f"{error_msg}: {result.stderr.strip()}", **error_kwargs)
         try:
             parsed: dict[str, Any] | list[Any] = json.loads(result.stdout)
             return parsed
         except json.JSONDecodeError as e:
-            raise error_cls(
-                f"{error_msg}: invalid JSON: {e}", **error_kwargs
-            ) from e
+            raise error_cls(f"{error_msg}: invalid JSON: {e}", **error_kwargs) from e
 
     async def verify_available(self) -> bool:
         """Check if ``bd`` is available in PATH.
@@ -255,9 +251,12 @@ class BeadClient:
             BeadQueryError: If ``bd ready`` fails.
         """
         cmd = [
-            "bd", "ready",
-            "--limit", str(limit),
-            "--sort", sort,
+            "bd",
+            "ready",
+            "--limit",
+            str(limit),
+            "--sort",
+            sort,
             "--json",
         ]
 

@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from maverick.config import MaverickConfig, load_config
-from maverick.dsl.events import StepOutput
+from maverick.dsl.events import OutputLevel, StepOutput
 from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
 from maverick.runners.preflight import AnthropicAPIValidator
@@ -82,7 +82,7 @@ async def _emit_check(
     if event_callback is None:
         return
     icon = "\u2713" if passed else "\u2717"
-    level = "success" if passed else "error"
+    level: OutputLevel = "success" if passed else "error"
     message = f" {icon} {name}"
     if detail:
         message = f"{message} \u2014 {detail}"

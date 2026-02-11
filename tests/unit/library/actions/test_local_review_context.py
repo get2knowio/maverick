@@ -175,9 +175,7 @@ class TestGatherLocalReviewContext:
             "maverick.library.actions.review.AsyncGitRepository",
             return_value=mock_repo,
         ):
-            result = await gather_local_review_context(
-                exclude_patterns=["docs/**"]
-            )
+            result = await gather_local_review_context(exclude_patterns=["docs/**"])
 
         assert "src/app.py" in result.changed_files
         assert "docs/readme.md" not in result.changed_files

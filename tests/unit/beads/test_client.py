@@ -189,8 +189,14 @@ class TestBeadClientAddDependency:
         call_args = mock_runner.run.call_args
         cmd = call_args[0][0]
         assert cmd == [
-            "bd", "dep", "add", "b",
-            "--blocked-by", "a", "--type", "blocks",
+            "bd",
+            "dep",
+            "add",
+            "b",
+            "--blocked-by",
+            "a",
+            "--type",
+            "blocks",
         ]
 
     @pytest.mark.asyncio
@@ -254,10 +260,12 @@ class TestBeadClientReady:
 
         mock_runner.run.return_value = CommandResult(
             returncode=0,
-            stdout=json.dumps([
-                {"id": "b-1", "title": "Task 1", "priority": 1},
-                {"id": "b-2", "title": "Task 2", "priority": 5},
-            ]),
+            stdout=json.dumps(
+                [
+                    {"id": "b-1", "title": "Task 1", "priority": 1},
+                    {"id": "b-2", "title": "Task 2", "priority": 5},
+                ]
+            ),
             stderr="",
             duration_ms=50,
             timed_out=False,
@@ -310,18 +318,18 @@ class TestBeadClientClose:
     """Tests for BeadClient.close()."""
 
     @pytest.mark.asyncio
-    async def test_close_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_close_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         import json
 
         mock_runner.run.return_value = CommandResult(
             returncode=0,
-            stdout=json.dumps({
-                "id": "b-1",
-                "status": "closed",
-                "closed_at": "2025-01-01T00:00:00Z",
-            }),
+            stdout=json.dumps(
+                {
+                    "id": "b-1",
+                    "status": "closed",
+                    "closed_at": "2025-01-01T00:00:00Z",
+                }
+            ),
             stderr="",
             duration_ms=50,
             timed_out=False,
@@ -358,20 +366,20 @@ class TestBeadClientShow:
     """Tests for BeadClient.show()."""
 
     @pytest.mark.asyncio
-    async def test_show_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_show_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         import json
 
         mock_runner.run.return_value = CommandResult(
             returncode=0,
-            stdout=json.dumps({
-                "id": "b-1",
-                "title": "Task 1",
-                "description": "Full desc",
-                "status": "open",
-                "priority": 3,
-            }),
+            stdout=json.dumps(
+                {
+                    "id": "b-1",
+                    "title": "Task 1",
+                    "description": "Full desc",
+                    "status": "open",
+                    "priority": 3,
+                }
+            ),
             stderr="",
             duration_ms=50,
             timed_out=False,
@@ -408,9 +416,11 @@ class TestBeadClientChildren:
 
         mock_runner.run.return_value = CommandResult(
             returncode=0,
-            stdout=json.dumps([
-                {"id": "c-1", "title": "Child 1", "status": "open", "priority": 1},
-            ]),
+            stdout=json.dumps(
+                [
+                    {"id": "c-1", "title": "Child 1", "status": "open", "priority": 1},
+                ]
+            ),
             stderr="",
             duration_ms=50,
             timed_out=False,
@@ -440,16 +450,16 @@ class TestBeadClientQuery:
     """Tests for BeadClient.query()."""
 
     @pytest.mark.asyncio
-    async def test_query_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_query_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         import json
 
         mock_runner.run.return_value = CommandResult(
             returncode=0,
-            stdout=json.dumps([
-                {"id": "q-1", "title": "Found 1", "status": "open", "priority": 2},
-            ]),
+            stdout=json.dumps(
+                [
+                    {"id": "q-1", "title": "Found 1", "status": "open", "priority": 2},
+                ]
+            ),
             stderr="",
             duration_ms=50,
             timed_out=False,

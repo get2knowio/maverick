@@ -308,9 +308,7 @@ class TestWireDependencies:
         # Foundation -> Greeting, Greeting -> Cleanup = 2 deps
         assert len(result.dependencies) == 2
 
-        dep_pairs = [
-            (d["blocker_id"], d["blocked_id"]) for d in result.dependencies
-        ]
+        dep_pairs = [(d["blocker_id"], d["blocked_id"]) for d in result.dependencies]
         assert ("bead-foundation", "bead-greeting") in dep_pairs
         assert ("bead-greeting", "bead-cleanup") in dep_pairs
 
@@ -347,9 +345,7 @@ class TestWireDependencies:
             dry_run=True,
         )
 
-        dep_pairs = [
-            (d["blocker_id"], d["blocked_id"]) for d in result.dependencies
-        ]
+        dep_pairs = [(d["blocker_id"], d["blocked_id"]) for d in result.dependencies]
         # US3 depends on US1 means US1 blocks US3 => (bead-a, bead-b)
         assert ("bead-a", "bead-b") in dep_pairs
 
@@ -417,9 +413,7 @@ class TestWireDependencies:
             dry_run=True,
         )
 
-        dep_pairs = [
-            (d["blocker_id"], d["blocked_id"]) for d in result.dependencies
-        ]
+        dep_pairs = [(d["blocker_id"], d["blocked_id"]) for d in result.dependencies]
         assert ("bead-f", "bead-c") in dep_pairs
 
 
@@ -438,9 +432,7 @@ class TestSelectNextBead:
             )
         ]
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("epic-1")
 
         assert result.found is True
@@ -456,9 +448,7 @@ class TestSelectNextBead:
         mock_client = AsyncMock()
         mock_client.ready.return_value = []
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("epic-1")
 
         assert result.found is False
@@ -483,9 +473,7 @@ class TestSelectNextBead:
             )
         ]
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
         # Should pass None to client.ready (no parent filter)
@@ -516,9 +504,7 @@ class TestSelectNextBead:
 
         mock_client.show.return_value = _ShowResult()
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
         mock_client.show.assert_called_once_with("b-3")
@@ -532,9 +518,7 @@ class TestSelectNextBead:
         mock_client = AsyncMock()
         mock_client.ready.return_value = []
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
         mock_client.ready.assert_called_once_with(None, limit=1)
@@ -556,9 +540,7 @@ class TestMarkBeadComplete:
             id="b-1", status="closed", closed_at="2025-01-01T00:00:00Z"
         )
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await mark_bead_complete("b-1", reason="done")
 
         assert result.success is True
@@ -572,9 +554,7 @@ class TestMarkBeadComplete:
         mock_client = AsyncMock()
         mock_client.close.side_effect = RuntimeError("close failed")
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await mark_bead_complete("b-1")
 
         assert result.success is False
@@ -591,9 +571,7 @@ class TestCheckEpicDone:
         mock_client = AsyncMock()
         mock_client.ready.return_value = []
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("epic-1")
 
         assert result.done is True
@@ -610,9 +588,7 @@ class TestCheckEpicDone:
             ReadyBead(id="b-2", title="T2", priority=2),
         ]
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("epic-1")
 
         assert result.done is False
@@ -626,9 +602,7 @@ class TestCheckEpicDone:
         mock_client = AsyncMock()
         mock_client.ready.return_value = []
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("")
 
         # Should pass None to client.ready (no parent filter)
@@ -646,9 +620,7 @@ class TestCheckEpicDone:
             ReadyBead(id="b-5", title="Remaining", priority=1),
         ]
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("")
 
         mock_client.ready.assert_called_once_with(None, limit=10)
@@ -706,9 +678,7 @@ class TestCreateBeadsFromFailures:
             ),
         )
 
-        with patch(
-            "maverick.beads.client.BeadClient", return_value=mock_client
-        ):
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await create_beads_from_failures(
                 epic_id="epic-1",
                 validation_result={

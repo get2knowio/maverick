@@ -83,16 +83,28 @@ class TestBasicCLIPatterns:
 class TestFlyCommandExamples:
     """Examples of testing fly command."""
 
-    def test_fly_help(self, cli_runner: CliRunner) -> None:
+    def test_fly_help(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        sample_config: dict[str, Any],
+    ) -> None:
         """Example: Test fly --help shows bead-driven options.
 
         Pattern: Verifying command help output.
+        Note: fly requires maverick.yaml (checked by group callback),
+        so we provide one in an isolated filesystem.
         """
-        result = cli_runner.invoke(cli, ["fly", "--help"])
+        with cli_runner.isolated_filesystem(temp_dir=tmp_path):
+            config_file = Path("maverick.yaml")
+            with open(config_file, "w") as f:
+                yaml.dump(sample_config, f)
 
-        assert result.exit_code == 0
-        assert "--epic" in result.output
-        assert "--dry-run" in result.output
+            result = cli_runner.invoke(cli, ["fly", "--help"])
+
+            assert result.exit_code == 0
+            assert "--epic" in result.output
+            assert "--dry-run" in result.output
 
 
 class TestVerbosityOptions:

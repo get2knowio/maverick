@@ -413,7 +413,9 @@ async def git_merge(branch: str, no_ff: bool = False) -> dict[str, Any]:
                 for path in untracked:
                     logger.info("Removing untracked conflict", path=path)
                     rm_proc = await asyncio.create_subprocess_exec(
-                        "rm", "-f", path,
+                        "rm",
+                        "-f",
+                        path,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
