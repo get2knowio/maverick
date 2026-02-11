@@ -355,11 +355,12 @@ async def wire_dependencies(
     )
 
 
-async def select_next_bead(epic_id: str) -> SelectNextBeadResult:
-    """Select the next ready bead from an epic.
+async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
+    """Select the next ready bead.
 
     Args:
-        epic_id: Epic bead ID to query.
+        epic_id: Epic bead ID to query. When empty, queries any ready bead
+            across all epics.
 
     Returns:
         SelectNextBeadResult with bead info or done=True if none left.
@@ -367,32 +368,52 @@ async def select_next_bead(epic_id: str) -> SelectNextBeadResult:
     from maverick.beads.client import BeadClient
 
     client = BeadClient(cwd=Path.cwd())
-    beads = await client.ready(epic_id, limit=1)
+
+    # When epic_id is provided, query by parent; otherwise query all ready beads
+    parent = epic_id if epic_id else None
+    beads = await client.ready(parent, limit=1)
 
     if not beads:
-        logger.info("no_ready_beads", epic_id=epic_id)
+        logger.info("no_ready_beads", epic_id=epic_id or "(any)")
         return SelectNextBeadResult(
             found=False,
             bead_id="",
             title="",
             description="",
             priority=0,
+            epic_id=epic_id,
             done=True,
         )
 
     bead = beads[0]
+
+    # Resolve the epic_id from the bead when none was specified
+    resolved_epic_id = epic_id or bead.parent_id or ""
+
+    # If the bead lacks a description and we got it from a global query,
+    # fetch full details
+    description = bead.description
+    if not description and not epic_id:
+        try:
+            details = await client.show(bead.id)
+            description = details.description
+        except Exception:
+            pass
+
     logger.info(
         "bead_selected",
         bead_id=bead.id,
         title=bead.title,
         priority=bead.priority,
+        epic_id=resolved_epic_id,
     )
     return SelectNextBeadResult(
         found=True,
         bead_id=bead.id,
         title=bead.title,
-        description=bead.description,
+        description=description,
         priority=bead.priority,
+        epic_id=resolved_epic_id,
         done=False,
     )
 
@@ -430,11 +451,12 @@ async def mark_bead_complete(
         )
 
 
-async def check_epic_done(epic_id: str) -> CheckEpicDoneResult:
-    """Check if an epic has any remaining ready beads.
+async def check_epic_done(epic_id: str = "") -> CheckEpicDoneResult:
+    """Check if there are any remaining ready beads.
 
     Args:
-        epic_id: Epic bead ID to check.
+        epic_id: Epic bead ID to check. When empty, checks for any ready bead
+            across all epics.
 
     Returns:
         CheckEpicDoneResult with done flag and remaining count.
@@ -442,12 +464,13 @@ async def check_epic_done(epic_id: str) -> CheckEpicDoneResult:
     from maverick.beads.client import BeadClient
 
     client = BeadClient(cwd=Path.cwd())
-    beads = await client.ready(epic_id, limit=10)
+    parent = epic_id if epic_id else None
+    beads = await client.ready(parent, limit=10)
 
     done = len(beads) == 0
     logger.info(
         "epic_done_check",
-        epic_id=epic_id,
+        epic_id=epic_id or "(any)",
         done=done,
         remaining=len(beads),
     )

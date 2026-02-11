@@ -1,6 +1,6 @@
 """``maverick refuel speckit`` command.
 
-Delegates to the ``refuel-speckit`` DSL workflow via ``_execute_workflow_run``.
+Delegates to the ``refuel-speckit`` DSL workflow via ``execute_workflow_run``.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from maverick.cli.commands.refuel._group import refuel
-from maverick.cli.commands.workflow import _execute_workflow_run
 from maverick.cli.context import async_command
+from maverick.cli.workflow_executor import execute_workflow_run
 
 
 @refuel.command()
@@ -60,7 +60,7 @@ async def speckit(
     """
     # Use str.lower() so Python's "True"/"False" become JSON-compatible
     # "true"/"false" which json.loads() can parse to actual booleans.
-    await _execute_workflow_run(
+    await execute_workflow_run(
         ctx,
         "refuel-speckit",
         (

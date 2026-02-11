@@ -1,13 +1,13 @@
-"""Workflow run subcommand and shared execution logic.
+"""Shared workflow execution logic.
 
-Contains the ``workflow run`` CLI command and the ``_execute_workflow_run``
-helper function that is shared with the ``maverick fly`` command.
+Contains ``execute_workflow_run`` — the core execution helper used by
+``maverick fly`` and ``maverick refuel speckit`` commands.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
@@ -16,101 +16,47 @@ from maverick.cli.common import (
     create_registered_registry,
     get_discovery_result,
 )
-from maverick.cli.context import ExitCode, async_command
+from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
 from maverick.dsl.serialization.parser import parse_workflow
 
-from ._group import workflow
-from ._helpers import format_workflow_not_found_error
+if TYPE_CHECKING:
+    from maverick.dsl.discovery import DiscoveryResult
 
 
-@workflow.command("run")
-@click.argument("name_or_file")
-@click.option(
-    "-i",
-    "--input",
-    "inputs",
-    multiple=True,
-    help="Input parameter (KEY=VALUE format).",
-)
-@click.option(
-    "--input-file",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Load inputs from JSON/YAML file.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    default=False,
-    help="Show execution plan without running.",
-)
-@click.option(
-    "--restart",
-    is_flag=True,
-    default=False,
-    help="Ignore existing checkpoint and restart workflow from the beginning.",
-)
-@click.option(
-    "--no-validate",
-    is_flag=True,
-    default=False,
-    help="Skip semantic validation before execution (not recommended).",
-)
-@click.option(
-    "--session-log",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Write session journal (JSONL) to this file path.",
-)
-@click.pass_context
-@async_command
-async def workflow_run(
-    ctx: click.Context,
-    name_or_file: str,
-    inputs: tuple[str, ...],
-    input_file: Path | None,
-    dry_run: bool,
-    restart: bool,
-    no_validate: bool,
-    session_log: Path | None,
-) -> None:
-    """Execute workflow from file or discovered workflow.
+def format_workflow_not_found_error(
+    discovery_result: DiscoveryResult,
+    workflow_name: str,
+) -> NoReturn:
+    """Format and display a 'workflow not found' error with suggestions.
 
-    NAME_OR_FILE can be either a workflow name (from discovery) or a file path.
-    Uses discovery to find workflows from builtin, user, or project locations.
+    Shows the available workflows and exits with a failure code.
 
-    Inputs can be provided via -i flags (KEY=VALUE) or --input-file.
+    Args:
+        discovery_result: The discovery result to pull available names from.
+        workflow_name: The workflow name that was not found.
 
-    By default, workflows resume from the latest checkpoint if one exists,
-    validating that inputs match the saved checkpoint state. Use --restart
-    to ignore checkpoints and start fresh.
-
-    By default, workflows are validated before execution. Use --no-validate
-    to skip semantic validation (not recommended).
-
-    Examples:
-        maverick workflow run fly
-        maverick workflow run my-workflow -i branch=main -i dry_run=true
-        maverick workflow run my-workflow.yaml --input-file inputs.json
-        maverick workflow run my-workflow --dry-run
-        maverick workflow run fly --restart  # Ignore checkpoint and start fresh
-        maverick workflow run my-workflow --no-validate  # Skip validation
+    Raises:
+        SystemExit: Always raises with FAILURE exit code.
     """
-    # Delegate to helper function
-    await _execute_workflow_run(
-        ctx,
-        name_or_file,
-        inputs,
-        input_file,
-        dry_run,
-        restart,
-        no_validate,
-        session_log_path=session_log,
+    available = discovery_result.workflow_names
+    if available:
+        available_str = ", ".join(available[:5])
+        if len(available) > 5:
+            available_str += f", ... ({len(available)} total)"
+        suggestion = f"Available workflows: {available_str}"
+    else:
+        suggestion = "No workflows discovered. Check your workflow directories."
+
+    error_msg = format_error(
+        f"Workflow '{workflow_name}' not found",
+        suggestion=suggestion,
     )
+    click.echo(error_msg, err=True)
+    raise SystemExit(ExitCode.FAILURE)
 
 
-async def _execute_workflow_run(
+async def execute_workflow_run(
     ctx: click.Context,
     name_or_file: str,
     inputs: tuple[str, ...],
@@ -122,7 +68,7 @@ async def _execute_workflow_run(
     only_step: str | None = None,
     session_log_path: Path | None = None,
 ) -> None:
-    """Core workflow execution logic (shared by fly and workflow run commands).
+    """Core workflow execution logic (shared by fly and refuel speckit commands).
 
     Args:
         ctx: Click context.

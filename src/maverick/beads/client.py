@@ -236,14 +236,15 @@ class BeadClient:
 
     async def ready(
         self,
-        parent_id: str,
+        parent_id: str | None = None,
         limit: int = 1,
         sort: str = "priority",
     ) -> list[ReadyBead]:
-        """Get ready beads for a parent (epic) via ``bd ready``.
+        """Get ready beads via ``bd ready``.
 
         Args:
-            parent_id: Parent bead (epic) ID.
+            parent_id: Parent bead (epic) ID. When ``None``, queries all
+                ready beads without filtering by parent.
             limit: Maximum number of beads to return.
             sort: Sort order (e.g., "priority").
 
@@ -255,17 +256,21 @@ class BeadClient:
         """
         cmd = [
             "bd", "ready",
-            "--parent", parent_id,
             "--limit", str(limit),
             "--sort", sort,
             "--json",
         ]
 
+        if parent_id:
+            cmd.extend(["--parent", parent_id])
+
+        label = f"parent={parent_id}" if parent_id else "all"
+
         data = await self._run_bd(
             cmd,
             error_cls=BeadQueryError,
-            error_msg=f"Failed to get ready beads for {parent_id}",
-            query=f"ready --parent {parent_id}",
+            error_msg=f"Failed to get ready beads ({label})",
+            query=f"ready {label}",
         )
 
         items = data if isinstance(data, list) else data.get("beads", [])

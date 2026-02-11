@@ -31,12 +31,15 @@ class TestFlyBeadsWorkflowLoads:
         assert wf.name == "fly-beads"
         assert wf.version == "1.0"
 
-    def test_required_inputs(self, fly_beads_yaml: str) -> None:
+    def test_epic_id_is_optional(self, fly_beads_yaml: str) -> None:
         wf = WorkflowFile.from_yaml(fly_beads_yaml)
         assert "epic_id" in wf.inputs
-        assert "branch_name" in wf.inputs
-        assert wf.inputs["epic_id"].required is True
-        assert wf.inputs["branch_name"].required is True
+        assert wf.inputs["epic_id"].required is False
+        assert wf.inputs["epic_id"].default == ""
+
+    def test_no_branch_name_input(self, fly_beads_yaml: str) -> None:
+        wf = WorkflowFile.from_yaml(fly_beads_yaml)
+        assert "branch_name" not in wf.inputs
 
     def test_optional_inputs_have_defaults(self, fly_beads_yaml: str) -> None:
         wf = WorkflowFile.from_yaml(fly_beads_yaml)
@@ -75,6 +78,12 @@ class TestFlyBeadsWorkflowLoads:
         wf = WorkflowFile.from_yaml(fly_beads_yaml)
         step_names = [s.name for s in wf.steps]
         assert "final_push" in step_names
+
+    def test_no_init_step(self, fly_beads_yaml: str) -> None:
+        """Workflow should not have an init step (no branch creation)."""
+        wf = WorkflowFile.from_yaml(fly_beads_yaml)
+        step_names = [s.name for s in wf.steps]
+        assert "init" not in step_names
 
     def test_yaml_roundtrip(self, fly_beads_yaml: str) -> None:
         wf1 = WorkflowFile.from_yaml(fly_beads_yaml)

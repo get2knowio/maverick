@@ -414,26 +414,34 @@ if event_callback:
 
 ## Workflows
 
-### FlyWorkflow
+Maverick uses a beads-only workflow model. All development is driven by beads (units of work managed by the `bd` CLI tool).
 
-Full spec-based development workflow:
+### CLI Commands
 
-1. **Setup**: Sync branch with origin/main, validate spec directory
-2. **Implementation**: Parse tasks.md, execute tasks (parallel for "P:" marked)
-3. **Code Review**: Parallel CodeRabbit + architecture review
-4. **Validation**: Format/lint/build/test with iterative fixes
-5. **Convention Update**: Update CLAUDE.md if significant learnings
-6. **PR Management**: Generate PR body, create/update via GitHub CLI
+| Command | Purpose |
+|---------|---------|
+| `maverick fly [options]` | Pick next ready bead(s) and iterate (bead execution) |
+| `maverick refuel speckit <spec_dir>` | Create beads from a SpecKit specification |
+| `maverick init` | Initialize a new Maverick project |
+| `maverick uninstall` | Remove Maverick configuration |
 
-### RefuelWorkflow
+### fly (Bead-Driven Development)
 
-Tech-debt resolution workflow:
+Iterates over ready beads until done. Runs the `fly-beads` DSL workflow:
 
-1. **Discovery**: List open issues with target label
-2. **Selection**: Analyze and select up to 3 non-conflicting issues
-3. **Implementation**: Execute fixes in parallel
-4. **Review & Validation**: Same as FlyWorkflow
-5. **Finalize**: Mark PR ready, close issues
+1. **Preflight**: Check API, git, and bd prerequisites
+2. **Bead Loop**: Select next ready bead, implement, validate, review, commit, close
+3. **Final Push**: Push all changes
+
+Options: `--epic` (optional, filter by epic), `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--list-steps`, `--session-log`
+
+### refuel speckit (Bead Creation)
+
+Creates beads from a SpecKit specification directory containing `tasks.md`:
+
+1. **Parse**: Extract phases and tasks from tasks.md
+2. **Create**: Generate epic and work beads via `bd`
+3. **Wire**: Set up dependencies between beads
 
 ### Review-and-Fix with Registry Fragment
 

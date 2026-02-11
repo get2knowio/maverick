@@ -18,15 +18,10 @@ if TYPE_CHECKING:
 # Built-in Workflow Names (Constants)
 # =============================================================================
 
-# Core workflows (FR-001)
 BUILTIN_WORKFLOWS = frozenset(
     {
-        "feature",  # FR-004: Full spec-based development (formerly "fly")
-        "cleanup",  # FR-005: Tech-debt resolution (formerly "refuel")
-        "review",  # FR-006: Code review orchestration
-        "validate",  # FR-007: Validation with optional fixes
-        "quick-fix",  # FR-008: Quick issue fix
-        "process-single-issue",  # Sub-workflow for single issue processing
+        "fly-beads",  # Bead-driven development workflow
+        "refuel-speckit",  # Generate beads from SpecKit spec
     }
 )
 
@@ -80,67 +75,33 @@ class BuiltinFragmentInfo:
 
 
 # =============================================================================
-# Built-in Workflow Specifications (FR-004 to FR-008)
+# Built-in Workflow Specifications
 # =============================================================================
 
 
-FEATURE_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="feature",
-    description="Full spec-based development workflow",
+FLY_BEADS_WORKFLOW_INFO = BuiltinWorkflowInfo(
+    name="fly-beads",
+    description="Bead-driven development workflow",
     inputs=(
-        ("branch_name", "string", True, "Feature branch name"),
-        ("task_file", "string", False, "Path to tasks.md (auto-detect if omitted)"),
-        ("skip_review", "boolean", False, "Skip code review stage"),
+        ("epic_id", "string", False, "Epic bead ID (empty to pick any ready bead)"),
+        ("max_beads", "integer", False, "Maximum beads to process (default: 30)"),
+        ("dry_run", "boolean", False, "Preview mode"),
+        ("skip_review", "boolean", False, "Skip code review step"),
     ),
-    step_summary="init → implement → validate/fix loop → commit → review → create_pr",
-)
-
-CLEANUP_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="cleanup",
-    description="Tech-debt resolution workflow",
-    inputs=(
-        ("label", "string", False, "Issue label to filter (default: tech-debt)"),
-        ("limit", "integer", False, "Maximum issues to process (default: 5)"),
-        ("parallel", "boolean", False, "Process issues in parallel (default: true)"),
-    ),
-    step_summary="fetch_issues → for each: branch → fix → validate → commit → pr",
-)
-
-REVIEW_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="review",
-    description="Code review orchestration workflow",
-    inputs=(
-        ("pr_number", "integer", False, "PR number (auto-detect if omitted)"),
-        ("base_branch", "string", False, "Base branch for comparison (default: main)"),
-    ),
-    step_summary="gather_context → run_coderabbit → agent_review → combine_results",
-)
-
-VALIDATE_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="validate",
-    description="Validation with optional fixes workflow",
-    inputs=(
-        ("fix", "boolean", False, "Attempt automatic fixes (default: true)"),
-        ("max_attempts", "integer", False, "Maximum fix attempts (default: 3)"),
-    ),
-    step_summary="run_validation → fix loop (when enabled) → report",
-)
-
-QUICK_FIX_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="quick-fix",
-    description="Quick issue fix workflow",
-    inputs=(("issue_number", "integer", True, "GitHub issue number"),),
-    step_summary="fetch_issue → branch → fix → validate → commit → pr",
-)
-
-PROCESS_SINGLE_ISSUE_WORKFLOW_INFO = BuiltinWorkflowInfo(
-    name="process-single-issue",
-    description="Process single GitHub issue (sub-workflow for refuel)",
-    inputs=(("issue_number", "integer", True, "GitHub issue number"),),
     step_summary=(
-        "fetch_issue → branch → fix → validate_and_fix → "
-        "commit_and_push → create_pr_with_summary"
+        "preflight → bead_loop(select → implement → validate → "
+        "review → commit → close) → final_push"
     ),
+)
+
+REFUEL_SPECKIT_WORKFLOW_INFO = BuiltinWorkflowInfo(
+    name="refuel-speckit",
+    description="Generate beads from a SpecKit specification",
+    inputs=(
+        ("spec_dir", "string", True, "Path to spec directory with tasks.md"),
+        ("dry_run", "boolean", False, "Preview mode"),
+    ),
+    step_summary="preflight → parse_speckit → create_beads → wire_dependencies",
 )
 
 
@@ -162,7 +123,7 @@ VALIDATE_AND_FIX_FRAGMENT_INFO = BuiltinFragmentInfo(
         ("max_attempts", "integer", False, "Maximum retry attempts (default: 3)"),
         ("fixer_agent", "string", False, "Agent for fixes (default: validation_fixer)"),
     ),
-    used_by=("feature", "cleanup", "validate"),
+    used_by=("fly-beads",),
 )
 
 COMMIT_AND_PUSH_FRAGMENT_INFO = BuiltinFragmentInfo(
@@ -172,7 +133,7 @@ COMMIT_AND_PUSH_FRAGMENT_INFO = BuiltinFragmentInfo(
         ("message", "string", False, "Commit message (auto-generate if omitted)"),
         ("push", "boolean", False, "Push after commit (default: true)"),
     ),
-    used_by=("feature", "cleanup", "quick-fix"),
+    used_by=("fly-beads",),
 )
 
 CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO = BuiltinFragmentInfo(
@@ -183,7 +144,7 @@ CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO = BuiltinFragmentInfo(
         ("draft", "boolean", False, "Create as draft PR (default: false)"),
         ("title", "string", False, "PR title (auto-generate if omitted)"),
     ),
-    used_by=("feature", "cleanup", "quick-fix"),
+    used_by=(),
 )
 
 
@@ -221,7 +182,7 @@ class BuiltinLibrary(ABC):
         """Load a built-in workflow by name.
 
         Args:
-            name: Workflow name (e.g., "feature", "cleanup").
+            name: Workflow name (e.g., "fly-beads", "refuel-speckit").
 
         Returns:
             Parsed WorkflowFile.
@@ -236,7 +197,7 @@ class BuiltinLibrary(ABC):
         """Load a built-in fragment by name.
 
         Args:
-            name: Fragment name (e.g., "validate_and_fix").
+            name: Fragment name (e.g., "validate-and-fix", "commit-and-push").
 
         Returns:
             Parsed WorkflowFile.
@@ -316,12 +277,8 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
     # Mapping of workflow names to info objects
     _WORKFLOW_INFO_MAP = {
-        "feature": FEATURE_WORKFLOW_INFO,
-        "cleanup": CLEANUP_WORKFLOW_INFO,
-        "review": REVIEW_WORKFLOW_INFO,
-        "validate": VALIDATE_WORKFLOW_INFO,
-        "quick-fix": QUICK_FIX_WORKFLOW_INFO,
-        "process-single-issue": PROCESS_SINGLE_ISSUE_WORKFLOW_INFO,
+        "fly-beads": FLY_BEADS_WORKFLOW_INFO,
+        "refuel-speckit": REFUEL_SPECKIT_WORKFLOW_INFO,
     }
 
     # Mapping of fragment names to info objects
@@ -351,7 +308,7 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
         """Load a built-in workflow by name.
 
         Args:
-            name: Workflow name (e.g., "feature", "cleanup", "quick-fix").
+            name: Workflow name (e.g., "fly-beads", "refuel-speckit").
 
         Returns:
             Parsed WorkflowFile.
@@ -366,9 +323,8 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from maverick.dsl.serialization.parser import parse_workflow
 
-        # Convert name to filename (e.g., "quick-fix" -> "quick_fix.yaml")
-        # Note: Python constants use hyphens (kebab-case), filenames use underscores
-        filename = f"{name.replace('-', '_')}.yaml"
+        # Convert name to filename (e.g., "fly-beads" -> "fly-beads.yaml")
+        filename = f"{name}.yaml"
         yaml_path = files("maverick.library.workflows").joinpath(filename)
         yaml_content = yaml_path.read_text(encoding="utf-8")
 
@@ -418,8 +374,7 @@ class DefaultBuiltinLibrary(BuiltinLibrary):
 
         from importlib.resources import files
 
-        # Convert name to filename (e.g., "quick-fix" -> "quick_fix.yaml")
-        filename = f"{name.replace('-', '_')}.yaml"
+        filename = f"{name}.yaml"
         yaml_path = files("maverick.library.workflows").joinpath(filename)
 
         # Convert to Path object (importlib.resources returns a Traversable)

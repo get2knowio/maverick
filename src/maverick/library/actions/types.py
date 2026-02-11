@@ -560,6 +560,7 @@ class SelectNextBeadResult:
         title: Title of the selected bead.
         description: Description of the selected bead.
         priority: Priority of the selected bead.
+        epic_id: Parent epic ID of the selected bead.
         done: Whether the epic has no more ready beads.
     """
 
@@ -568,6 +569,7 @@ class SelectNextBeadResult:
     title: str
     description: str
     priority: int
+    epic_id: str
     done: bool
 
     def to_dict(self) -> dict[str, Any]:
@@ -578,6 +580,7 @@ class SelectNextBeadResult:
             "title": self.title,
             "description": self.description,
             "priority": self.priority,
+            "epic_id": self.epic_id,
             "done": self.done,
         }
 

@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from maverick.main import cli
 
 # Patch target for the workflow execution
-_PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit._execute_workflow_run"
+_PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit.execute_workflow_run"
 
 
 @pytest.fixture

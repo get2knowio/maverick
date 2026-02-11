@@ -446,6 +446,7 @@ class TestSelectNextBead:
         assert result.found is True
         assert result.bead_id == "b-1"
         assert result.title == "Fix lint"
+        assert result.epic_id == "epic-1"
         assert result.done is False
 
     @pytest.mark.asyncio
@@ -463,6 +464,83 @@ class TestSelectNextBead:
         assert result.found is False
         assert result.done is True
         assert result.bead_id == ""
+        assert result.epic_id == "epic-1"
+
+    @pytest.mark.asyncio
+    async def test_empty_epic_queries_all_ready(self) -> None:
+        """When epic_id is empty, select_next_bead queries all ready beads."""
+        from maverick.beads.models import ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(
+                id="b-2",
+                title="Global task",
+                priority=3,
+                description="A task",
+                parent_id="auto-epic-99",
+            )
+        ]
+
+        with patch(
+            "maverick.beads.client.BeadClient", return_value=mock_client
+        ):
+            result = await select_next_bead("")
+
+        # Should pass None to client.ready (no parent filter)
+        mock_client.ready.assert_called_once_with(None, limit=1)
+        assert result.found is True
+        assert result.bead_id == "b-2"
+        assert result.epic_id == "auto-epic-99"
+
+    @pytest.mark.asyncio
+    async def test_empty_epic_fetches_description_when_missing(self) -> None:
+        """When epic_id is empty and bead has no description, show() is called."""
+        from maverick.beads.models import ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(
+                id="b-3",
+                title="No desc",
+                priority=1,
+                description="",
+                parent_id="ep-1",
+            )
+        ]
+
+        class _ShowResult:
+            description = "Fetched from show"
+
+        mock_client.show.return_value = _ShowResult()
+
+        with patch(
+            "maverick.beads.client.BeadClient", return_value=mock_client
+        ):
+            result = await select_next_bead("")
+
+        mock_client.show.assert_called_once_with("b-3")
+        assert result.description == "Fetched from show"
+
+    @pytest.mark.asyncio
+    async def test_empty_epic_no_beads_returns_done(self) -> None:
+        """When epic_id is empty and no beads found, result is done."""
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = []
+
+        with patch(
+            "maverick.beads.client.BeadClient", return_value=mock_client
+        ):
+            result = await select_next_bead("")
+
+        mock_client.ready.assert_called_once_with(None, limit=1)
+        assert result.found is False
+        assert result.done is True
+        assert result.epic_id == ""
 
 
 class TestMarkBeadComplete:
@@ -539,6 +617,43 @@ class TestCheckEpicDone:
 
         assert result.done is False
         assert result.remaining_count == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_epic_queries_all(self) -> None:
+        """When epic_id is empty, check_epic_done queries all ready beads."""
+        from maverick.library.actions.beads import check_epic_done
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = []
+
+        with patch(
+            "maverick.beads.client.BeadClient", return_value=mock_client
+        ):
+            result = await check_epic_done("")
+
+        # Should pass None to client.ready (no parent filter)
+        mock_client.ready.assert_called_once_with(None, limit=10)
+        assert result.done is True
+
+    @pytest.mark.asyncio
+    async def test_empty_epic_not_done(self) -> None:
+        """When epic_id is empty and beads exist globally, not done."""
+        from maverick.beads.models import ReadyBead
+        from maverick.library.actions.beads import check_epic_done
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(id="b-5", title="Remaining", priority=1),
+        ]
+
+        with patch(
+            "maverick.beads.client.BeadClient", return_value=mock_client
+        ):
+            result = await check_epic_done("")
+
+        mock_client.ready.assert_called_once_with(None, limit=10)
+        assert result.done is False
+        assert result.remaining_count == 1
 
 
 class TestCreateBeadsFromFailures:

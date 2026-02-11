@@ -1,16 +1,13 @@
 version: "1.0"
 name: fly-beads
-description: Bead-driven development workflow — iterates epic beads until done.
+description: Bead-driven development workflow — iterates ready beads until done.
 
 inputs:
   epic_id:
     type: string
-    required: true
-    description: Epic bead ID to iterate over.
-  branch_name:
-    type: string
-    required: true
-    description: Git branch for all bead work.
+    required: false
+    default: ""
+    description: Epic bead ID to iterate over (empty to pick any ready bead).
   max_beads:
     type: integer
     required: false
@@ -36,13 +33,6 @@ steps:
       check_git: true
       check_bd: true
 
-  - name: init
-    type: python
-    action: init_workspace
-    when: ${{ not inputs.dry_run }}
-    kwargs:
-      branch_name: ${{ inputs.branch_name }}
-
   - name: bead_loop
     type: loop
     when: ${{ not inputs.dry_run }}
@@ -61,7 +51,6 @@ steps:
         when: ${{ steps.select_bead.output.found }}
         context:
           task_description: ${{ steps.select_bead.output.description }}
-          branch: ${{ inputs.branch_name }}
 
       - name: validate
         type: validate
@@ -78,22 +67,20 @@ steps:
         action: create_beads_from_failures
         when: ${{ steps.select_bead.output.found }}
         kwargs:
-          epic_id: ${{ inputs.epic_id }}
+          epic_id: ${{ steps.select_bead.output.epic_id }}
           validation_result: ${{ steps.validate.output }}
 
       - name: review
         type: agent
         agent: code_reviewer
         when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
-        context:
-          branch: ${{ inputs.branch_name }}
 
       - name: create_review_beads
         type: python
         action: create_beads_from_findings
         when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
         kwargs:
-          epic_id: ${{ inputs.epic_id }}
+          epic_id: ${{ steps.select_bead.output.epic_id }}
           review_result: ${{ steps.review.output }}
 
       - name: commit_bead
@@ -114,7 +101,7 @@ steps:
         type: python
         action: check_epic_done
         kwargs:
-          epic_id: ${{ inputs.epic_id }}
+          epic_id: ${{ steps.select_bead.output.epic_id }}
 
   - name: final_push
     type: python
@@ -122,5 +109,4 @@ steps:
     when: ${{ not inputs.dry_run }}
 
 outputs:
-  branch: ${{ inputs.branch_name }}
   epic_id: ${{ inputs.epic_id }}
