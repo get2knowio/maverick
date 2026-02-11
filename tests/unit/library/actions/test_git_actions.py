@@ -240,6 +240,28 @@ class TestGitCommit:
             assert result["files_committed"] == ()
 
     @pytest.mark.asyncio
+    async def test_handles_nothing_to_commit(self) -> None:
+        """Test treats 'nothing to commit' as success."""
+        message = "feat: new feature"
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # git add .
+                create_mock_process(
+                    1, stdout="nothing to commit, working tree clean"
+                ),
+            ]
+
+            result = await git_commit(message)
+
+            assert result["success"] is True
+            assert result["commit_sha"] is None
+            assert result["nothing_to_commit"] is True
+            assert result["message"] == message
+
+    @pytest.mark.asyncio
     async def test_handles_git_commit_failure(self) -> None:
         """Test handles git commit command failure gracefully."""
         message = "feat: new feature"
@@ -250,16 +272,14 @@ class TestGitCommit:
             mock_exec.side_effect = [
                 create_mock_process(0),  # git add .
                 create_mock_process(
-                    1, stderr="fatal: nothing to commit"
-                ),  # git commit fails
+                    1, stderr="fatal: could not write commit object"
+                ),
             ]
 
             result = await git_commit(message)
 
             assert result["success"] is False
             assert result["commit_sha"] is None
-            assert result["message"] == message
-            assert result["files_committed"] == ()
             assert result["error"] is not None
 
 

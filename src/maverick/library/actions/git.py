@@ -232,10 +232,18 @@ async def git_commit(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await proc.wait()
+        stdout_bytes, stderr_bytes = await proc.communicate()
         if proc.returncode != 0:
-            stderr = await proc.stderr.read() if proc.stderr else b""
-            raise RuntimeError(f"git commit failed: {stderr.decode()}")
+            combined = (stdout_bytes + stderr_bytes).decode(errors="replace")
+            if "nothing to commit" in combined:
+                return {
+                    "success": True,
+                    "commit_sha": None,
+                    "files_committed": [],
+                    "message": message,
+                    "nothing_to_commit": True,
+                }
+            raise RuntimeError(f"git commit failed: {combined}")
 
         # Get commit SHA
         proc = await asyncio.create_subprocess_exec(
