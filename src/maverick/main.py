@@ -33,6 +33,7 @@ if _dotenv_loaded:
         )
 
 from maverick import __version__  # noqa: E402
+from maverick.cli.commands.briefing import briefing  # noqa: E402
 from maverick.cli.commands.fly import fly  # noqa: E402
 from maverick.cli.commands.init import init  # noqa: E402
 from maverick.cli.commands.refuel import refuel  # noqa: E402
@@ -143,7 +144,7 @@ def cli(
     # Only validate when a command is being invoked (not for --help/--version)
     if ctx.invoked_subcommand is not None:
         # Define which commands need which dependencies
-        commands_needing_git_gh = {"fly", "refuel"}
+        commands_needing_git_gh = {"fly", "refuel", "briefing"}
         commands_needing_config = {"fly"}
 
         if ctx.invoked_subcommand in commands_needing_git_gh:
@@ -183,6 +184,7 @@ def cli(
 
 
 # Register commands
+cli.add_command(briefing)
 cli.add_command(fly)
 cli.add_command(init)
 cli.add_command(refuel)
