@@ -6,6 +6,7 @@ Implements T027 (AgentStreamChunk emission) and T028 (thinking indicator).
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from pathlib import Path
 from typing import Any
@@ -85,6 +86,18 @@ async def execute_agent_step(
         task_file = Path(task_file_str) if task_file_str else None
         task_description = agent_context.get("task_description")
         branch = agent_context.get("branch", "")
+        if not branch:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git", "rev-parse", "--abbrev-ref", "HEAD",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await proc.communicate()
+                if proc.returncode == 0:
+                    branch = stdout.decode().strip()
+            except OSError:
+                pass
         phase_name = agent_context.get("phase_name")
         cwd_str = agent_context.get("cwd")
         cwd = Path(cwd_str) if cwd_str else Path.cwd()
