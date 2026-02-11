@@ -15,10 +15,7 @@ from maverick.cli.workflow_executor import execute_workflow_run
 
 
 @refuel.command()
-@click.argument(
-    "spec_dir",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-)
+@click.argument("spec")
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -41,30 +38,28 @@ from maverick.cli.workflow_executor import execute_workflow_run
 @async_command
 async def speckit(
     ctx: click.Context,
-    spec_dir: Path,
+    spec: str,
     dry_run: bool,
     list_steps: bool,
     session_log: Path | None,
 ) -> None:
-    """Generate beads from a SpecKit specification directory.
+    """Generate beads from a SpecKit specification.
 
-    SPEC_DIR is the path to a spec directory containing tasks.md.
+    SPEC is the spec identifier (branch name and directory under specs/).
 
-    This command delegates to the refuel-speckit DSL workflow, providing
-    event streaming, checkpointing, and preflight prerequisite checks.
+    The workflow checks out the spec branch, parses specs/<SPEC>/tasks.md,
+    creates beads, commits them, and merges back into main.
 
     Examples:
-        maverick refuel speckit /path/to/spec
-        maverick refuel speckit /path/to/spec --dry-run
-        maverick refuel speckit /path/to/spec --list-steps
+        maverick refuel speckit 001-greet-cli
+        maverick refuel speckit 001-greet-cli --dry-run
+        maverick refuel speckit 001-greet-cli --list-steps
     """
-    # Use str.lower() so Python's "True"/"False" become JSON-compatible
-    # "true"/"false" which json.loads() can parse to actual booleans.
     await execute_workflow_run(
         ctx,
         "refuel-speckit",
         (
-            f"spec_dir={spec_dir.resolve()}",
+            f"spec={spec}",
             f"dry_run={str(dry_run).lower()}",
         ),
         None,  # input_file

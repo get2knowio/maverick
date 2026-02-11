@@ -16,6 +16,7 @@ from maverick.library.actions.git import (
     create_git_branch,
     git_check_and_stage,
     git_commit,
+    git_merge,
     git_push,
     git_stage_all,
 )
@@ -658,3 +659,106 @@ class TestGitCheckAndStage:
             # Should still return the status, even though staging failed
             assert result["has_any"] is True
             assert result["has_staged"] is True
+
+
+class TestGitMerge:
+    """Tests for git_merge action."""
+
+    @pytest.mark.asyncio
+    async def test_merges_branch_successfully(self) -> None:
+        """Test merges a branch into current branch."""
+        branch = "feature/test"
+        merge_sha = "abc123merge"
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0, stdout="Merge made\n"),  # git merge
+                create_mock_process(0, stdout=f"{merge_sha}\n"),  # git rev-parse HEAD
+            ]
+
+            result = await git_merge(branch)
+
+            assert result["success"] is True
+            assert result["branch"] == branch
+            assert result["merge_commit"] == merge_sha
+            assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_merge_uses_no_ff_flag(self) -> None:
+        """Test passes --no-ff flag when requested."""
+        branch = "feature/no-ff"
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0, stdout="Merge made\n"),  # git merge --no-ff
+                create_mock_process(0, stdout="sha456\n"),  # git rev-parse HEAD
+            ]
+
+            result = await git_merge(branch, no_ff=True)
+
+            assert result["success"] is True
+
+            # Verify --no-ff was passed
+            merge_call = mock_exec.call_args_list[0]
+            assert merge_call[0] == ("git", "merge", "--no-ff", branch)
+
+    @pytest.mark.asyncio
+    async def test_merge_without_no_ff(self) -> None:
+        """Test does not pass --no-ff by default."""
+        branch = "feature/fast-forward"
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0, stdout="Fast-forward\n"),  # git merge
+                create_mock_process(0, stdout="sha789\n"),  # git rev-parse HEAD
+            ]
+
+            result = await git_merge(branch)
+
+            assert result["success"] is True
+
+            # Verify --no-ff was NOT passed
+            merge_call = mock_exec.call_args_list[0]
+            assert merge_call[0] == ("git", "merge", branch)
+
+    @pytest.mark.asyncio
+    async def test_handles_merge_conflict(self) -> None:
+        """Test handles merge failure (e.g., conflict) gracefully."""
+        branch = "feature/conflict"
+
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(
+                    1, stderr="CONFLICT (content): Merge conflict in file.py"
+                ),
+            ]
+
+            result = await git_merge(branch)
+
+            assert result["success"] is False
+            assert result["branch"] == branch
+            assert result["merge_commit"] is None
+            assert result["error"] is not None
+            assert "CONFLICT" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_handles_os_error(self) -> None:
+        """Test handles OSError (e.g., git not found) gracefully."""
+        with patch(
+            "maverick.library.actions.git.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            mock_exec.side_effect = OSError("git not found")
+
+            result = await git_merge("some-branch")
+
+            assert result["success"] is False
+            assert result["merge_commit"] is None
+            assert result["error"] is not None

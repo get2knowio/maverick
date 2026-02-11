@@ -306,6 +306,67 @@ async def git_push(set_upstream: bool = True) -> dict[str, Any]:
         }
 
 
+async def git_merge(branch: str, no_ff: bool = False) -> dict[str, Any]:
+    """Merge a branch into the current branch.
+
+    Args:
+        branch: Name of the branch to merge into the current branch.
+        no_ff: If True, create a merge commit even for fast-forward merges.
+
+    Returns:
+        Dict with:
+        - success: True if merge succeeded
+        - branch: The branch that was merged
+        - merge_commit: SHA of the merge commit (or HEAD after fast-forward)
+        - error: Error message if merge failed, None otherwise
+    """
+    try:
+        cmd = ["git", "merge"]
+        if no_ff:
+            cmd.append("--no-ff")
+        cmd.append(branch)
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"git merge failed: {stderr.decode()}")
+
+        # Get the resulting HEAD commit SHA
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "rev-parse",
+            "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"git rev-parse failed: {stderr.decode()}")
+        merge_commit = stdout.decode().strip()
+
+        logger.info("Merged branch", branch=branch, merge_commit=merge_commit)
+
+        return {
+            "success": True,
+            "branch": branch,
+            "merge_commit": merge_commit,
+            "error": None,
+        }
+
+    except (RuntimeError, OSError) as e:
+        logger.error(f"Git merge failed: {e}")
+        return {
+            "success": False,
+            "branch": branch,
+            "merge_commit": None,
+            "error": str(e),
+        }
+
+
 async def create_git_branch(
     branch_name: str,
     base: str = "main",

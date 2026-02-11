@@ -190,8 +190,17 @@ class TestSpecificWorkflows:
 
         # Assert
         assert workflow.name == "refuel-speckit"
-        assert "spec_dir" in workflow.inputs
-        assert workflow.inputs["spec_dir"].required is True
+        assert "spec" in workflow.inputs
+        assert workflow.inputs["spec"].required is True
+
+        # Check for key steps including branch/merge lifecycle
+        step_names = [step.name for step in workflow.steps]
+        assert "checkout_branch" in step_names
+        assert "parse_spec" in step_names
+        assert "create_beads" in step_names
+        assert "commit_beads" in step_names
+        assert "checkout_main" in step_names
+        assert "merge_spec" in step_names
 
 
 class TestWorkflowConsistency:

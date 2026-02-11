@@ -15,15 +15,6 @@ from maverick.main import cli
 _PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit.execute_workflow_run"
 
 
-@pytest.fixture
-def spec_dir_for_cli(temp_dir: Path) -> Path:
-    """Create a spec directory with tasks.md for CLI testing."""
-    spec_dir = temp_dir / "specs" / "001-test"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "tasks.md").write_text("## Phase 1: Setup\n\n- [ ] T001 Init project\n")
-    return spec_dir
-
-
 class TestRefuelGroupRegistered:
     """Test that refuel command is registered."""
 
@@ -55,7 +46,7 @@ class TestRefuelGroupRegistered:
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
         result = cli_runner.invoke(cli, ["refuel", "speckit", "--help"])
         assert result.exit_code == 0
-        assert "SPEC_DIR" in result.output
+        assert "SPEC" in result.output
         assert "--dry-run" in result.output
         assert "--list-steps" in result.output
 
@@ -63,7 +54,7 @@ class TestRefuelGroupRegistered:
 class TestRefuelSpeckitCommand:
     """Tests for 'maverick refuel speckit' command."""
 
-    def test_missing_spec_dir(
+    def test_missing_spec_arg(
         self,
         cli_runner: CliRunner,
         temp_dir: Path,
@@ -74,7 +65,7 @@ class TestRefuelSpeckitCommand:
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
         result = cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(temp_dir / "nonexistent")],
+            ["refuel", "speckit"],
         )
         assert result.exit_code != 0
 
@@ -84,7 +75,6 @@ class TestRefuelSpeckitCommand:
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
-        spec_dir_for_cli: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -93,7 +83,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(spec_dir_for_cli)],
+            ["refuel", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
@@ -107,7 +97,6 @@ class TestRefuelSpeckitCommand:
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
-        spec_dir_for_cli: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -116,7 +105,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(spec_dir_for_cli), "--dry-run"],
+            ["refuel", "speckit", "001-test", "--dry-run"],
         )
 
         mock_execute.assert_called_once()
@@ -133,7 +122,6 @@ class TestRefuelSpeckitCommand:
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
-        spec_dir_for_cli: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -142,7 +130,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(spec_dir_for_cli)],
+            ["refuel", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
@@ -151,12 +139,11 @@ class TestRefuelSpeckitCommand:
         assert args[4] is False
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_passes_spec_dir_as_input(
+    def test_passes_spec_as_input(
         self,
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
-        spec_dir_for_cli: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -165,13 +152,13 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(spec_dir_for_cli)],
+            ["refuel", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
         args = mock_execute.call_args[0]
         inputs_tuple = args[2]
-        assert any("spec_dir=" in i for i in inputs_tuple)
+        assert any("spec=001-test" in i for i in inputs_tuple)
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_passes_list_steps_flag(
@@ -179,7 +166,6 @@ class TestRefuelSpeckitCommand:
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
-        spec_dir_for_cli: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -188,7 +174,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", str(spec_dir_for_cli), "--list-steps"],
+            ["refuel", "speckit", "001-test", "--list-steps"],
         )
 
         mock_execute.assert_called_once()

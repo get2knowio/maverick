@@ -43,6 +43,7 @@ from maverick.library.actions.git import (
     git_check_and_stage,
     git_commit,
     git_has_changes,
+    git_merge,
     git_push,
     git_stage_all,
 )
@@ -90,6 +91,7 @@ __all__ = [
     "git_push",
     "git_check_and_stage",
     "git_has_changes",
+    "git_merge",
     "git_stage_all",
     "create_git_branch",
     # GitHub actions
@@ -167,6 +169,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register(
         "git_stage_all",
         git_stage_all,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
+        "git_merge",
+        git_merge,
         requires=("git", "git_repo"),
     )
     registry.actions.register(
