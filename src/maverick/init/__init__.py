@@ -90,7 +90,10 @@ _BD_INIT_TIMEOUT_SECONDS = 10
 async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
     """Initialize beads if ``bd`` is available.
 
-    Uses ``--force`` and ``--stealth`` to handle both fresh and re-init cases.
+    Uses ``--force`` to handle both fresh and re-init cases. Beads are
+    initialized in normal (non-stealth) mode so that ``.beads/issues.jsonl``
+    is tracked in git and flows naturally with branches and merges.
+
     This is best-effort: if ``bd`` isn't installed or ``bd init`` fails, the
     error is logged but never raised.
 
@@ -112,7 +115,6 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
         proc = await asyncio.create_subprocess_exec(
             "bd",
             "init",
-            "--stealth",
             "--force",
             cwd=str(project_path),
             stdin=asyncio.subprocess.DEVNULL,

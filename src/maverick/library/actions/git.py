@@ -382,7 +382,12 @@ async def git_merge(branch: str, no_ff: bool = False) -> dict[str, Any]:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"git merge failed: {stderr.decode()}")
+            combined = (stdout + stderr).decode(errors="replace")
+            if "already up to date" in combined.lower():
+                # Not an error — target branch already contains the source
+                pass
+            else:
+                raise RuntimeError(f"git merge failed: {combined}")
 
         # Get the resulting HEAD commit SHA
         proc = await asyncio.create_subprocess_exec(
