@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 # Import generator classes
 from maverick.agents.generators import (
+    BeadEnricherGenerator,
     CommitMessageGenerator,
     DependencyExtractor,
     PRDescriptionGenerator,
@@ -69,3 +70,6 @@ def register_all_generators(registry: ComponentRegistry) -> None:
 
     # Register dependency extractor (used in refuel-speckit workflow)
     registry.generators.register("dependency_extractor", DependencyExtractor)  # type: ignore[arg-type]
+
+    # Register bead enricher (used in refuel-speckit workflow)
+    registry.generators.register("bead_enricher", BeadEnricherGenerator)  # type: ignore[arg-type]

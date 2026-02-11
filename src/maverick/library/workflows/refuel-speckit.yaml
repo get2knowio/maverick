@@ -74,6 +74,24 @@ steps:
         weight: 10
 
   # ============================================================================
+  # Step 3b: Enrich Bead Descriptions (LLM)
+  # ============================================================================
+  # Uses BeadEnricherGenerator to transform sparse bead definitions into
+  # self-contained work items with objectives, acceptance criteria, key files,
+  # conventions, and dependency context.
+  - name: enrich_beads
+    type: python
+    action: enrich_bead_descriptions
+    kwargs:
+      work_definitions: ${{ steps.parse_spec.output.work_definitions }}
+      spec_dir: specs/${{ inputs.spec }}
+      dependency_section: ${{ steps.parse_spec.output.dependency_section }}
+    metadata:
+      progress:
+        stage: "enriching"
+        weight: 15
+
+  # ============================================================================
   # Step 4: Create Beads
   # ============================================================================
   # Creates the epic bead and all work beads via bd CLI (or returns
@@ -83,7 +101,7 @@ steps:
     action: create_beads
     kwargs:
       epic_definition: ${{ steps.parse_spec.output.epic_definition }}
-      work_definitions: ${{ steps.parse_spec.output.work_definitions }}
+      work_definitions: ${{ steps.enrich_beads.output }}
       dry_run: ${{ inputs.dry_run }}
     metadata:
       progress:
@@ -101,7 +119,7 @@ steps:
     action: wire_dependencies
     when: ${{ steps.create_beads.output.epic }}
     kwargs:
-      work_definitions: ${{ steps.parse_spec.output.work_definitions }}
+      work_definitions: ${{ steps.enrich_beads.output }}
       created_map: ${{ steps.create_beads.output.created_map }}
       tasks_content: ${{ steps.parse_spec.output.tasks_content }}
       extracted_deps: ${{ steps.extract_dependencies.output }}

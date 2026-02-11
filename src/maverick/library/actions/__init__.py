@@ -27,9 +27,11 @@ from maverick.library.actions.beads import (
     create_beads,
     create_beads_from_failures,
     create_beads_from_findings,
+    enrich_bead_descriptions,
     mark_bead_complete,
     parse_speckit,
     select_next_bead,
+    verify_bead_completion,
     wire_dependencies,
 )
 from maverick.library.actions.cleanup import (
@@ -57,6 +59,7 @@ from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.review import (
     analyze_review_findings,
     combine_review_results,
+    gather_local_review_context,
     gather_pr_context,
     generate_review_fix_report,
     run_review_fix_loop,
@@ -79,6 +82,8 @@ __all__ = [
     "check_epic_done",
     "create_beads_from_failures",
     "create_beads_from_findings",
+    "verify_bead_completion",
+    "enrich_bead_descriptions",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions
@@ -102,6 +107,7 @@ __all__ = [
     "fetch_github_issue",
     # Review actions
     "gather_pr_context",
+    "gather_local_review_context",
     "combine_review_results",
     "analyze_review_findings",
     "run_review_fix_loop",
@@ -213,6 +219,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         gather_pr_context,
         requires=("git", "git_repo"),
     )
+    registry.actions.register(
+        "gather_local_review_context",
+        gather_local_review_context,
+        requires=("git", "git_repo"),
+    )
     registry.actions.register("combine_review_results", combine_review_results)
     registry.actions.register("analyze_review_findings", analyze_review_findings)
     registry.actions.register("run_review_fix_loop", run_review_fix_loop)
@@ -258,6 +269,8 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register(
         "create_beads_from_findings", create_beads_from_findings, requires=("bd",)
     )
+    registry.actions.register("verify_bead_completion", verify_bead_completion)
+    registry.actions.register("enrich_bead_descriptions", enrich_bead_descriptions)
 
     # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)

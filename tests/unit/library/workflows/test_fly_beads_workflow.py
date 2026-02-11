@@ -68,8 +68,12 @@ class TestFlyBeadsWorkflowLoads:
         step_names = [s.name for s in loop.steps]
         assert "select_bead" in step_names
         assert "implement" in step_names
-        assert "validate" in step_names
+        assert "validate_and_fix" in step_names
         assert "create_fix_beads" in step_names
+        assert "gather_review_context" in step_names
+        assert "review_and_fix" in step_names
+        assert "create_review_beads" in step_names
+        assert "verify_completion" in step_names
         assert "commit_bead" in step_names
         assert "close_bead" in step_names
         assert "check_done" in step_names

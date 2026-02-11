@@ -26,6 +26,7 @@ from maverick.agents.generators.base import (
     MAX_TURNS,
     GeneratorAgent,
 )
+from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
 from maverick.agents.generators.code_analyzer import CodeAnalyzer
 from maverick.agents.generators.commit_message import CommitMessageGenerator
 from maverick.agents.generators.dependency_extractor import DependencyExtractor
@@ -37,6 +38,7 @@ __all__ = [
     # Base class
     "GeneratorAgent",
     # Concrete generators
+    "BeadEnricherGenerator",
     "CodeAnalyzer",
     "CommitMessageGenerator",
     "DependencyExtractor",

@@ -45,6 +45,7 @@ steps:
         kwargs:
           epic_id: ${{ inputs.epic_id }}
 
+      # IMPLEMENT
       - name: implement
         type: agent
         agent: implementer
@@ -52,48 +53,76 @@ steps:
         context:
           task_description: ${{ steps.select_bead.output.description }}
 
-      - name: validate
-        type: validate
+      # VALIDATE-AND-FIX (3 fix attempts before creating child beads)
+      - name: validate_and_fix
+        type: subworkflow
+        workflow: validate-and-fix
         when: ${{ steps.select_bead.output.found }}
-        stages:
-          - format
-          - lint
-          - typecheck
-          - test
-        retry: 0
+        inputs:
+          stages: ["format", "lint", "typecheck", "test"]
+          max_attempts: 3
 
+      # CREATE FIX BEADS for remaining failures only
       - name: create_fix_beads
         type: python
         action: create_beads_from_failures
-        when: ${{ steps.select_bead.output.found }}
+        when: ${{ steps.select_bead.output.found and not steps.validate_and_fix.output.passed }}
         kwargs:
           epic_id: ${{ steps.select_bead.output.epic_id }}
-          validation_result: ${{ steps.validate.output }}
+          validation_result: ${{ steps.validate_and_fix.output }}
 
-      - name: review
-        type: agent
-        agent: code_reviewer
+      # GATHER LOCAL REVIEW CONTEXT (for uncommitted changes)
+      - name: gather_review_context
+        type: python
+        action: gather_local_review_context
         when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
+        kwargs:
+          base_branch: main
+          include_spec_files: true
 
+      # REVIEW-AND-FIX LOOP (2 review-fix cycles)
+      - name: review_and_fix
+        type: python
+        action: run_review_fix_loop
+        when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
+        kwargs:
+          pr_context: ${{ steps.gather_review_context.output }}
+          base_branch: main
+          max_attempts: 2
+          generate_report: true
+
+      # CREATE REVIEW BEADS for remaining findings only
       - name: create_review_beads
         type: python
         action: create_beads_from_findings
         when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
         kwargs:
           epic_id: ${{ steps.select_bead.output.epic_id }}
-          review_result: ${{ steps.review.output }}
+          review_result: ${{ steps.review_and_fix.output }}
 
+      # VERIFICATION GATE
+      - name: verify_completion
+        type: python
+        action: verify_bead_completion
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          validation_result: ${{ steps.validate_and_fix.output }}
+          review_result: ${{ steps.review_and_fix.output }}
+          skip_review: ${{ inputs.skip_review }}
+
+      # COMMIT (gated on verification)
       - name: commit_bead
         type: python
         action: git_commit
-        when: ${{ steps.select_bead.output.found }}
+        when: ${{ steps.select_bead.output.found and steps.verify_completion.output.passed }}
         kwargs:
           message: "bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
 
+      # CLOSE (gated on verification)
       - name: close_bead
         type: python
         action: mark_bead_complete
-        when: ${{ steps.select_bead.output.found }}
+        when: ${{ steps.select_bead.output.found and steps.verify_completion.output.passed }}
         kwargs:
           bead_id: ${{ steps.select_bead.output.bead_id }}
 

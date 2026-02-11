@@ -750,6 +750,23 @@ class DependencyWiringResult:
 
 
 @dataclass(frozen=True, slots=True)
+class VerifyBeadCompletionResult:
+    """Result of verifying bead completion before commit/close.
+
+    Attributes:
+        passed: Whether the bead is ready to commit and close.
+        reasons: Reasons for failure (empty if passed).
+    """
+
+    passed: bool
+    reasons: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {"passed": self.passed, "reasons": list(self.reasons)}
+
+
+@dataclass(frozen=True, slots=True)
 class TechDebtIssueResult:
     """Result of creating a tech debt issue.
 

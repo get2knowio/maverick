@@ -20,6 +20,7 @@ from maverick.library.actions.types import (
     MarkBeadCompleteResult,
     SelectNextBeadResult,
     SpecKitParseResult,
+    VerifyBeadCompletionResult,
 )
 from maverick.logging import get_logger
 
@@ -685,3 +686,156 @@ async def create_beads_from_findings(
         bead_ids=tuple(created_ids),
         errors=tuple(errors),
     )
+
+
+async def verify_bead_completion(
+    validation_result: dict[str, Any],
+    review_result: dict[str, Any] | None = None,
+    skip_review: bool = False,
+) -> VerifyBeadCompletionResult:
+    """Verify that a bead is ready to commit and close.
+
+    Gates commit/close on validation passing and review not requesting changes.
+    When review is skipped (via ``skip_review`` or when the DSL stores ``None``
+    for skipped steps), review checks are bypassed.
+
+    Args:
+        validation_result: Output from validate-and-fix subworkflow.
+        review_result: Output from review-fix loop (None if review was skipped).
+        skip_review: Whether review was explicitly skipped.
+
+    Returns:
+        VerifyBeadCompletionResult with passed status and failure reasons.
+    """
+    reasons: list[str] = []
+
+    # Check validation passed
+    if not validation_result.get("passed", False):
+        failed_stages: list[str] = []
+        for name, data in validation_result.get("stage_results", {}).items():
+            if isinstance(data, dict) and not data.get("passed", True):
+                failed_stages.append(name)
+        stage_detail = ", ".join(failed_stages) if failed_stages else "unknown stages"
+        reasons.append(f"Validation failed: {stage_detail}")
+
+    # Check review if not skipped
+    if not skip_review and review_result is not None:
+        recommendation = review_result.get("recommendation", "")
+        if recommendation == "request_changes":
+            remaining = review_result.get("issues_remaining", 0)
+            if isinstance(remaining, list):
+                remaining = len(remaining)
+            reasons.append(
+                f"Review requests changes ({remaining} issues remaining)"
+            )
+
+    passed = len(reasons) == 0
+    if passed:
+        logger.info("bead_verification_passed")
+    else:
+        logger.warning("bead_verification_failed", reasons=reasons)
+
+    return VerifyBeadCompletionResult(
+        passed=passed,
+        reasons=tuple(reasons),
+    )
+
+
+async def enrich_bead_descriptions(
+    work_definitions: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    spec_dir: str,
+    dependency_section: str = "",
+    event_callback: Any = None,
+) -> list[dict[str, Any]]:
+    """Enrich bead descriptions with acceptance criteria and context.
+
+    Uses ``BeadEnricherGenerator`` to transform sparse bead definitions into
+    self-contained work items with objectives, acceptance criteria, and context.
+    On generator failure for any bead, the original description is kept.
+
+    Args:
+        work_definitions: List of bead definition dicts from parse_speckit.
+        spec_dir: Path to the spec directory (e.g., ``specs/001-greet-cli``).
+        dependency_section: Dependency section text from tasks.md.
+        event_callback: Optional callback for progress events.
+
+    Returns:
+        List of enriched work definition dicts (same structure, updated descriptions).
+    """
+    from maverick.dsl.events import StepOutput
+
+    spec_path = Path(spec_dir)
+
+    # Read spec.md and plan.md (truncate to 10KB each)
+    max_content = 10240
+    spec_content = ""
+    plan_content = ""
+
+    spec_file = spec_path / "spec.md"
+    if spec_file.exists():
+        try:
+            raw = spec_file.read_text()
+            spec_content = raw[:max_content]
+        except Exception as e:
+            logger.warning("failed_to_read_spec", path=str(spec_file), error=str(e))
+
+    plan_file = spec_path / "plan.md"
+    if plan_file.exists():
+        try:
+            raw = plan_file.read_text()
+            plan_content = raw[:max_content]
+        except Exception as e:
+            logger.warning("failed_to_read_plan", path=str(plan_file), error=str(e))
+
+    # Import generator lazily to avoid circular imports
+    from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
+
+    enricher = BeadEnricherGenerator()
+    enriched: list[dict[str, Any]] = []
+
+    for i, defn in enumerate(work_definitions):
+        title = defn.get("title", "")
+        category = defn.get("category", "USER_STORY")
+
+        if event_callback:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                total = len(work_definitions)
+                await event_callback(
+                    StepOutput(
+                        step_name="enrich_beads",
+                        message=f"Enriching bead {i + 1}/{total}: {title}",
+                        level="info",
+                        source="bead_enricher",
+                    )
+                )
+
+        context = {
+            "title": title,
+            "category": category,
+            "tasks": defn.get("tasks", ""),
+            "checkpoints": defn.get("checkpoints", ""),
+            "spec_content": spec_content,
+            "plan_content": plan_content,
+            "dependency_context": dependency_section,
+        }
+
+        try:
+            enriched_desc = await enricher.generate(context)
+            if enriched_desc:
+                updated = dict(defn)
+                updated["description"] = enriched_desc
+                enriched.append(updated)
+                logger.debug("bead_enriched", title=title, category=category)
+            else:
+                enriched.append(dict(defn))
+        except Exception as e:
+            logger.warning(
+                "bead_enrichment_failed",
+                title=title,
+                error=str(e),
+            )
+            enriched.append(dict(defn))
+
+    return enriched
