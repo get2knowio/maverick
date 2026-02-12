@@ -20,7 +20,8 @@ Maverick is a Python CLI application that automates AI-powered development workf
 | Testing         | pytest + pytest-asyncio | Parallel via xdist (`-n auto`)           |
 | Linting         | Ruff                    | Fast, comprehensive Python linter        |
 | Type Checking   | MyPy                    | Strict mode recommended                  |
-| Git Operations  | GitPython               | `maverick.git` wraps GitPython           |
+| VCS (writes)    | Jujutsu (jj)            | Colocated mode; write ops in `actions/jj.py` |
+| VCS (reads)     | GitPython               | `maverick.git` wraps GitPython (read-only) |
 | GitHub API      | PyGithub                | `maverick.utils.github_client`           |
 | Logging         | structlog               | `maverick.logging.get_logger()`          |
 | Retry Logic     | tenacity                | `@retry` decorator or `AsyncRetrying`    |
@@ -30,20 +31,33 @@ Maverick is a Python CLI application that automates AI-powered development workf
 
 These libraries are the canonical choices for their domains. Do NOT introduce alternatives or custom implementations.
 
+### Jujutsu / jj (`maverick.library.actions.jj`)
+
+**Use for**: All write-path VCS operations (commit, push, merge, branch).
+Requires colocated mode (`jj git init --colocate`) so `.git` is shared.
+
+```python
+from maverick.library.actions.jj import git_commit, git_push
+
+result = await git_commit("feat: add feature")
+await git_push()
+```
+
+**Do NOT**: Shell out to `git` for write operations. Use `jj` actions instead.
+
 ### GitPython (`maverick.git`)
 
-**Use for**: All git operations (commits, branches, diffs, status, push/pull)
+**Use for**: Read-only git operations (diffs, status, log, blame). Works
+unchanged in colocated mode because jj and git share the `.git` directory.
 
 ```python
 from maverick.git import AsyncGitRepository
 
 repo = AsyncGitRepository(path)
-await repo.create_branch("feature/new")
-await repo.commit("feat: add feature")
-await repo.push()
+diff = await repo.diff("main")
 ```
 
-**Do NOT**: Use `subprocess.run("git ...")` or create new git wrappers
+**Do NOT**: Use GitPython for write operations (commits, pushes). Use jj actions.
 
 ### PyGithub (`maverick.utils.github_client`)
 

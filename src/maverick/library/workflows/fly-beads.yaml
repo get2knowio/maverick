@@ -31,6 +31,7 @@ steps:
     kwargs:
       check_api: true
       check_git: true
+      check_jj: true
       check_bd: true
 
   - name: bead_loop
@@ -44,6 +45,20 @@ steps:
         action: select_next_bead
         kwargs:
           epic_id: ${{ inputs.epic_id }}
+
+      # SNAPSHOT — capture jj operation for rollback on failure
+      - name: snapshot
+        type: python
+        action: jj_snapshot_operation
+        when: ${{ steps.select_bead.output.found }}
+
+      # DESCRIBE — label WIP change so jj log shows what's in-flight
+      - name: describe_change
+        type: python
+        action: jj_describe
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          message: "WIP bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
 
       # IMPLEMENT
       - name: implement
@@ -110,6 +125,14 @@ steps:
           review_result: ${{ steps.review_and_fix.output }}
           skip_review: ${{ inputs.skip_review }}
 
+      # ROLLBACK — restore to snapshot if verification failed
+      - name: rollback_bead
+        type: python
+        action: jj_restore_operation
+        when: ${{ steps.select_bead.output.found and not steps.verify_completion.output.passed }}
+        kwargs:
+          operation_id: ${{ steps.snapshot.output.operation_id }}
+
       # COMMIT (gated on verification)
       - name: commit_bead
         type: python
@@ -131,6 +154,14 @@ steps:
         action: check_epic_done
         kwargs:
           epic_id: ${{ steps.select_bead.output.epic_id }}
+
+  # CURATE — reorganize bead commits into cleaner history
+  - name: curate_history
+    type: python
+    action: curate_history
+    when: ${{ not inputs.dry_run }}
+    kwargs:
+      base_revision: main
 
   - name: final_push
     type: python

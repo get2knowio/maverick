@@ -40,8 +40,14 @@ from maverick.library.actions.cleanup import (
 )
 from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
-from maverick.library.actions.git import (
+from maverick.library.actions.github import (
+    create_github_pr,
+    fetch_github_issue,
+    fetch_github_issues,
+)
+from maverick.library.actions.jj import (
     create_git_branch,
+    curate_history,
     git_add,
     git_check_and_stage,
     git_commit,
@@ -49,11 +55,13 @@ from maverick.library.actions.git import (
     git_merge,
     git_push,
     git_stage_all,
-)
-from maverick.library.actions.github import (
-    create_github_pr,
-    fetch_github_issue,
-    fetch_github_issues,
+    jj_absorb,
+    jj_describe,
+    jj_diff,
+    jj_log,
+    jj_restore_operation,
+    jj_snapshot_operation,
+    jj_squash,
 )
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.review import (
@@ -92,7 +100,7 @@ __all__ = [
     "sync_dependencies",
     # Task actions
     "get_phase_names",
-    # Git actions
+    # Git actions (via jj)
     "git_add",
     "git_commit",
     "git_push",
@@ -101,6 +109,15 @@ __all__ = [
     "git_merge",
     "git_stage_all",
     "create_git_branch",
+    # jj-specific actions
+    "jj_describe",
+    "jj_snapshot_operation",
+    "jj_restore_operation",
+    "jj_squash",
+    "jj_absorb",
+    "jj_log",
+    "jj_diff",
+    "curate_history",
     # GitHub actions
     "create_github_pr",
     "fetch_github_issues",
@@ -153,46 +170,88 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     # Task actions (no external deps)
     registry.actions.register("get_phase_names", get_phase_names)
 
-    # Git actions - require git CLI and identity for commits
+    # Git actions (via jj) - require jj CLI and colocated repo
     registry.actions.register(
         "git_add",
         git_add,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "git_commit",
         git_commit,
-        requires=("git", "git_identity"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "git_push",
         git_push,
-        requires=("git", "git_remote"),
+        requires=("jj", "jj_colocated", "git_remote"),
     )
     registry.actions.register(
         "git_check_and_stage",
         git_check_and_stage,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "git_has_changes",
         git_has_changes,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "git_stage_all",
         git_stage_all,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "git_merge",
         git_merge,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
     )
     registry.actions.register(
         "create_git_branch",
         create_git_branch,
-        requires=("git", "git_repo"),
+        requires=("jj", "jj_colocated"),
+    )
+
+    # jj-specific actions
+    registry.actions.register(
+        "jj_describe",
+        jj_describe,
+        requires=("jj", "jj_colocated"),
+    )
+    registry.actions.register(
+        "jj_snapshot_operation",
+        jj_snapshot_operation,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_restore_operation",
+        jj_restore_operation,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_squash",
+        jj_squash,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_absorb",
+        jj_absorb,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_log",
+        jj_log,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_diff",
+        jj_diff,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "curate_history",
+        curate_history,
+        requires=("jj", "jj_colocated"),
     )
 
     # GitHub actions - require gh CLI and authentication
