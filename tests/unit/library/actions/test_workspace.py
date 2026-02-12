@@ -39,17 +39,15 @@ class TestInitWorkspace:
 
     @pytest.mark.asyncio
     async def test_creates_new_branch_when_does_not_exist(self, tmp_path: Path) -> None:
-        """Test creates new bookmark when it doesn't exist."""
+        """Test creates new branch when it doesn't exist."""
         branch_name = "feature/new-feature"
 
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    # jj bookmark list (no matching bookmark)
-                    make_result(returncode=0, stdout="main: abc123\n"),
-                    make_result(returncode=0),  # jj new main
-                    make_result(returncode=0),  # jj bookmark create
-                    make_result(returncode=0, stdout=""),  # jj diff --stat (clean)
+                    make_result(returncode=1),  # Branch doesn't exist
+                    make_result(returncode=0),  # Checkout -b success
+                    make_result(returncode=0, stdout=""),  # Status clean
                 ]
             )
 
@@ -60,28 +58,21 @@ class TestInitWorkspace:
             assert result.is_clean is True
             assert result.synced_with_base is True
 
-            # Verify jj new main was called
-            new_call = mock_runner.run.call_args_list[1]
-            assert new_call[0][0] == ["jj", "new", "main"]
-            # Verify jj bookmark create was called
-            bm_call = mock_runner.run.call_args_list[2]
-            assert bm_call[0][0] == ["jj", "bookmark", "create", branch_name, "-r", "@"]
+            # Verify git checkout -b was called
+            checkout_call = mock_runner.run.call_args_list[1]
+            assert checkout_call[0][0] == ["git", "checkout", "-b", branch_name]
 
     @pytest.mark.asyncio
     async def test_checks_out_existing_branch(self, tmp_path: Path) -> None:
-        """Test switches to existing bookmark via jj edit."""
+        """Test checks out existing branch instead of creating new one."""
         branch_name = "feature/existing"
 
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    # jj bookmark list (has matching bookmark)
-                    make_result(
-                        returncode=0,
-                        stdout=f"{branch_name}: abc123 description\n",
-                    ),
-                    make_result(returncode=0),  # jj edit
-                    make_result(returncode=0, stdout=""),  # jj diff --stat (clean)
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
                 ]
             )
 
@@ -89,9 +80,9 @@ class TestInitWorkspace:
 
             assert result.branch_name == branch_name
 
-            # Verify jj edit was called
-            edit_call = mock_runner.run.call_args_list[1]
-            assert edit_call[0][0] == ["jj", "edit", branch_name]
+            # Verify git checkout was called (not checkout -b)
+            checkout_call = mock_runner.run.call_args_list[1]
+            assert checkout_call[0][0] == ["git", "checkout", branch_name]
 
     @pytest.mark.asyncio
     async def test_detects_clean_workspace(self, tmp_path: Path) -> None:
@@ -101,13 +92,9 @@ class TestInitWorkspace:
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    # jj bookmark list (has matching bookmark)
-                    make_result(
-                        returncode=0,
-                        stdout=f"{branch_name}: abc123\n",
-                    ),
-                    make_result(returncode=0),  # jj edit
-                    # jj diff --stat (empty = clean)
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    # Status clean (empty output)
                     make_result(returncode=0, stdout=""),
                 ]
             )
@@ -123,17 +110,11 @@ class TestInitWorkspace:
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    # jj bookmark list (has matching bookmark)
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
                     make_result(
-                        returncode=0,
-                        stdout=f"{branch_name}: abc123\n",
-                    ),
-                    make_result(returncode=0),  # jj edit
-                    # jj diff --stat (non-empty = dirty)
-                    make_result(
-                        returncode=0,
-                        stdout="src/file.py | 2 +-\n1 file changed\n",
-                    ),
+                        returncode=0, stdout=" M src/file.py\n ?? new_file.py\n"
+                    ),  # Dirty
                 ]
             )
 
@@ -163,12 +144,9 @@ class TestInitWorkspace:
             with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
-                        make_result(
-                            returncode=0,
-                            stdout=f"{branch_name}: abc123\n",
-                        ),
-                        make_result(returncode=0),  # jj edit
-                        make_result(returncode=0, stdout=""),  # jj diff --stat
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
                     ]
                 )
 
@@ -197,12 +175,9 @@ class TestInitWorkspace:
             with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
-                        make_result(
-                            returncode=0,
-                            stdout=f"{branch_name}: abc123\n",
-                        ),
-                        make_result(returncode=0),  # jj edit
-                        make_result(returncode=0, stdout=""),  # jj diff --stat
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
                     ]
                 )
 
@@ -227,12 +202,9 @@ class TestInitWorkspace:
             with patch("maverick.library.actions.workspace._runner") as mock_runner:
                 mock_runner.run = AsyncMock(
                     side_effect=[
-                        make_result(
-                            returncode=0,
-                            stdout=f"{branch_name}: abc123\n",
-                        ),
-                        make_result(returncode=0),  # jj edit
-                        make_result(returncode=0, stdout=""),  # jj diff --stat
+                        make_result(returncode=0),  # Branch exists
+                        make_result(returncode=0),  # Checkout success
+                        make_result(returncode=0, stdout=""),  # Status clean
                     ]
                 )
 
@@ -272,12 +244,9 @@ class TestInitWorkspace:
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(
-                        returncode=0,
-                        stdout=f"{branch_name}: abc123\n",
-                    ),
-                    make_result(returncode=0),  # jj edit
-                    make_result(returncode=0, stdout=""),  # jj diff --stat
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
                 ]
             )
 
@@ -293,12 +262,9 @@ class TestInitWorkspace:
         with patch("maverick.library.actions.workspace._runner") as mock_runner:
             mock_runner.run = AsyncMock(
                 side_effect=[
-                    make_result(
-                        returncode=0,
-                        stdout=f"{branch_name}: abc123\n",
-                    ),
-                    make_result(returncode=0),  # jj edit
-                    make_result(returncode=0, stdout=""),  # jj diff --stat
+                    make_result(returncode=0),  # Branch exists
+                    make_result(returncode=0),  # Checkout success
+                    make_result(returncode=0, stdout=""),  # Status clean
                 ]
             )
 

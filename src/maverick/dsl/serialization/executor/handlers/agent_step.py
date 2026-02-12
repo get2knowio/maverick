@@ -88,40 +88,19 @@ async def execute_agent_step(
         branch = agent_context.get("branch", "")
         if not branch:
             try:
-                # Try jj first (colocated mode)
                 proc = await asyncio.create_subprocess_exec(
-                    "jj",
-                    "log",
-                    "-r",
-                    "@-",
-                    "--no-graph",
-                    "-T",
-                    "bookmarks",
+                    "git",
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, _ = await proc.communicate()
                 if proc.returncode == 0:
-                    raw = stdout.decode().strip()
-                    branch = raw.split("@")[0] if raw else ""
+                    branch = stdout.decode().strip()
             except OSError:
                 pass
-            # Fallback to git if jj didn't yield a branch
-            if not branch:
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "git",
-                        "rev-parse",
-                        "--abbrev-ref",
-                        "HEAD",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    stdout, _ = await proc.communicate()
-                    if proc.returncode == 0:
-                        branch = stdout.decode().strip()
-                except OSError:
-                    pass
         phase_name = agent_context.get("phase_name")
         cwd_str = agent_context.get("cwd")
         cwd = Path(cwd_str) if cwd_str else Path.cwd()

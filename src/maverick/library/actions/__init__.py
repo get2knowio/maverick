@@ -40,14 +40,8 @@ from maverick.library.actions.cleanup import (
 )
 from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
-from maverick.library.actions.github import (
-    create_github_pr,
-    fetch_github_issue,
-    fetch_github_issues,
-)
-from maverick.library.actions.jj import (
+from maverick.library.actions.git import (
     create_git_branch,
-    curate_history,
     git_add,
     git_check_and_stage,
     git_commit,
@@ -55,6 +49,14 @@ from maverick.library.actions.jj import (
     git_merge,
     git_push,
     git_stage_all,
+)
+from maverick.library.actions.github import (
+    create_github_pr,
+    fetch_github_issue,
+    fetch_github_issues,
+)
+from maverick.library.actions.jj import (
+    curate_history,
     jj_absorb,
     jj_describe,
     jj_diff,
@@ -100,7 +102,7 @@ __all__ = [
     "sync_dependencies",
     # Task actions
     "get_phase_names",
-    # Git actions (via jj)
+    # Git actions
     "git_add",
     "git_commit",
     "git_push",
@@ -170,46 +172,46 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     # Task actions (no external deps)
     registry.actions.register("get_phase_names", get_phase_names)
 
-    # Git actions (via jj) - require jj CLI and colocated repo
+    # Git actions - require git CLI and repository
     registry.actions.register(
         "git_add",
         git_add,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_commit",
         git_commit,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_push",
         git_push,
-        requires=("jj", "jj_colocated", "git_remote"),
+        requires=("git", "git_repo", "git_remote"),
     )
     registry.actions.register(
         "git_check_and_stage",
         git_check_and_stage,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_has_changes",
         git_has_changes,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_stage_all",
         git_stage_all,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_merge",
         git_merge,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "create_git_branch",
         create_git_branch,
-        requires=("jj", "jj_colocated"),
+        requires=("git", "git_repo"),
     )
 
     # jj-specific actions

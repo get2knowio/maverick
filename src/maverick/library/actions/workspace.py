@@ -26,36 +26,28 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
     base_branch = "main"
 
     try:
-        # Check if bookmark exists via jj
+        # Check if branch exists
         result = await _runner.run(
-            ["jj", "bookmark", "list", "--all-remotes"],
+            ["git", "rev-parse", "--verify", branch_name],
         )
-        bookmark_output = result.stdout if result.success else ""
-        branch_exists = False
-        for line in bookmark_output.splitlines():
-            if line.startswith(f"{branch_name}:") or line.startswith(f"{branch_name} "):
-                branch_exists = True
-                break
+        branch_exists = result.returncode == 0
 
         if branch_exists:
-            # Switch to existing bookmark
-            edit_result = await _runner.run(["jj", "edit", branch_name])
-            if not edit_result.success:
-                raise RuntimeError(f"Failed to edit bookmark: {edit_result.stderr}")
+            # Checkout existing branch
+            checkout_result = await _runner.run(["git", "checkout", branch_name])
+            if not checkout_result.success:
+                raise RuntimeError(
+                    f"Failed to checkout branch: {checkout_result.stderr}"
+                )
         else:
-            # Create new change from base, then create bookmark
-            new_result = await _runner.run(["jj", "new", base_branch])
-            if not new_result.success:
-                raise RuntimeError(f"Failed to create change: {new_result.stderr}")
-            bm_result = await _runner.run(
-                ["jj", "bookmark", "create", branch_name, "-r", "@"]
-            )
-            if not bm_result.success:
-                raise RuntimeError(f"Failed to create bookmark: {bm_result.stderr}")
+            # Create new branch from base
+            checkout_result = await _runner.run(["git", "checkout", "-b", branch_name])
+            if not checkout_result.success:
+                raise RuntimeError(f"Failed to create branch: {checkout_result.stderr}")
 
-        # Check if workspace is clean via jj
+        # Check if workspace is clean
         status_result = await _runner.run(
-            ["jj", "diff", "--stat"],
+            ["git", "status", "--porcelain"],
         )
         is_clean = len(status_result.stdout.strip()) == 0
 

@@ -84,7 +84,68 @@ logger = get_logger(__name__)
 # Beads Initialization (best-effort)
 # =============================================================================
 
+_JJ_INIT_TIMEOUT_SECONDS = 10
 _BD_INIT_TIMEOUT_SECONDS = 10
+
+
+async def _maybe_init_jj_colocated(project_path: Path, verbose: bool) -> bool:
+    """Initialize jj in colocated mode if ``jj`` is available.
+
+    Colocated mode (``jj git init --colocate``) shares the ``.git``
+    directory so read-only Git tooling (GitPython, MCP tools) continues
+    to work while jj handles write operations.
+
+    Skips if ``.jj/`` already exists. This is best-effort: if ``jj``
+    isn't installed or init fails, the error is logged but never raised.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log progress.
+
+    Returns:
+        True if jj was successfully initialized (or already present),
+        False otherwise.
+    """
+    jj_dir = project_path / ".jj"
+    if jj_dir.is_dir():
+        if verbose:
+            logger.debug("jj_already_initialized", path=str(jj_dir))
+        return True
+
+    if shutil.which("jj") is None:
+        if verbose:
+            logger.debug("jj_not_found", message="jj CLI not on PATH, skipping jj init")
+        return False
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "jj",
+            "git",
+            "init",
+            "--colocate",
+            cwd=str(project_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=_JJ_INIT_TIMEOUT_SECONDS,
+        )
+        if proc.returncode == 0:
+            if verbose:
+                logger.info("jj_colocated_initialized", path=str(jj_dir))
+            return True
+        else:
+            logger.debug(
+                "jj_init_failed",
+                returncode=proc.returncode,
+                stderr=stderr.decode(errors="replace").strip(),
+            )
+            return False
+    except (TimeoutError, OSError) as exc:
+        logger.debug("jj_init_error", error=str(exc))
+        return False
 
 
 async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
@@ -304,7 +365,10 @@ async def run_init(
     if verbose:
         logger.info("config_written", config_path=str(config_path))
 
-    # Step 6: Initialize beads (best-effort, if bd is available)
+    # Step 6: Initialize jj colocated mode (best-effort, if jj is available)
+    jj_initialized = await _maybe_init_jj_colocated(effective_path, verbose)
+
+    # Step 7: Initialize beads (best-effort, if bd is available)
     beads_initialized = await _maybe_init_beads(effective_path, verbose)
 
     # Build and return result
@@ -316,5 +380,6 @@ async def run_init(
         config=config,
         detection=detection,
         findings_printed=verbose,
+        jj_initialized=jj_initialized,
         beads_initialized=beads_initialized,
     )
