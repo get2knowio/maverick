@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from maverick.agents.base import MaverickAgent
 from maverick.agents.prompts.common import (
     CODE_QUALITY_PRINCIPLES,
-    PROJECT_CONVENTIONS,
+    FRAMEWORK_CONVENTIONS,
     TOOL_USAGE_EDIT,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
@@ -130,7 +130,9 @@ Reading and analyzing is NOT enough — actually implement the code.
 
 {CODE_QUALITY_PRINCIPLES}
 
-{PROJECT_CONVENTIONS}
+{FRAMEWORK_CONVENTIONS}
+
+$project_conventions
 """
 
 # DEPRECATED: Phase mode is speckit-era code. The bead-driven fly workflow

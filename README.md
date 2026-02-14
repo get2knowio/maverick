@@ -311,6 +311,23 @@ Maverick uses YAML configuration files with layered precedence:
 3. CLI arguments (highest precedence)
 
 ```yaml
+# Project identity — used for skill guidance and prompt injection
+project_type: python
+
+# Project-specific conventions injected into agent prompts at runtime.
+# Agents run via the Claude Agent SDK without access to CLAUDE.md, so any
+# project-specific standards (canonical libraries, language style, async
+# rules) must be declared here.
+project_conventions: |
+  ### Canonical Libraries
+  - **Logging**: `structlog` via `get_logger()`
+  - **Retry logic**: `tenacity` (`@retry`, `AsyncRetrying`)
+  - **Validation**: Pydantic `BaseModel`
+
+  ### Async-First
+  - All workflows MUST be async.
+  - Never call `subprocess.run` from `async def`.
+
 github:
   owner: your-org
   repo: your-repo
@@ -330,6 +347,20 @@ notifications:
   server: https://ntfy.sh
   topic: maverick-notifications
 ```
+
+#### Agent Convention Injection
+
+Agents run via the Claude Agent SDK and do **not** see CLAUDE.md at runtime.
+Convention guidance is injected into prompts via a two-tier model:
+
+| Tier | Source | Scope |
+|------|--------|-------|
+| **Framework conventions** | Hardcoded in `FRAMEWORK_CONVENTIONS` | Universal orchestration principles (separation of concerns, hardening, testing, type safety, modularization) — always present |
+| **Project conventions** | `project_conventions` field in `maverick.yaml` | Language-specific and project-specific standards (canonical libraries, async rules, naming, docstring style) — injected by `render_prompt()` |
+
+This means Maverick works on any project type — Python, Rust, Node.js, Go,
+Ansible — without baking language-specific assumptions into the agent core.
+See [Agent Prompts Reference](docs/agent-prompts.md) for details.
 
 ## Technology Stack
 

@@ -106,6 +106,37 @@ Apply general software engineering best practices for $project_type_name:
 # =============================================================================
 
 
+def get_project_conventions(config_path: Path | None = None) -> str:
+    """Read project_conventions from maverick.yaml.
+
+    Args:
+        config_path: Path to maverick.yaml. If None, searches current directory.
+
+    Returns:
+        Project conventions string from config.
+        Returns "" if config not found or project_conventions not set.
+    """
+    if config_path is None:
+        config_path = Path("maverick.yaml")
+
+    if not config_path.exists():
+        logger.debug("Config not found at %s, no project conventions", config_path)
+        return ""
+
+    try:
+        config = yaml.safe_load(config_path.read_text())
+        if not isinstance(config, dict):
+            logger.debug("Config is not a dict, no project conventions")
+            return ""
+        conventions: str = config.get("project_conventions", "")
+        if conventions:
+            logger.debug("Loaded project conventions (%d chars)", len(conventions))
+        return conventions
+    except Exception as e:
+        logger.warning("Failed to read project conventions from %s: %s", config_path, e)
+        return ""
+
+
 def get_project_type(config_path: Path | None = None) -> str:
     """Read project_type from maverick.yaml.
 
@@ -197,11 +228,21 @@ def render_prompt(
     # Generate skill guidance
     skill_guidance = get_skill_guidance(project_type)
 
+    # Read project-specific conventions from maverick.yaml
+    raw_conventions = get_project_conventions(config_path)
+    if raw_conventions.strip():
+        project_conventions = (
+            "\n## Project-Specific Conventions\n\n" + raw_conventions.strip()
+        )
+    else:
+        project_conventions = ""
+
     # Build substitution context
     context = {
         "skill_guidance": skill_guidance,
         "project_type": project_type,
         "project_type_name": PROJECT_TYPE_NAMES.get(project_type, project_type.title()),
+        "project_conventions": project_conventions,
     }
 
     if extra_context:

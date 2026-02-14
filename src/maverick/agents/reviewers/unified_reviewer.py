@@ -14,12 +14,13 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.prompts.common import (
-    PROJECT_CONVENTIONS,
+    FRAMEWORK_CONVENTIONS,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
     TOOL_USAGE_READ,
     TOOL_USAGE_TASK,
 )
+from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 from maverick.models.review_models import (
@@ -29,7 +30,7 @@ from maverick.models.review_models import (
 logger = get_logger(__name__)
 
 # ruff: noqa: E501
-UNIFIED_REVIEWER_PROMPT = f"""\
+UNIFIED_REVIEWER_PROMPT_TEMPLATE = f"""\
 You are a comprehensive code reviewer within an orchestrated workflow. Your task is to
 review the work on this branch by examining it from multiple perspectives and
 consolidating findings.
@@ -108,7 +109,9 @@ Spawn two parallel subagents to review the code:
      logging, tenacity for retries, Pydantic for models)?
    - Are typed contracts used (dataclasses/Pydantic) instead of ad-hoc dicts?
 
-{PROJECT_CONVENTIONS}
+{FRAMEWORK_CONVENTIONS}
+
+$project_conventions
 
 ## Output Format
 
@@ -199,6 +202,7 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
         model: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        project_type: str | None = None,
     ) -> None:
         """Initialize the UnifiedReviewerAgent.
 
@@ -207,13 +211,20 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
             model: Optional Claude model ID.
             max_tokens: Optional maximum output tokens.
             temperature: Optional sampling temperature 0.0-1.0.
+            project_type: Project type for skill/convention guidance (auto-detected if None).
         """
         # Add Task tool for spawning subagents
         tools = list(REVIEWER_TOOLS) + ["Task"]
 
+        # Render prompt with skill guidance and project conventions
+        system_prompt = render_prompt(
+            UNIFIED_REVIEWER_PROMPT_TEMPLATE,
+            project_type=project_type,
+        )
+
         super().__init__(
             name="unified-reviewer",
-            system_prompt=UNIFIED_REVIEWER_PROMPT,
+            system_prompt=system_prompt,
             allowed_tools=tools,
             model=model,
             max_tokens=max_tokens,

@@ -271,6 +271,7 @@ class MaverickConfig(BaseSettings):
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
+    project_conventions: str = ""
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod

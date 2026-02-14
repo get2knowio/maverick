@@ -11,7 +11,7 @@ conventions they need are injected directly into their prompts.
 - [Shared Prompt Fragments](#shared-prompt-fragments)
   - [Tool Usage Fragments](#tool-usage-fragments)
   - [Code Quality Principles](#code-quality-principles)
-  - [Project Conventions](#project-conventions)
+  - [Conventions (Two-Tier Model)](#conventions-two-tier-model)
 - [Core Agents](#core-agents)
   - [ImplementerAgent](#implementeragent)
   - [UnifiedReviewerAgent](#unifiedrevieweragent)
@@ -42,23 +42,25 @@ these principles:
 1. **Constrained role** — Each agent is told what the orchestration layer
    handles (commits, validation, PR creation) so it stays in its lane.
 2. **Composable fragments** — Shared constants (`TOOL_USAGE_*`,
-   `CODE_QUALITY_PRINCIPLES`, `PROJECT_CONVENTIONS`) are imported and
-   interpolated into system prompts.
+   `CODE_QUALITY_PRINCIPLES`, `FRAMEWORK_CONVENTIONS`) are imported and
+   interpolated into system prompts. Project-specific conventions are
+   injected at runtime via the `$project_conventions` placeholder.
 3. **Skill guidance injection** — The `render_prompt()` function injects
    project-type-specific guidance via a `$skill_guidance` placeholder.
 4. **Least-privilege tooling** — Each agent gets only the tools it needs
    (see [Tool Permission Model](#tool-permission-model)).
 
 ```
-common.py fragments ──┐
-                      ├──▶ Agent System Prompt
-skill_prompts.py ─────┘         │
-                                ▼
-                        Claude Agent SDK
-                                │
-                    ┌───────────┼───────────┐
-                    ▼           ▼           ▼
-                  Read       Write       Edit  ...
+common.py fragments ──────────┐
+  TOOL_USAGE_*, CODE_QUALITY  │
+  FRAMEWORK_CONVENTIONS       ├──▶  render_prompt()  ──▶  Agent System Prompt
+                              │         ▲    ▲                    │
+skill_prompts.py ─────────────┘         │    │                    ▼
+  $skill_guidance (by project_type)  ───┘    │            Claude Agent SDK
+                                             │                    │
+maverick.yaml ───────────────────────────────┘        ┌───────────┼───────────┐
+  $project_conventions (runtime injection)            ▼           ▼           ▼
+                                                    Read       Write       Edit  ...
 ```
 
 ---
@@ -97,32 +99,57 @@ General quality guidelines injected into implementation-oriented agents:
 - Minimize file creation — prefer editing existing files
 - Clean boundaries — match surrounding code style
 
-### Project Conventions
+### Conventions (Two-Tier Model)
 
-**Constant**: `PROJECT_CONVENTIONS`
+Conventions are split into two tiers to support polyglot projects:
 
-Distills the key CLAUDE.md standards that agents need at runtime. This is the
-primary mechanism for injecting project-specific conventions into agents that
-run via the Claude Agent SDK (which has no access to CLAUDE.md).
+#### Tier 1: Framework Conventions (hardcoded)
+
+**Constant**: `FRAMEWORK_CONVENTIONS`
+
+Universal orchestration principles that apply regardless of language or stack.
+These are always injected into agent prompts at import time via f-string
+interpolation.
 
 Covers:
 
-- **Canonical third-party libraries** — What to use and what NOT to use:
-  - VCS writes: `maverick.library.actions.jj` (Jujutsu)
-  - VCS reads: `maverick.git` (GitPython)
-  - GitHub operations: `maverick.utils.github_client` (PyGithub)
-  - Logging: `maverick.logging.get_logger()` (structlog)
-  - Retry logic: `tenacity`
-  - Secret detection: `maverick.utils.secrets`
-  - Validation: Pydantic
-  - CLI: Click + Rich
-- **Async-first** — All async; never `subprocess.run` from async paths
-- **Type safety** — Complete type hints; dataclasses/Pydantic over dicts
-- **Code style** — PascalCase classes, snake_case functions, Google docstrings
 - **Separation of concerns** — Agents provide judgment; workflows own side effects
-- **Hardening** — Timeouts, tenacity retries, specific exception handling
+- **Hardening** — Timeouts, retry with backoff, specific exception handling
 - **Testing** — TDD; every public function tested; test error states
+- **Type safety** — Complete type hints; typed data structures over untyped dicts
+- **Code style** — Follow project conventions (from CLAUDE.md); no magic values
 - **Modularization** — Aim <500 LOC; refactor at ~800 LOC
+
+A backward-compatibility alias `PROJECT_CONVENTIONS = FRAMEWORK_CONVENTIONS` is
+provided for importers that haven't migrated yet.
+
+#### Tier 2: Project-Specific Conventions (runtime, from `maverick.yaml`)
+
+**Placeholder**: `$project_conventions`
+
+Project-specific conventions (e.g., canonical libraries, language-specific style
+rules) are loaded at runtime from the `project_conventions` field in
+`maverick.yaml`. The `render_prompt()` function reads this field and substitutes
+the `$project_conventions` placeholder in agent prompt templates.
+
+If the field is non-empty, it is wrapped with a `## Project-Specific Conventions`
+header. If absent or empty, the placeholder is replaced with an empty string.
+
+**Example `maverick.yaml`**:
+
+```yaml
+project_type: python
+
+project_conventions: |
+  ### Canonical Third-Party Libraries
+  - **Logging**: `structlog` via `get_logger()`
+  - **Retry logic**: `tenacity` (`@retry`, `AsyncRetrying`)
+  - **Validation**: Pydantic `BaseModel`
+
+  ### Async-First
+  - All workflows MUST be async.
+  - Never call `subprocess.run` from `async def`.
+```
 
 ---
 
@@ -164,7 +191,7 @@ The system prompt is rendered with project-type skill guidance via
 
 **Injected fragments**: `TOOL_USAGE_READ`, `TOOL_USAGE_WRITE`, `TOOL_USAGE_EDIT`,
 `TOOL_USAGE_GLOB`, `TOOL_USAGE_GREP`, `TOOL_USAGE_TASK`,
-`CODE_QUALITY_PRINCIPLES`, `PROJECT_CONVENTIONS`
+`CODE_QUALITY_PRINCIPLES`, `FRAMEWORK_CONVENTIONS`, `$project_conventions`
 
 #### Task Prompt (`_build_task_prompt`)
 
@@ -193,7 +220,7 @@ Still present for `refuel speckit` compatibility but not used by the bead-driven
 Comprehensive code reviewer that spawns parallel subagents for different
 review perspectives.
 
-#### System Prompt (`UNIFIED_REVIEWER_PROMPT`)
+#### System Prompt (`UNIFIED_REVIEWER_PROMPT_TEMPLATE`)
 
 **Role framing**:
 > You are a comprehensive code reviewer within an orchestrated workflow.
@@ -221,7 +248,7 @@ review perspectives.
    cases? Adequate tests? Canonical library standards? Typed contracts?
 
 **Injected fragments**: `TOOL_USAGE_READ`, `TOOL_USAGE_GLOB`, `TOOL_USAGE_GREP`,
-`TOOL_USAGE_TASK`, `PROJECT_CONVENTIONS`
+`TOOL_USAGE_TASK`, `FRAMEWORK_CONVENTIONS`, `$project_conventions`
 
 **Output format**: JSON with grouped findings, each containing `id`, `file`,
 `line`, `issue`, `severity` (critical/major/minor), `category`
@@ -430,26 +457,42 @@ Parses free-form prose from a "User Story Dependencies" section into structured
 
 ## Prompt Composition
 
-### Skill Guidance Injection
+### Convention & Skill Injection
 
 **Source**: `src/maverick/agents/skill_prompts.py`
 
-The `render_prompt()` function injects project-type-specific guidance into agent
-system prompts via the `$skill_guidance` placeholder. This allows agents to
-receive different guidance depending on whether the project is Python, Rust,
-Ansible, etc.
+The `render_prompt()` function is the single entry point for resolving all
+runtime placeholders in agent prompt templates. It handles three substitutions:
+
+| Placeholder | Source | Purpose |
+|-------------|--------|---------|
+| `$skill_guidance` | `PROJECT_TYPE_SKILLS` dict + `project_type` from `maverick.yaml` | Language-specific skill areas (e.g., Python testing, Rust ownership) |
+| `$project_conventions` | `project_conventions` field in `maverick.yaml` | Project-specific canonical libraries, style rules, async patterns |
+| `$project_type` / `$project_type_name` | `project_type` from `maverick.yaml` | Raw type key and human-readable name |
 
 ```python
 from maverick.agents.skill_prompts import render_prompt
 
+# All three placeholders are resolved in a single call
 system_prompt = render_prompt(
     IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
-    project_type="python",
+    project_type="python",           # or auto-detected from maverick.yaml
+    config_path=Path("maverick.yaml"),  # optional, defaults to cwd
 )
 ```
 
-The `PROJECT_TYPE_SKILLS` dict maps project types to relevant skill areas
-(e.g., Python -> testing, typing, async, security, performance, peps).
+**How it works**:
+
+1. `get_project_type()` reads `project_type` from `maverick.yaml` (default: `"unknown"`)
+2. `get_skill_guidance()` maps the project type to skill areas via `PROJECT_TYPE_SKILLS`
+3. `get_project_conventions()` reads the `project_conventions` field from `maverick.yaml`
+4. If conventions are non-empty, they're wrapped with a `## Project-Specific Conventions` header
+5. All values are passed to `Template.safe_substitute()` — unmatched placeholders are left as-is
+
+**For polyglot support**: A project that uses Go instead of Python simply sets
+`project_type: go` and writes Go-specific conventions in `project_conventions`.
+No agent code changes needed — the framework conventions (hardcoded) stay the
+same, and the project conventions (runtime) adapt automatically.
 
 ### Tool Permission Model
 

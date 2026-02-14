@@ -210,22 +210,20 @@ class TestImplementerAgentInitialization:
         prompt = agent.system_prompt
         assert "orchestration" in prompt.lower() or "orchestrated" in prompt.lower()
 
-    def test_system_prompt_contains_project_conventions(
+    def test_system_prompt_contains_framework_conventions(
         self, agent: ImplementerAgent
     ) -> None:
-        """Test system prompt includes project conventions for runtime guidance.
+        """Test system prompt includes framework conventions for runtime guidance.
 
-        Agents run via Claude SDK without access to CLAUDE.md at runtime
-        unless conventions are injected into their prompts.
+        Agents run via Claude SDK without access to CLAUDE.md at runtime.
+        Framework conventions provide universal orchestration principles.
         """
         prompt = agent.system_prompt
-        assert "project conventions" in prompt.lower()
-        # Should mention canonical libraries
-        assert "structlog" in prompt.lower() or "canonical" in prompt.lower()
+        assert "framework conventions" in prompt.lower()
+        # Should mention separation of concerns (universal principle)
+        assert "separation of concerns" in prompt.lower()
 
-    def test_system_prompt_is_bead_aware(
-        self, agent: ImplementerAgent
-    ) -> None:
+    def test_system_prompt_is_bead_aware(self, agent: ImplementerAgent) -> None:
         """Test system prompt uses bead-driven framing."""
         prompt = agent.system_prompt
         assert "bead" in prompt.lower()
@@ -295,6 +293,8 @@ class TestImplementerConstants:
         assert len(IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE) > 100
         # Template should contain skill_guidance placeholder
         assert "$skill_guidance" in IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE
+        # Template should contain project_conventions placeholder for runtime injection
+        assert "$project_conventions" in IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE
 
     def test_implementer_tools_is_frozenset(self) -> None:
         """Test IMPLEMENTER_TOOLS is a frozenset of strings (centralized, immutable)."""

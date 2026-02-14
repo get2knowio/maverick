@@ -10,7 +10,7 @@ Usage:
         TOOL_USAGE_READ,
         TOOL_USAGE_EDIT,
         CODE_QUALITY_PRINCIPLES,
-        PROJECT_CONVENTIONS,
+        FRAMEWORK_CONVENTIONS,
     )
 
     AGENT_PROMPT = f\"\"\"You are an agent...
@@ -23,7 +23,9 @@ Usage:
 
     {CODE_QUALITY_PRINCIPLES}
 
-    {PROJECT_CONVENTIONS}
+    {FRAMEWORK_CONVENTIONS}
+
+    $project_conventions
     \"\"\"
 """
 
@@ -94,77 +96,44 @@ CODE_QUALITY_PRINCIPLES = """\
   patterns. Match the style and conventions of surrounding code."""
 
 # =============================================================================
-# Project Conventions (injected into agent prompts at runtime)
+# Framework Conventions (universal, language-agnostic)
 # =============================================================================
 
-PROJECT_CONVENTIONS = """\
-## Project Conventions
+FRAMEWORK_CONVENTIONS = """\
+## Framework Conventions
 
-These are the canonical standards for this project. Follow them strictly.
-
-### Canonical Third-Party Libraries
-
-Use ONLY these libraries for their domains. Do NOT introduce alternatives or
-write custom implementations for what they already provide.
-
-- **VCS writes** (commit, push, branch): `maverick.library.actions.jj` (Jujutsu).
-  Do NOT shell out to raw VCS CLIs for write operations.
-- **VCS reads** (diff, status, log): `maverick.git` (GitPython). Read-only.
-- **GitHub operations**: `maverick.utils.github_client` (PyGithub). Do NOT use
-  `subprocess.run("gh ...")` for operations PyGithub supports.
-- **Logging**: `maverick.logging.get_logger()` (structlog). Do NOT use
-  `import logging; logging.getLogger()`.
-- **Retry logic**: `tenacity` (`@retry`, `AsyncRetrying`). Do NOT write manual
-  `for attempt in range(retries):` loops.
-- **Secret detection**: `maverick.utils.secrets.detect_secrets`. Do NOT write
-  custom regex for secret detection.
-- **Validation**: Pydantic `BaseModel` for configuration and data models.
-- **CLI**: Click for commands, Rich for terminal output.
-
-### Async-First
-
-- All agent interactions and workflows MUST be async.
-- Never call `subprocess.run` from an `async def` path — use `CommandRunner`.
-- Use `asyncio` patterns; no threading for I/O.
-
-### Type Safety & Typed Contracts
-
-- Complete type hints on all public functions and classes.
-- Use `@dataclass` or Pydantic `BaseModel` over plain dicts.
-- Action outputs must use frozen dataclasses or TypedDict — no ad-hoc
-  `dict[str, Any]` blobs.
-- Use `from __future__ import annotations` in every module.
-
-### Code Style
-
-- Classes: PascalCase. Functions: snake_case. Constants: SCREAMING_SNAKE_CASE.
-- Private members: leading underscore.
-- Docstrings: Google-style with Args, Returns, Raises sections.
-- No `print()` — use logging or Rich Console.
-- No `shell=True` in subprocess calls without security justification.
-- No magic numbers or string literals in logic — extract to named constants.
+These conventions govern how you operate within the orchestration framework.
+Follow them strictly regardless of the target project's language or stack.
 
 ### Separation of Concerns
-
 - Agents provide judgment (implementation, review, fix suggestions).
 - Workflows own deterministic side effects (commits, validation, retries).
 - Agents MUST NOT create commits, push code, or run validation directly.
 
 ### Hardening by Default
-
 - All external calls (network APIs, subprocesses) MUST have explicit timeouts.
-- Network operations MUST use retry with exponential backoff (tenacity).
-- No bare `except Exception` — use specific exception handling.
-- Custom exceptions inherit from `MaverickError`.
+- Network operations MUST use retry with exponential backoff.
+- No bare catch-all exception handling — use specific exception types.
 
 ### Testing Requirements
-
 - Every public class and function MUST have tests.
 - TDD: Red-Green-Refactor. Write tests alongside implementation.
-- Test concurrency and error states for async components, not just happy paths.
+- Test error states and concurrency for async components, not just happy paths.
+
+### Type Safety
+- Complete type hints on all public functions and classes.
+- Use typed data structures (dataclasses, typed models) over untyped dicts.
+- Action outputs must use typed contracts — no ad-hoc untyped blobs.
+
+### Code Style
+- Follow the naming conventions established by the project (check CLAUDE.md).
+- No magic numbers or string literals in logic — extract to named constants.
+- No direct console output in library code — use the project's logging mechanism.
 
 ### Modularization
-
 - Aim for modules < ~500 LOC. Refactor at ~800 LOC.
 - Single responsibility per module.
-- Prefer composition over inheritance for shared agent capabilities."""
+- Prefer composition over inheritance for shared capabilities."""
+
+# Backward-compatibility alias — importers that haven't migrated yet.
+PROJECT_CONVENTIONS = FRAMEWORK_CONVENTIONS
