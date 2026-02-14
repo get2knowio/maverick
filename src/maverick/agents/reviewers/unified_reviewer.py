@@ -14,6 +14,7 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.prompts.common import (
+    PROJECT_CONVENTIONS,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
     TOOL_USAGE_READ,
@@ -51,13 +52,12 @@ You have access to: **Read, Glob, Grep, Task**
 
 ### Read
 {TOOL_USAGE_READ}
-- Read CLAUDE.md and spec files to understand project conventions and
-  requirements before reviewing.
+- Read CLAUDE.md to understand project conventions and standards before reviewing.
 
 ### Glob
 {TOOL_USAGE_GLOB}
-- Use Glob to locate test files, spec files, or related modules when you need
-  to verify that tests exist or that an implementation matches its spec.
+- Use Glob to locate test files or related modules when you need to verify that
+  tests exist or that an implementation matches expected patterns.
 
 ### Grep
 {TOOL_USAGE_GREP}
@@ -76,9 +76,9 @@ You have access to: **Read, Glob, Grep, Task**
   full context. Do not base findings solely on diff fragments.
 - **Be specific and actionable**: Every finding must include the exact file,
   line, and a clear description of what is wrong and how to fix it.
-- **Focus on substance**: Prioritize correctness, security, and spec compliance
-  over style nitpicks. Minor style issues should only be reported if they
-  violate documented project conventions.
+- **Focus on substance**: Prioritize correctness, security, and convention
+  compliance over style nitpicks. Minor style issues should only be reported
+  if they violate documented project conventions.
 - **Verify, don't assume**: Use Grep and Glob to verify assumptions before
   reporting a finding. Check if a seemingly missing test file actually exists,
   or if a function is used elsewhere before calling it dead code.
@@ -93,14 +93,22 @@ Spawn two parallel subagents to review the code:
    - Idiomatic Python and clean code principles
    - Proper type hints and async patterns
    - Pydantic usage and data validation
-   - Third-party library usage per project standards (CLAUDE.md)
+   - Canonical library usage per project standards (see Project Conventions below)
    - Error handling and edge cases
+   - Hardening: timeouts on external calls, retry logic via tenacity, specific
+     exception handling (no bare `except Exception`)
 
-2. **Speckit Expert** - Reviews against the feature specification:
-   - Feature completeness vs spec requirements
-   - Data model compliance
-   - API contracts and integration points
-   - Task completion from tasks.md
+2. **Requirements Expert** - Reviews against the task/bead description and
+   project standards:
+   - Does the implementation satisfy the stated objective and acceptance criteria?
+   - Are there missing edge cases or incomplete handling?
+   - Are tests adequate — do they cover the public API, error states, and
+     async behavior?
+   - Does the code follow the canonical library standards (e.g., structlog for
+     logging, tenacity for retries, Pydantic for models)?
+   - Are typed contracts used (dataclasses/Pydantic) instead of ad-hoc dicts?
+
+{PROJECT_CONVENTIONS}
 
 ## Output Format
 
@@ -138,11 +146,11 @@ Output the following JSON at the END of your response:
 - **line**: Line number or range (e.g., "45" or "45-67")
 - **issue**: Clear, actionable description of the problem
 - **severity**: One of:
-  - "critical": Security issues, data corruption, crashes, spec violations
+  - "critical": Security issues, data corruption, crashes, requirement violations
   - "major": Bugs, significant problems, library standard violations
   - "minor": Style issues, suggestions, minor improvements
 - **category**: One of:
-  - "spec_gap" - Missing or incomplete spec requirement
+  - "requirements_gap" - Missing or incomplete requirement from the task description
   - "library_standards" - Violates project library standards (CLAUDE.md)
   - "clean_code" - Code quality, maintainability issues
   - "type_hints" - Missing or incorrect type hints
@@ -166,7 +174,7 @@ If no issues are found, return: `{{"groups": []}}`
 - Be thorough but practical - focus on real issues, not nitpicks
 - Prioritize by impact: critical > major > minor
 - Every finding should be actionable - include enough context to fix
-- Cross-reference between spec requirements and implementation
+- Cross-reference between task requirements and implementation
 """
 
 
@@ -285,11 +293,15 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
         """
         parts = ["Review the code changes on this branch."]
 
-        # Add feature name for spec lookup
+        # Add feature/bead context
         feature_name = context.get("feature_name") or self._feature_name
         if feature_name:
             parts.append(f"\nFeature: {feature_name}")
-            parts.append(f"Spec location: specs/{feature_name}/")
+
+        # Add bead description if provided
+        bead_description = context.get("bead_description")
+        if bead_description:
+            parts.append(f"\n## Task Description\n{bead_description}")
 
         # Add changed files if provided
         changed_files = context.get("changed_files")

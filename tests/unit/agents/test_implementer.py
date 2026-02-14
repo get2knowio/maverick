@@ -210,6 +210,26 @@ class TestImplementerAgentInitialization:
         prompt = agent.system_prompt
         assert "orchestration" in prompt.lower() or "orchestrated" in prompt.lower()
 
+    def test_system_prompt_contains_project_conventions(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test system prompt includes project conventions for runtime guidance.
+
+        Agents run via Claude SDK without access to CLAUDE.md at runtime
+        unless conventions are injected into their prompts.
+        """
+        prompt = agent.system_prompt
+        assert "project conventions" in prompt.lower()
+        # Should mention canonical libraries
+        assert "structlog" in prompt.lower() or "canonical" in prompt.lower()
+
+    def test_system_prompt_is_bead_aware(
+        self, agent: ImplementerAgent
+    ) -> None:
+        """Test system prompt uses bead-driven framing."""
+        prompt = agent.system_prompt
+        assert "bead" in prompt.lower()
+
     def test_allowed_tools_includes_required_tools(
         self, agent: ImplementerAgent
     ) -> None:
@@ -321,16 +341,39 @@ class TestBuildTaskPrompt:
         prompt = agent._build_task_prompt(sample_task, context)
         assert sample_task.description in prompt
 
-    def test_build_task_prompt_includes_branch(
+    def test_build_task_prompt_does_not_include_branch(
         self, agent: ImplementerAgent, sample_task: Task
     ) -> None:
-        """Test prompt includes branch information."""
+        """Test prompt does not include branch (workflow handles branches)."""
         context = ImplementerContext(
             task_description="This is a test task description",
             branch="feature/custom-branch",
         )
         prompt = agent._build_task_prompt(sample_task, context)
-        assert "feature/custom-branch" in prompt
+        # Branch management is handled by the workflow layer, not the agent
+        assert "feature/custom-branch" not in prompt
+
+    def test_build_task_prompt_instructs_reading_claude_md(
+        self, agent: ImplementerAgent, sample_task: Task
+    ) -> None:
+        """Test prompt instructs agent to read CLAUDE.md for conventions."""
+        context = ImplementerContext(
+            task_description="This is a test task description",
+            branch="feature/test",
+        )
+        prompt = agent._build_task_prompt(sample_task, context)
+        assert "CLAUDE.md" in prompt
+
+    def test_build_task_prompt_instructs_reading_existing_code(
+        self, agent: ImplementerAgent, sample_task: Task
+    ) -> None:
+        """Test prompt instructs agent to read existing source files first."""
+        context = ImplementerContext(
+            task_description="This is a test task description",
+            branch="feature/test",
+        )
+        prompt = agent._build_task_prompt(sample_task, context)
+        assert "read" in prompt.lower() and "existing" in prompt.lower()
 
     def test_build_task_prompt_includes_tdd_instructions(
         self, agent: ImplementerAgent, sample_task: Task

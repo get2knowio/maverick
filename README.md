@@ -4,37 +4,44 @@ AI-powered development workflow orchestration with autonomous agent execution.
 
 ## What is Maverick?
 
-Maverick is a Python CLI/TUI application that orchestrates AI-powered development workflows using the Claude Agent SDK. It automates the complete development lifecycle from task implementation through code review, validation, and PR management.
+Maverick is a Python CLI application that orchestrates AI-powered development
+workflows using the Claude Agent SDK. It automates the complete development
+lifecycle — from task creation through implementation, validation, code review,
+and commit management — using a **bead-driven** execution model.
 
-Unlike traditional automation tools, Maverick uses:
-- **Autonomous AI agents** that make decisions and recover from failures
-- **YAML-based workflow DSL** for declarative, shareable workflow definitions
-- **Unified architecture** where all workflows are discoverable YAML files
+**Core idea**: Everything is a bead. A bead is a unit of work managed by the
+`bd` CLI tool. The implementer agent doesn't know or care whether it's building
+a feature, fixing a lint error, or addressing a review finding — the bead
+description tells it what to do.
 
-## Key Features
+### Key Features
 
-- **Declarative Workflows** - Define workflows in YAML with conditional logic, parallel execution, and checkpoints
-- **Autonomous Agents** - AI agents handle implementation, review, and fixes independently
-- **Interactive TUI** - Real-time visibility into agent operations with Textual-based interface
-- **Resilient Operation** - Automatic retries, checkpointing, and graceful degradation
-- **Extensible Architecture** - Custom workflows, agents, and MCP tools
-- **Workflow Discovery** - Automatic discovery from project, user, and built-in locations
+- **Bead-driven workflows** — All work is tracked as beads with dependencies,
+  priorities, and lifecycle management via `bd`
+- **Autonomous AI agents** — Agents make decisions, implement code, review
+  changes, and recover from failures
+- **YAML-based workflow DSL** — Declarative, shareable workflow definitions with
+  conditional logic, parallel execution, loops, and checkpoints
+- **Jujutsu (jj) VCS** — Write-path VCS operations use jj in colocated mode for
+  snapshot/rollback safety; GitPython handles read-only operations
+- **Resilient operation** — Automatic retries, validation-fix loops,
+  review-fix cycles, and bead-level rollback on failure
+- **Extensible architecture** — Custom workflows, agents, and MCP tools with
+  three-location discovery (project, user, built-in)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10 or higher
-- [uv](https://docs.astral.sh/uv/) - Fast Python package manager (recommended)
+- [uv](https://docs.astral.sh/uv/) — Fast Python package manager (recommended)
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
+- [Jujutsu](https://martinvonz.github.io/jj/) (`jj`) for VCS write operations
+- [bd](https://beads.dev/) for bead/work-item management
 - Claude API access (set `ANTHROPIC_API_KEY` environment variable)
-- Git repository with remote origin
-- Optional: [CodeRabbit CLI](https://coderabbit.ai/) for enhanced code review
-- Optional: [ntfy](https://ntfy.sh) for push notifications
+- Git repository with remote origin (jj runs in colocated mode)
 
 ### Installation
-
-#### Using uv (Recommended)
 
 ```bash
 # Install uv (if not already installed)
@@ -49,135 +56,88 @@ uv sync
 
 # Run maverick
 uv run maverick --help
-
-# Or install globally as a tool
-uv tool install .
-maverick --help
-```
-
-#### Using pip
-
-```bash
-# Clone the repository
-git clone https://github.com/get2knowio/maverick.git
-cd maverick
-
-# Install with pip (development mode)
-pip install -e .
 ```
 
 ### Basic Usage
 
 ```bash
-# Execute a workflow (primary interface)
-maverick fly feature -i branch_name=my-feature
+# Fly: implement the next ready beads under an epic
+maverick fly
+maverick fly --epic my-epic
+maverick fly --epic my-epic --dry-run
+maverick fly --skip-review --max-beads 5
 
-# Run tech-debt cleanup
-maverick fly cleanup -i label=tech-debt -i limit=5
+# Refuel: create beads from a SpecKit specification
+maverick refuel speckit .specify/specs/my-feature/
 
-# Quick fix a single issue
-maverick fly quick-fix -i issue_number=123
+# Initialize a new Maverick project
+maverick init
 
-# Run code review
-maverick fly review -i pr_number=456
-
-# Run validation with auto-fix
-maverick fly validate
-
-# List available workflows
-maverick workflow list
-
-# Show workflow details
-maverick workflow show feature
-
-# Generate workflow diagram
-maverick workflow viz feature --format mermaid
-
-# Create a new custom workflow
-maverick workflow new my-workflow --template full
+# Review queued beads before flying
+maverick briefing
 ```
 
-## Built-in Workflows
+## Workflows
 
-All workflows are defined as YAML files and can be customized by placing overrides in `.maverick/workflows/`.
+Maverick uses a beads-only workflow model. All development is driven by beads
+(units of work managed by the `bd` CLI tool).
 
-### feature
+### `maverick fly` — Bead-Driven Development
 
-Full spec-based development workflow for feature implementation:
+The primary command. Iterates over ready beads until done, running the
+`fly-beads` YAML workflow:
 
-1. **Init** - Sync branch with origin/main, validate workspace
-2. **Implement** - Parse tasks.md, execute tasks phase-by-phase
-3. **Validate** - Format/lint/typecheck/test with automatic fix retry
-4. **Commit** - Generate commit message and push changes
-5. **Review** - Optional automated code review
-6. **Create PR** - Generate PR body and create pull request
+```
+preflight ──▶ bead loop ──▶ curate history ──▶ push
+                 │
+                 ├── select next ready bead
+                 ├── snapshot (jj operation for rollback)
+                 ├── implement (ImplementerAgent)
+                 ├── validate & fix (format/lint/typecheck/test, 3 attempts)
+                 ├── create fix beads (for remaining failures)
+                 ├── review & fix (UnifiedReviewerAgent, 2 cycles)
+                 ├── create review beads (for remaining findings)
+                 ├── verify completion gate
+                 ├── rollback on failure / commit on success
+                 └── close bead
+```
+
+**Options**:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--epic <id>` | (any) | Filter to beads under this epic |
+| `--max-beads <n>` | 30 | Maximum beads to process |
+| `--dry-run` | false | Preview mode — skip git and bd mutations |
+| `--skip-review` | false | Skip code review step |
+| `--list-steps` | false | List workflow steps and exit |
+| `--session-log <path>` | (none) | Write session journal (JSONL) |
+
+**How failures become beads**: When validation or review finds issues that can't
+be auto-fixed, new beads are created under the same epic with high priority.
+The outer loop picks them up on the next iteration — no inline fix loops needed.
+
+### `maverick refuel speckit` — Bead Creation
+
+Creates beads from a SpecKit specification directory containing `tasks.md`:
+
+1. **Parse** — Extract phases and tasks from `tasks.md`
+2. **Create** — Generate epic and work beads via `bd`
+3. **Enrich** — Add acceptance criteria and context to bead descriptions
+4. **Wire** — Set up dependencies between beads
 
 ```bash
-maverick fly feature -i branch_name=025-new-feature
-maverick fly feature -i branch_name=025-new-feature -i skip_review=true
-maverick fly feature -i branch_name=025-new-feature --dry-run
+maverick refuel speckit .specify/specs/my-feature/
+maverick refuel speckit .specify/specs/my-feature/ --dry-run
 ```
 
-### cleanup
+### `maverick init` — Project Setup
 
-Tech-debt resolution workflow (replaces the former RefuelWorkflow):
+Initialize a new Maverick project with configuration files.
 
-1. **Fetch Issues** - List open issues with target label
-2. **Analyze** - Select up to N non-conflicting issues
-3. **Process** - Fix issues in parallel or sequentially
-4. **Create PRs** - Generate PRs for each fix
-5. **Report** - Summary of all processed issues
+### `maverick briefing` — Bead Queue Review
 
-```bash
-maverick fly cleanup -i label=tech-debt -i limit=5
-maverick fly cleanup -i label=refactor -i parallel=false
-```
-
-### quick-fix
-
-Rapid single-issue resolution:
-
-```bash
-maverick fly quick-fix -i issue_number=123
-```
-
-### review
-
-Code review orchestration combining CodeRabbit and AI agent review:
-
-```bash
-maverick fly review -i pr_number=123
-maverick fly review -i pr_number=123 -i base_branch=develop
-```
-
-### validate
-
-Validation with optional automatic fixes:
-
-```bash
-maverick fly validate
-maverick fly validate -i fix=false
-maverick fly validate -i max_attempts=5
-```
-
-## Workflow Discovery
-
-Workflows are discovered from three locations (higher precedence overrides lower):
-
-1. **Project** - `.maverick/workflows/` - Project-specific customizations
-2. **User** - `~/.config/maverick/workflows/` - User-wide customizations
-3. **Built-in** - Packaged with Maverick - Default implementations
-
-To customize a built-in workflow, copy it to your project directory and modify:
-
-```bash
-mkdir -p .maverick/workflows
-# Find the built-in workflow location
-maverick workflow info feature
-# Copy and customize
-cp /path/to/builtin/feature.yaml .maverick/workflows/feature.yaml
-# Edit .maverick/workflows/feature.yaml
-```
+Review queued beads before starting a fly session.
 
 ## Architecture
 
@@ -185,59 +145,80 @@ Maverick follows a clean separation of concerns:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  CLI Layer (Click)                                          │
-│  - maverick fly, workflow, config, status                   │
+│  CLI Layer (Click + Rich)                                   │
+│  maverick fly, refuel, init, briefing                       │
 └─────────────────────────────────────────────────────────────┘
-                          ↓
+                          |
 ┌─────────────────────────────────────────────────────────────┐
 │  Workflow DSL Layer                                         │
-│  - YAML parsing and validation                              │
-│  - Step execution (python, agent, validate, parallel, etc.) │
-│  - Checkpointing and resumption                             │
+│  YAML parsing, step execution (python, agent, validate,     │
+│  parallel, loop, subworkflow, checkpoint), bead lifecycle   │
 └─────────────────────────────────────────────────────────────┘
-                          ↓
+                          |
 ┌─────────────────────────────────────────────────────────────┐
 │  Agent Layer (Claude Agent SDK)                             │
-│  - CodeReviewerAgent, ImplementerAgent, FixerAgent          │
-│  - System prompts and tool selection                        │
-│  - Autonomous decision-making                               │
+│  ImplementerAgent, UnifiedReviewerAgent, FixerAgent,        │
+│  SimpleFixerAgent, IssueFixerAgent, Generators              │
+│  (system prompts, tool selection, autonomous decisions)      │
 └─────────────────────────────────────────────────────────────┘
-                          ↓
+                          |
 ┌─────────────────────────────────────────────────────────────┐
-│  Tool Layer (MCP Tools)                                     │
-│  - GitHub operations, git commands                          │
-│  - Validation runners, notifications                        │
-│  - External system integrations                             │
+│  Tool & Runner Layer                                        │
+│  MCP tools, CommandRunner, jj actions, GitPython,           │
+│  PyGithub, validation runners, notifications                │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Separation of Concerns
+
+- **Agents** know HOW to do a task — system prompts, tool selection, Claude SDK
+  interaction. They provide judgment (implementation, review, fix suggestions).
+- **Workflows** know WHAT to do and WHEN — orchestration, state management,
+  sequencing. They own deterministic side effects (commits, validation, retries).
+- **Tools** wrap external systems — GitHub API, VCS, notifications.
+
+### VCS: Jujutsu + Git
+
+Maverick uses a dual-VCS approach in colocated mode (jj and git share the same
+`.git` directory):
+
+| Operation | Tool | Module |
+|-----------|------|--------|
+| Commit, push, branch, snapshot, rollback | **jj** | `maverick.library.actions.jj` |
+| Diff, status, log, blame (read-only) | **GitPython** | `maverick.git` |
+
+**Why jj?** Jujutsu provides snapshot/restore operations that enable safe
+rollback when a bead fails verification. The `fly-beads` workflow snapshots
+before each bead, and restores to the snapshot if the verification gate fails.
 
 ### Project Structure
 
 ```
 src/maverick/
 ├── cli/                 # Click CLI commands
-│   └── commands/        # fly, workflow, config, review, status
+│   └── commands/        # fly, refuel, init, briefing, uninstall
 ├── dsl/                 # Workflow DSL implementation
 │   ├── serialization/   # YAML parsing, schema, executor
 │   ├── discovery/       # Workflow discovery from locations
 │   ├── steps/           # Step type implementations
 │   └── visualization/   # ASCII and Mermaid diagram generation
 ├── agents/              # Agent implementations
-│   ├── code_reviewer.py
-│   ├── implementer.py
-│   ├── fixer.py
-│   └── generators/      # Text generators (commit, PR, etc.)
+│   ├── prompts/         # Shared prompt fragments
+│   ├── code_reviewer/   # CodeReviewerAgent (pre-gathered context)
+│   ├── reviewers/       # UnifiedReviewerAgent, SimpleFixerAgent
+│   ├── generators/      # Text generators (commit, PR, error, bead)
+│   ├── implementer.py   # ImplementerAgent (bead execution)
+│   ├── fixer.py         # FixerAgent (targeted validation fixes)
+│   └── issue_fixer.py   # IssueFixerAgent (GitHub issue resolution)
+├── beads/               # Bead models, client, speckit integration
 ├── library/             # Built-in workflows and actions
-│   ├── workflows/       # YAML workflow definitions
-│   ├── actions/         # Python actions for workflows
+│   ├── workflows/       # YAML workflow definitions (fly-beads, refuel-speckit)
+│   ├── actions/         # Python actions (jj, beads, workspace, review)
 │   └── fragments/       # Reusable workflow fragments
 ├── tools/               # MCP tool definitions
-│   ├── github/          # GitHub API tools
-│   └── git/             # Git operation tools
-├── tui/                 # Textual TUI application
-│   ├── screens/
-│   └── widgets/
-└── runners/             # Subprocess runners (validation, commands)
+├── runners/             # Subprocess runners (validation, commands)
+├── models/              # Pydantic/dataclass models
+└── utils/               # Shared utilities (github_client, secrets)
 ```
 
 ## Workflow DSL
@@ -270,7 +251,7 @@ steps:
     type: agent
     agent: implementer
     context:
-      task_file: ${{ steps.setup.output.task_file }}
+      task_description: ${{ steps.setup.output.task_description }}
 
   # Validation with retry
   - name: validate
@@ -288,17 +269,22 @@ steps:
   - name: parallel_reviews
     type: parallel
     steps:
-      - name: coderabbit
-        type: python
-        action: run_coderabbit
       - name: agent_review
         type: agent
-        agent: code_reviewer
+        agent: unified_reviewer
+      - name: static_analysis
+        type: python
+        action: run_static_analysis
 
-  # Checkpoint for resumption
-  - name: checkpoint_done
-    type: checkpoint
-    checkpoint_id: implementation_complete
+  # Loop with exit condition
+  - name: work_loop
+    type: loop
+    until: ${{ steps.check_done.output.done }}
+    max_iterations: 30
+    steps:
+      - name: do_work
+        type: python
+        action: process_next_item
 
   # Sub-workflow
   - name: create_pr
@@ -308,6 +294,14 @@ steps:
       base_branch: main
 ```
 
+### Workflow Discovery
+
+Workflows are discovered from three locations (higher precedence overrides lower):
+
+1. **Project** — `.maverick/workflows/` — Project-specific customizations
+2. **User** — `~/.config/maverick/workflows/` — User-wide customizations
+3. **Built-in** — Packaged with Maverick — Default implementations
+
 ## Configuration
 
 Maverick uses YAML configuration files with layered precedence:
@@ -315,8 +309,6 @@ Maverick uses YAML configuration files with layered precedence:
 1. Project config: `./maverick.yaml`
 2. User config: `~/.config/maverick/config.yaml`
 3. CLI arguments (highest precedence)
-
-Example configuration:
 
 ```yaml
 github:
@@ -337,32 +329,49 @@ notifications:
   enabled: false
   server: https://ntfy.sh
   topic: maverick-notifications
-
-parallel:
-  max_agents: 3
-  max_tasks: 5
-
-verbosity: warning
 ```
 
-## Development
+## Technology Stack
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Setting up a development environment
-- Running tests and linting
-- Understanding the architecture
-- Creating custom agents and workflows
-- Contributing guidelines
+| Category | Technology | Notes |
+|----------|-----------|-------|
+| Language | Python 3.10+ | `from __future__ import annotations` |
+| Package Manager | uv | Fast, reproducible builds via `uv.lock` |
+| Build System | Make | AI-friendly commands with minimal output |
+| AI/Agents | Claude Agent SDK | `claude-agent-sdk` package |
+| CLI | Click + Rich | Auto TTY detection for output |
+| Validation | Pydantic | Configuration and data models |
+| VCS (writes) | Jujutsu (jj) | Colocated mode; `maverick.library.actions.jj` |
+| VCS (reads) | GitPython | `maverick.git` (read-only) |
+| GitHub API | PyGithub | `maverick.utils.github_client` |
+| Logging | structlog | `maverick.logging.get_logger()` |
+| Retry Logic | tenacity | `@retry` or `AsyncRetrying` |
+| Testing | pytest + pytest-asyncio | Parallel via xdist (`-n auto`) |
+| Linting | Ruff | Fast, comprehensive Python linter |
+| Type Checking | MyPy | Strict mode recommended |
+
+## Development
 
 ### Development Commands
 
 ```bash
-make test        # Run tests
-make lint        # Run ruff linter
-make typecheck   # Run mypy
-make format-fix  # Apply formatting
-make check       # Run all checks
+make test           # Run all tests in parallel (errors only)
+make test-fast      # Unit tests only, no slow tests (fastest)
+make test-cov       # Run tests with coverage report
+make lint           # Run ruff linter
+make typecheck      # Run mypy
+make format-fix     # Apply formatting fixes
+make check          # Run all checks (lint, typecheck, test)
+make ci             # CI mode: fail fast on any error
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.
+
+## Documentation
+
+- [Agent Prompts Reference](docs/agent-prompts.md) — Complete catalog of all agent system prompts
+- [Training Slides](https://get2knowio.github.io/maverick/slides/) — Technology and architecture deep dives
+- [Training Curriculum](docs/curriculum.md) — Structured learning path
 
 ## License
 
@@ -371,7 +380,6 @@ MIT
 ## Links
 
 - [Documentation Site](https://get2knowio.github.io/maverick/)
-- [Training Slides](https://get2knowio.github.io/maverick/slides/)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Issue Tracker](https://github.com/get2knowio/maverick/issues)
 - [Claude Agent SDK](https://github.com/anthropics/anthropic-agent-sdk)
