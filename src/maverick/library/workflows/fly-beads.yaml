@@ -155,18 +155,5 @@ steps:
         kwargs:
           epic_id: ${{ steps.select_bead.output.epic_id }}
 
-  # CURATE — reorganize bead commits into cleaner history
-  - name: curate_history
-    type: python
-    action: curate_history
-    when: ${{ not inputs.dry_run }}
-    kwargs:
-      base_revision: main
-
-  - name: final_push
-    type: python
-    action: git_push
-    when: ${{ not inputs.dry_run }}
-
 outputs:
   epic_id: ${{ inputs.epic_id }}

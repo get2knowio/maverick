@@ -175,11 +175,11 @@ class TestSpecificWorkflows:
         assert "epic_id" in workflow.inputs
         assert workflow.inputs["epic_id"].required is False
 
-        # Check for key steps
+        # Check for key steps (curate/push moved to 'maverick land')
         step_names = [step.name for step in workflow.steps]
         assert "preflight" in step_names
         assert "bead_loop" in step_names
-        assert "final_push" in step_names
+        assert "final_push" not in step_names
 
     def test_refuel_speckit_workflow_structure(self) -> None:
         """Test that refuel-speckit workflow has expected structure."""

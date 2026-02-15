@@ -76,6 +76,11 @@ maverick init
 # Review queued beads before flying
 maverick brief
 
+# Finalize and push after fly completes
+maverick land
+maverick land --dry-run
+maverick land --heuristic-only
+
 # Watch bead status live while fly runs
 maverick brief --watch --interval 2
 ```
@@ -91,7 +96,7 @@ The primary command. Iterates over ready beads until done, running the
 `fly-beads` YAML workflow:
 
 ```
-preflight ──▶ bead loop ──▶ curate history ──▶ push
+preflight ──▶ bead loop
                  │
                  ├── select next ready bead
                  ├── snapshot (jj operation for rollback)
@@ -104,6 +109,8 @@ preflight ──▶ bead loop ──▶ curate history ──▶ push
                  ├── rollback on failure / commit on success
                  └── close bead
 ```
+
+After `fly` finishes, run `maverick land` to curate history and push.
 
 **Options**:
 
@@ -143,6 +150,29 @@ Initialize a new Maverick project with configuration files.
 Review ready and blocked beads before starting a fly session. Use `--watch` for
 live polling while `maverick fly` runs in another terminal.
 
+### `maverick land` — Finalize and Ship
+
+Curate commit history and push after `maverick fly` completes. Uses an AI agent
+to intelligently reorganize commits (squash fix commits, improve messages,
+reorder for logical flow), with user approval before applying changes.
+
+```bash
+maverick land                    # Agent-curated history + push
+maverick land --dry-run          # Show plan without applying
+maverick land --heuristic-only   # Heuristic curation (no agent)
+maverick land --no-curate        # Skip curation, just push
+maverick land --yes              # Auto-approve the plan
+maverick land --base develop     # Custom base revision
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-curate` | false | Skip curation, just push |
+| `--dry-run` | false | Show plan without executing |
+| `--yes` / `-y` | false | Auto-approve curation plan |
+| `--base <rev>` | main | Base revision for curation scope |
+| `--heuristic-only` | false | Use heuristic curation (no agent) |
+
 ## Architecture
 
 Maverick follows a clean separation of concerns:
@@ -150,7 +180,7 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, init, brief                          │
+│  maverick fly, refuel, init, brief, land                    │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -162,7 +192,7 @@ Maverick follows a clean separation of concerns:
 ┌─────────────────────────────────────────────────────────────┐
 │  Agent Layer (Claude Agent SDK)                             │
 │  ImplementerAgent, UnifiedReviewerAgent, FixerAgent,        │
-│  SimpleFixerAgent, IssueFixerAgent, Generators              │
+│  SimpleFixerAgent, IssueFixerAgent, CuratorAgent, Generators│
 │  (system prompts, tool selection, autonomous decisions)      │
 └─────────────────────────────────────────────────────────────┘
                           |
@@ -200,7 +230,7 @@ before each bead, and restores to the snapshot if the verification gate fails.
 ```
 src/maverick/
 ├── cli/                 # Click CLI commands
-│   └── commands/        # fly, refuel, init, brief, uninstall
+│   └── commands/        # fly, refuel, init, brief, land, uninstall
 ├── dsl/                 # Workflow DSL implementation
 │   ├── serialization/   # YAML parsing, schema, executor
 │   ├── discovery/       # Workflow discovery from locations

@@ -363,6 +363,7 @@ class TestModuleImports:
             "FIXER_TOOLS",
             "ISSUE_FIXER_TOOLS",
             "GENERATOR_TOOLS",
+            "CURATOR_TOOLS",
         ]
 
         assert hasattr(tools, "__all__")

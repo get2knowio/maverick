@@ -392,6 +392,7 @@ Maverick uses a beads-only workflow model. All development is driven by beads (u
 | Command | Purpose |
 |---------|---------|
 | `maverick fly [options]` | Pick next ready bead(s) and iterate (bead execution) |
+| `maverick land [options]` | Curate history and push (finalize fly work) |
 | `maverick refuel speckit <spec_dir>` | Create beads from a SpecKit specification |
 | `maverick init` | Initialize a new Maverick project |
 | `maverick uninstall` | Remove Maverick configuration |
@@ -402,9 +403,16 @@ Iterates over ready beads until done. Runs the `fly-beads` DSL workflow:
 
 1. **Preflight**: Check API, git, and bd prerequisites
 2. **Bead Loop**: Select next ready bead, implement, validate, review, commit, close
-3. **Final Push**: Push all changes
+
+Note: `fly` no longer curates history or pushes. Run `maverick land` after `fly` to curate and push.
 
 Options: `--epic` (optional, filter by epic), `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--list-steps`, `--session-log`
+
+### land (Curate and Push)
+
+Finalizes work from `fly` by reorganizing commits into clean history and pushing. Uses an AI agent (CuratorAgent) for intelligent reorganization, with user approval.
+
+Options: `--no-curate`, `--dry-run`, `--yes`/`-y`, `--base` (default "main"), `--heuristic-only`
 
 ### refuel speckit (Bead Creation)
 

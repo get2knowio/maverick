@@ -78,10 +78,12 @@ class TestFlyBeadsWorkflowLoads:
         assert "close_bead" in step_names
         assert "check_done" in step_names
 
-    def test_has_final_push(self, fly_beads_yaml: str) -> None:
+    def test_no_final_push(self, fly_beads_yaml: str) -> None:
+        """fly-beads no longer pushes — 'maverick land' handles that."""
         wf = WorkflowFile.from_yaml(fly_beads_yaml)
         step_names = [s.name for s in wf.steps]
-        assert "final_push" in step_names
+        assert "final_push" not in step_names
+        assert "curate_history" not in step_names
 
     def test_no_init_step(self, fly_beads_yaml: str) -> None:
         """Workflow should not have an init step (no branch creation)."""

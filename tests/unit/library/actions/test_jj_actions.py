@@ -6,6 +6,8 @@ Tests the jj.py action module including:
 - jj_squash / jj_absorb
 - jj_log / jj_diff
 - curate_history
+- gather_curation_context
+- execute_curation_plan
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ import pytest
 
 from maverick.library.actions.jj import (
     curate_history,
+    execute_curation_plan,
+    gather_curation_context,
     jj_absorb,
     jj_describe,
     jj_diff,
@@ -470,3 +474,166 @@ class TestCurateHistory:
             # Verify the revset used "develop"
             log_call = mock_exec.call_args_list[1]
             assert log_call[0][3] == "develop..@-"
+
+
+class TestGatherCurationContext:
+    """Tests for gather_curation_context action."""
+
+    @pytest.mark.asyncio
+    async def test_success_returns_commits(self) -> None:
+        """Test gathers commit list with per-commit stats."""
+        log_output = "abc123\tadd user auth\ndef456\tadd login page\n"
+        log_stat_output = "@ abc123 ...\n  src/auth.py | 50 +\n"
+        diff_stat_1 = " src/auth.py | 50 ++++\n"
+        diff_stat_2 = " src/login.py | 30 ++++\n"
+
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0, stdout=log_output),  # jj log (commit list)
+                create_mock_process(0, stdout=log_stat_output),  # jj log --stat
+                create_mock_process(0, stdout=diff_stat_1),  # jj diff --stat abc123
+                create_mock_process(0, stdout=diff_stat_2),  # jj diff --stat def456
+            ]
+
+            result = await gather_curation_context()
+
+            assert result["success"] is True
+            assert len(result["commits"]) == 2
+            assert result["commits"][0]["change_id"] == "abc123"
+            assert result["commits"][0]["description"] == "add user auth"
+            assert result["commits"][1]["change_id"] == "def456"
+            assert result["log_summary"] == log_stat_output
+            assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_empty_revset_returns_empty(self) -> None:
+        """Test returns empty commits list when revset has no results."""
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr="empty revset"),  # jj log fails
+            ]
+
+            result = await gather_curation_context()
+
+            assert result["success"] is True
+            assert result["commits"] == []
+            assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_os_error_returns_failure(self) -> None:
+        """Test OSError returns graceful failure."""
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = OSError("jj not found")
+
+            result = await gather_curation_context()
+
+            assert result["success"] is False
+            assert result["error"] is not None
+
+    @pytest.mark.asyncio
+    async def test_custom_base_revision(self) -> None:
+        """Test uses custom base revision."""
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr="empty"),  # jj log fails (no commits)
+            ]
+
+            result = await gather_curation_context(base_revision="develop")
+
+            assert result["success"] is True
+            # Verify the revset used "develop"
+            log_call = mock_exec.call_args_list[0]
+            assert log_call[0][3] == "develop..@-"
+
+
+class TestExecuteCurationPlan:
+    """Tests for execute_curation_plan action."""
+
+    @pytest.mark.asyncio
+    async def test_success_all_steps(self) -> None:
+        """Test all steps execute successfully."""
+        plan = [
+            {
+                "command": "squash",
+                "args": ["-r", "abc123"],
+                "reason": "fix into parent",
+            },
+            {
+                "command": "describe",
+                "args": ["-r", "def456", "-m", "better msg"],
+                "reason": "clarity",
+            },
+        ]
+
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                # jj op log (snapshot)
+                create_mock_process(0, stdout="snap123\n"),
+                # jj squash -r abc123
+                create_mock_process(0),
+                # jj describe -r def456 -m "better msg"
+                create_mock_process(0),
+            ]
+
+            result = await execute_curation_plan(plan)
+
+            assert result["success"] is True
+            assert result["executed_count"] == 2
+            assert result["total_count"] == 2
+            assert result["snapshot_id"] == "snap123"
+            assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_rollback_on_failure(self) -> None:
+        """Test snapshot is restored when a step fails."""
+        plan = [
+            {"command": "squash", "args": ["-r", "abc123"], "reason": "ok"},
+            {"command": "squash", "args": ["-r", "bad456"], "reason": "will fail"},
+        ]
+
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                # jj op log (snapshot)
+                create_mock_process(0, stdout="snap123\n"),
+                # jj squash -r abc123 (succeeds)
+                create_mock_process(0),
+                # jj squash -r bad456 (fails)
+                create_mock_process(1, stderr="conflict"),
+                # jj op restore snap123 (rollback)
+                create_mock_process(0),
+            ]
+
+            result = await execute_curation_plan(plan)
+
+            assert result["success"] is False
+            assert result["executed_count"] == 1
+            assert result["total_count"] == 2
+            assert result["snapshot_id"] == "snap123"
+            assert "conflict" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_empty_plan_is_noop(self) -> None:
+        """Test empty plan returns immediately with success."""
+        result = await execute_curation_plan([])
+
+        assert result["success"] is True
+        assert result["executed_count"] == 0
+        assert result["total_count"] == 0
+        assert result["snapshot_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_snapshot_failure(self) -> None:
+        """Test failure if snapshot cannot be created."""
+        plan = [{"command": "squash", "args": [], "reason": "test"}]
+
+        with patch(MOCK_TARGET) as mock_exec:
+            mock_exec.side_effect = [
+                # jj op log fails
+                create_mock_process(1, stderr="not a jj repo"),
+            ]
+
+            result = await execute_curation_plan(plan)
+
+            assert result["success"] is False
+            assert result["snapshot_id"] is None
+            assert "snapshot" in result["error"].lower()
