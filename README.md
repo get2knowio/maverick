@@ -74,7 +74,10 @@ maverick refuel speckit .specify/specs/my-feature/
 maverick init
 
 # Review queued beads before flying
-maverick briefing
+maverick brief
+
+# Watch bead status live while fly runs
+maverick brief --watch --interval 2
 ```
 
 ## Workflows
@@ -135,9 +138,10 @@ maverick refuel speckit .specify/specs/my-feature/ --dry-run
 
 Initialize a new Maverick project with configuration files.
 
-### `maverick briefing` — Bead Queue Review
+### `maverick brief` — Bead Dashboard
 
-Review queued beads before starting a fly session.
+Review ready and blocked beads before starting a fly session. Use `--watch` for
+live polling while `maverick fly` runs in another terminal.
 
 ## Architecture
 
@@ -146,7 +150,7 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, init, briefing                       │
+│  maverick fly, refuel, init, brief                          │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -196,7 +200,7 @@ before each bead, and restores to the snapshot if the verification gate fails.
 ```
 src/maverick/
 ├── cli/                 # Click CLI commands
-│   └── commands/        # fly, refuel, init, briefing, uninstall
+│   └── commands/        # fly, refuel, init, brief, uninstall
 ├── dsl/                 # Workflow DSL implementation
 │   ├── serialization/   # YAML parsing, schema, executor
 │   ├── discovery/       # Workflow discovery from locations
