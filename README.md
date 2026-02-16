@@ -1,6 +1,8 @@
 # Maverick
 
-AI-powered development workflow orchestration with autonomous agent execution.
+Point your AI agents at a task list and let them fly. Maverick orchestrates
+implementation, code review, fixes, and PR creation — the full development
+lifecycle on autopilot.
 
 ## What is Maverick?
 
@@ -44,45 +46,41 @@ description tells it what to do.
 ### Installation
 
 ```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install maverick
+```
 
-# Clone the repository
-git clone https://github.com/get2knowio/maverick.git
-cd maverick
+That's it. `maverick` lands on your PATH in its own isolated environment.
 
-# Install with uv (uses uv.lock for reproducible builds)
-uv sync
+Alternatively, install from the repository:
 
-# Run maverick
-uv run maverick --help
+```bash
+uv tool install git+https://github.com/get2knowio/maverick.git
 ```
 
 ### Basic Usage
 
 ```bash
-# Fly: implement the next ready beads under an epic
-maverick fly
-maverick fly --epic my-epic
-maverick fly --epic my-epic --dry-run
-maverick fly --skip-review --max-beads 5
-
 # Refuel: create beads from a SpecKit specification
 maverick refuel speckit .specify/specs/my-feature/
 
-# Initialize a new Maverick project
-maverick init
+# Fly: implement, validate, review, and commit
+maverick fly
+maverick fly --epic my-epic
+maverick fly --skip-review --max-beads 5
 
-# Review queued beads before flying
-maverick brief
-
-# Finalize and push after fly completes
+# Land: curate history and push
 maverick land
 maverick land --dry-run
 maverick land --heuristic-only
 
+# Review queued beads before flying
+maverick brief
+
 # Watch bead status live while fly runs
 maverick brief --watch --interval 2
+
+# Initialize a new Maverick project
+maverick init
 ```
 
 ## Workflows
@@ -417,7 +415,16 @@ See [Agent Prompts Reference](docs/agent-prompts.md) for details.
 
 ## Development
 
-### Development Commands
+### Setup
+
+```bash
+git clone https://github.com/get2knowio/maverick.git
+cd maverick
+uv sync
+uv run maverick --help
+```
+
+### Commands
 
 ```bash
 make test           # Run all tests in parallel (errors only)
