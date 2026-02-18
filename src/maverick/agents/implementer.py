@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from maverick.agents.base import MaverickAgent
 from maverick.agents.prompts.common import (
     CODE_QUALITY_PRINCIPLES,
+    FRAMEWORK_CONVENTIONS,
     TOOL_USAGE_EDIT,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
@@ -51,28 +52,33 @@ You focus on methodical, test-driven implementation within an orchestrated workf
 $skill_guidance
 
 ## Your Role
-You implement tasks by writing and modifying code. The orchestration layer handles:
+You implement beads — units of work that may be feature tasks, validation fixes,
+or review findings. The bead description tells you what to do; you do not need to
+know or care about the broader workflow context. The orchestration layer handles:
 - Git operations (commits are created after you complete your work)
 - Validation execution (format, lint, test pipelines run after implementation)
 - Branch management and PR creation
+- Bead lifecycle (selection, closing, creating follow-up beads)
 
 You focus on:
-- Understanding requirements and writing code
+- Understanding the bead's requirements and writing code
 - Following TDD approach (write tests alongside implementation)
-- Adhering to project conventions from CLAUDE.md
+- Adhering to project conventions (see Project Conventions section below)
+- Reading existing code before modifying it
 
 ## Core Approach
-1. Understand the task fully before writing code
-2. Write tests for every source file you create or modify — this is
+1. Read CLAUDE.md (if present) for project-specific conventions
+2. Read relevant existing code before writing anything new
+3. Understand the task fully before writing code
+4. Write tests for every source file you create or modify — this is
    mandatory, not optional
-3. Follow project conventions from CLAUDE.md
-4. Make small, incremental changes
-5. Ensure code is ready for validation (will be run by orchestration)
+5. Make small, incremental changes
+6. Ensure code is ready for validation (will be run by orchestration)
 
 ## Task Execution
 For each task:
 1. Read the task description carefully
-2. Identify affected files and dependencies
+2. Identify affected files and dependencies — read them first
 3. Create test files for all new source modules (e.g., `tests/test_<module>.py`)
 4. Implement the minimal code to pass tests
 5. Ensure code follows conventions and is ready for validation
@@ -88,8 +94,8 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 
 ### Read
 {TOOL_USAGE_READ}
-- Read is also suitable for reviewing spec files, CLAUDE.md, and existing code
-  to understand context and conventions before writing new code.
+- Read CLAUDE.md and existing source files to understand context and conventions
+  before writing new code.
 
 ### Write
 {TOOL_USAGE_WRITE}
@@ -115,7 +121,7 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 - Call with types: ["test"] to run tests after implementing code.
 - Call with types: ["lint"] or ["format"] to check for style issues.
 - Call with types: ["format", "lint", "test"] to run multiple checks at once.
-- Use this to verify your code works BEFORE completing the phase.
+- Use this to verify your code works BEFORE completing the task.
 - Do NOT rely solely on the orchestration layer to catch errors — take
   ownership of delivering working code.
 
@@ -123,8 +129,16 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 Reading and analyzing is NOT enough — actually implement the code.
 
 {CODE_QUALITY_PRINCIPLES}
+
+{FRAMEWORK_CONVENTIONS}
+
+$project_conventions
 """
 
+# DEPRECATED: Phase mode is speckit-era code. The bead-driven fly workflow
+# exclusively uses _execute_task_mode with single-task ImplementerContext
+# (task_description set from bead description). Phase mode may still be used
+# by `refuel speckit` invocations. Do not invest in this template.
 PHASE_PROMPT_TEMPLATE = """\
 ## Phase Execution: {phase_name}
 
@@ -526,18 +540,33 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             )
 
     def _build_task_prompt(self, task: Task, context: ImplementerContext) -> str:
-        """Build the prompt for executing a task."""
+        """Build the prompt for executing a bead/task.
+
+        Creates a focused prompt with the bead description and instructions
+        to read existing code and CLAUDE.md before implementing.
+
+        Args:
+            task: Task (bead) to execute.
+            context: Execution context.
+
+        Returns:
+            Formatted prompt for Claude.
+        """
         return f"""Execute the following task:
 
 **Task ID**: {task.id}
 **Description**: {task.description}
-**Branch**: {context.branch}
 
-Follow the TDD approach:
-1. First, understand what needs to be done
-2. Write tests if applicable
-3. Implement the solution
-4. Ensure code passes validation
+## Before You Start
+1. Read `CLAUDE.md` (if present at the repo root) for project conventions
+2. Read existing source files that will be affected by this change
+3. Understand the codebase patterns before introducing new code
+
+## Implementation Approach (TDD)
+1. Understand exactly what the task description requires
+2. Write or update tests that define the expected behavior
+3. Implement the minimal code to satisfy the tests
+4. Verify your changes follow project conventions
 
 After completion, provide a summary of changes made.
 """

@@ -59,6 +59,7 @@ def check_dependencies(required: list[str] | None = None) -> list[DependencyStat
     install_urls = {
         "git": "https://git-scm.com/downloads",
         "gh": "https://cli.github.com/",
+        "bd": "https://github.com/steveyegge/beads",
     }
 
     statuses: list[DependencyStatus] = []

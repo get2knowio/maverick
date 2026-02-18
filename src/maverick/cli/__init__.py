@@ -9,7 +9,6 @@ from __future__ import annotations
 from maverick.cli.context import (
     CLIContext,
     ExitCode,
-    ReviewCommandInputs,
     async_command,
 )
 from maverick.cli.output import OutputFormat
@@ -20,7 +19,6 @@ __all__ = [
     "DependencyStatus",
     "ExitCode",
     "OutputFormat",
-    "ReviewCommandInputs",
     "async_command",
     "check_dependencies",
     "check_git_auth",

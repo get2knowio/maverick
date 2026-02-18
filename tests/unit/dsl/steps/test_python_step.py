@@ -433,7 +433,7 @@ class TestPythonStepNonBlocking:
     async def test_sync_callable_runs_in_thread_pool(self) -> None:
         """Test that sync callables are offloaded via asyncio.to_thread.
 
-        This ensures blocking operations don't freeze the event loop/TUI.
+        This ensures blocking operations don't freeze the event loop.
         """
         import threading
 

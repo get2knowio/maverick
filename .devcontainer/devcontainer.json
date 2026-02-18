@@ -1,31 +1,51 @@
 {
-  "name": "get2know.io devcontainer",
-  "image": "ghcr.io/get2knowio/devcontainer:latest",
-  "remoteUser": "vscode",
-  "features": {},
+  "name": "Maverick Development",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true"
+    },
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
+    "ghcr.io/devcontainers-extra/features/starship:1": {},
+    "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
+      "include": ["claudeCode","specifyCli"]
+    },
+    "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:1": {},
+    "ghcr.io/get2knowio/devcontainer-features/python-tools:1": {
+      "omit": ["poetry"]
+    }
+  },
   "remoteEnv": {
-    "GH_PAGER": "",
-    "NODE_ENV": "development",
-    "CODEX_HOME":"/workspaces/maverick/.codex"
+    "GH_PAGER": ""
   },
   "customizations": {
     "vscode": {
       "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "ms-vscode.vscode-node-debug2",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
         "github.copilot",
         "github.copilot-chat"
       ],
       "settings": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true,
-        "editor.codeActionsOnSave": {
-          "source.fixAll.eslint": "explicit"
-        },
-        "javascript.validate.enable": true,
-        "javascript.suggest.autoImports": true,
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        }
       }
     }
   },
@@ -34,5 +54,6 @@
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/projects/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached"
-  ]
+  ],
+  "postCreateCommand": "python3 --version && uv --version && node --version"
 }

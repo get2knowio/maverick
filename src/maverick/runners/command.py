@@ -223,7 +223,7 @@ class CommandRunner:
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_retries + 1),
-                wait=wait_exponential(multiplier=retry_delay, min=retry_delay, max=60),
+                wait=wait_exponential(multiplier=retry_delay, min=retry_delay, max=10),
                 reraise=True,
             ):
                 with attempt:

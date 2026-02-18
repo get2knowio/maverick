@@ -109,6 +109,7 @@ __all__: list[str] = [
     "FIXER_TOOLS",
     "ISSUE_FIXER_TOOLS",
     "GENERATOR_TOOLS",
+    "CURATOR_TOOLS",
 ]
 
 # =============================================================================
@@ -146,3 +147,9 @@ ISSUE_FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", 
 #: Generators produce text from provided context. They don't need to read
 #: files or execute commands - all context is provided in their prompts.
 GENERATOR_TOOLS: frozenset[str] = frozenset()
+
+#: Empty set for the CuratorAgent (one-shot history rewrite planner).
+#:
+#: The curator receives pre-gathered jj log and diff stats in its prompt.
+#: It produces a structured JSON plan of jj commands — no file access needed.
+CURATOR_TOOLS: frozenset[str] = frozenset()

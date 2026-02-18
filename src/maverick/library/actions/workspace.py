@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from maverick.library.actions.types import WorkspaceState
 from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
+from maverick.workspace.manager import WorkspaceManager
 
 logger = get_logger(__name__)
 
@@ -82,3 +84,59 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
             task_file_path=None,
             error=str(e),
         )
+
+
+async def create_fly_workspace(
+    setup_command: str | None = None,
+) -> dict[str, Any]:
+    """Create an isolated jj workspace for a fly session.
+
+    Clones the user's repo (cwd) into ``~/.maverick/workspaces/<project>/``
+    via ``jj git clone``.  If the workspace already exists, the clone is
+    skipped (idempotent).
+
+    Args:
+        setup_command: Optional command to run after cloning (e.g. ``"uv sync"``).
+
+    Returns:
+        Dict with:
+        - success: True if workspace is ready
+        - workspace_path: Absolute path to the workspace directory
+        - user_repo_path: Absolute path to the original user repo
+        - created: True if a fresh clone was made, False if reused
+        - error: Error message if workspace creation failed
+    """
+    user_repo = Path.cwd().resolve()
+
+    try:
+        manager = WorkspaceManager(
+            user_repo_path=user_repo,
+            setup_command=setup_command,
+        )
+
+        already_exists = manager.exists
+        info = await manager.create_and_bootstrap()
+
+        logger.info(
+            "fly_workspace_ready",
+            workspace_path=info.workspace_path,
+            reused=already_exists,
+        )
+
+        return {
+            "success": True,
+            "workspace_path": info.workspace_path,
+            "user_repo_path": info.user_repo_path,
+            "created": not already_exists,
+            "error": None,
+        }
+
+    except Exception as e:
+        logger.error("create_fly_workspace_failed", error=str(e))
+        return {
+            "success": False,
+            "workspace_path": None,
+            "user_repo_path": str(user_repo),
+            "created": False,
+            "error": str(e),
+        }

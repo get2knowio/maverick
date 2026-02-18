@@ -23,13 +23,11 @@ class OutputFormat(str, Enum):
     """Supported output formats for CLI commands.
 
     Values:
-        TUI: Interactive terminal UI (default when TTY available).
         JSON: Machine-readable JSON output.
         MARKDOWN: Formatted markdown for documentation.
-        TEXT: Plain text output (default in non-TTY).
+        TEXT: Plain text output.
     """
 
-    TUI = "tui"
     JSON = "json"
     MARKDOWN = "markdown"
     TEXT = "text"

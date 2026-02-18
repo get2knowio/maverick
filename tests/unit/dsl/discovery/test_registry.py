@@ -73,7 +73,7 @@ def builtin_workflow_names() -> set[str]:
     Note: Some builtin workflows may be skipped if they use features not yet
     implemented in the parser (e.g., format() function, advanced expressions).
     """
-    return {"review", "validate"}
+    return {"fly-beads", "refuel-speckit"}
 
 
 @pytest.fixture
@@ -117,8 +117,8 @@ def test_get_builtin_path_contains_expected_workflows() -> None:
     builtin_path = discovery.get_builtin_path()
 
     # Check for expected workflow files
-    review_workflow = builtin_path / "workflows" / "review.yaml"
-    assert review_workflow.exists()
+    fly_beads_workflow = builtin_path / "workflows" / "fly-beads.yaml"
+    assert fly_beads_workflow.exists()
 
     # Check for expected fragment files (note: file uses underscores)
     validate_fragment = builtin_path / "fragments" / "validate_and_fix.yaml"
@@ -252,8 +252,8 @@ def test_discover_workflow_names_property() -> None:
     assert names == tuple(sorted(names))
 
     # Should contain expected workflows (that parse successfully)
-    assert "review" in names
-    assert "validate" in names
+    assert "fly-beads" in names
+    assert "refuel-speckit" in names
 
 
 def test_discover_fragment_names_property() -> None:
@@ -284,10 +284,10 @@ def test_discover_get_workflow_lookup() -> None:
     result = discovery.discover(include_builtin=True)
 
     # Lookup existing workflow
-    review_workflow = result.get_workflow("review")
-    assert review_workflow is not None
-    assert review_workflow.workflow.name == "review"
-    assert review_workflow.source == WorkflowSource.BUILTIN.value
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
+    assert fly_beads.workflow.name == "fly-beads"
+    assert fly_beads.source == WorkflowSource.BUILTIN.value
 
     # Lookup non-existent workflow
     missing = result.get_workflow("nonexistent-workflow")
@@ -425,9 +425,9 @@ def test_discover_project_overrides_builtin(
     project_dir.mkdir(parents=True)
 
     # Create a workflow with same name as builtin
-    project_workflow = project_dir / "review.yaml"
-    # Modify the YAML to use "review" name
-    custom_yaml = sample_workflow_yaml.replace("test-workflow", "review")
+    project_workflow = project_dir / "fly-beads.yaml"
+    # Modify the YAML to use "fly-beads" name
+    custom_yaml = sample_workflow_yaml.replace("test-workflow", "fly-beads")
     project_workflow.write_text(custom_yaml)
 
     # Discover workflows
@@ -435,20 +435,20 @@ def test_discover_project_overrides_builtin(
     result = discovery.discover(project_dir=project_dir, include_builtin=True)
 
     # Should find the workflow
-    review = result.get_workflow("review")
-    assert review is not None
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
 
     # Should be from project source (highest precedence)
-    assert review.source == WorkflowSource.PROJECT.value
+    assert fly_beads.source == WorkflowSource.PROJECT.value
 
     # File path should be the project file
-    assert review.file_path == project_workflow
+    assert fly_beads.file_path == project_workflow
 
     # Should have overrides tuple containing the builtin path
-    assert len(review.overrides) > 0
+    assert len(fly_beads.overrides) > 0
     # Check that one of the overridden paths is from builtin
     builtin_path = discovery.get_builtin_path()
-    overridden_paths_str = [str(p) for p in review.overrides]
+    overridden_paths_str = [str(p) for p in fly_beads.overrides]
     assert any(str(builtin_path) in p for p in overridden_paths_str)
 
 
@@ -462,8 +462,8 @@ def test_discover_user_overrides_builtin(
     user_dir.mkdir(parents=True)
 
     # Create a workflow with same name as builtin
-    user_workflow = user_dir / "review.yaml"
-    custom_yaml = sample_workflow_yaml.replace("test-workflow", "review")
+    user_workflow = user_dir / "fly-beads.yaml"
+    custom_yaml = sample_workflow_yaml.replace("test-workflow", "fly-beads")
     user_workflow.write_text(custom_yaml)
 
     # Discover workflows
@@ -471,17 +471,17 @@ def test_discover_user_overrides_builtin(
     result = discovery.discover(user_dir=user_dir, include_builtin=True)
 
     # Should find the workflow
-    review = result.get_workflow("review")
-    assert review is not None
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
 
     # Should be from user source
-    assert review.source == WorkflowSource.USER.value
+    assert fly_beads.source == WorkflowSource.USER.value
 
     # File path should be the user file
-    assert review.file_path == user_workflow
+    assert fly_beads.file_path == user_workflow
 
     # Should have overrides
-    assert len(review.overrides) > 0
+    assert len(fly_beads.overrides) > 0
 
 
 def test_discover_project_overrides_user(
@@ -765,9 +765,9 @@ def test_discovered_workflow_has_correct_source_builtin() -> None:
     result = discovery.discover(include_builtin=True)
 
     # Get a builtin workflow
-    review = result.get_workflow("review")
-    assert review is not None
-    assert review.source == WorkflowSource.BUILTIN.value
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
+    assert fly_beads.source == WorkflowSource.BUILTIN.value
 
 
 def test_discovered_workflow_has_correct_source_project(
@@ -827,26 +827,26 @@ def test_discovered_workflow_structure() -> None:
     result = discovery.discover(include_builtin=True)
 
     # Get a workflow
-    review = result.get_workflow("review")
-    assert review is not None
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
 
     # Check all fields are present and correct types
-    assert hasattr(review, "workflow")
-    assert hasattr(review, "file_path")
-    assert hasattr(review, "source")
-    assert hasattr(review, "overrides")
+    assert hasattr(fly_beads, "workflow")
+    assert hasattr(fly_beads, "file_path")
+    assert hasattr(fly_beads, "source")
+    assert hasattr(fly_beads, "overrides")
 
     # Check types
-    assert isinstance(review.file_path, Path)
-    assert isinstance(review.source, str)
-    assert isinstance(review.overrides, tuple)
+    assert isinstance(fly_beads.file_path, Path)
+    assert isinstance(fly_beads.source, str)
+    assert isinstance(fly_beads.overrides, tuple)
 
     # File path should exist
-    assert review.file_path.exists()
+    assert fly_beads.file_path.exists()
 
     # Workflow should have name and description
-    assert review.workflow.name == "review"
-    assert review.workflow.description
+    assert fly_beads.workflow.name == "fly-beads"
+    assert fly_beads.workflow.description
 
 
 def test_discovered_workflow_overrides_empty_when_no_conflicts() -> None:
@@ -856,11 +856,11 @@ def test_discovered_workflow_overrides_empty_when_no_conflicts() -> None:
     result = discovery.discover(include_builtin=True)
 
     # Get a builtin workflow
-    review = result.get_workflow("review")
-    assert review is not None
+    fly_beads = result.get_workflow("fly-beads")
+    assert fly_beads is not None
 
     # Should have empty overrides (nothing to override at builtin level)
-    assert len(review.overrides) == 0
+    assert len(fly_beads.overrides) == 0
 
 
 # =============================================================================
@@ -873,12 +873,12 @@ def test_search_workflows_by_name() -> None:
     discovery = DefaultWorkflowDiscovery()
     result = discovery.discover(include_builtin=True)
 
-    # Search for "review" (a workflow that actually exists in builtin)
-    matches = result.search_workflows("review")
+    # Search for "fly-beads" (a workflow that actually exists in builtin)
+    matches = result.search_workflows("fly-beads")
 
-    # Should find at least the review workflow
+    # Should find at least the fly-beads workflow
     assert len(matches) > 0
-    assert any(w.workflow.name == "review" for w in matches)
+    assert any(w.workflow.name == "fly-beads" for w in matches)
 
 
 def test_search_workflows_case_insensitive() -> None:
@@ -886,10 +886,10 @@ def test_search_workflows_case_insensitive() -> None:
     discovery = DefaultWorkflowDiscovery()
     result = discovery.discover(include_builtin=True)
 
-    # Search with different cases for "review"
-    matches_lower = result.search_workflows("review")
-    matches_upper = result.search_workflows("REVIEW")
-    matches_mixed = result.search_workflows("Review")
+    # Search with different cases for "fly-beads"
+    matches_lower = result.search_workflows("fly-beads")
+    matches_upper = result.search_workflows("FLY-BEADS")
+    matches_mixed = result.search_workflows("Fly-Beads")
 
     # All should return same results
     assert len(matches_lower) == len(matches_upper)
@@ -1006,8 +1006,8 @@ def test_get_all_with_name_single_version() -> None:
     discovery = DefaultWorkflowDiscovery()
     result = discovery.discover(include_builtin=True)
 
-    # Get all versions of "review" (should just be builtin)
-    all_versions = result.get_all_with_name("review")
+    # Get all versions of "fly-beads" (should just be builtin)
+    all_versions = result.get_all_with_name("fly-beads")
 
     # Should have exactly one version (no overrides)
     assert len(all_versions) == 1

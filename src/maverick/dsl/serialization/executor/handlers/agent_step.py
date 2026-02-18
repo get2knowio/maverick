@@ -6,6 +6,7 @@ Implements T027 (AgentStreamChunk emission) and T028 (thinking indicator).
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.dsl.serialization.schema import AgentStepRecord
+from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 from maverick.models.implementation import ImplementerContext
 
@@ -82,13 +84,30 @@ async def execute_agent_step(
         if isinstance(task_file_str, bool):
             task_file_str = None
         task_file = Path(task_file_str) if task_file_str else None
+        task_description = agent_context.get("task_description")
         branch = agent_context.get("branch", "")
+        if not branch:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await proc.communicate()
+                if proc.returncode == 0:
+                    branch = stdout.decode().strip()
+            except OSError:
+                pass
         phase_name = agent_context.get("phase_name")
         cwd_str = agent_context.get("cwd")
         cwd = Path(cwd_str) if cwd_str else Path.cwd()
 
         agent_context = ImplementerContext(
             task_file=task_file,
+            task_description=task_description,
             phase_name=phase_name,
             branch=branch,
             cwd=cwd,
@@ -119,10 +138,20 @@ async def execute_agent_step(
             maverick_config = load_config()
             val_server = create_validation_tools_server(maverick_config.validation)
             # Remove test-only _tools key that breaks SDK serialization
-            val_server.pop("_tools", None)  # type: ignore[misc]
+            val_server.pop("_tools", None)  # type: ignore[typeddict-item]
             agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
-        except Exception:
-            pass  # Graceful fallback - agent works without validation tools
+        except (ImportError, ModuleNotFoundError) as e:
+            logger.debug(
+                "validation_tools_unavailable",
+                error=str(e),
+                reason="module_not_found",
+            )
+        except ConfigError as e:
+            logger.debug(
+                "validation_tools_config_failed",
+                error=str(e),
+                reason="config_error",
+            )
 
     try:
         agent_instance = agent_class(**agent_kwargs)

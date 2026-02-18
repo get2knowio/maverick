@@ -1,0 +1,37 @@
+project_type: python
+
+project_conventions: |
+  ### Canonical Third-Party Libraries
+
+  Use ONLY these libraries for their domains. Do NOT introduce alternatives or
+  write custom implementations for what they already provide.
+
+  - **VCS writes** (commit, push, branch): `maverick.library.actions.jj` (Jujutsu).
+    Do NOT shell out to raw VCS CLIs for write operations.
+  - **VCS reads** (diff, status, log): `maverick.git` (GitPython). Read-only.
+  - **GitHub operations**: `maverick.utils.github_client` (PyGithub). Do NOT use
+    `subprocess.run("gh ...")` for operations PyGithub supports.
+  - **Logging**: `maverick.logging.get_logger()` (structlog). Do NOT use
+    `import logging; logging.getLogger()`.
+  - **Retry logic**: `tenacity` (`@retry`, `AsyncRetrying`). Do NOT write manual
+    `for attempt in range(retries):` loops.
+  - **Secret detection**: `maverick.utils.secrets.detect_secrets`. Do NOT write
+    custom regex for secret detection.
+  - **Validation models**: Pydantic `BaseModel` for configuration and data models.
+  - **CLI**: Click for commands, Rich for terminal output.
+
+  ### Async-First
+
+  - All agent interactions and workflows MUST be async.
+  - Never call `subprocess.run` from an `async def` path — use `CommandRunner`.
+  - Use `asyncio` patterns; no threading for I/O.
+
+  ### Python Style
+
+  - Classes: PascalCase. Functions: snake_case. Constants: SCREAMING_SNAKE_CASE.
+  - Private members: leading underscore.
+  - Docstrings: Google-style with Args, Returns, Raises sections.
+  - Use `from __future__ import annotations` in every module.
+  - No `print()` — use logging or Rich Console.
+  - No `shell=True` in subprocess calls without security justification.
+  - Custom exceptions inherit from `MaverickError`.

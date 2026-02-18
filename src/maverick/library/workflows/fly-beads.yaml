@@ -1,0 +1,171 @@
+version: "1.0"
+name: fly-beads
+description: Bead-driven development workflow — iterates ready beads until done.
+
+inputs:
+  epic_id:
+    type: string
+    required: false
+    default: ""
+    description: Epic bead ID to iterate over (empty to pick any ready bead).
+  max_beads:
+    type: integer
+    required: false
+    default: 30
+    description: Maximum number of beads to process before stopping.
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: Preview mode — skip git and bd mutations.
+  skip_review:
+    type: boolean
+    required: false
+    default: false
+    description: Skip code review step for each bead.
+
+steps:
+  - name: preflight
+    type: python
+    action: run_preflight_checks
+    kwargs:
+      check_api: true
+      check_git: true
+      check_jj: true
+      check_bd: true
+
+  # WORKSPACE — create isolated jj workspace for this fly session
+  - name: create_workspace
+    type: python
+    action: create_fly_workspace
+    when: ${{ not inputs.dry_run }}
+
+  - name: bead_loop
+    type: loop
+    when: ${{ not inputs.dry_run }}
+    until: ${{ steps.check_done.output.done }}
+    max_iterations: 30
+    steps:
+      - name: select_bead
+        type: python
+        action: select_next_bead
+        kwargs:
+          epic_id: ${{ inputs.epic_id }}
+
+      # SNAPSHOT — capture jj operation for rollback on failure
+      - name: snapshot
+        type: python
+        action: jj_snapshot_operation
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
+
+      # DESCRIBE — label WIP change so jj log shows what's in-flight
+      - name: describe_change
+        type: python
+        action: jj_describe
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          message: "WIP bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
+
+      # IMPLEMENT
+      - name: implement
+        type: agent
+        agent: implementer
+        when: ${{ steps.select_bead.output.found }}
+        context:
+          task_description: ${{ steps.select_bead.output.description }}
+
+      # VALIDATE-AND-FIX (3 fix attempts before creating child beads)
+      - name: validate_and_fix
+        type: subworkflow
+        workflow: validate-and-fix
+        when: ${{ steps.select_bead.output.found }}
+        inputs:
+          stages: ["format", "lint", "typecheck", "test"]
+          max_attempts: 3
+
+      # CREATE FIX BEADS for remaining failures only
+      - name: create_fix_beads
+        type: python
+        action: create_beads_from_failures
+        when: ${{ steps.select_bead.output.found and not steps.validate_and_fix.output.passed }}
+        kwargs:
+          epic_id: ${{ steps.select_bead.output.epic_id }}
+          validation_result: ${{ steps.validate_and_fix.output }}
+
+      # GATHER LOCAL REVIEW CONTEXT (for uncommitted changes)
+      - name: gather_review_context
+        type: python
+        action: gather_local_review_context
+        when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
+        kwargs:
+          base_branch: main
+          include_spec_files: true
+
+      # REVIEW-AND-FIX LOOP (2 review-fix cycles)
+      - name: review_and_fix
+        type: python
+        action: run_review_fix_loop
+        when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
+        kwargs:
+          pr_context: ${{ steps.gather_review_context.output }}
+          base_branch: main
+          max_attempts: 2
+          generate_report: true
+
+      # CREATE REVIEW BEADS for remaining findings only
+      - name: create_review_beads
+        type: python
+        action: create_beads_from_findings
+        when: ${{ steps.select_bead.output.found and not inputs.skip_review }}
+        kwargs:
+          epic_id: ${{ steps.select_bead.output.epic_id }}
+          review_result: ${{ steps.review_and_fix.output }}
+
+      # VERIFICATION GATE
+      - name: verify_completion
+        type: python
+        action: verify_bead_completion
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          validation_result: ${{ steps.validate_and_fix.output }}
+          review_result: ${{ steps.review_and_fix.output }}
+          skip_review: ${{ inputs.skip_review }}
+
+      # ROLLBACK — restore to snapshot if verification failed
+      - name: rollback_bead
+        type: python
+        action: jj_restore_operation
+        when: ${{ steps.select_bead.output.found and not steps.verify_completion.output.passed }}
+        kwargs:
+          operation_id: ${{ steps.snapshot.output.operation_id }}
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
+
+      # COMMIT (gated on verification) — describe + jj new
+      - name: commit_bead
+        type: python
+        action: jj_commit_bead
+        when: ${{ steps.select_bead.output.found and steps.verify_completion.output.passed }}
+        kwargs:
+          message: "bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
+
+      # CLOSE (gated on verification)
+      - name: close_bead
+        type: python
+        action: mark_bead_complete
+        when: ${{ steps.select_bead.output.found and steps.verify_completion.output.passed }}
+        kwargs:
+          bead_id: ${{ steps.select_bead.output.bead_id }}
+
+      - name: check_done
+        type: python
+        action: check_epic_done
+        kwargs:
+          epic_id: ${{ steps.select_bead.output.epic_id }}
+
+outputs:
+  epic_id: ${{ inputs.epic_id }}
+  workspace_path: ${{ steps.create_workspace.output.workspace_path }}

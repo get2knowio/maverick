@@ -58,7 +58,11 @@ Please fix this error by reformatting the line appropriately."""
 @pytest.fixture
 def sample_agent_output() -> str:
     """Sample plain-text output from a fixer agent run."""
-    return "I've reformatted line 42 in src/maverick/agents/implementer.py to comply with the line length limit."
+    return (
+        "I've reformatted line 42 in "
+        "src/maverick/agents/implementer.py "
+        "to comply with the line length limit."
+    )
 
 
 # =============================================================================

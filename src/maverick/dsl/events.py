@@ -388,6 +388,31 @@ class LoopIterationCompleted:
 
 
 @dataclass(frozen=True, slots=True)
+class LoopConditionChecked:
+    """Event emitted when an ``until`` loop evaluates its termination condition.
+
+    Attributes:
+        step_name: Name of the loop step.
+        iteration_index: 0-based index of the iteration that just completed.
+        condition_met: Whether the until condition evaluated to truthy.
+        condition_value: The raw value of the condition expression.
+        timestamp: Unix timestamp when condition was checked.
+        step_path: Hierarchical path for tree navigation.
+    """
+
+    step_name: str
+    iteration_index: int
+    condition_met: bool
+    condition_value: Any = None
+    timestamp: float = field(default_factory=time.time)
+    step_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class AgentStreamChunk:
     """Event emitted when agent produces streaming output.
 
@@ -487,6 +512,7 @@ ProgressEvent = (
     | ValidationFailed
     | LoopIterationStarted
     | LoopIterationCompleted
+    | LoopConditionChecked
     | AgentStreamChunk
     | StepOutput
 )

@@ -29,6 +29,14 @@ from maverick.exceptions.agent import (
 # Base exception
 from maverick.exceptions.base import MaverickError
 
+# Bead-related exceptions
+from maverick.exceptions.beads import (
+    BeadCreationError,
+    BeadDependencyError,
+    BeadError,
+    SpecKitParseError,
+)
+
 # Configuration exceptions
 from maverick.exceptions.config import ConfigError
 
@@ -67,6 +75,16 @@ from maverick.exceptions.init import (
     PrerequisiteError,
 )
 
+# Jj-related exceptions
+from maverick.exceptions.jj import (
+    JjCloneError,
+    JjConflictError,
+    JjError,
+    JjNotFoundError,
+    JjOperationError,
+    JjPushError,
+)
+
 # Preflight validation exceptions
 from maverick.exceptions.preflight import PreflightValidationError
 
@@ -95,6 +113,11 @@ from maverick.exceptions.workflow import (
 __all__ = [
     # Base
     "MaverickError",
+    # Beads
+    "BeadCreationError",
+    "BeadDependencyError",
+    "BeadError",
+    "SpecKitParseError",
     # Agent
     "AgentError",
     "AgentNotFoundError",
@@ -131,6 +154,13 @@ __all__ = [
     "HookConfigError",
     "HookError",
     "SafetyHookError",
+    # Jj
+    "JjCloneError",
+    "JjConflictError",
+    "JjError",
+    "JjNotFoundError",
+    "JjOperationError",
+    "JjPushError",
     # Init
     "AnthropicAPIError",
     "ConfigExistsError",

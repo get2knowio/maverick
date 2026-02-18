@@ -300,6 +300,19 @@ class LoopStepRecord(StepRecord):
             - name: review
               type: agent
               agent: ${{ item }}
+
+        # Condition-based loop (until)
+        - name: bead_loop
+          type: loop
+          until: ${{ steps.check_done.output.done }}
+          max_iterations: 30
+          steps:
+            - name: process_bead
+              type: python
+              action: process_next_bead
+            - name: check_done
+              type: python
+              action: check_epic_done
     """
 
     type: Literal[StepType.LOOP] = StepType.LOOP
@@ -308,6 +321,13 @@ class LoopStepRecord(StepRecord):
     )
     for_each: str | None = Field(
         None, description="Optional expression evaluating to a list for iteration"
+    )
+    until: str | None = Field(
+        None,
+        description=(
+            "Condition expression; loop repeats body until this evaluates truthy. "
+            "Mutually exclusive with for_each."
+        ),
     )
     parallel: bool | None = Field(
         None,
@@ -320,6 +340,11 @@ class LoopStepRecord(StepRecord):
         1,
         ge=0,
         description="Max concurrent iterations (1=sequential, 0=unlimited)",
+    )
+    max_iterations: int = Field(
+        30,
+        ge=1,
+        description="Safety valve for until loops (max iterations before stopping)",
     )
 
     @model_validator(mode="after")
@@ -334,6 +359,27 @@ class LoopStepRecord(StepRecord):
                 "Cannot specify both 'parallel' and 'max_concurrency' on a loop step. "
                 "Use 'parallel: true' for unlimited concurrency or "
                 "'max_concurrency: N' for a specific limit."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_until_for_each_exclusive(self) -> LoopStepRecord:
+        """Ensure until and for_each are not both specified."""
+        if self.until is not None and self.for_each is not None:
+            raise ValueError(
+                "Cannot specify both 'until' and 'for_each' on a loop step. "
+                "Use 'for_each' for collection iteration or "
+                "'until' for condition-based looping."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_until_parallel_exclusive(self) -> LoopStepRecord:
+        """Ensure until loops are not parallelized."""
+        if self.until is not None and self.parallel is True:
+            raise ValueError(
+                "Cannot use 'parallel' with 'until' loops. "
+                "Until loops execute body steps sequentially each iteration."
             )
         return self
 

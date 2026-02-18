@@ -558,7 +558,7 @@ def create_notification_tools_server(
     # Store tool functions for test access
     # This allows tests to call tools directly while keeping config in closure
     # Type ignore because we're adding to the dict for test purposes
-    server["_test_tools"] = {  # type: ignore[typeddict-unknown-key]
+    server["_tools"] = {  # type: ignore[typeddict-unknown-key]
         "send_workflow_update": send_workflow_update,
         "send_notification": send_notification,
     }

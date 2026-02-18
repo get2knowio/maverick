@@ -352,6 +352,10 @@ class WorkflowSemanticValidator:
                     check_step(option.step, f"{path_prefix}.options[{i}].step")
 
             elif isinstance(step, LoopStepRecord):
+                if step.until:
+                    extract_from_value(step.until, f"{path_prefix}.until")
+                if step.for_each:
+                    extract_from_value(step.for_each, f"{path_prefix}.for_each")
                 for i, substep in enumerate(step.steps):
                     check_step(substep, f"{path_prefix}.steps[{i}]")
 

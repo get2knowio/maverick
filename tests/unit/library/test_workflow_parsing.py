@@ -29,11 +29,8 @@ except (ImportError, TypeError):
 
 # List of all built-in workflow files to test
 BUILTIN_WORKFLOWS = [
-    "feature.yaml",
-    "cleanup.yaml",
-    "review.yaml",
-    "validate.yaml",
-    "quick_fix.yaml",
+    "fly-beads.yaml",
+    "refuel-speckit.yaml",
 ]
 
 
@@ -166,91 +163,44 @@ class TestWorkflowParsing:
 class TestSpecificWorkflows:
     """Tests for specific workflow characteristics."""
 
-    def test_feature_workflow_structure(self) -> None:
-        """Test that feature workflow has expected structure."""
+    def test_fly_beads_workflow_structure(self) -> None:
+        """Test that fly-beads workflow has expected structure."""
         # Arrange
-        workflow_path = WORKFLOWS_DIR / "feature.yaml"
+        workflow_path = WORKFLOWS_DIR / "fly-beads.yaml"
         yaml_content = workflow_path.read_text()
         workflow = parse_workflow(yaml_content, validate_only=True)
 
         # Assert
-        assert workflow.name == "feature"
-        assert "branch_name" in workflow.inputs
-        assert workflow.inputs["branch_name"].required is True
+        assert workflow.name == "fly-beads"
+        assert "epic_id" in workflow.inputs
+        assert workflow.inputs["epic_id"].required is False
 
-        # Check for key steps (speckit feature workflow uses phased implementation)
+        # Check for key steps (curate/push moved to 'maverick land')
         step_names = [step.name for step in workflow.steps]
         assert "preflight" in step_names
-        assert "init" in step_names
-        assert "get_phases" in step_names
-        assert (
-            "implement_by_phase" in step_names
-        )  # Phased implementation with validation
-        assert "commit_and_push" in step_names
-        assert "review" in step_names
-        assert "create_pr" in step_names
+        assert "bead_loop" in step_names
+        assert "final_push" not in step_names
 
-    def test_cleanup_workflow_structure(self) -> None:
-        """Test that cleanup workflow has expected structure."""
+    def test_refuel_speckit_workflow_structure(self) -> None:
+        """Test that refuel-speckit workflow has expected structure."""
         # Arrange
-        workflow_path = WORKFLOWS_DIR / "cleanup.yaml"
+        workflow_path = WORKFLOWS_DIR / "refuel-speckit.yaml"
         yaml_content = workflow_path.read_text()
         workflow = parse_workflow(yaml_content, validate_only=True)
 
         # Assert
-        assert workflow.name == "cleanup"
+        assert workflow.name == "refuel-speckit"
+        assert "spec" in workflow.inputs
+        assert workflow.inputs["spec"].required is True
 
-        # Should have optional inputs with defaults
-        assert "label" in workflow.inputs
-        assert workflow.inputs["label"].required is False
-        assert workflow.inputs["label"].default is not None
-
-    def test_review_workflow_structure(self) -> None:
-        """Test that review workflow has expected structure."""
-        # Arrange
-        workflow_path = WORKFLOWS_DIR / "review.yaml"
-        yaml_content = workflow_path.read_text()
-        workflow = parse_workflow(yaml_content, validate_only=True)
-
-        # Assert
-        assert workflow.name == "review"
-
-        # Check for key steps (dual-agent review structure)
+        # Check for key steps including branch/merge lifecycle
         step_names = [step.name for step in workflow.steps]
-        assert "gather_context" in step_names
-        assert "parallel_reviews" in step_names  # dual-agent review loop
-        assert "combine_results" in step_names
-
-    def test_validate_workflow_structure(self) -> None:
-        """Test that validate workflow has expected structure."""
-        # Arrange
-        workflow_path = WORKFLOWS_DIR / "validate.yaml"
-        yaml_content = workflow_path.read_text()
-        workflow = parse_workflow(yaml_content, validate_only=True)
-
-        # Assert
-        assert workflow.name == "validate"
-
-        # Should have fix and max_attempts inputs
-        assert "fix" in workflow.inputs
-        assert "max_attempts" in workflow.inputs
-
-    def test_quick_fix_workflow_structure(self) -> None:
-        """Test that quick_fix workflow has expected structure."""
-        # Arrange
-        workflow_path = WORKFLOWS_DIR / "quick_fix.yaml"
-        yaml_content = workflow_path.read_text()
-        workflow = parse_workflow(yaml_content, validate_only=True)
-
-        # Assert
-        assert workflow.name == "quick-fix"
-        assert "issue_number" in workflow.inputs
-        assert workflow.inputs["issue_number"].required is True
-
-        # Check for key steps
-        step_names = [step.name for step in workflow.steps]
-        assert "fetch_issue" in step_names
-        assert "fix_issue" in step_names
+        assert "checkout_branch" in step_names
+        assert "parse_spec" in step_names
+        assert "create_beads" in step_names
+        assert "commit_beads" in step_names
+        assert "checkout_main" in step_names
+        assert "merge_spec" in step_names
 
 
 class TestWorkflowConsistency:

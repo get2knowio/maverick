@@ -474,7 +474,7 @@ steps:
         # Check for expected builtin workflows (based on library/builtins.py)
         # Note: These may not all be present if library isn't fully installed,
         # but at least some should be
-        expected_builtins = {"fly", "refuel", "review", "validate", "quick_fix"}
+        expected_builtins = {"fly-beads", "refuel-speckit"}
         found_builtins = expected_builtins.intersection(workflow_names)
         assert len(found_builtins) > 0, (
             f"Expected at least one builtin workflow, found: {workflow_names}"
@@ -485,14 +485,14 @@ steps:
             assert wf.source == WorkflowSource.BUILTIN.value
 
         # Verify we can load a specific builtin workflow
-        if "fly" in workflow_names:
-            fly = result.get_workflow("fly")
+        if "fly-beads" in workflow_names:
+            fly = result.get_workflow("fly-beads")
             assert fly is not None
-            assert fly.workflow.name == "fly"
+            assert fly.workflow.name == "fly-beads"
             assert fly.workflow.version is not None
             assert len(fly.workflow.steps) > 0
             # Verify it has expected inputs
-            assert "branch_name" in fly.workflow.inputs
+            assert "epic_id" in fly.workflow.inputs
 
     def test_builtin_fragments_from_library(self) -> None:
         """Test discovery includes real builtin fragments from maverick.library.

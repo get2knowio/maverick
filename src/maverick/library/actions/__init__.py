@@ -22,6 +22,18 @@ if TYPE_CHECKING:
     from maverick.dsl.serialization.registry import ComponentRegistry
 
 # Import action functions
+from maverick.library.actions.beads import (
+    check_epic_done,
+    create_beads,
+    create_beads_from_failures,
+    create_beads_from_findings,
+    enrich_bead_descriptions,
+    mark_bead_complete,
+    parse_speckit,
+    select_next_bead,
+    verify_bead_completion,
+    wire_dependencies,
+)
 from maverick.library.actions.cleanup import (
     generate_cleanup_summary,
     process_selected_issues,
@@ -30,9 +42,11 @@ from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
     create_git_branch,
+    git_add,
     git_check_and_stage,
     git_commit,
     git_has_changes,
+    git_merge,
     git_push,
     git_stage_all,
 )
@@ -41,10 +55,24 @@ from maverick.library.actions.github import (
     fetch_github_issue,
     fetch_github_issues,
 )
+from maverick.library.actions.jj import (
+    curate_history,
+    execute_curation_plan,
+    gather_curation_context,
+    jj_absorb,
+    jj_commit_bead,
+    jj_describe,
+    jj_diff,
+    jj_log,
+    jj_restore_operation,
+    jj_snapshot_operation,
+    jj_squash,
+)
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.review import (
     analyze_review_findings,
     combine_review_results,
+    gather_local_review_context,
     gather_pr_context,
     generate_review_fix_report,
     run_review_fix_loop,
@@ -55,30 +83,57 @@ from maverick.library.actions.validation import (
     log_message,
     run_fix_retry_loop,
 )
-from maverick.library.actions.workspace import init_workspace
+from maverick.library.actions.workspace import create_fly_workspace, init_workspace
 
 __all__ = [
+    # Bead actions
+    "parse_speckit",
+    "create_beads",
+    "wire_dependencies",
+    "select_next_bead",
+    "mark_bead_complete",
+    "check_epic_done",
+    "create_beads_from_failures",
+    "create_beads_from_findings",
+    "verify_bead_completion",
+    "enrich_bead_descriptions",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions
     "init_workspace",
+    "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
     # Task actions
     "get_phase_names",
     # Git actions
+    "git_add",
     "git_commit",
     "git_push",
     "git_check_and_stage",
     "git_has_changes",
+    "git_merge",
     "git_stage_all",
     "create_git_branch",
+    # jj-specific actions
+    "jj_commit_bead",
+    "jj_describe",
+    "jj_snapshot_operation",
+    "jj_restore_operation",
+    "jj_squash",
+    "jj_absorb",
+    "jj_log",
+    "jj_diff",
+    "curate_history",
+    "gather_curation_context",
+    "execute_curation_plan",
     # GitHub actions
     "create_github_pr",
     "fetch_github_issues",
     "fetch_github_issue",
     # Review actions
     "gather_pr_context",
+    "gather_local_review_context",
     "combine_review_results",
     "analyze_review_findings",
     "run_review_fix_loop",
@@ -117,6 +172,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         init_workspace,
         requires=("git", "git_repo", "git_remote"),
     )
+    registry.actions.register(
+        "create_fly_workspace",
+        create_fly_workspace,
+        requires=("jj",),
+    )
 
     # Dependency actions (no requires - command availability is best-effort)
     registry.actions.register("sync_dependencies", sync_dependencies)
@@ -124,16 +184,21 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     # Task actions (no external deps)
     registry.actions.register("get_phase_names", get_phase_names)
 
-    # Git actions - require git CLI and identity for commits
+    # Git actions - require git CLI and repository
+    registry.actions.register(
+        "git_add",
+        git_add,
+        requires=("git", "git_repo"),
+    )
     registry.actions.register(
         "git_commit",
         git_commit,
-        requires=("git", "git_identity"),
+        requires=("git", "git_repo"),
     )
     registry.actions.register(
         "git_push",
         git_push,
-        requires=("git", "git_remote"),
+        requires=("git", "git_repo", "git_remote"),
     )
     registry.actions.register(
         "git_check_and_stage",
@@ -151,9 +216,71 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         requires=("git", "git_repo"),
     )
     registry.actions.register(
+        "git_merge",
+        git_merge,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
         "create_git_branch",
         create_git_branch,
         requires=("git", "git_repo"),
+    )
+
+    # jj-specific actions
+    registry.actions.register(
+        "jj_commit_bead",
+        jj_commit_bead,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_describe",
+        jj_describe,
+        requires=("jj", "jj_colocated"),
+    )
+    registry.actions.register(
+        "jj_snapshot_operation",
+        jj_snapshot_operation,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_restore_operation",
+        jj_restore_operation,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_squash",
+        jj_squash,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_absorb",
+        jj_absorb,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_log",
+        jj_log,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "jj_diff",
+        jj_diff,
+        requires=("jj",),
+    )
+    registry.actions.register(
+        "curate_history",
+        curate_history,
+        requires=("jj", "jj_colocated"),
+    )
+    registry.actions.register(
+        "gather_curation_context",
+        gather_curation_context,
+        requires=("jj", "jj_colocated"),
+    )
+    registry.actions.register(
+        "execute_curation_plan",
+        execute_curation_plan,
+        requires=("jj", "jj_colocated"),
     )
 
     # GitHub actions - require gh CLI and authentication
@@ -178,6 +305,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register(
         "gather_pr_context",
         gather_pr_context,
+        requires=("git", "git_repo"),
+    )
+    registry.actions.register(
+        "gather_local_review_context",
+        gather_local_review_context,
         requires=("git", "git_repo"),
     )
     registry.actions.register("combine_review_results", combine_review_results)
@@ -208,6 +340,25 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
+
+    # Bead actions - parse_speckit only reads spec files (no bd needed),
+    # but create_beads and wire_dependencies require the bd CLI.
+    registry.actions.register("parse_speckit", parse_speckit)
+    registry.actions.register("create_beads", create_beads, requires=("bd",))
+    registry.actions.register("wire_dependencies", wire_dependencies, requires=("bd",))
+    registry.actions.register("select_next_bead", select_next_bead, requires=("bd",))
+    registry.actions.register(
+        "mark_bead_complete", mark_bead_complete, requires=("bd",)
+    )
+    registry.actions.register("check_epic_done", check_epic_done, requires=("bd",))
+    registry.actions.register(
+        "create_beads_from_failures", create_beads_from_failures, requires=("bd",)
+    )
+    registry.actions.register(
+        "create_beads_from_findings", create_beads_from_findings, requires=("bd",)
+    )
+    registry.actions.register("verify_bead_completion", verify_bead_completion)
+    registry.actions.register("enrich_bead_descriptions", enrich_bead_descriptions)
 
     # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)

@@ -149,7 +149,7 @@ class TestGitToolPatterns:
 
         # Create the MCP server
         server = create_git_tools_server()
-        git_current_branch = server["tools"]["git_current_branch"]
+        git_current_branch = server["_tools"]["git_current_branch"]
 
         # Patch AsyncGitRepository class to return our mock when instantiated
         with patch(
@@ -202,7 +202,7 @@ class TestGitToolPatterns:
 
         # Create server and get tool
         server = create_git_tools_server()
-        git_diff_stats = server["tools"]["git_diff_stats"]
+        git_diff_stats = server["_tools"]["git_diff_stats"]
 
         # Call the tool via handler
         with patch(
@@ -241,7 +241,7 @@ class TestGitToolPatterns:
         """
         # Create server and get tool
         server = create_git_tools_server()
-        git_current_branch = server["tools"]["git_current_branch"]
+        git_current_branch = server["_tools"]["git_current_branch"]
 
         # Call the tool via handler - mock raises NotARepositoryError
         with patch(
@@ -283,7 +283,7 @@ class TestGitToolPatterns:
 
         # Create server and get tool
         server = create_git_tools_server()
-        git_current_branch = server["tools"]["git_current_branch"]
+        git_current_branch = server["_tools"]["git_current_branch"]
 
         # Call the tool via handler
         with patch(

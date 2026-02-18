@@ -1,31 +1,48 @@
 # Dev Container Setup
 
-This directory contains the development container configuration for the Maverick project.
+This directory contains the development container configuration for the Maverick project, based on the [python-agentic](https://github.com/get2knowio/devcontainer-templates/tree/main/src/python-agentic) devcontainer template.
 
 ## What's Included
 
 ### Base Image
-- **Node.js 20 LTS** (Debian Bookworm-based)
-- Non-root user (`node`) for security
+- **Ubuntu** (`mcr.microsoft.com/devcontainers/base:ubuntu`)
+- Non-root user (`vscode`) for security
 
-### Tools & Features
-- **Git** (latest version with PPA)
-- **GitHub CLI** (`gh`) for GitHub operations
-- **Common utilities** (zsh, oh-my-zsh, curl, vim, jq, etc.)
-- **npm** global packages directory configured for non-root user
+### Platform
+
+| Feature | Description |
+|---------|-------------|
+| [Docker-in-Docker](https://github.com/devcontainers/features/tree/main/src/docker-in-docker) | Docker CLI and daemon inside the container |
+| [AWS CLI](https://github.com/devcontainers/features/tree/main/src/aws-cli) | Amazon Web Services command-line interface |
+| [GitHub CLI](https://github.com/devcontainers/features/tree/main/src/github-cli) | GitHub's official CLI (`gh`) |
+| [jq-likes](https://github.com/eitsupi/devcontainer-features/tree/main/src/jq-likes) | jq and similar JSON/YAML/TOML processors |
+| [Starship](https://github.com/devcontainers-extra/features/tree/main/src/starship) | Cross-shell prompt |
+
+### Languages
+
+| Feature | Description |
+|---------|-------------|
+| [Python](https://github.com/devcontainers/features/tree/main/src/python) | Python runtime |
+| [Node.js](https://github.com/devcontainers/features/tree/main/src/node) | Node.js 22 runtime |
+
+### Development Tools ([get2knowio/devcontainer-features](https://github.com/get2knowio/devcontainer-features))
+
+| Feature | Description |
+|---------|-------------|
+| [AI CLI Tools](https://github.com/get2knowio/devcontainer-features/tree/main/src/ai-clis) | Claude Code, Gemini CLI, OpenAI Codex, GitHub Copilot, OpenCode, CodeRabbit, Beads, Specify CLI |
+| [Modern CLI Tools](https://github.com/get2knowio/devcontainer-features/tree/main/src/modern-cli-tools) | bat, ripgrep, fd, fzf, eza, zoxide, neovim, tmux, lazygit, ast-grep, jujutsu |
+| [Python Tools](https://github.com/get2knowio/devcontainer-features/tree/main/src/python-tools) | uv, Poetry, ruff, mypy |
+| [GitHub Actions Tools](https://github.com/get2knowio/devcontainer-features/tree/main/src/github-actions-tools) | act (local runner), actionlint (workflow linter) |
 
 ### VS Code Extensions
-- ESLint
-- Prettier (set as default formatter)
-- Node.js debugging support
+- Python + Pylance
+- Ruff (linter/formatter, set as default)
 - GitHub Copilot & Copilot Chat
 
-### Configuration
-- **Auto-formatting** on save
-- **ESLint** auto-fix on save
-- **Environment**: Development mode
-- **Timezone**: UTC
-- **Bash history** persisted across container rebuilds
+### Maverick-Specific Configuration
+- **Mounts**: `~/.claude`, `~/.config/gh`, and `~/projects/sample-maverick-project` bind-mounted into the container
+- **Environment**: `GH_PAGER` disabled, `CODEX_HOME` set to workspace
+- **ZSH** as default terminal shell
 
 ## Getting Started
 
@@ -39,8 +56,8 @@ This directory contains the development container configuration for the Maverick
 1. Open the project folder in VS Code
 2. When prompted, click "Reopen in Container"
    - Or use Command Palette (F1) → "Dev Containers: Reopen in Container"
-3. Wait for the container to build (first time only)
-4. Dependencies will be installed automatically via `npm install`
+3. Wait for the container to build (first time takes longer as features are installed)
+4. Run `uv sync` to install Python dependencies
 
 ### Manual Setup
 
@@ -51,37 +68,21 @@ If you need to rebuild the container:
 Dev Containers: Rebuild Container
 ```
 
-### Installing External CLI Tools
+## Customizing Features
 
-This project depends on external CLI tools that need to be installed separately:
+Every feature can be customized by passing options in `devcontainer.json`. For example, to only install specific AI CLIs:
 
-```bash
-# Install opencode (if available)
-npm install -g @opencode/cli
-
-# Install coderabbit (if available)
-npm install -g @coderabbit/cli
+```jsonc
+{
+  "features": {
+    "ghcr.io/get2knowio/devcontainer-features/ai-clis:1": {
+      "install": "claudeCode,geminiCli"
+    }
+  }
+}
 ```
 
-## Customization
-
-### Adding Extensions
-
-Edit `.devcontainer/devcontainer.json` and add extension IDs to the `extensions` array.
-
-### Installing Additional Tools
-
-Add additional features to the `features` section in `devcontainer.json`. Browse available features at [containers.dev/features](https://containers.dev/features).
-
-### Changing Node Version
-
-Update the base image in `devcontainer.json`:
-
-```json
-"image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm"
-```
-
-Available versions: 18, 20, 22, 24 (current LTS), 25 (current release)
+See the [python-agentic template README](https://github.com/get2knowio/devcontainer-templates/tree/main/src/python-agentic) for full feature options.
 
 ## Troubleshooting
 
@@ -90,22 +91,13 @@ Available versions: 18, 20, 22, 24 (current LTS), 25 (current release)
 - Try rebuilding: F1 → "Dev Containers: Rebuild Container"
 
 ### Permission Issues
-- The container runs as user `node` (UID 1000)
+- The container runs as user `vscode` (UID 1000)
 - Ensure your local files are accessible
+
+### Mount Failures
+- Ensure `~/.claude`, `~/.config/gh`, and `~/projects/sample-maverick-project` exist on your host
+- Create missing directories before opening the container
 
 ### Slow Performance
 - Check Docker resource allocation in Docker Desktop settings
-- Consider adjusting mount consistency in `devcontainer.json`
-
-## Architecture
-
-```
-.devcontainer/
-├── devcontainer.json    # Main configuration
-└── README.md           # This file
-```
-
-The setup uses:
-- **devcontainer.json**: Complete configuration including base image, VS Code settings, extensions, and features
-- **Features**: Declarative installation of common development tools (Git, GitHub CLI, zsh, etc.)
-- **Base Image**: Official Microsoft Node.js devcontainer image with all necessary tools pre-installed
+- To speed up container builds, disable unneeded AI CLIs via feature options

@@ -1,0 +1,187 @@
+# ==========================================================================
+# refuel-speckit: Generate beads from a SpecKit specification
+# ==========================================================================
+#
+# Checks out the spec branch, parses specs/<spec>/tasks.md into coarse-grained
+# beads, uses an LLM to extract inter-story dependencies, creates beads and
+# wires dependencies via the bd CLI, commits bead data on the spec branch,
+# then merges back into main.
+#
+# Usage:
+#   maverick refuel speckit 001-greet-cli
+#   maverick refuel speckit 001-greet-cli --dry-run
+#
+version: "1.0"
+name: refuel-speckit
+description: Generate beads from a SpecKit specification
+
+inputs:
+  spec:
+    type: string
+    required: true
+    description: Spec identifier (branch name and directory under specs/)
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: Preview bead definitions without calling bd or git
+
+steps:
+  # ============================================================================
+  # Step 1: Checkout Spec Branch
+  # ============================================================================
+  # Switches to the spec branch (or creates it if it doesn't exist).
+  - name: checkout_branch
+    type: python
+    action: create_git_branch
+    kwargs:
+      branch_name: ${{ inputs.spec }}
+    metadata:
+      progress:
+        stage: "checkout"
+        weight: 2
+
+  # ============================================================================
+  # Step 2: Parse Spec Directory
+  # ============================================================================
+  # Reads tasks.md from specs/<spec>/, classifies phases, groups into bead
+  # definitions, enriches with context descriptions, and extracts the
+  # dependency section.
+  - name: parse_spec
+    type: python
+    action: parse_speckit
+    kwargs:
+      spec_dir: specs/${{ inputs.spec }}
+    metadata:
+      progress:
+        stage: "parse"
+        weight: 5
+
+  # ============================================================================
+  # Step 3: Extract Dependencies (LLM)
+  # ============================================================================
+  # Uses DependencyExtractor generator to parse free-form prose into
+  # structured [dependent, dependency] pairs. Skipped if no dependency
+  # section was found.
+  - name: extract_dependencies
+    type: generate
+    generator: dependency_extractor
+    context:
+      dependency_section: ${{ steps.parse_spec.output.dependency_section }}
+    metadata:
+      progress:
+        stage: "extract_deps"
+        weight: 10
+
+  # ============================================================================
+  # Step 3b: Enrich Bead Descriptions (LLM)
+  # ============================================================================
+  # Uses BeadEnricherGenerator to transform sparse bead definitions into
+  # self-contained work items with objectives, acceptance criteria, key files,
+  # conventions, and dependency context.
+  - name: enrich_beads
+    type: python
+    action: enrich_bead_descriptions
+    kwargs:
+      work_definitions: ${{ steps.parse_spec.output.work_definitions }}
+      spec_dir: specs/${{ inputs.spec }}
+      dependency_section: ${{ steps.parse_spec.output.dependency_section }}
+    metadata:
+      progress:
+        stage: "enriching"
+        weight: 15
+
+  # ============================================================================
+  # Step 4: Create Beads
+  # ============================================================================
+  # Creates the epic bead and all work beads via bd CLI (or returns
+  # synthetic IDs in dry-run mode).
+  - name: create_beads
+    type: python
+    action: create_beads
+    kwargs:
+      epic_definition: ${{ steps.parse_spec.output.epic_definition }}
+      work_definitions: ${{ steps.enrich_beads.output }}
+      dry_run: ${{ inputs.dry_run }}
+    metadata:
+      progress:
+        stage: "create"
+        weight: 15
+
+  # ============================================================================
+  # Step 5: Wire Dependencies
+  # ============================================================================
+  # Computes structural deps (foundation->stories, stories->cleanup) and
+  # inter-story deps from the generator output, then wires them via bd CLI.
+  # Only runs if the epic was created successfully.
+  - name: wire_dependencies
+    type: python
+    action: wire_dependencies
+    when: ${{ steps.create_beads.output.epic }}
+    kwargs:
+      work_definitions: ${{ steps.enrich_beads.output }}
+      created_map: ${{ steps.create_beads.output.created_map }}
+      tasks_content: ${{ steps.parse_spec.output.tasks_content }}
+      extracted_deps: ${{ steps.extract_dependencies.output }}
+      dry_run: ${{ inputs.dry_run }}
+    metadata:
+      progress:
+        stage: "wire_deps"
+        weight: 10
+
+  # ============================================================================
+  # Step 6: Commit Beads
+  # ============================================================================
+  # Commits .beads/issues.jsonl changes on the spec branch.
+  # In non-stealth mode, .beads/ is tracked in git normally.
+  # Skipped in dry-run mode.
+  - name: commit_beads
+    type: python
+    action: git_commit
+    when: ${{ not inputs.dry_run }}
+    kwargs:
+      message: "refuel(speckit): create beads for ${{ inputs.spec }}"
+    metadata:
+      progress:
+        stage: "commit"
+        weight: 3
+
+  # ============================================================================
+  # Step 7: Checkout Main
+  # ============================================================================
+  # Switches back to main before merging.
+  # Skipped in dry-run mode.
+  - name: checkout_main
+    type: python
+    action: create_git_branch
+    when: ${{ not inputs.dry_run }}
+    kwargs:
+      branch_name: main
+    metadata:
+      progress:
+        stage: "checkout_main"
+        weight: 2
+
+  # ============================================================================
+  # Step 8: Merge Spec Branch
+  # ============================================================================
+  # Merges the spec branch into main, bringing spec files and bead data.
+  # Skipped in dry-run mode.
+  - name: merge_spec
+    type: python
+    action: git_merge
+    when: ${{ not inputs.dry_run }}
+    kwargs:
+      branch: ${{ inputs.spec }}
+    metadata:
+      progress:
+        stage: "merge"
+        weight: 3
+
+outputs:
+  epic: ${{ steps.create_beads.output.epic }}
+  work_beads: ${{ steps.create_beads.output.work_beads }}
+  dependencies: ${{ steps.wire_dependencies.output.dependencies }}
+  errors: ${{ steps.create_beads.output.errors }}
+  commit: ${{ steps.commit_beads.output }}
+  merge: ${{ steps.merge_spec.output }}

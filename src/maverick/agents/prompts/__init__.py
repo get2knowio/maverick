@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from maverick.agents.prompts.common import (
     CODE_QUALITY_PRINCIPLES,
+    FRAMEWORK_CONVENTIONS,
     TOOL_USAGE_EDIT,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
@@ -19,6 +20,7 @@ from maverick.agents.prompts.common import (
 
 __all__ = [
     "CODE_QUALITY_PRINCIPLES",
+    "FRAMEWORK_CONVENTIONS",
     "TOOL_USAGE_EDIT",
     "TOOL_USAGE_GLOB",
     "TOOL_USAGE_GREP",

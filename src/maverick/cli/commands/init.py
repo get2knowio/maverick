@@ -303,6 +303,14 @@ async def init(
             for line in lines:
                 click.echo(line)
 
+            # jj init status (only show if initialized)
+            if result.jj_initialized:
+                click.echo("✓ Jujutsu colocated repo initialized (.jj/)")
+
+            # Beads init status (only show if initialized)
+            if result.beads_initialized:
+                click.echo("✓ Beads initialized (.beads/)")
+
             # Success message
             click.echo(f"✓ Configuration written to {result.config_path}")
             raise SystemExit(ExitCode.SUCCESS)

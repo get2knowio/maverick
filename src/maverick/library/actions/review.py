@@ -329,6 +329,112 @@ async def gather_pr_context(
         )
 
 
+async def gather_local_review_context(
+    base_branch: str = "main",
+    include_spec_files: bool = False,
+    spec_dir: str | None = None,
+    exclude_patterns: tuple[str, ...] | list[str] | None = None,
+) -> ReviewContextResult:
+    """Gather local review context including uncommitted changes.
+
+    Unlike ``gather_pr_context``, this function does not depend on the ``gh``
+    CLI.  It combines uncommitted changes (staged + unstaged) with committed
+    branch changes to produce a single review context suitable for pre-commit
+    review workflows.
+
+    Args:
+        base_branch: Base branch for comparison (default: "main").
+        include_spec_files: Whether to include spec files in context.
+        spec_dir: Directory containing spec files (auto-detect if None).
+        exclude_patterns: Glob patterns for files to exclude from review scope.
+            Defaults to DEFAULT_EXCLUDE_PATTERNS.
+
+    Returns:
+        ReviewContextResult with diff, changed files, and optionally spec files.
+    """
+    if exclude_patterns is None:
+        exclude_patterns = DEFAULT_EXCLUDE_PATTERNS
+    elif isinstance(exclude_patterns, list):
+        exclude_patterns = tuple(exclude_patterns)
+
+    try:
+        repo = AsyncGitRepository()
+
+        current_branch = await repo.current_branch()
+
+        # Get uncommitted diff (staged + unstaged vs HEAD)
+        uncommitted_diff = await repo.diff("HEAD")
+
+        # Get branch diff (committed changes since base)
+        branch_diff = await repo.diff(base=f"{base_branch}...HEAD")
+
+        # Combine both diffs
+        combined_parts: list[str] = []
+        if branch_diff:
+            combined_parts.append(branch_diff)
+        if uncommitted_diff:
+            combined_parts.append(uncommitted_diff)
+        raw_diff = "\n".join(combined_parts)
+
+        # Get changed files from both uncommitted status and branch diff
+        status = await repo.status()
+        local_files = set(status.staged + status.unstaged + status.untracked)
+
+        branch_changed = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
+        all_changed = tuple(sorted(local_files | set(branch_changed)))
+
+        # Apply exclusion filters
+        if exclude_patterns:
+            changed_files = _filter_changed_files(all_changed, exclude_patterns)
+            diff = _filter_diff(raw_diff, exclude_patterns)
+        else:
+            changed_files = all_changed
+            diff = raw_diff
+
+        # Get commit messages since base branch
+        commit_messages = await repo.commit_messages_since(ref=base_branch)
+        commits = tuple(commit_messages)
+
+        # Gather spec files if requested
+        spec_files: dict[str, str] = {}
+        if include_spec_files:
+            spec_files = await _gather_spec_files(spec_dir, current_branch)
+
+        return ReviewContextResult(
+            pr_metadata=PRMetadata(
+                number=None,
+                title=None,
+                description=None,
+                author=None,
+                labels=(),
+                base_branch=base_branch,
+            ),
+            changed_files=changed_files,
+            diff=diff,
+            commits=commits,
+            spec_files=spec_files,
+            error=None,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to gather local review context: {e}")
+        return ReviewContextResult(
+            pr_metadata=PRMetadata(
+                number=None,
+                title=None,
+                description=None,
+                author=None,
+                labels=(),
+                base_branch=base_branch,
+            ),
+            changed_files=(),
+            diff="",
+            commits=(),
+            spec_files={},
+            error=str(e),
+        )
+
+
 async def _gather_spec_files(
     spec_dir: str | None,
     current_branch: str | None,

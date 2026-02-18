@@ -15,12 +15,17 @@ import anyio
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import LoopStepExecutionError
 from maverick.dsl.events import (
+    LoopConditionChecked,
     LoopIterationCompleted,
     LoopIterationStarted,
     StepCompleted,
     StepStarted,
 )
-from maverick.dsl.serialization.executor.conditions import evaluate_for_each_expression
+from maverick.dsl.serialization.executor.conditions import (
+    evaluate_condition,
+    evaluate_for_each_expression,
+)
+from maverick.dsl.serialization.executor.context import validate_step_output
 from maverick.dsl.serialization.executor.handlers.base import EventCallback
 from maverick.dsl.serialization.executor.handlers.models import HandlerOutput
 from maverick.dsl.serialization.executor.step_path import make_prefix_callback
@@ -143,7 +148,15 @@ async def execute_loop_step(
     # Resolve parallel shorthand to effective max_concurrency
     effective_max_concurrency = step.get_effective_max_concurrency()
 
-    if step.for_each:
+    if step.until:
+        # Execute steps repeatedly until condition is met
+        return await _execute_loop_until(
+            step,
+            context,
+            execute_step_fn,
+            event_callback=event_callback,
+        )
+    elif step.for_each:
         # Execute steps for each item in the iteration list
         return await _execute_loop_for_each(
             step,
@@ -640,3 +653,260 @@ async def _execute_loop_for_each(
     _check_for_failures(iteration_results, step.name)
 
     return HandlerOutput(result=iteration_results, events=emitted_events)
+
+
+async def _execute_loop_until(
+    step: LoopStepRecord,
+    context: WorkflowContext,
+    execute_step_fn: Callable[..., Coroutine[Any, Any, Any]],
+    event_callback: EventCallback | None = None,
+) -> HandlerOutput:
+    """Execute loop steps repeatedly until a condition is met.
+
+    Each iteration executes body steps sequentially, then evaluates the
+    ``until`` expression. Stops when the expression is truthy or
+    ``max_iterations`` is reached.
+
+    Body step outputs overwrite each iteration so the latest results are
+    always available to the ``until`` expression and subsequent steps.
+
+    Args:
+        step: LoopStepRecord with ``until`` expression.
+        context: Execution context.
+        execute_step_fn: Function to execute nested steps.
+        event_callback: Optional callback for progress events.
+
+    Returns:
+        HandlerOutput with results from all iterations.
+
+    Raises:
+        ValueError: If ``until`` is None.
+    """
+    if step.until is None:
+        raise ValueError(f"Step {step.name} has no until expression")
+
+    max_iters = step.max_iterations
+    emitted_events: list[
+        LoopIterationStarted | LoopIterationCompleted | LoopConditionChecked
+    ] = []
+    all_iteration_results: list[list[Any]] = []
+
+    # Track parent loop for nested loop visibility
+    parent_step_name = context.iteration_context.get(_CURRENT_LOOP_STEP_KEY)
+    context.iteration_context[_CURRENT_LOOP_STEP_KEY] = step.name
+
+    try:
+        for iteration_index in range(max_iters):
+            item_label = f"Iteration {iteration_index + 1}"
+
+            # Wrap callback with iteration prefix
+            iter_callback: EventCallback | None = None
+            if event_callback:
+                iter_callback = make_prefix_callback(
+                    f"[{iteration_index}]", event_callback
+                )
+
+            # Emit LoopIterationStarted
+            start_event = LoopIterationStarted(
+                step_name=step.name,
+                iteration_index=iteration_index,
+                total_iterations=max_iters,
+                item_label=item_label,
+                parent_step_name=parent_step_name,
+                step_path=f"[{iteration_index}]",
+            )
+            if event_callback:
+                await event_callback(start_event)
+            else:
+                emitted_events.append(start_event)
+
+            logger.debug(
+                "loop_until_iteration_started",
+                step_name=step.name,
+                iteration=iteration_index,
+                max_iterations=max_iters,
+            )
+
+            start_time = time.time()
+            success = True
+            error_msg: str | None = None
+            step_results: list[Any] = []
+
+            # Create iteration context (no item/index since this isn't for_each)
+            iter_context = replace(
+                context,
+                iteration_context={
+                    "index": iteration_index,
+                    _CURRENT_LOOP_STEP_KEY: step.name,
+                },
+            )
+
+            # Execute body steps sequentially
+            try:
+                for _step_idx, s in enumerate(step.steps):
+                    # Evaluate when condition (skip step if false)
+                    if s.when:
+                        try:
+                            should_run = evaluate_condition(s.when, iter_context)
+                            if not should_run:
+                                logger.debug(
+                                    "loop_body_step_skipped",
+                                    step_name=s.name,
+                                    condition=s.when,
+                                )
+                                # Store None output so later expressions
+                                # can reference this step
+                                iter_context.store_step_output(s.name, None, s.type)
+                                step_results.append(None)
+                                continue
+                        except Exception as cond_exc:
+                            logger.warning(
+                                "loop_body_when_eval_failed",
+                                step_name=s.name,
+                                error=str(cond_exc),
+                            )
+                            iter_context.store_step_output(s.name, None, s.type)
+                            step_results.append(None)
+                            continue
+
+                    nested_step_start = time.time()
+                    if iter_callback is not None:
+                        await iter_callback(
+                            StepStarted(
+                                step_name=s.name,
+                                step_type=s.type,
+                                step_path=s.name,
+                            )
+                        )
+
+                    try:
+                        result = await execute_step_fn(s, iter_context, iter_callback)
+                        step_results.append(result)
+
+                        # Store body step output in context so subsequent
+                        # steps (and the until expression) can reference it
+                        # via ${{ steps.<name>.output }}.
+                        validated = validate_step_output(result, s.name, s.type)
+                        iter_context.store_step_output(s.name, validated, s.type)
+
+                        if iter_callback is not None:
+                            nested_duration = int(
+                                (time.time() - nested_step_start) * 1000
+                            )
+                            await iter_callback(
+                                StepCompleted(
+                                    step_name=s.name,
+                                    step_type=s.type,
+                                    success=True,
+                                    duration_ms=nested_duration,
+                                    step_path=s.name,
+                                )
+                            )
+                    except BaseException as exc:
+                        if iter_callback is not None:
+                            nested_duration = int(
+                                (time.time() - nested_step_start) * 1000
+                            )
+                            await iter_callback(
+                                StepCompleted(
+                                    step_name=s.name,
+                                    step_type=s.type,
+                                    success=False,
+                                    duration_ms=nested_duration,
+                                    error=str(exc),
+                                    step_path=s.name,
+                                )
+                            )
+                        step_results.append(exc)
+                        success = False
+                        error_msg = str(exc)
+                        break  # Stop iteration on body step failure
+            except BaseException as exc:
+                success = False
+                error_msg = str(exc)
+
+            all_iteration_results.append(step_results)
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Emit LoopIterationCompleted
+            completed_event = LoopIterationCompleted(
+                step_name=step.name,
+                iteration_index=iteration_index,
+                success=success,
+                duration_ms=duration_ms,
+                error=error_msg,
+                step_path=f"[{iteration_index}]",
+            )
+            if event_callback:
+                await event_callback(completed_event)
+            else:
+                emitted_events.append(completed_event)
+
+            # If body failed, stop the loop
+            if not success:
+                logger.warning(
+                    "loop_until_body_failed",
+                    step_name=step.name,
+                    iteration=iteration_index,
+                    error=error_msg,
+                )
+                break
+
+            # Evaluate until condition using the context (which has updated
+            # step results from execute_step_fn)
+            condition_met = evaluate_condition(step.until, context)
+
+            # Emit LoopConditionChecked
+            condition_event = LoopConditionChecked(
+                step_name=step.name,
+                iteration_index=iteration_index,
+                condition_met=bool(condition_met),
+                condition_value=condition_met,
+                step_path=f"[{iteration_index}]",
+            )
+            if event_callback:
+                await event_callback(condition_event)
+            else:
+                emitted_events.append(condition_event)
+
+            logger.debug(
+                "loop_until_condition_checked",
+                step_name=step.name,
+                iteration=iteration_index,
+                condition_met=bool(condition_met),
+            )
+
+            if condition_met:
+                logger.info(
+                    "loop_until_condition_met",
+                    step_name=step.name,
+                    iterations_completed=iteration_index + 1,
+                )
+                break
+        else:
+            # Reached max_iterations without condition being met
+            logger.warning(
+                "loop_until_max_iterations",
+                step_name=step.name,
+                max_iterations=max_iters,
+            )
+    finally:
+        # Restore parent loop context
+        if parent_step_name is not None:
+            context.iteration_context[_CURRENT_LOOP_STEP_KEY] = parent_step_name
+        else:
+            context.iteration_context.pop(_CURRENT_LOOP_STEP_KEY, None)
+
+    # Check for failures in the last iteration
+    if all_iteration_results:
+        last_results = all_iteration_results[-1]
+        for r in last_results:
+            if isinstance(r, BaseException):
+                raise LoopStepExecutionError(
+                    step_name=step.name,
+                    failed_iterations=[(len(all_iteration_results) - 1, str(r))],
+                    total_iterations=len(all_iteration_results),
+                )
+
+    return HandlerOutput(result=all_iteration_results, events=emitted_events)

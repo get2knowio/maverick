@@ -657,3 +657,89 @@ class TestGitHubClientRateLimiting:
 
         # 6 requests at 3/second should take at least 1 second
         assert duration >= 0.8  # Allow some tolerance
+
+
+class TestGitHubClientContextManager:
+    """Tests for GitHubClient context manager protocol."""
+
+    @pytest.fixture
+    def mock_github(self):
+        """Create a mock PyGithub client."""
+        return MagicMock()
+
+    def test_sync_context_manager_enter_returns_self(self, mock_github):
+        """Test that __enter__ returns the client instance."""
+        client = GitHubClient(github=mock_github)
+        with client as ctx:
+            assert ctx is client
+
+    def test_sync_context_manager_calls_close_on_exit(self, mock_github):
+        """Test that __exit__ calls close()."""
+        client = GitHubClient(github=mock_github)
+        with client:
+            pass
+
+        mock_github.close.assert_called_once()
+        assert client._github is None
+
+    def test_sync_context_manager_calls_close_on_exception(self, mock_github):
+        """Test that __exit__ calls close() even when an exception occurs."""
+        client = GitHubClient(github=mock_github)
+        with pytest.raises(ValueError, match="test error"):
+            with client:
+                raise ValueError("test error")
+
+        mock_github.close.assert_called_once()
+        assert client._github is None
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_enter_returns_self(self, mock_github):
+        """Test that __aenter__ returns the client instance."""
+        client = GitHubClient(github=mock_github)
+        async with client as ctx:
+            assert ctx is client
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_calls_close_on_exit(self, mock_github):
+        """Test that __aexit__ calls close()."""
+        client = GitHubClient(github=mock_github)
+        async with client:
+            pass
+
+        mock_github.close.assert_called_once()
+        assert client._github is None
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_calls_close_on_exception(self, mock_github):
+        """Test that __aexit__ calls close() even when an exception occurs."""
+        client = GitHubClient(github=mock_github)
+        with pytest.raises(ValueError, match="test error"):
+            async with client:
+                raise ValueError("test error")
+
+        mock_github.close.assert_called_once()
+        assert client._github is None
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_with_operations(self, mock_github):
+        """Test using async context manager with actual operations."""
+        mock_repo = MagicMock()
+        mock_issues = [MagicMock()]
+        mock_repo.get_issues.return_value = mock_issues
+        mock_github.get_repo.return_value = mock_repo
+
+        async with GitHubClient(github=mock_github) as client:
+            issues = await client.list_issues("owner/repo")
+            assert len(issues) == 1
+
+        # close() should have been called on exit
+        mock_github.close.assert_called_once()
+
+    def test_sync_context_manager_close_idempotent(self):
+        """Test that close() via context manager is safe when github is None."""
+        client = GitHubClient()
+        client._github = None
+
+        # Should not raise
+        with client:
+            pass

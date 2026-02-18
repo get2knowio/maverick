@@ -13,7 +13,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from maverick.cli.context import ExitCode
 from maverick.main import cli
 
 
@@ -81,90 +80,31 @@ class TestBasicCLIPatterns:
         assert "Usage:" in result.output
 
 
-class TestConfigCommandExamples:
-    """Examples of testing config subcommands."""
+class TestFlyCommandExamples:
+    """Examples of testing fly command."""
 
-    def test_config_init_delegates_to_init(
-        self,
-        cli_runner: CliRunner,
-        tmp_path: Path,
-    ) -> None:
-        """Example: Test config init delegates to maverick init.
-
-        Pattern: Verifying deprecation behavior with mocked delegation.
-
-        Note: Since T044-T046, 'config init' is deprecated and delegates
-        to 'maverick init'.
-        """
-        from unittest.mock import MagicMock, patch
-
-        # Use isolated filesystem to prevent affecting real files
-        with cli_runner.isolated_filesystem(temp_dir=tmp_path):
-            # Mock the init module and ctx.invoke to verify delegation
-            mock_init_module = MagicMock()
-            mock_init_cmd = MagicMock()
-            mock_init_module.init = mock_init_cmd
-
-            with patch.dict(
-                "sys.modules", {"maverick.cli.commands.init": mock_init_module}
-            ):
-                with patch("click.Context.invoke") as mock_invoke:
-                    cli_runner.invoke(cli, ["config", "init"])
-
-            # Verify init command was invoked (delegation works)
-            assert mock_invoke.call_count >= 1
-
-    def test_config_show_with_valid_config(
+    def test_fly_help(
         self,
         cli_runner: CliRunner,
         tmp_path: Path,
         sample_config: dict[str, Any],
     ) -> None:
-        """Example: Test config show displays configuration.
+        """Example: Test fly --help shows bead-driven options.
 
-        Pattern: Setting up test fixtures before command execution.
+        Pattern: Verifying command help output.
+        Note: fly requires maverick.yaml (checked by group callback),
+        so we provide one in an isolated filesystem.
         """
         with cli_runner.isolated_filesystem(temp_dir=tmp_path):
-            # Setup: Create config file first
             config_file = Path("maverick.yaml")
             with open(config_file, "w") as f:
                 yaml.dump(sample_config, f)
 
-            # Execute: Run config show command
-            result = cli_runner.invoke(cli, ["config", "show"])
+            result = cli_runner.invoke(cli, ["fly", "--help"])
 
-            # Assert: Verify output
             assert result.exit_code == 0
-            assert "github:" in result.output
-            assert "model:" in result.output
-
-    def test_config_validate_detects_invalid(
-        self,
-        cli_runner: CliRunner,
-        tmp_path: Path,
-    ) -> None:
-        """Example: Test config validate detects invalid configuration.
-
-        Pattern: Testing error cases and exit codes.
-        """
-        with cli_runner.isolated_filesystem(temp_dir=tmp_path):
-            # Setup: Create invalid config (wrong type)
-            config_file = Path("maverick.yaml")
-            invalid_config = {
-                "model": {
-                    "model_id": "claude-sonnet-4-5-20250929",
-                    "max_tokens": "not-a-number",  # Wrong type
-                }
-            }
-            with open(config_file, "w") as f:
-                yaml.dump(invalid_config, f)
-
-            # Execute: Run config validate
-            result = cli_runner.invoke(cli, ["config", "validate"])
-
-            # Assert: Should fail with error message
-            assert result.exit_code == ExitCode.FAILURE
-            assert "Error" in result.output or "Invalid" in result.output
+            assert "--epic" in result.output
+            assert "--dry-run" in result.output
 
 
 class TestVerbosityOptions:
@@ -248,8 +188,8 @@ class TestErrorHandling:
             with open(config_file, "w") as f:
                 yaml.dump(sample_config, f)
 
-            # Run command without required argument (review needs PR number)
-            result = cli_runner.invoke(cli, ["review"])
+            # Run refuel speckit without required spec_dir argument
+            result = cli_runner.invoke(cli, ["refuel", "speckit"])
 
             # Should fail with usage error
             assert result.exit_code != 0

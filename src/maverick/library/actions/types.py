@@ -545,6 +545,227 @@ class RefuelSummaryResult:
 # =============================================================================
 
 
+# =============================================================================
+# Bead Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class SelectNextBeadResult:
+    """Result of selecting the next ready bead from an epic.
+
+    Attributes:
+        found: Whether a ready bead was found.
+        bead_id: ID of the selected bead (empty if not found).
+        title: Title of the selected bead.
+        description: Description of the selected bead.
+        priority: Priority of the selected bead.
+        epic_id: Parent epic ID of the selected bead.
+        done: Whether the epic has no more ready beads.
+    """
+
+    found: bool
+    bead_id: str
+    title: str
+    description: str
+    priority: int
+    epic_id: str
+    done: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "found": self.found,
+            "bead_id": self.bead_id,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority,
+            "epic_id": self.epic_id,
+            "done": self.done,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MarkBeadCompleteResult:
+    """Result of closing/completing a bead.
+
+    Attributes:
+        success: Whether the bead was closed successfully.
+        bead_id: ID of the bead that was closed.
+        error: Error message if closing failed.
+    """
+
+    success: bool
+    bead_id: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "bead_id": self.bead_id,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBeadsFromFailuresResult:
+    """Result of creating fix beads from validation failures.
+
+    Attributes:
+        created_count: Number of beads created.
+        bead_ids: IDs of created beads.
+        errors: Errors encountered during creation.
+    """
+
+    created_count: int
+    bead_ids: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "created_count": self.created_count,
+            "bead_ids": list(self.bead_ids),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBeadsFromFindingsResult:
+    """Result of creating fix beads from review findings.
+
+    Attributes:
+        created_count: Number of beads created.
+        bead_ids: IDs of created beads.
+        errors: Errors encountered during creation.
+    """
+
+    created_count: int
+    bead_ids: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "created_count": self.created_count,
+            "bead_ids": list(self.bead_ids),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CheckEpicDoneResult:
+    """Result of checking whether an epic has remaining ready beads.
+
+    Attributes:
+        done: Whether the epic has no more ready beads.
+        remaining_count: Number of remaining ready beads.
+    """
+
+    done: bool
+    remaining_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "done": self.done,
+            "remaining_count": self.remaining_count,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SpecKitParseResult:
+    """Result of parsing a SpecKit specification directory.
+
+    Attributes:
+        epic_definition: Serialized BeadDefinition for the epic.
+        work_definitions: Serialized BeadDefinitions for work beads.
+        tasks_content: Raw tasks.md content for dependency extraction.
+        dependency_section: Extracted "User Story Dependencies" text block.
+    """
+
+    epic_definition: dict[str, Any]
+    work_definitions: tuple[dict[str, Any], ...]
+    tasks_content: str
+    dependency_section: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "epic_definition": self.epic_definition,
+            "work_definitions": list(self.work_definitions),
+            "tasks_content": self.tasks_content,
+            "dependency_section": self.dependency_section,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class BeadCreationResult:
+    """Result of creating epic and work beads via bd CLI.
+
+    Attributes:
+        epic: Serialized CreatedBead for the epic (None if creation failed).
+        work_beads: Serialized CreatedBeads for work beads.
+        created_map: Mapping from bead title to bd_id.
+        errors: Errors encountered during creation.
+    """
+
+    epic: dict[str, Any] | None
+    work_beads: tuple[dict[str, Any], ...]
+    created_map: dict[str, str]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "epic": self.epic,
+            "work_beads": list(self.work_beads),
+            "created_map": dict(self.created_map),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DependencyWiringResult:
+    """Result of computing and wiring dependencies between beads.
+
+    Attributes:
+        dependencies: Serialized BeadDependency objects that were wired.
+        errors: Errors encountered during wiring.
+        success: Whether all dependencies were wired successfully.
+    """
+
+    dependencies: tuple[dict[str, Any], ...]
+    errors: tuple[str, ...]
+    success: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "dependencies": list(self.dependencies),
+            "errors": list(self.errors),
+            "success": self.success,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyBeadCompletionResult:
+    """Result of verifying bead completion before commit/close.
+
+    Attributes:
+        passed: Whether the bead is ready to commit and close.
+        reasons: Reasons for failure (empty if passed).
+    """
+
+    passed: bool
+    reasons: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {"passed": self.passed, "reasons": list(self.reasons)}
+
+
 @dataclass(frozen=True, slots=True)
 class TechDebtIssueResult:
     """Result of creating a tech debt issue.

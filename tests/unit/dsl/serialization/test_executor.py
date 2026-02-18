@@ -437,3 +437,81 @@ async def test_executor_multiple_steps_event_order(registry):
     assert isinstance(events[8], StepCompleted)
     assert events[8].step_name == "step2"
     assert isinstance(events[9], WorkflowCompleted)
+
+
+# =============================================================================
+# _coerce_input_types
+# =============================================================================
+
+
+class TestCoerceInputTypes:
+    """Tests for _coerce_input_types helper."""
+
+    def test_coerces_string_false_to_boolean(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "dry_run": InputDefinition(
+                type=InputType.BOOLEAN, required=False, default=False
+            ),
+        }
+        result = _coerce_input_types({"dry_run": "False"}, definitions)
+        assert result["dry_run"] is False
+
+    def test_coerces_string_true_to_boolean(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "verbose": InputDefinition(
+                type=InputType.BOOLEAN, required=False, default=False
+            ),
+        }
+        result = _coerce_input_types({"verbose": "true"}, definitions)
+        assert result["verbose"] is True
+
+    def test_leaves_actual_booleans_unchanged(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "flag": InputDefinition(
+                type=InputType.BOOLEAN, required=False, default=False
+            ),
+        }
+        result = _coerce_input_types({"flag": False}, definitions)
+        assert result["flag"] is False
+
+    def test_coerces_string_integer(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "count": InputDefinition(type=InputType.INTEGER),
+        }
+        result = _coerce_input_types({"count": "42"}, definitions)
+        assert result["count"] == 42
+
+    def test_leaves_strings_as_strings(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "name": InputDefinition(type=InputType.STRING),
+        }
+        result = _coerce_input_types({"name": "hello"}, definitions)
+        assert result["name"] == "hello"
+
+    def test_ignores_unknown_inputs(self) -> None:
+        from maverick.dsl.serialization.executor.executor import _coerce_input_types
+        from maverick.dsl.serialization.schema import InputDefinition, InputType
+
+        definitions = {
+            "flag": InputDefinition(
+                type=InputType.BOOLEAN, required=False, default=False
+            ),
+        }
+        result = _coerce_input_types({"flag": "true", "extra": "value"}, definitions)
+        assert result["flag"] is True
+        assert result["extra"] == "value"

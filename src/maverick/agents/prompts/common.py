@@ -10,6 +10,7 @@ Usage:
         TOOL_USAGE_READ,
         TOOL_USAGE_EDIT,
         CODE_QUALITY_PRINCIPLES,
+        FRAMEWORK_CONVENTIONS,
     )
 
     AGENT_PROMPT = f\"\"\"You are an agent...
@@ -21,6 +22,10 @@ Usage:
     {TOOL_USAGE_EDIT}
 
     {CODE_QUALITY_PRINCIPLES}
+
+    {FRAMEWORK_CONVENTIONS}
+
+    $project_conventions
     \"\"\"
 """
 
@@ -89,3 +94,46 @@ CODE_QUALITY_PRINCIPLES = """\
   ones. Only create files that are truly necessary.
 - **Clean boundaries**: Ensure new code integrates cleanly with existing
   patterns. Match the style and conventions of surrounding code."""
+
+# =============================================================================
+# Framework Conventions (universal, language-agnostic)
+# =============================================================================
+
+FRAMEWORK_CONVENTIONS = """\
+## Framework Conventions
+
+These conventions govern how you operate within the orchestration framework.
+Follow them strictly regardless of the target project's language or stack.
+
+### Separation of Concerns
+- Agents provide judgment (implementation, review, fix suggestions).
+- Workflows own deterministic side effects (commits, validation, retries).
+- Agents MUST NOT create commits, push code, or run validation directly.
+
+### Hardening by Default
+- All external calls (network APIs, subprocesses) MUST have explicit timeouts.
+- Network operations MUST use retry with exponential backoff.
+- No bare catch-all exception handling — use specific exception types.
+
+### Testing Requirements
+- Every public class and function MUST have tests.
+- TDD: Red-Green-Refactor. Write tests alongside implementation.
+- Test error states and concurrency for async components, not just happy paths.
+
+### Type Safety
+- Complete type hints on all public functions and classes.
+- Use typed data structures (dataclasses, typed models) over untyped dicts.
+- Action outputs must use typed contracts — no ad-hoc untyped blobs.
+
+### Code Style
+- Follow the naming conventions established by the project (check CLAUDE.md).
+- No magic numbers or string literals in logic — extract to named constants.
+- No direct console output in library code — use the project's logging mechanism.
+
+### Modularization
+- Aim for modules < ~500 LOC. Refactor at ~800 LOC.
+- Single responsibility per module.
+- Prefer composition over inheritance for shared capabilities."""
+
+# Backward-compatibility alias — importers that haven't migrated yet.
+PROJECT_CONVENTIONS = FRAMEWORK_CONVENTIONS

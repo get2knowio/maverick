@@ -33,13 +33,13 @@ if _dotenv_loaded:
         )
 
 from maverick import __version__  # noqa: E402
-from maverick.cli.commands.config import config  # noqa: E402
+from maverick.cli.commands.brief import brief  # noqa: E402
 from maverick.cli.commands.fly import fly  # noqa: E402
 from maverick.cli.commands.init import init  # noqa: E402
-from maverick.cli.commands.review import review  # noqa: E402
-from maverick.cli.commands.status import status  # noqa: E402
+from maverick.cli.commands.land import land  # noqa: E402
+from maverick.cli.commands.refuel import refuel  # noqa: E402
 from maverick.cli.commands.uninstall import uninstall  # noqa: E402
-from maverick.cli.commands.workflow import workflow  # noqa: E402
+from maverick.cli.commands.workspace import workspace  # noqa: E402
 from maverick.cli.context import CLIContext, ExitCode  # noqa: E402
 from maverick.cli.output import format_error  # noqa: E402
 from maverick.cli.validators import check_dependencies  # noqa: E402
@@ -70,27 +70,18 @@ from maverick.exceptions import ConfigError  # noqa: E402
     default=False,
     help="Suppress non-essential output (ERROR level only).",
 )
-@click.option(
-    "--no-tui",
-    is_flag=True,
-    default=False,
-    help="Disable TUI mode (headless operation).",
-)
 @click.pass_context
 def cli(
     ctx: click.Context,
     config_file: str | None,
     verbose: int,
     quiet: bool,
-    no_tui: bool,
 ) -> None:
     """Maverick - AI-powered development workflow orchestration."""
     # Ensure ctx.obj exists for subcommands
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
-    ctx.obj["no_tui"] = no_tui
-
     # Load configuration first (before logging setup)
     try:
         # If --config specified, load from that path
@@ -114,7 +105,6 @@ def cli(
         config_path=Path(config_file) if config_file else None,
         verbosity=verbose,
         quiet=quiet,
-        no_tui=no_tui,
     )
     ctx.obj["cli_ctx"] = cli_ctx
 
@@ -146,7 +136,8 @@ def cli(
     # Only validate when a command is being invoked (not for --help/--version)
     if ctx.invoked_subcommand is not None:
         # Define which commands need which dependencies
-        commands_needing_git_gh = {"fly", "review", "status"}
+        commands_needing_git_gh = {"fly", "refuel", "brief", "land"}
+        commands_needing_config = {"fly"}
 
         if ctx.invoked_subcommand in commands_needing_git_gh:
             # Check for git and gh CLI tools
@@ -166,6 +157,7 @@ def cli(
                     click.echo(error_msg, err=True)
                 ctx.exit(ExitCode.FAILURE)
 
+        if ctx.invoked_subcommand in commands_needing_config:
             # Require maverick.yaml for workflow commands
             project_config_path = (
                 Path(config_file) if config_file else Path.cwd() / "maverick.yaml"
@@ -184,13 +176,13 @@ def cli(
 
 
 # Register commands
+cli.add_command(brief)
 cli.add_command(fly)
-cli.add_command(review)
-cli.add_command(config)
-cli.add_command(workflow)
-cli.add_command(status)
 cli.add_command(init)
+cli.add_command(land)
+cli.add_command(refuel)
 cli.add_command(uninstall)
+cli.add_command(workspace)
 
 if __name__ == "__main__":
     cli()

@@ -626,6 +626,8 @@ class InitResult:
     config: InitConfig
     detection: ProjectDetectionResult | None = None
     findings_printed: bool = False
+    jj_initialized: bool = False
+    beads_initialized: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -641,6 +643,8 @@ class InitResult:
             "git_info": self.git_info.to_dict(),
             "config": self.config.model_dump(),
             "findings_printed": self.findings_printed,
+            "jj_initialized": self.jj_initialized,
+            "beads_initialized": self.beads_initialized,
         }
 
 

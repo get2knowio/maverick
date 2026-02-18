@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from maverick.config import MaverickConfig, load_config
-from maverick.dsl.events import StepOutput
+from maverick.dsl.events import OutputLevel, StepOutput
 from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
 from maverick.runners.preflight import AnthropicAPIValidator
@@ -47,6 +47,7 @@ class PreflightCheckResult:
     success: bool
     api_available: bool = True
     git_available: bool = True
+    jj_available: bool = True
     github_cli_available: bool = True
     validation_tools_available: bool = True
     errors: tuple[str, ...] = field(default_factory=tuple)
@@ -58,6 +59,7 @@ class PreflightCheckResult:
             "success": self.success,
             "api_available": self.api_available,
             "git_available": self.git_available,
+            "jj_available": self.jj_available,
             "github_cli_available": self.github_cli_available,
             "validation_tools_available": self.validation_tools_available,
             "errors": list(self.errors),
@@ -82,7 +84,7 @@ async def _emit_check(
     if event_callback is None:
         return
     icon = "\u2713" if passed else "\u2717"
-    level = "success" if passed else "error"
+    level: OutputLevel = "success" if passed else "error"
     message = f" {icon} {name}"
     if detail:
         message = f"{message} \u2014 {detail}"
@@ -99,7 +101,9 @@ async def _emit_check(
 async def run_preflight_checks(
     check_api: bool = True,
     check_git: bool = True,
+    check_jj: bool = False,
     check_github: bool = True,
+    check_bd: bool = False,
     check_validation_tools: bool = True,
     validation_stages: list[str] | None = None,
     fail_on_error: bool = True,
@@ -114,7 +118,9 @@ async def run_preflight_checks(
     Args:
         check_api: Whether to validate Anthropic API access.
         check_git: Whether to validate git is available.
+        check_jj: Whether to validate jj (Jujutsu) CLI is available.
         check_github: Whether to validate GitHub CLI is authenticated.
+        check_bd: Whether to validate the ``bd`` CLI is available.
         check_validation_tools: Whether to validate validation tools are installed.
         validation_stages: List of validation stages to check tools for.
             Defaults to ["format", "lint", "typecheck", "test"].
@@ -159,6 +165,7 @@ async def run_preflight_checks(
     warnings: list[str] = []
     api_available = True
     git_available = True
+    jj_available = True
     github_cli_available = True
     validation_tools_available = True
 
@@ -273,6 +280,23 @@ async def run_preflight_checks(
                 warnings.append(f"Git identity check failed: {e}")
                 logger.warning("Git identity check failed", error=str(e))
 
+    # Check jj (Jujutsu) CLI
+    if check_jj:
+        import shutil as _shutil_jj
+
+        logger.info("Checking jj CLI availability...")
+        if _shutil_jj.which("jj") is None:
+            jj_available = False
+            errors.append(
+                "jj (Jujutsu) is not installed or not on PATH. "
+                "Install from: https://martinvonz.github.io/jj/latest/install-and-setup/"
+            )
+            logger.error("jj CLI not found")
+            await _emit_check(event_callback, "jj CLI", False, "not installed")
+        else:
+            logger.info("jj CLI is available")
+            await _emit_check(event_callback, "jj CLI", True, "installed")
+
     # Check GitHub CLI
     if check_github:
         logger.info("Checking GitHub CLI...")
@@ -332,6 +356,22 @@ async def run_preflight_checks(
                     error=str(e),
                     error_type=type(e).__name__,
                 )
+
+    # Check bd CLI
+    if check_bd:
+        import shutil as _shutil_bd
+
+        logger.info("Checking bd CLI availability...")
+        if _shutil_bd.which("bd") is None:
+            errors.append(
+                "bd CLI is not installed or not on PATH. "
+                "Run 'maverick init' to initialise the beads tracker."
+            )
+            logger.error("bd CLI not found")
+            await _emit_check(event_callback, "bd CLI", False, "not installed")
+        else:
+            logger.info("bd CLI is available")
+            await _emit_check(event_callback, "bd CLI", True, "installed")
 
     # Check validation tools (from maverick.yaml config)
     if check_validation_tools:
@@ -451,6 +491,7 @@ async def run_preflight_checks(
         success=success,
         api_available=api_available,
         git_available=git_available,
+        jj_available=jj_available,
         github_cli_available=github_cli_available,
         validation_tools_available=validation_tools_available,
         errors=tuple(errors),

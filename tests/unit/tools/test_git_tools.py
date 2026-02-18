@@ -185,7 +185,7 @@ class TestGitCommit:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler(
+            result = await server["_tools"]["git_commit"].handler(
                 {"message": "add feature", "type": "feat"}
             )
 
@@ -214,7 +214,7 @@ class TestGitCommit:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler(
+            result = await server["_tools"]["git_commit"].handler(
                 {
                     "message": "breaking change",
                     "type": "fix",
@@ -242,7 +242,7 @@ class TestGitCommit:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler(
+            result = await server["_tools"]["git_commit"].handler(
                 {"message": "test commit"}
             )
 
@@ -255,7 +255,7 @@ class TestGitCommit:
     async def test_git_commit_empty_message(self) -> None:
         """Test git_commit with empty message."""
         server = create_git_tools_server()
-        result = await server["tools"]["git_commit"].handler({"message": ""})
+        result = await server["_tools"]["git_commit"].handler({"message": ""})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -266,7 +266,7 @@ class TestGitCommit:
     async def test_git_commit_invalid_type(self) -> None:
         """Test git_commit with invalid commit type."""
         server = create_git_tools_server()
-        result = await server["tools"]["git_commit"].handler(
+        result = await server["_tools"]["git_commit"].handler(
             {"message": "test", "type": "invalid"}
         )
 
@@ -285,7 +285,7 @@ class TestGitCommit:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_commit"].handler({"message": "test"})
+            result = await server["_tools"]["git_commit"].handler({"message": "test"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -316,7 +316,7 @@ class TestGitPush:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": False})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -342,7 +342,7 @@ class TestGitPush:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": False})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -368,7 +368,7 @@ class TestGitPush:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": False})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -390,7 +390,7 @@ class TestGitPush:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": False})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -404,7 +404,7 @@ class TestGitPush:
             side_effect=NotARepositoryError("Not a repo", path="/fake"),
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": False})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": False})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -421,7 +421,7 @@ class TestGitPush:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_push"].handler({"set_upstream": True})
+            result = await server["_tools"]["git_push"].handler({"set_upstream": True})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -454,7 +454,7 @@ class TestGitCurrentBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_current_branch"].handler({})
+            result = await server["_tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["branch"] == "feature-branch"
@@ -477,7 +477,7 @@ class TestGitCurrentBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_current_branch"].handler({})
+            result = await server["_tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         # Should return the SHA, not "(detached)"
@@ -496,7 +496,7 @@ class TestGitCurrentBranch:
             side_effect=NotARepositoryError("Not a repo", path="/fake"),
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_current_branch"].handler({})
+            result = await server["_tools"]["git_current_branch"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -534,7 +534,7 @@ class TestGitDiffStats:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_diff_stats"].handler({})
+            result = await server["_tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 3
@@ -564,7 +564,7 @@ class TestGitDiffStats:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_diff_stats"].handler({})
+            result = await server["_tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 0
@@ -591,7 +591,7 @@ class TestGitDiffStats:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_diff_stats"].handler({})
+            result = await server["_tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 2
@@ -618,7 +618,7 @@ class TestGitDiffStats:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_diff_stats"].handler({})
+            result = await server["_tools"]["git_diff_stats"].handler({})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["files_changed"] == 1
@@ -649,7 +649,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler(
+            result = await server["_tools"]["git_create_branch"].handler(
                 {"name": "feature"}
             )
 
@@ -668,7 +668,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler(
+            result = await server["_tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "main"}
             )
 
@@ -699,7 +699,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler(
+            result = await server["_tools"]["git_create_branch"].handler(
                 {"name": "feature"}
             )
 
@@ -713,7 +713,7 @@ class TestGitCreateBranch:
         server = create_git_tools_server()
 
         # Test with spaces
-        result = await server["tools"]["git_create_branch"].handler(
+        result = await server["_tools"]["git_create_branch"].handler(
             {"name": "invalid name"}
         )
         parsed = json.loads(result["content"][0]["text"])
@@ -721,7 +721,7 @@ class TestGitCreateBranch:
         assert parsed["error_code"] == "INVALID_INPUT"
 
         # Test with special characters
-        result = await server["tools"]["git_create_branch"].handler(
+        result = await server["_tools"]["git_create_branch"].handler(
             {"name": "invalid~branch"}
         )
         parsed = json.loads(result["content"][0]["text"])
@@ -732,7 +732,7 @@ class TestGitCreateBranch:
     async def test_git_create_branch_empty_name(self) -> None:
         """Test git_create_branch with empty name."""
         server = create_git_tools_server()
-        result = await server["tools"]["git_create_branch"].handler({"name": ""})
+        result = await server["_tools"]["git_create_branch"].handler({"name": ""})
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
@@ -755,7 +755,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["tools"]["git_create_branch"].handler(
+            result = await server["_tools"]["git_create_branch"].handler(
                 {"name": "feature", "base": "nonexistent"}
             )
 

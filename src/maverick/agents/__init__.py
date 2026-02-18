@@ -38,6 +38,7 @@ from maverick.agents.context import AgentContext
 from maverick.agents.registry import AgentRegistry, register, registry
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.agents.tools import (
+    CURATOR_TOOLS,
     FIXER_TOOLS,
     GENERATOR_TOOLS,
     IMPLEMENTER_TOOLS,
@@ -67,6 +68,11 @@ try:
 except ImportError:
     FixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
+try:
+    from maverick.agents.curator import CuratorAgent
+except ImportError:
+    CuratorAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
+
 # Type alias for SDK Message type (T032)
 # At runtime, this is Any since SDK may not be installed.
 # For type checking, this would be claude_agent_sdk.Message
@@ -78,6 +84,7 @@ __all__: list[str] = [
     "DEFAULT_MODEL",
     "MaverickAgent",
     # Tool permission constants
+    "CURATOR_TOOLS",
     "FIXER_TOOLS",
     "GENERATOR_TOOLS",
     "IMPLEMENTER_TOOLS",
@@ -113,3 +120,6 @@ if IssueFixerAgent is not None:
 
 if FixerAgent is not None:
     __all__ += ["FixerAgent"]
+
+if CuratorAgent is not None:
+    __all__ += ["CuratorAgent"]
