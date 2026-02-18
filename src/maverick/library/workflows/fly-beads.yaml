@@ -34,6 +34,12 @@ steps:
       check_jj: true
       check_bd: true
 
+  # WORKSPACE — create isolated jj workspace for this fly session
+  - name: create_workspace
+    type: python
+    action: create_fly_workspace
+    when: ${{ not inputs.dry_run }}
+
   - name: bead_loop
     type: loop
     when: ${{ not inputs.dry_run }}
@@ -51,6 +57,8 @@ steps:
         type: python
         action: jj_snapshot_operation
         when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # DESCRIBE — label WIP change so jj log shows what's in-flight
       - name: describe_change
@@ -59,6 +67,7 @@ steps:
         when: ${{ steps.select_bead.output.found }}
         kwargs:
           message: "WIP bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # IMPLEMENT
       - name: implement
@@ -132,14 +141,16 @@ steps:
         when: ${{ steps.select_bead.output.found and not steps.verify_completion.output.passed }}
         kwargs:
           operation_id: ${{ steps.snapshot.output.operation_id }}
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
-      # COMMIT (gated on verification)
+      # COMMIT (gated on verification) — describe + jj new
       - name: commit_bead
         type: python
-        action: git_commit
+        action: jj_commit_bead
         when: ${{ steps.select_bead.output.found and steps.verify_completion.output.passed }}
         kwargs:
           message: "bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # CLOSE (gated on verification)
       - name: close_bead
@@ -157,3 +168,4 @@ steps:
 
 outputs:
   epic_id: ${{ inputs.epic_id }}
+  workspace_path: ${{ steps.create_workspace.output.workspace_path }}

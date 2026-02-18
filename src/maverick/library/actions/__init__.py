@@ -60,6 +60,7 @@ from maverick.library.actions.jj import (
     execute_curation_plan,
     gather_curation_context,
     jj_absorb,
+    jj_commit_bead,
     jj_describe,
     jj_diff,
     jj_log,
@@ -82,7 +83,7 @@ from maverick.library.actions.validation import (
     log_message,
     run_fix_retry_loop,
 )
-from maverick.library.actions.workspace import init_workspace
+from maverick.library.actions.workspace import create_fly_workspace, init_workspace
 
 __all__ = [
     # Bead actions
@@ -100,6 +101,7 @@ __all__ = [
     "run_preflight_checks",
     # Workspace actions
     "init_workspace",
+    "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
     # Task actions
@@ -114,6 +116,7 @@ __all__ = [
     "git_stage_all",
     "create_git_branch",
     # jj-specific actions
+    "jj_commit_bead",
     "jj_describe",
     "jj_snapshot_operation",
     "jj_restore_operation",
@@ -169,6 +172,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         init_workspace,
         requires=("git", "git_repo", "git_remote"),
     )
+    registry.actions.register(
+        "create_fly_workspace",
+        create_fly_workspace,
+        requires=("jj",),
+    )
 
     # Dependency actions (no requires - command availability is best-effort)
     registry.actions.register("sync_dependencies", sync_dependencies)
@@ -219,6 +227,11 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     )
 
     # jj-specific actions
+    registry.actions.register(
+        "jj_commit_bead",
+        jj_commit_bead,
+        requires=("jj",),
+    )
     registry.actions.register(
         "jj_describe",
         jj_describe,

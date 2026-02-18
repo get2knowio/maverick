@@ -75,6 +75,16 @@ from maverick.exceptions.init import (
     PrerequisiteError,
 )
 
+# Jj-related exceptions
+from maverick.exceptions.jj import (
+    JjCloneError,
+    JjConflictError,
+    JjError,
+    JjNotFoundError,
+    JjOperationError,
+    JjPushError,
+)
+
 # Preflight validation exceptions
 from maverick.exceptions.preflight import PreflightValidationError
 
@@ -144,6 +154,13 @@ __all__ = [
     "HookConfigError",
     "HookError",
     "SafetyHookError",
+    # Jj
+    "JjCloneError",
+    "JjConflictError",
+    "JjError",
+    "JjNotFoundError",
+    "JjOperationError",
+    "JjPushError",
     # Init
     "AnthropicAPIError",
     "ConfigExistsError",

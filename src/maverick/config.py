@@ -32,6 +32,7 @@ __all__ = [
     "ParallelConfig",
     "TuiMetricsConfig",
     "SessionLogConfig",
+    "WorkspaceConfig",
     "AgentConfig",
     "load_config",
     "get_user_config_path",
@@ -202,6 +203,26 @@ class SessionLogConfig(BaseModel):
     include_agent_text: bool = True
 
 
+class WorkspaceConfig(BaseModel):
+    """Settings for hidden jj workspaces.
+
+    Attributes:
+        root: Base directory for workspace clones.
+        setup: Shell command to run after cloning (e.g. ``uv sync``).
+        teardown: Shell command to run before removal.
+        reuse: If True (default), reuse existing workspace instead of re-cloning.
+        env_files: Files to copy from user repo into workspace during bootstrap.
+    """
+
+    root: Path = Field(
+        default_factory=lambda: Path.home() / ".maverick" / "workspaces"
+    )
+    setup: str | None = None
+    teardown: str | None = None
+    reuse: bool = True
+    env_files: list[str] = Field(default_factory=lambda: [".env"])
+
+
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
@@ -270,6 +291,7 @@ class MaverickConfig(BaseSettings):
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
     project_conventions: str = ""
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"

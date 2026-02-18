@@ -8,16 +8,27 @@ These actions provide jj-only features used by the fly workflow:
 - Operation snapshots and rollback for bead-loop safety
 - WIP change descriptions for observability
 - Post-hoc history curation (absorb, squash)
+
+All functions accept an optional ``cwd`` parameter.  When omitted, the
+current working directory is used (backward compatible).  When provided,
+the underlying :class:`~maverick.jj.client.JjClient` targets that path.
 """
 
 from __future__ import annotations
 
-import asyncio
+from pathlib import Path
 from typing import Any
 
+from maverick.jj.client import JjClient
+from maverick.jj.errors import JjError
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _make_client(cwd: Path | None = None) -> JjClient:
+    """Create a JjClient for the given (or current) working directory."""
+    return JjClient(cwd=cwd or Path.cwd())
 
 
 # =============================================================================
@@ -25,7 +36,10 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-async def jj_describe(message: str) -> dict[str, Any]:
+async def jj_describe(
+    message: str,
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Set the description of the current working-copy change.
 
     Unlike ``git_commit`` this does NOT finalise the change, so it
@@ -34,6 +48,7 @@ async def jj_describe(message: str) -> dict[str, Any]:
 
     Args:
         message: Description to set on the current change (``@``).
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -41,23 +56,11 @@ async def jj_describe(message: str) -> dict[str, Any]:
         - error: Error message if failed, None otherwise
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "describe",
-            "-m",
-            message,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj describe failed: {stderr.decode()}")
-
-        logger.debug("Described current change", message=message[:80])
+        client = _make_client(cwd)
+        await client.describe(message)
         return {"success": True, "error": None}
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj describe failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_describe_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -66,8 +69,13 @@ async def jj_describe(message: str) -> dict[str, Any]:
 # =============================================================================
 
 
-async def jj_snapshot_operation() -> dict[str, Any]:
+async def jj_snapshot_operation(
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Capture the current jj operation ID for potential rollback.
+
+    Args:
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -76,33 +84,15 @@ async def jj_snapshot_operation() -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "op",
-            "log",
-            "--no-graph",
-            "-T",
-            'self.id() ++ "\n"',
-            "--limit",
-            "1",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj op log failed: {stderr.decode()}")
-
-        operation_id = stdout.decode().strip().split("\n")[0]
-        logger.debug("Captured jj operation snapshot", operation_id=operation_id)
-
+        client = _make_client(cwd)
+        result = await client.snapshot_operation()
         return {
             "success": True,
-            "operation_id": operation_id,
+            "operation_id": result.operation_id,
             "error": None,
         }
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj snapshot failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_snapshot_failed", error=str(e))
         return {
             "success": False,
             "operation_id": None,
@@ -110,13 +100,17 @@ async def jj_snapshot_operation() -> dict[str, Any]:
         }
 
 
-async def jj_restore_operation(operation_id: str) -> dict[str, Any]:
+async def jj_restore_operation(
+    operation_id: str,
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Restore the repository to a previous operation state.
 
     In colocated mode this rewinds both jj and git state.
 
     Args:
         operation_id: Operation ID from jj_snapshot_operation.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -124,23 +118,11 @@ async def jj_restore_operation(operation_id: str) -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "op",
-            "restore",
-            operation_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj op restore failed: {stderr.decode()}")
-
-        logger.info("Restored jj operation", operation_id=operation_id)
+        client = _make_client(cwd)
+        await client.restore_operation(operation_id)
         return {"success": True, "error": None}
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj op restore failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_restore_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -149,11 +131,15 @@ async def jj_restore_operation(operation_id: str) -> dict[str, Any]:
 # =============================================================================
 
 
-async def jj_squash(into: str = "@-") -> dict[str, Any]:
+async def jj_squash(
+    into: str = "@-",
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Squash the current change into its parent (or specified revision).
 
     Args:
         into: Revision to squash into (default: parent ``@-``).
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -161,29 +147,20 @@ async def jj_squash(into: str = "@-") -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        cmd = ["jj", "squash"]
-        if into != "@-":
-            cmd.extend(["--into", into])
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj squash failed: {stderr.decode()}")
-
-        logger.debug("Squashed change", into=into)
+        client = _make_client(cwd)
+        target = into if into != "@-" else None
+        await client.squash(into=target)
         return {"success": True, "error": None}
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj squash failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_squash_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
-async def jj_absorb() -> dict[str, Any]:
+async def jj_absorb(cwd: Path | None = None) -> dict[str, Any]:
     """Absorb working-copy changes into relevant ancestor commits.
+
+    Args:
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -191,30 +168,25 @@ async def jj_absorb() -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "absorb",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj absorb failed: {stderr.decode()}")
-
-        logger.debug("Absorbed changes into ancestors")
+        client = _make_client(cwd)
+        await client.absorb()
         return {"success": True, "error": None}
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj absorb failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_absorb_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
-async def jj_log(revset: str = "@", limit: int = 10) -> dict[str, Any]:
+async def jj_log(
+    revset: str = "@",
+    limit: int = 10,
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Show jj log for a revset.
 
     Args:
         revset: Revset expression (default: ``@``).
         limit: Maximum number of entries (default: 10).
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -223,36 +195,27 @@ async def jj_log(revset: str = "@", limit: int = 10) -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "log",
-            "-r",
-            revset,
-            "--limit",
-            str(limit),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj log failed: {stderr.decode()}")
-
+        client = _make_client(cwd)
+        result = await client.log(revset=revset, limit=limit)
         return {
             "success": True,
-            "output": stdout.decode(),
+            "output": result.output,
             "error": None,
         }
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj log failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_log_failed", error=str(e))
         return {"success": False, "output": "", "error": str(e)}
 
 
-async def jj_diff(revision: str = "@") -> dict[str, Any]:
+async def jj_diff(
+    revision: str = "@",
+    cwd: Path | None = None,
+) -> dict[str, Any]:
     """Show diff for a revision in git format.
 
     Args:
         revision: Revision to diff (default: ``@``).
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -261,28 +224,63 @@ async def jj_diff(revision: str = "@") -> dict[str, Any]:
         - error: Error message if failed
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "diff",
-            "-r",
-            revision,
-            "--git",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"jj diff failed: {stderr.decode()}")
-
+        client = _make_client(cwd)
+        result = await client.diff(revision=revision)
         return {
             "success": True,
-            "output": stdout.decode(),
+            "output": result.output,
             "error": None,
         }
-
-    except (RuntimeError, OSError) as e:
-        logger.error(f"jj diff failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("jj_diff_failed", error=str(e))
         return {"success": False, "output": "", "error": str(e)}
+
+
+# =============================================================================
+# Bead commit (workspace mode)
+# =============================================================================
+
+
+async def jj_commit_bead(
+    message: str,
+    cwd: str | Path | None = None,
+) -> dict[str, Any]:
+    """Finalise the current change and start a fresh one.
+
+    In jj there is no staging area.  A "commit" is:
+    1. ``jj describe -m <message>``  — set the change description.
+    2. ``jj new``                    — start a new empty change.
+
+    This replaces ``git_commit`` when operating in a jj-only workspace.
+
+    Args:
+        message: Description for the current change.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        Dict with:
+        - success: True if commit succeeded
+        - message: The commit message used
+        - error: Error message if failed
+    """
+    try:
+        client = _make_client(Path(cwd) if cwd else None)
+        await client.describe(message)
+        new_result = await client.new()
+        return {
+            "success": True,
+            "message": message,
+            "change_id": new_result.change_id,
+            "error": None,
+        }
+    except (JjError, OSError) as e:
+        logger.error("jj_commit_bead_failed", error=str(e))
+        return {
+            "success": False,
+            "message": message,
+            "change_id": None,
+            "error": str(e),
+        }
 
 
 # =============================================================================
@@ -295,6 +293,7 @@ _FIX_KEYWORD_RE = ("fix", "fixup", "lint", "format", "typecheck")
 
 async def curate_history(
     base_revision: str = "main",
+    cwd: Path | None = None,
 ) -> dict[str, Any]:
     """Reorganize bead commits into cleaner history before push.
 
@@ -310,6 +309,7 @@ async def curate_history(
     Args:
         base_revision: Revision marking the start of the work.
             Only commits *after* this are candidates for curation.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -320,48 +320,28 @@ async def curate_history(
     """
     squashed_count = 0
     absorb_ran = False
+    client = _make_client(cwd)
 
     try:
         # --- Pass 1: jj absorb ------------------------------------------
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "absorb",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode == 0:
+        try:
+            await client.absorb()
             absorb_ran = True
             logger.info("curate_history: absorb completed")
-        else:
+        except JjError as e:
             # absorb failing is non-fatal (e.g. nothing to absorb)
             logger.debug(
                 "curate_history: absorb skipped",
-                stderr=stderr.decode().strip(),
+                error=str(e),
             )
 
         # --- Pass 2: heuristic squash of fix beads ----------------------
-        # Get the list of commits between base and @ (exclusive of @
-        # which is the empty working-copy change).
         revset = f"{base_revision}..@-"
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "log",
-            "-r",
-            revset,
-            "--no-graph",
-            "-T",
-            'change_id ++ "\\t" ++ description.first_line() ++ "\\n"',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
+        try:
+            log_result = await client.log(revset=revset, limit=1000)
+        except JjError:
             # If the revset is empty or invalid, just skip squashing
-            logger.debug(
-                "curate_history: log revset produced no results",
-                stderr=stderr.decode().strip(),
-            )
+            logger.debug("curate_history: log revset produced no results")
             return {
                 "success": True,
                 "absorb_ran": absorb_ran,
@@ -369,42 +349,36 @@ async def curate_history(
                 "error": None,
             }
 
-        # Parse commits (oldest first — jj log outputs newest first)
-        lines = [ln for ln in stdout.decode().strip().splitlines() if "\t" in ln]
-        lines.reverse()  # oldest → newest
+        # The structured log gives us change entries
+        changes = log_result.changes
+        if not changes:
+            return {
+                "success": True,
+                "absorb_ran": absorb_ran,
+                "squashed_count": 0,
+                "error": None,
+            }
 
         # Walk from newest to oldest so squashing doesn't invalidate
         # earlier change IDs (jj rewrites descendants).
-        for line in reversed(lines):
-            change_id, description = line.split("\t", 1)
-            description_lower = description.lower()
-
+        for change in changes:
+            description_lower = change.description.lower()
             is_fix = any(kw in description_lower for kw in _FIX_KEYWORD_RE)
             if not is_fix:
                 continue
 
-            # Squash this fix commit into its parent
-            proc = await asyncio.create_subprocess_exec(
-                "jj",
-                "squash",
-                "-r",
-                change_id,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, sq_stderr = await proc.communicate()
-            if proc.returncode == 0:
+            try:
+                await client.squash(revision=change.change_id)
                 squashed_count += 1
                 logger.info(
                     "curate_history: squashed fix commit",
-                    change_id=change_id,
-                    description=description[:60],
+                    change_id=change.change_id,
+                    description=change.description[:60],
                 )
-            else:
+            except JjError:
                 logger.debug(
                     "curate_history: squash skipped",
-                    change_id=change_id,
-                    stderr=sq_stderr.decode().strip(),
+                    change_id=change.change_id,
                 )
 
         return {
@@ -414,8 +388,8 @@ async def curate_history(
             "error": None,
         }
 
-    except (RuntimeError, OSError) as e:
-        logger.error(f"curate_history failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("curate_history_failed", error=str(e))
         return {
             "success": False,
             "absorb_ran": absorb_ran,
@@ -431,6 +405,7 @@ async def curate_history(
 
 async def gather_curation_context(
     base_revision: str = "main",
+    cwd: Path | None = None,
 ) -> dict[str, Any]:
     """Gather commit log and per-commit stats for curation.
 
@@ -439,6 +414,7 @@ async def gather_curation_context(
 
     Args:
         base_revision: Revision marking the start of the work.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -448,22 +424,13 @@ async def gather_curation_context(
         - error: str | None
     """
     revset = f"{base_revision}..@-"
+    client = _make_client(cwd)
 
     try:
-        # 1. Get commit list (change_id + first-line description)
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "log",
-            "-r",
-            revset,
-            "--no-graph",
-            "-T",
-            'change_id ++ "\\t" ++ description.first_line() ++ "\\n"',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
+        # 1. Get commit list via structured log
+        try:
+            log_result = await client.log(revset=revset, limit=1000)
+        except JjError:
             # Empty revset — no commits to curate
             return {
                 "success": True,
@@ -472,8 +439,7 @@ async def gather_curation_context(
                 "error": None,
             }
 
-        lines = [ln for ln in stdout.decode().strip().splitlines() if "\t" in ln]
-        if not lines:
+        if not log_result.changes:
             return {
                 "success": True,
                 "commits": [],
@@ -482,39 +448,27 @@ async def gather_curation_context(
             }
 
         # 2. Get summary log with file stats
-        proc = await asyncio.create_subprocess_exec(
-            "jj",
-            "log",
-            "-r",
-            revset,
-            "--stat",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        log_stdout, _ = await proc.communicate()
-        log_summary = log_stdout.decode() if proc.returncode == 0 else ""
+        try:
+            stat_result = await client.diff_stat(
+                revision="@-", from_rev=base_revision
+            )
+            log_summary = stat_result.output
+        except JjError:
+            log_summary = ""
 
         # 3. Per-commit stats
         commits: list[dict[str, str]] = []
-        for line in lines:
-            change_id, description = line.split("\t", 1)
-            # Get per-commit diff stats (not full diffs — keeps context small)
-            proc = await asyncio.create_subprocess_exec(
-                "jj",
-                "diff",
-                "-r",
-                change_id,
-                "--stat",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stat_stdout, _ = await proc.communicate()
-            stats = stat_stdout.decode() if proc.returncode == 0 else ""
+        for change in log_result.changes:
+            try:
+                stat = await client.diff_stat(revision=change.change_id)
+                stats = stat.output
+            except JjError:
+                stats = ""
 
             commits.append(
                 {
-                    "change_id": change_id,
-                    "description": description,
+                    "change_id": change.change_id,
+                    "description": change.description,
                     "stats": stats,
                 }
             )
@@ -530,8 +484,8 @@ async def gather_curation_context(
             "error": None,
         }
 
-    except (RuntimeError, OSError) as e:
-        logger.error(f"gather_curation_context failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("gather_curation_context_failed", error=str(e))
         return {
             "success": False,
             "commits": [],
@@ -542,6 +496,7 @@ async def gather_curation_context(
 
 async def execute_curation_plan(
     plan: list[dict[str, Any]],
+    cwd: Path | None = None,
 ) -> dict[str, Any]:
     """Execute a curation plan (list of jj commands) with rollback safety.
 
@@ -553,6 +508,7 @@ async def execute_curation_plan(
             - command: jj subcommand (``"squash"``, ``"describe"``, ``"rebase"``)
             - args: list of argument strings
             - reason: human-readable explanation
+        cwd: Working directory. Defaults to ``Path.cwd()``.
 
     Returns:
         Dict with:
@@ -573,7 +529,7 @@ async def execute_curation_plan(
         }
 
     # Snapshot for rollback
-    snapshot = await jj_snapshot_operation()
+    snapshot = await jj_snapshot_operation(cwd=cwd)
     if not snapshot["success"]:
         return {
             "success": False,
@@ -584,6 +540,7 @@ async def execute_curation_plan(
         }
     snapshot_id = snapshot["operation_id"]
 
+    client = _make_client(cwd)
     executed_count = 0
     try:
         for step in plan:
@@ -591,28 +548,24 @@ async def execute_curation_plan(
             args = step.get("args", [])
             reason = step.get("reason", "")
 
-            cmd = ["jj", command, *args]
+            cmd: list[str] = ["jj", command, *args]
             logger.info(
                 "execute_curation_plan: running step",
                 command=command,
                 reason=reason[:80],
             )
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode != 0:
+            result = await client._runner.run(cmd, cwd=client.cwd)
+            if not result.success:
                 error_msg = (
                     f"Step {executed_count + 1}/{total_count} failed: "
-                    f"jj {command} {' '.join(args)}: {stderr.decode().strip()}"
+                    f"jj {command} {' '.join(args)}: "
+                    f"{result.stderr.strip()}"
                 )
                 logger.error(error_msg)
 
                 # Rollback
-                await jj_restore_operation(snapshot_id)
+                await jj_restore_operation(snapshot_id, cwd=cwd)
                 return {
                     "success": False,
                     "executed_count": executed_count,
@@ -636,10 +589,10 @@ async def execute_curation_plan(
             "error": None,
         }
 
-    except (RuntimeError, OSError) as e:
-        logger.error(f"execute_curation_plan failed: {e}")
+    except (JjError, OSError) as e:
+        logger.error("execute_curation_plan_failed", error=str(e))
         # Attempt rollback
-        await jj_restore_operation(snapshot_id)
+        await jj_restore_operation(snapshot_id, cwd=cwd)
         return {
             "success": False,
             "executed_count": executed_count,

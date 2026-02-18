@@ -4,6 +4,7 @@ Tests the workspace.py action module including:
 - init_workspace action with branch creation and checkout
 - Workspace cleanliness validation
 - Task file auto-detection
+- create_fly_workspace action for isolated jj workspace
 """
 
 from __future__ import annotations
@@ -13,8 +14,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from maverick.library.actions.workspace import init_workspace
+from maverick.library.actions.workspace import create_fly_workspace, init_workspace
 from maverick.runners.models import CommandResult
+from maverick.workspace.models import WorkspaceInfo
 
 
 def make_result(
@@ -272,3 +274,117 @@ class TestInitWorkspace:
 
             # Current simplified implementation always returns True
             assert result.synced_with_base is True
+
+
+class TestCreateFlyWorkspace:
+    """Tests for create_fly_workspace action."""
+
+    @pytest.mark.asyncio
+    async def test_creates_workspace(self, tmp_path: Path) -> None:
+        """Test creates a new workspace via WorkspaceManager."""
+        ws_path = tmp_path / "workspaces" / "my-project"
+        mock_manager = AsyncMock()
+        mock_manager.exists = False
+        mock_manager.workspace_path = ws_path
+        mock_manager.create_and_bootstrap.return_value = WorkspaceInfo(
+            workspace_path=str(ws_path),
+            user_repo_path=str(tmp_path),
+            state="active",
+            created_at="2026-01-01T00:00:00Z",
+        )
+
+        with (
+            patch(
+                "maverick.library.actions.workspace.WorkspaceManager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "maverick.library.actions.workspace.Path"
+            ) as mock_path_cls,
+        ):
+            mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
+            result = await create_fly_workspace()
+
+        assert result["success"] is True
+        assert result["workspace_path"] == str(ws_path)
+        assert result["user_repo_path"] == str(tmp_path)
+        assert result["created"] is True
+        assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_reuses_existing_workspace(self, tmp_path: Path) -> None:
+        """Test reuses an existing workspace."""
+        ws_path = tmp_path / "workspaces" / "my-project"
+        mock_manager = AsyncMock()
+        mock_manager.exists = True
+        mock_manager.workspace_path = ws_path
+        mock_manager.create_and_bootstrap.return_value = WorkspaceInfo(
+            workspace_path=str(ws_path),
+            user_repo_path=str(tmp_path),
+            state="active",
+            created_at="2026-01-01T00:00:00Z",
+        )
+
+        with (
+            patch(
+                "maverick.library.actions.workspace.WorkspaceManager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "maverick.library.actions.workspace.Path"
+            ) as mock_path_cls,
+        ):
+            mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
+            result = await create_fly_workspace()
+
+        assert result["success"] is True
+        assert result["created"] is False
+
+    @pytest.mark.asyncio
+    async def test_passes_setup_command(self, tmp_path: Path) -> None:
+        """Test passes setup_command to WorkspaceManager."""
+        mock_manager = AsyncMock()
+        mock_manager.exists = False
+        mock_manager.workspace_path = tmp_path / "ws"
+        mock_manager.create_and_bootstrap.return_value = WorkspaceInfo(
+            workspace_path=str(tmp_path / "ws"),
+            user_repo_path=str(tmp_path),
+            state="active",
+            created_at="2026-01-01T00:00:00Z",
+        )
+
+        with (
+            patch(
+                "maverick.library.actions.workspace.WorkspaceManager",
+                return_value=mock_manager,
+            ) as mock_ws_cls,
+            patch(
+                "maverick.library.actions.workspace.Path"
+            ) as mock_path_cls,
+        ):
+            mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
+            await create_fly_workspace(setup_command="uv sync")
+
+        mock_ws_cls.assert_called_once_with(
+            user_repo_path=tmp_path,
+            setup_command="uv sync",
+        )
+
+    @pytest.mark.asyncio
+    async def test_handles_failure(self, tmp_path: Path) -> None:
+        """Test handles workspace creation failure."""
+        with (
+            patch(
+                "maverick.library.actions.workspace.WorkspaceManager",
+                side_effect=RuntimeError("clone failed"),
+            ),
+            patch(
+                "maverick.library.actions.workspace.Path"
+            ) as mock_path_cls,
+        ):
+            mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
+            result = await create_fly_workspace()
+
+        assert result["success"] is False
+        assert result["workspace_path"] is None
+        assert "clone failed" in result["error"]

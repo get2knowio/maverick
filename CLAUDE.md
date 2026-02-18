@@ -20,8 +20,10 @@ Maverick is a Python CLI application that automates AI-powered development workf
 | Testing         | pytest + pytest-asyncio | Parallel via xdist (`-n auto`)           |
 | Linting         | Ruff                    | Fast, comprehensive Python linter        |
 | Type Checking   | MyPy                    | Strict mode recommended                  |
-| VCS (writes)    | Jujutsu (jj)            | Colocated mode; write ops in `actions/jj.py` |
+| VCS (writes)    | Jujutsu (jj)            | `maverick.jj.client.JjClient` for all jj ops |
 | VCS (reads)     | GitPython               | `maverick.git` wraps GitPython (read-only) |
+| VCS (protocol)  | VcsRepository           | `maverick.vcs` abstracts git/jj for reads  |
+| Workspaces      | WorkspaceManager        | `maverick.workspace` — hidden jj clones    |
 | GitHub API      | PyGithub                | `maverick.utils.github_client`           |
 | Logging         | structlog               | `maverick.logging.get_logger()`          |
 | Retry Logic     | tenacity                | `@retry` decorator or `AsyncRetrying`    |
@@ -129,6 +131,18 @@ src/maverick/
 ├── agents/              # Agent implementations
 │   ├── base.py          # MaverickAgent abstract base class
 │   └── *.py             # Concrete agents (CodeReviewerAgent, etc.)
+├── jj/                  # JjClient — typed jj (Jujutsu) wrapper
+│   ├── client.py        # JjClient (CommandRunner-based, async)
+│   ├── models.py        # Frozen dataclass result types
+│   ├── errors.py        # JjError hierarchy under MaverickError
+│   └── repository.py    # JjRepository (VcsRepository protocol impl)
+├── vcs/                 # VCS abstraction layer
+│   ├── protocol.py      # VcsRepository runtime-checkable protocol
+│   └── factory.py       # create_vcs_repository() auto-detection
+├── workspace/           # Hidden workspace lifecycle management
+│   ├── manager.py       # WorkspaceManager (create/bootstrap/teardown)
+│   ├── models.py        # WorkspaceInfo, WorkspaceState, result types
+│   └── errors.py        # WorkspaceError hierarchy
 ├── workflows/           # Workflow orchestration
 │   ├── fly.py           # FlyWorkflow - full spec-based workflow
 │   └── refuel.py        # RefuelWorkflow - tech-debt resolution
@@ -142,6 +156,9 @@ src/maverick/
 - **Agents**: Know HOW to do a task (system prompts, tool selection, Claude SDK interaction)
 - **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing)
 - **Tools**: Wrap external systems (GitHub CLI, git, notifications)
+- **JjClient**: Typed wrapper around `jj` CLI with retries, timeouts, and error hierarchy
+- **WorkspaceManager**: Lifecycle for hidden jj workspaces (`~/.maverick/workspaces/`)
+- **VcsRepository**: Protocol abstracting git vs jj for read operations
 
 ## Workflow Architecture: YAML-Based DSL
 
@@ -394,6 +411,8 @@ Maverick uses a beads-only workflow model. All development is driven by beads (u
 | `maverick fly [options]` | Pick next ready bead(s) and iterate (bead execution) |
 | `maverick land [options]` | Curate history and push (finalize fly work) |
 | `maverick refuel speckit <spec_dir>` | Create beads from a SpecKit specification |
+| `maverick workspace status` | Show workspace state for current project |
+| `maverick workspace clean` | Remove workspace for current project |
 | `maverick init` | Initialize a new Maverick project |
 | `maverick uninstall` | Remove Maverick configuration |
 
@@ -401,18 +420,25 @@ Maverick uses a beads-only workflow model. All development is driven by beads (u
 
 Iterates over ready beads until done. Runs the `fly-beads` DSL workflow:
 
-1. **Preflight**: Check API, git, and bd prerequisites
-2. **Bead Loop**: Select next ready bead, implement, validate, review, commit, close
+1. **Preflight**: Check API, git, jj, and bd prerequisites
+2. **Create workspace**: Clone user repo into `~/.maverick/workspaces/<project>/` via `jj git clone`
+3. **Bead Loop**: Select next ready bead, implement, validate, review, commit (via jj), close
 
-Note: `fly` no longer curates history or pushes. Run `maverick land` after `fly` to curate and push.
+All fly work happens in the hidden workspace — the user's working directory is untouched. Run `maverick land` after `fly` to curate and push.
 
 Options: `--epic` (optional, filter by epic), `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--list-steps`, `--session-log`
 
 ### land (Curate and Push)
 
-Finalizes work from `fly` by reorganizing commits into clean history and pushing. Uses an AI agent (CuratorAgent) for intelligent reorganization, with user approval.
+Finalizes work from `fly` by reorganizing commits into clean history and pushing. Three modes:
 
-Options: `--no-curate`, `--dry-run`, `--yes`/`-y`, `--base` (default "main"), `--heuristic-only`
+- **Approve** (default): curate → interactive prompt → `jj git push` → teardown workspace
+- **Eject** (`--eject`): curate → push preview branch → keep workspace
+- **Finalize** (`--finalize`): create PR from preview branch → teardown
+
+Uses an AI agent (CuratorAgent) for intelligent reorganization, with user approval. Falls back to git push when no workspace exists.
+
+Options: `--no-curate`, `--dry-run`, `--yes`/`-y`, `--base` (default "main"), `--heuristic-only`, `--eject`, `--finalize`, `--branch`
 
 ### refuel speckit (Bead Creation)
 
