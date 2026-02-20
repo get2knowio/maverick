@@ -26,9 +26,7 @@ class TestVcsRepositoryProtocol:
         repo = JjRepository(path=temp_dir, client=mock_client)
         assert isinstance(repo, VcsRepository)
 
-    def test_async_git_repository_satisfies_protocol(
-        self, temp_dir: Path
-    ) -> None:
+    def test_async_git_repository_satisfies_protocol(self, temp_dir: Path) -> None:
         with patch("maverick.git.repository.Repo"):
             repo = AsyncGitRepository(temp_dir)
         assert isinstance(repo, VcsRepository)

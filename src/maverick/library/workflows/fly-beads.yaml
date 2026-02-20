@@ -33,6 +33,7 @@ steps:
       check_git: true
       check_jj: true
       check_bd: true
+      check_validation_tools: false
 
   # WORKSPACE — create isolated jj workspace for this fly session
   - name: create_workspace
@@ -44,7 +45,7 @@ steps:
     type: loop
     when: ${{ not inputs.dry_run }}
     until: ${{ steps.check_done.output.done }}
-    max_iterations: 30
+    max_iterations: 5
     steps:
       - name: select_bead
         type: python
@@ -69,13 +70,22 @@ steps:
           message: "WIP bead(${{ steps.select_bead.output.bead_id }}): ${{ steps.select_bead.output.title }}"
           cwd: ${{ steps.create_workspace.output.workspace_path }}
 
-      # IMPLEMENT
+      # IMPLEMENT — agent runs inside the hidden workspace
       - name: implement
         type: agent
         agent: implementer
         when: ${{ steps.select_bead.output.found }}
         context:
           task_description: ${{ steps.select_bead.output.description }}
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
+
+      # SYNC — install/update deps after agent may have created pyproject.toml
+      - name: sync_deps
+        type: python
+        action: sync_dependencies
+        when: ${{ steps.select_bead.output.found }}
+        kwargs:
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # VALIDATE-AND-FIX (3 fix attempts before creating child beads)
       - name: validate_and_fix
@@ -85,6 +95,7 @@ steps:
         inputs:
           stages: ["format", "lint", "typecheck", "test"]
           max_attempts: 3
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # CREATE FIX BEADS for remaining failures only
       - name: create_fix_beads
@@ -103,6 +114,7 @@ steps:
         kwargs:
           base_branch: main
           include_spec_files: true
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # REVIEW-AND-FIX LOOP (2 review-fix cycles)
       - name: review_and_fix
@@ -114,6 +126,7 @@ steps:
           base_branch: main
           max_attempts: 2
           generate_report: true
+          cwd: ${{ steps.create_workspace.output.workspace_path }}
 
       # CREATE REVIEW BEADS for remaining findings only
       - name: create_review_beads

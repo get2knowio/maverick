@@ -298,9 +298,7 @@ class TestCreateFlyWorkspace:
                 "maverick.library.actions.workspace.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.library.actions.workspace.Path"
-            ) as mock_path_cls,
+            patch("maverick.library.actions.workspace.Path") as mock_path_cls,
         ):
             mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
             result = await create_fly_workspace()
@@ -330,9 +328,7 @@ class TestCreateFlyWorkspace:
                 "maverick.library.actions.workspace.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.library.actions.workspace.Path"
-            ) as mock_path_cls,
+            patch("maverick.library.actions.workspace.Path") as mock_path_cls,
         ):
             mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
             result = await create_fly_workspace()
@@ -358,9 +354,7 @@ class TestCreateFlyWorkspace:
                 "maverick.library.actions.workspace.WorkspaceManager",
                 return_value=mock_manager,
             ) as mock_ws_cls,
-            patch(
-                "maverick.library.actions.workspace.Path"
-            ) as mock_path_cls,
+            patch("maverick.library.actions.workspace.Path") as mock_path_cls,
         ):
             mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
             await create_fly_workspace(setup_command="uv sync")
@@ -378,9 +372,7 @@ class TestCreateFlyWorkspace:
                 "maverick.library.actions.workspace.WorkspaceManager",
                 side_effect=RuntimeError("clone failed"),
             ),
-            patch(
-                "maverick.library.actions.workspace.Path"
-            ) as mock_path_cls,
+            patch("maverick.library.actions.workspace.Path") as mock_path_cls,
         ):
             mock_path_cls.cwd.return_value.resolve.return_value = tmp_path
             result = await create_fly_workspace()

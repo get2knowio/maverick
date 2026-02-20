@@ -121,10 +121,20 @@ async def execute_validate_step(
     if isinstance(stages, str):
         stages = [stages]
 
-    # Load config if not provided
+    # Determine working directory: explicit input > project_root config > cwd
+    # The workflow (or parent subworkflow) may pass a cwd input to direct
+    # validation into a specific directory (e.g., a hidden jj workspace).
+    input_cwd = context.inputs.get("cwd")
+    if input_cwd:
+        cwd = Path(input_cwd)
+    else:
+        cwd = Path.cwd()
+
+    # Load config if not provided — use workspace cwd so we pick up the
+    # project's maverick.yaml even when running in a hidden workspace.
     if config is None:
         try:
-            config = load_config()
+            config = load_config(config_path=cwd / "maverick.yaml")
         except Exception as e:
             logger.warning(f"Failed to load maverick.yaml config: {e}, using defaults")
             config = MaverickConfig()
@@ -132,9 +142,9 @@ async def execute_validate_step(
     validation_config = config.validation
     timeout = validation_config.timeout_seconds
 
-    # Determine working directory (use project_root from config or cwd)
-    # Resolved before stage-building so _has_source_files can use it.
-    cwd = validation_config.project_root or Path.cwd()
+    # Apply project_root from config only when no explicit cwd was given
+    if not input_cwd and validation_config.project_root:
+        cwd = validation_config.project_root
 
     # Build ValidationStage objects for each requested stage
     validation_stages: list[ValidationStage] = []

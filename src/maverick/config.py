@@ -214,9 +214,7 @@ class WorkspaceConfig(BaseModel):
         env_files: Files to copy from user repo into workspace during bootstrap.
     """
 
-    root: Path = Field(
-        default_factory=lambda: Path.home() / ".maverick" / "workspaces"
-    )
+    root: Path = Field(default_factory=lambda: Path.home() / ".maverick" / "workspaces")
     setup: str | None = None
     teardown: str | None = None
     reuse: bool = True

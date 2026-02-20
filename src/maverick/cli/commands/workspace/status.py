@@ -22,12 +22,8 @@ def status(ctx: click.Context) -> None:
     manager = WorkspaceManager(user_repo_path=user_repo)
 
     if not manager.exists:
-        console.print(
-            format_warning("No workspace found for this project.")
-        )
-        console.print(
-            f"  Expected path: {manager.workspace_path}"
-        )
+        console.print(format_warning("No workspace found for this project."))
+        console.print(f"  Expected path: {manager.workspace_path}")
         return
 
     state = manager.get_state()

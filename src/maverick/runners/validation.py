@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from pathlib import Path
@@ -54,7 +55,22 @@ class ValidationRunner:
         self._stages = stages
         self._cwd = cwd
         self._continue_on_failure = continue_on_failure
-        self._command_runner = CommandRunner(cwd=cwd)
+
+        # Prepend project-local tool directories to PATH so tools installed
+        # by package managers (uv, pip, npm, etc.) are found automatically.
+        env: dict[str, str] | None = None
+        if cwd:
+            local_bins = [
+                cwd / ".venv" / "bin",        # Python (uv/pip/venv)
+                cwd / "node_modules" / ".bin", # Node.js (npm/yarn/pnpm)
+            ]
+            found = [str(p) for p in local_bins if p.is_dir()]
+            if found:
+                current_path = os.environ.get("PATH", "")
+                env = {"PATH": ":".join(found) + ":" + current_path}
+                logger.debug("local_bins_prepended", paths=found)
+
+        self._command_runner = CommandRunner(cwd=cwd, env=env)
 
     async def validate(self) -> ValidationResult:
         """Validate that all required tools are available on PATH.

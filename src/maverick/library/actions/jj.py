@@ -26,9 +26,9 @@ from maverick.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _make_client(cwd: Path | None = None) -> JjClient:
+def _make_client(cwd: str | Path | None = None) -> JjClient:
     """Create a JjClient for the given (or current) working directory."""
-    return JjClient(cwd=cwd or Path.cwd())
+    return JjClient(cwd=Path(cwd) if cwd else Path.cwd())
 
 
 # =============================================================================
@@ -430,8 +430,14 @@ async def gather_curation_context(
         # 1. Get commit list via structured log
         try:
             log_result = await client.log(revset=revset, limit=1000)
-        except JjError:
-            # Empty revset — no commits to curate
+        except JjError as e:
+            # Log the actual error — silently returning empty can mask bugs
+            logger.warning(
+                "gather_curation_no_commits",
+                revset=revset,
+                cwd=str(cwd),
+                error=str(e),
+            )
             return {
                 "success": True,
                 "commits": [],
@@ -449,9 +455,7 @@ async def gather_curation_context(
 
         # 2. Get summary log with file stats
         try:
-            stat_result = await client.diff_stat(
-                revision="@-", from_rev=base_revision
-            )
+            stat_result = await client.diff_stat(revision="@-", from_rev=base_revision)
             log_summary = stat_result.output
         except JjError:
             log_summary = ""

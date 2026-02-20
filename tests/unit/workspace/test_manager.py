@@ -58,9 +58,7 @@ class TestWorkspaceManagerProperties:
     def test_exists_false_initially(self, manager: WorkspaceManager) -> None:
         assert manager.exists is False
 
-    def test_exists_true_when_dir_present(
-        self, manager: WorkspaceManager
-    ) -> None:
+    def test_exists_true_when_dir_present(self, manager: WorkspaceManager) -> None:
         manager.workspace_path.mkdir(parents=True)
         assert manager.exists is True
 
@@ -78,9 +76,7 @@ class TestWorkspaceManagerCreate:
             workspace_path=str(manager.workspace_path),
         )
 
-        with patch(
-            "maverick.workspace.manager.JjClient", return_value=mock_client
-        ):
+        with patch("maverick.workspace.manager.JjClient", return_value=mock_client):
             # We need to create the workspace dir since jj_clone would do it
             manager.workspace_path.mkdir(parents=True, exist_ok=True)
             info = await manager.create()
@@ -117,9 +113,7 @@ class TestWorkspaceManagerCreate:
         assert info.created_at == "2026-01-01T00:00:00Z"
 
     @pytest.mark.asyncio
-    async def test_create_failure_raises(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_create_failure_raises(self, manager: WorkspaceManager) -> None:
         mock_client = AsyncMock(spec=JjClient)
         mock_client.git_clone.side_effect = JjError("clone failed")
 
@@ -137,9 +131,7 @@ class TestWorkspaceManagerBootstrap:
     """Tests for WorkspaceManager.bootstrap()."""
 
     @pytest.mark.asyncio
-    async def test_bootstrap_runs_setup(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_bootstrap_runs_setup(self, manager: WorkspaceManager) -> None:
         manager.workspace_path.mkdir(parents=True)
 
         mock_runner = AsyncMock()
@@ -170,9 +162,7 @@ class TestWorkspaceManagerBootstrap:
         assert result.output == ""
 
     @pytest.mark.asyncio
-    async def test_bootstrap_failure_raises(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_bootstrap_failure_raises(self, manager: WorkspaceManager) -> None:
         manager.workspace_path.mkdir(parents=True)
 
         mock_runner = AsyncMock()
@@ -204,9 +194,7 @@ class TestWorkspaceManagerSync:
     """Tests for WorkspaceManager.sync_from_origin()."""
 
     @pytest.mark.asyncio
-    async def test_sync_fetches(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_sync_fetches(self, manager: WorkspaceManager) -> None:
         manager.workspace_path.mkdir(parents=True)
 
         mock_client = AsyncMock(spec=JjClient)
@@ -233,9 +221,7 @@ class TestWorkspaceManagerTeardown:
     """Tests for WorkspaceManager.teardown()."""
 
     @pytest.mark.asyncio
-    async def test_teardown_removes_directory(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_teardown_removes_directory(self, manager: WorkspaceManager) -> None:
         ws = manager.workspace_path
         ws.mkdir(parents=True)
         (ws / "file.txt").write_text("data")
@@ -247,18 +233,14 @@ class TestWorkspaceManagerTeardown:
         assert not ws.exists()
 
     @pytest.mark.asyncio
-    async def test_teardown_noop_if_missing(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_teardown_noop_if_missing(self, manager: WorkspaceManager) -> None:
         result = await manager.teardown()
 
         assert result.success is True
         assert result.removed is False
 
     @pytest.mark.asyncio
-    async def test_teardown_runs_command(
-        self, user_repo: Path, ws_root: Path
-    ) -> None:
+    async def test_teardown_runs_command(self, user_repo: Path, ws_root: Path) -> None:
         mgr = WorkspaceManager(
             user_repo_path=user_repo,
             workspace_root=ws_root,
@@ -284,9 +266,7 @@ class TestWorkspaceManagerTeardown:
 class TestWorkspaceManagerState:
     """Tests for state management."""
 
-    def test_get_state_none_without_meta(
-        self, manager: WorkspaceManager
-    ) -> None:
+    def test_get_state_none_without_meta(self, manager: WorkspaceManager) -> None:
         assert manager.get_state() is None
 
     def test_get_and_set_state(
@@ -313,9 +293,7 @@ class TestWorkspaceManagerState:
 class TestWorkspaceManagerGetJjClient:
     """Tests for get_jj_client()."""
 
-    def test_returns_client_with_workspace_cwd(
-        self, manager: WorkspaceManager
-    ) -> None:
+    def test_returns_client_with_workspace_cwd(self, manager: WorkspaceManager) -> None:
         client = manager.get_jj_client()
         assert isinstance(client, JjClient)
         assert client.cwd == manager.workspace_path

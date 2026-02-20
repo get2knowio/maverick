@@ -100,6 +100,12 @@ inputs:
     default: "validation_fixer"
     description: Agent name for automatic fixes
 
+  cwd:
+    type: string
+    required: false
+    default: ""
+    description: Working directory for validation commands (defaults to current directory)
+
 steps:
   # ---------------------------------------------------------------------------
   # Step 1: Initial Validation Run
@@ -173,3 +179,4 @@ steps:
       validation_result: ${{ steps.run_validation.output }}
       initial_result: ${{ steps.run_validation.output }}
       generate_report: true
+      cwd: ${{ inputs.cwd }}

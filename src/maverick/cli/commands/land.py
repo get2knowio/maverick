@@ -128,9 +128,7 @@ async def land(
 
     if not manager.exists:
         console.print(
-            format_warning(
-                "No workspace found. Operating in current directory."
-            )
+            format_warning("No workspace found. Operating in current directory.")
         )
 
     # ── 1. Check there are commits to land ──────────────────────────
@@ -145,14 +143,10 @@ async def land(
 
     commits = curation_ctx["commits"]
     if not commits:
-        console.print(
-            "Nothing to land — no commits found above base revision."
-        )
+        console.print("Nothing to land — no commits found above base revision.")
         return
 
-    console.print(
-        f"Found {len(commits)} commit(s) above [bold]{base}[/bold]."
-    )
+    console.print(f"Found {len(commits)} commit(s) above [bold]{base}[/bold].")
 
     # ── 2. Curation ────────────────────────────────────────────────
     if no_curate:
@@ -164,8 +158,7 @@ async def land(
             absorb = "yes" if result["absorb_ran"] else "no"
             squashed = result["squashed_count"]
             console.print(
-                f"Heuristic curation: absorb={absorb}, "
-                f"squashed={squashed} commits."
+                f"Heuristic curation: absorb={absorb}, squashed={squashed} commits."
             )
         else:
             err_console.print(
@@ -197,6 +190,7 @@ async def land(
             commits=commits,
             branch=branch,
             cwd=cwd,
+            user_repo=user_repo,
         )
     else:
         await _approve(
@@ -207,6 +201,7 @@ async def land(
             branch=branch,
             yes=yes,
             cwd=cwd,
+            user_repo=user_repo,
         )
 
 
@@ -223,6 +218,7 @@ async def _approve(
     branch: str | None,
     yes: bool,
     cwd: Path | None,
+    user_repo: Path | None = None,
 ) -> None:
     """Approve: set bookmark, push, optionally create PR, teardown."""
     from maverick.jj.client import JjClient
@@ -257,27 +253,44 @@ async def _approve(
         client = JjClient(cwd=cwd)
         try:
             await client.bookmark_set(branch_name, revision="@-")
+            # Phase 1: jj push from workspace → user repo (workspace's origin)
             await client.git_push(bookmark=branch_name)
         except Exception as e:
-            err_console.print(
-                format_error(f"Push failed: {e}")
+            err_console.print(format_error(f"Push failed: {e}"))
+            raise SystemExit(ExitCode.FAILURE) from e
+
+        # Phase 2: push from user repo → remote origin
+        # The jj push above lands commits in the user repo as a local branch.
+        # We still need to push that branch to the actual remote.
+        repo_path = user_repo or Path.cwd().resolve()
+        try:
+            from maverick.runners.command import CommandRunner
+
+            runner = CommandRunner(timeout=60.0)
+            result = await runner.run(
+                ["git", "push", "--set-upstream", "origin", branch_name],
+                cwd=repo_path,
             )
+            if not result.success:
+                err_console.print(
+                    format_error(f"Push to origin failed: {result.stderr.strip()}")
+                )
+                raise SystemExit(ExitCode.FAILURE)
+        except SystemExit:
+            raise
+        except Exception as e:
+            err_console.print(format_error(f"Push to origin failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
     else:
         from maverick.library.actions.git import git_push
 
         push_result = await git_push(set_upstream=True)
         if not push_result["success"]:
-            err_console.print(
-                format_error(f"Push failed: {push_result['error']}")
-            )
+            err_console.print(format_error(f"Push failed: {push_result['error']}"))
             raise SystemExit(ExitCode.FAILURE)
 
     console.print(
-        format_success(
-            f"Landed {len(commits)} commit(s) on branch "
-            f"{branch_name}."
-        )
+        format_success(f"Landed {len(commits)} commit(s) on branch {branch_name}.")
     )
 
     # Teardown workspace
@@ -298,6 +311,7 @@ async def _eject(
     commits: list[Any],
     branch: str | None,
     cwd: Path | None,
+    user_repo: Path | None = None,
 ) -> None:
     """Eject: push to a preview branch and keep workspace."""
     from maverick.workspace.models import WorkspaceState
@@ -310,11 +324,33 @@ async def _eject(
         client = JjClient(cwd=cwd)
         try:
             await client.bookmark_set(preview_branch, revision="@-")
+            # Phase 1: jj push from workspace → user repo
             await client.git_push(bookmark=preview_branch)
         except Exception as e:
-            err_console.print(
-                format_error(f"Eject push failed: {e}")
+            err_console.print(format_error(f"Eject push failed: {e}"))
+            raise SystemExit(ExitCode.FAILURE) from e
+
+        # Phase 2: push from user repo → remote origin
+        repo_path = user_repo or Path.cwd().resolve()
+        try:
+            from maverick.runners.command import CommandRunner
+
+            runner = CommandRunner(timeout=60.0)
+            result = await runner.run(
+                ["git", "push", "--set-upstream", "origin", preview_branch],
+                cwd=repo_path,
             )
+            if not result.success:
+                err_console.print(
+                    format_error(
+                        f"Push to origin failed: {result.stderr.strip()}"
+                    )
+                )
+                raise SystemExit(ExitCode.FAILURE)
+        except SystemExit:
+            raise
+        except Exception as e:
+            err_console.print(format_error(f"Push to origin failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
 
         # Mark workspace as ejected (not deleted)
@@ -324,16 +360,10 @@ async def _eject(
 
         push_result = await git_push(set_upstream=True)
         if not push_result["success"]:
-            err_console.print(
-                format_error(f"Push failed: {push_result['error']}")
-            )
+            err_console.print(format_error(f"Push failed: {push_result['error']}"))
             raise SystemExit(ExitCode.FAILURE)
 
-    console.print(
-        format_success(
-            f"Ejected to branch: {preview_branch}"
-        )
-    )
+    console.print(format_success(f"Ejected to branch: {preview_branch}"))
     console.print(
         f"Run [bold]maverick land --finalize --branch {preview_branch}[/bold] "
         "when ready."
@@ -356,9 +386,7 @@ async def _finalize(
     project_name = user_repo.name
     preview_branch = branch or f"maverick/preview/{project_name}"
 
-    console.print(
-        f"Finalizing from branch [bold]{preview_branch}[/bold]..."
-    )
+    console.print(f"Finalizing from branch [bold]{preview_branch}[/bold]...")
 
     # Create PR if gh is available
     try:
@@ -371,9 +399,7 @@ async def _finalize(
             title=f"maverick: {project_name}",
         )
         if pr_result.success:
-            console.print(
-                format_success(f"PR created: {pr_result.pr_url or ''}")
-            )
+            console.print(format_success(f"PR created: {pr_result.pr_url or ''}"))
         else:
             console.print(
                 format_warning(
@@ -383,10 +409,7 @@ async def _finalize(
             )
     except Exception as e:
         console.print(
-            format_warning(
-                f"Could not create PR: {e}. "
-                "You can create one manually."
-            )
+            format_warning(f"Could not create PR: {e}. You can create one manually.")
         )
 
     # Cleanup workspace if it still exists
@@ -449,9 +472,7 @@ async def _agent_curate(
         raise SystemExit(ExitCode.FAILURE) from e
 
     if not plan:
-        console.print(
-            "Curator: no curation needed — history looks clean."
-        )
+        console.print("Curator: no curation needed — history looks clean.")
         return
 
     # Display plan
@@ -484,13 +505,9 @@ async def _agent_curate(
                 details=[
                     f"Executed {result['executed_count']}"
                     f"/{result['total_count']} steps.",
-                    f"Snapshot ID: {result['snapshot_id']}"
-                    " (for manual recovery).",
+                    f"Snapshot ID: {result['snapshot_id']} (for manual recovery).",
                 ],
-                suggestion=(
-                    "Repository was rolled back to "
-                    "pre-curation state."
-                ),
+                suggestion=("Repository was rolled back to pre-curation state."),
             )
         )
         raise SystemExit(ExitCode.FAILURE)
@@ -512,19 +529,12 @@ def _display_plan(plan: list[dict[str, Any]]) -> None:
     table.add_column("Reason")
 
     for i, step in enumerate(plan, 1):
-        cmd_str = (
-            f"jj {step['command']} "
-            f"{' '.join(step.get('args', []))}"
-        )
+        cmd_str = f"jj {step['command']} {' '.join(step.get('args', []))}"
         table.add_row(str(i), cmd_str, step.get("reason", ""))
 
     panel = Panel(
         table,
-        title=(
-            f"Curation Plan "
-            f"({len(plan)} operation"
-            f"{'s' if len(plan) != 1 else ''})"
-        ),
+        title=(f"Curation Plan ({len(plan)} operation{'s' if len(plan) != 1 else ''})"),
         border_style="cyan",
     )
     console.print(panel)

@@ -710,9 +710,17 @@ async def verify_bead_completion(
     # Check validation passed
     if not validation_result.get("passed", False):
         failed_stages: list[str] = []
-        for name, data in validation_result.get("stage_results", {}).items():
-            if isinstance(data, dict) and not data.get("passed", True):
-                failed_stages.append(name)
+        # Support both dict-keyed stage_results (from validate step) and
+        # list-based stages (from generate_validation_report)
+        stage_results = validation_result.get("stage_results", {})
+        if isinstance(stage_results, dict) and stage_results:
+            for name, data in stage_results.items():
+                if isinstance(data, dict) and not data.get("passed", True):
+                    failed_stages.append(name)
+        else:
+            for stage in validation_result.get("stages", []):
+                if isinstance(stage, dict) and not stage.get("passed", True):
+                    failed_stages.append(stage.get("name", "unknown"))
         stage_detail = ", ".join(failed_stages) if failed_stages else "unknown stages"
         reasons.append(f"Validation failed: {stage_detail}")
 

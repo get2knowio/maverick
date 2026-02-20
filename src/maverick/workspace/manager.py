@@ -182,8 +182,7 @@ class WorkspaceManager:
 
         if not result.success:
             raise WorkspaceBootstrapError(
-                f"Setup command failed: {self._setup_command}: "
-                f"{result.stderr.strip()}",
+                f"Setup command failed: {self._setup_command}: {result.stderr.strip()}",
                 workspace_path=str(self.workspace_path),
             )
 
@@ -323,9 +322,7 @@ class WorkspaceManager:
         data = json.loads(self.meta_path.read_text())
         return WorkspaceInfo(
             workspace_path=data.get("workspace_path", str(self.workspace_path)),
-            user_repo_path=data.get(
-                "user_repo_path", str(self._user_repo_path)
-            ),
+            user_repo_path=data.get("user_repo_path", str(self._user_repo_path)),
             state=data.get("state", WorkspaceState.ACTIVE.value),
             created_at=data.get("created_at", ""),
         )
