@@ -94,18 +94,21 @@ The primary command. Iterates over ready beads until done, running the
 `fly-beads` YAML workflow:
 
 ```
-preflight ──▶ bead loop
-                 │
-                 ├── select next ready bead
-                 ├── snapshot (jj operation for rollback)
-                 ├── implement (ImplementerAgent)
-                 ├── validate & fix (format/lint/typecheck/test, 3 attempts)
-                 ├── create fix beads (for remaining failures)
-                 ├── review & fix (UnifiedReviewerAgent, 2 cycles)
-                 ├── create review beads (for remaining findings)
-                 ├── verify completion gate
-                 ├── rollback on failure / commit on success
-                 └── close bead
+preflight ──▶ create_workspace ──▶ bead loop
+                                      │
+                                      ├── select next ready bead
+                                      ├── snapshot (jj operation for rollback)
+                                      ├── describe_change (bead → change description)
+                                      ├── implement (ImplementerAgent)
+                                      ├── sync_deps (install/update dependencies)
+                                      ├── validate & fix (format/lint/typecheck/test, 3 attempts)
+                                      ├── create fix beads (for remaining failures)
+                                      ├── review & fix (UnifiedReviewerAgent, 2 cycles)
+                                      ├── create review beads (for remaining findings)
+                                      ├── verify completion gate
+                                      ├── rollback on failure / commit on success
+                                      ├── close bead
+                                      └── check_done (exit or next bead)
 ```
 
 After `fly` finishes, run `maverick land` to curate history and push.
@@ -170,6 +173,20 @@ maverick land --base develop     # Custom base revision
 | `--yes` / `-y` | false | Auto-approve curation plan |
 | `--base <rev>` | main | Base revision for curation scope |
 | `--heuristic-only` | false | Use heuristic curation (no agent) |
+| `--eject` | false | Push to preview branch, keep workspace |
+| `--finalize` | false | Create PR from preview branch, teardown |
+| `--branch <name>` | `maverick/<project>` | Custom branch name |
+
+### `maverick workspace` — Workspace Management
+
+Manage the hidden workspace used by `maverick fly`. The workspace lives in
+`~/.maverick/workspaces/<project>/` and is a jj-colocated clone of your repo.
+
+```bash
+maverick workspace status           # Show workspace state for current project
+maverick workspace clean            # Remove workspace for current project
+maverick workspace clean --yes      # Skip confirmation prompt
+```
 
 ## Architecture
 
@@ -225,33 +242,7 @@ before each bead, and restores to the snapshot if the verification gate fails.
 
 ### Project Structure
 
-```
-src/maverick/
-├── cli/                 # Click CLI commands
-│   └── commands/        # fly, refuel, init, brief, land, uninstall
-├── dsl/                 # Workflow DSL implementation
-│   ├── serialization/   # YAML parsing, schema, executor
-│   ├── discovery/       # Workflow discovery from locations
-│   ├── steps/           # Step type implementations
-│   └── visualization/   # ASCII and Mermaid diagram generation
-├── agents/              # Agent implementations
-│   ├── prompts/         # Shared prompt fragments
-│   ├── code_reviewer/   # CodeReviewerAgent (pre-gathered context)
-│   ├── reviewers/       # UnifiedReviewerAgent, SimpleFixerAgent
-│   ├── generators/      # Text generators (commit, PR, error, bead)
-│   ├── implementer.py   # ImplementerAgent (bead execution)
-│   ├── fixer.py         # FixerAgent (targeted validation fixes)
-│   └── issue_fixer.py   # IssueFixerAgent (GitHub issue resolution)
-├── beads/               # Bead models, client, speckit integration
-├── library/             # Built-in workflows and actions
-│   ├── workflows/       # YAML workflow definitions (fly-beads, refuel-speckit)
-│   ├── actions/         # Python actions (jj, beads, workspace, review)
-│   └── fragments/       # Reusable workflow fragments
-├── tools/               # MCP tool definitions
-├── runners/             # Subprocess runners (validation, commands)
-├── models/              # Pydantic/dataclass models
-└── utils/               # Shared utilities (github_client, secrets)
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md#directory-structure) for the full directory layout.
 
 ## Workflow DSL
 

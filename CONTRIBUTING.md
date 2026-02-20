@@ -28,6 +28,8 @@ Thank you for contributing to Maverick! This guide explains the project architec
 - Python 3.10 or higher
 - Git
 - GitHub CLI (`gh`)
+- [Jujutsu](https://martinvonz.github.io/jj/) (`jj`) for VCS write operations
+- [bd](https://beads.dev/) for bead/work-item management
 - Claude API key (set `ANTHROPIC_API_KEY` environment variable)
 - [uv](https://docs.astral.sh/uv/) - Fast Python package and project manager (recommended)
 
@@ -129,18 +131,17 @@ Maverick follows a layered architecture with clear separation of concerns:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  CLI/TUI Layer (User Interface)                         │
-│  - Click commands (main.py)                             │
-│  - Textual TUI (tui/)                                   │
+│  CLI Layer (User Interface)                             │
+│  - Click commands (cli/commands/)                       │
 │  - User input validation                                │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │  Workflow Layer (Orchestration)                         │
-│  - FlyWorkflow, RefuelWorkflow (workflows/)             │
+│  - YAML workflows (library/workflows/)                  │
 │  - DSL-based workflow execution (dsl/)                  │
 │  - State management and sequencing                      │
-│  - Progress reporting as async generators              │
+│  - Progress reporting as async generators               │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -163,54 +164,24 @@ Maverick follows a layered architecture with clear separation of concerns:
 
 ```
 src/maverick/
-├── __init__.py          # Version info, public API
-├── main.py              # CLI entry point (Click)
-├── config.py            # Pydantic configuration models
-├── exceptions.py        # Exception hierarchy
-│
 ├── agents/              # AI agent implementations
-│   ├── base.py          # MaverickAgent ABC
-│   ├── code_reviewer.py # Code review agent
-│   ├── implementer.py   # Task implementation agent
-│   └── issue_fixer.py   # Issue fixing agent
-│
-├── workflows/           # Workflow orchestration
-│   ├── fly.py           # FlyWorkflow (spec-based dev)
-│   └── refuel.py        # RefuelWorkflow (tech debt)
-│
-├── dsl/                 # Workflow DSL
-│   ├── events.py        # Event types
-│   ├── executor.py      # DSL execution engine
-│   ├── serialization/   # YAML workflow parsing
-│   └── visualization/   # Workflow diagrams
-│
+├── beads/               # Bead models, client, speckit integration
+├── cli/                 # Click CLI commands
+├── dsl/                 # Workflow DSL engine
+├── exceptions/          # Custom exception hierarchy
+├── git/                 # GitPython wrapper (read-only)
+├── hooks/               # Safety and logging hooks
+├── init/                # Project initialization
+├── jj/                  # JjClient (Jujutsu wrapper)
+├── library/             # Built-in workflows, actions, fragments
+├── models/              # Pydantic/dataclass models
+├── runners/             # Subprocess runners (CommandRunner, validation)
+├── skills/              # Claude Code skills
 ├── tools/               # MCP tool definitions
-│   ├── github.py        # GitHub API tools
-│   ├── git.py           # Git operations
-│   └── validation.py    # Code validation tools
-│
-├── hooks/               # Agent safety/logging hooks
-│   └── safety.py        # Rate limiting, cost tracking
-│
-├── tui/                 # Textual UI components
-│   ├── app.py           # Main TUI application
-│   ├── screens/         # Screen definitions
-│   └── widgets/         # Reusable UI widgets
-│
-├── models/              # Pydantic data models
-│   ├── review.py        # Review result models
-│   ├── implementation.py # Implementation models
-│   └── validation.py    # Validation models
-│
-├── runners/             # Command execution
-│   ├── command.py       # Generic command runner
-│   ├── git.py           # Git command wrapper
-│   └── github.py        # GitHub CLI wrapper
-│
-└── utils/               # Shared utilities
-    ├── git_operations.py # Git helpers
-    ├── task_parser.py    # Task markdown parsing
-    └── context.py        # Context building
+├── utils/               # Shared utilities (github_client, secrets)
+├── vcs/                 # VCS abstraction protocol
+├── workflows/           # Workflow orchestration (legacy)
+└── workspace/           # Hidden workspace lifecycle management
 ```
 
 ## Key Concepts
