@@ -400,6 +400,34 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 - Prefer lazy prerequisite verification on first tool use, or provide an explicit async `verify_prerequisites()` API callers can `await`.
 - Return concrete, correct types (avoid `Any` on public APIs).
 
+### 7. Workspace isolation requires explicit cwd threading
+
+All DSL steps that operate inside a hidden workspace MUST receive `cwd` pointing to the
+workspace path. Without it, agents and validators silently operate on the user's working
+directory instead.
+
+- Agent steps: pass `cwd` in the step's `context` dict
+- Validate steps: pass `cwd` via the workflow/fragment `inputs` (not `kwargs` — ValidateStepRecord doesn't support kwargs)
+- Review actions: pass `cwd` to `gather_local_review_context()` and `run_review_fix_loop()`
+- jj actions: pass `cwd` (accepts `str | Path | None`); `_make_client` coerces with `Path(cwd)`
+
+See `.specify/memory/constitution.md` Appendix E for the full architecture.
+
+### 8. DSL expressions resolve to strings — coerce at boundaries
+
+All `${{ }}` expressions resolve to JSON-serializable types (strings). Action handlers MUST
+coerce to native Python types:
+
+```python
+# Path coercion — DSL passes string, code needs Path
+cwd = Path(input_cwd) if input_cwd else Path.cwd()
+
+# Integer coercion — YAML int fields cannot accept ${{ }} expressions
+# Use hardcoded values or pass through inputs with explicit int() conversion
+```
+
+Violations cause `AttributeError: 'str' object has no attribute 'is_dir'` or similar.
+
 ## Workflows
 
 Maverick uses a beads-only workflow model. All development is driven by beads (units of work managed by the `bd` CLI tool).
@@ -424,7 +452,7 @@ Iterates over ready beads until done. Runs the `fly-beads` DSL workflow:
 2. **Create workspace**: Clone user repo into `~/.maverick/workspaces/<project>/` via `jj git clone`
 3. **Bead Loop**: Select next ready bead, implement, validate, review, commit (via jj), close
 
-All fly work happens in the hidden workspace — the user's working directory is untouched. Run `maverick land` after `fly` to curate and push.
+All fly work happens in the hidden workspace — the user's working directory is untouched. Run `maverick land` after `fly` to curate and push. Preflight MUST use `check_validation_tools: false` because the workspace `.venv` doesn't exist until bootstrap; rely on `sync_deps` step to install tools before validation.
 
 Options: `--epic` (optional, filter by epic), `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--list-steps`, `--session-log`
 
