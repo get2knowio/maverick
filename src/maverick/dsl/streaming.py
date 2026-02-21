@@ -223,6 +223,10 @@ class StreamingContext:
         if not formatted:
             return
 
+        # Ensure tool call starts on a new line after text output
+        if self._has_output and not self._last_was_tool:
+            formatted = "\n" + formatted
+
         self._last_was_tool = True
         self._has_output = True
 

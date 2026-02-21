@@ -179,6 +179,7 @@ async def execute_agent_step(
     has_stream_attr = hasattr(agent_instance, "stream_callback")
     output_was_streamed = False  # Track if streaming actually occurred
     last_was_tool_call = False  # Track output type for proper line breaks
+    has_emitted_text = False  # Track if non-tool text was emitted
     logger.info(
         "stream_callback_setup",
         has_event_callback=has_event_callback,
@@ -194,7 +195,7 @@ async def execute_agent_step(
             - Tool calls use dim └ prefix (from _format_tool_call)
             - First text after tool call gets extra newline prefix
             """
-            nonlocal output_was_streamed, last_was_tool_call
+            nonlocal output_was_streamed, last_was_tool_call, has_emitted_text
             output_was_streamed = True  # Mark that we actually streamed output
 
             # Detect if this is a tool call (starts with └ or [dim]└)
@@ -209,7 +210,15 @@ async def execute_agent_step(
             if last_was_tool_call and not is_tool_call and text.strip():
                 output_text = "\n\n" + text
 
+            # Ensure tool call starts on a new line after streamed text
+            if has_emitted_text and not last_was_tool_call and is_tool_call:
+                output_text = "\n" + output_text
+
             last_was_tool_call = is_tool_call
+
+            # Track non-tool text emission
+            if not is_tool_call and text.strip():
+                has_emitted_text = True
 
             chunk_event = AgentStreamChunk(
                 step_name=step.name,
