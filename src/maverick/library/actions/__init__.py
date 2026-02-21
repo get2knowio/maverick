@@ -235,7 +235,7 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register(
         "jj_describe",
         jj_describe,
-        requires=("jj", "jj_colocated"),
+        requires=("jj",),
     )
     registry.actions.register(
         "jj_snapshot_operation",
@@ -270,17 +270,17 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register(
         "curate_history",
         curate_history,
-        requires=("jj", "jj_colocated"),
+        requires=("jj",),
     )
     registry.actions.register(
         "gather_curation_context",
         gather_curation_context,
-        requires=("jj", "jj_colocated"),
+        requires=("jj",),
     )
     registry.actions.register(
         "execute_curation_plan",
         execute_curation_plan,
-        requires=("jj", "jj_colocated"),
+        requires=("jj",),
     )
 
     # GitHub actions - require gh CLI and authentication
