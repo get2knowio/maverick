@@ -129,26 +129,24 @@ async def execute_agent_step(
     # Build kwargs for agent construction
     agent_kwargs: dict[str, Any] = {}
 
-    # Inject validation MCP server for implementer agent
+    # Inject validation commands from maverick.yaml as prompt guidance
     if step.agent == "implementer":
         try:
             from maverick.config import load_config
-            from maverick.tools.validation import create_validation_tools_server
 
             maverick_config = load_config()
-            val_server = create_validation_tools_server(maverick_config.validation)
-            # Remove test-only _tools key that breaks SDK serialization
-            val_server.pop("_tools", None)  # type: ignore[typeddict-item]
-            agent_kwargs["mcp_servers"] = {"validation-tools": val_server}
+            agent_kwargs["validation_commands"] = _extract_validation_commands(
+                maverick_config.validation,
+            )
         except (ImportError, ModuleNotFoundError) as e:
             logger.debug(
-                "validation_tools_unavailable",
+                "validation_config_unavailable",
                 error=str(e),
                 reason="module_not_found",
             )
         except ConfigError as e:
             logger.debug(
-                "validation_tools_config_failed",
+                "validation_config_failed",
                 error=str(e),
                 reason="config_error",
             )
@@ -318,6 +316,25 @@ async def execute_agent_step(
 
     # Return result with events using typed HandlerOutput
     return HandlerOutput(result=result, events=emitted_events)
+
+
+def _extract_validation_commands(
+    validation: Any,
+) -> dict[str, list[str]]:
+    """Extract validation commands from a ValidationConfig for prompt injection.
+
+    Args:
+        validation: A ValidationConfig instance.
+
+    Returns:
+        Dict mapping command type (e.g. "test_cmd") to argv list.
+    """
+    commands: dict[str, list[str]] = {}
+    for key in ("sync_cmd", "format_cmd", "lint_cmd", "typecheck_cmd", "test_cmd"):
+        value = getattr(validation, key, None)
+        if value:
+            commands[key] = list(value)
+    return commands
 
 
 def _extract_output_text(result: Any) -> str:

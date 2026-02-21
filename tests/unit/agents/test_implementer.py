@@ -242,11 +242,10 @@ class TestImplementerAgentInitialization:
     def test_allowed_tools_matches_contract(self, agent: ImplementerAgent) -> None:
         """Test allowed tools matches contract exactly.
 
-        ImplementerAgent has Read, Write, Edit, Glob, Grep, and Task
-        (for subagent-based parallel task execution within phases).
-        Bash removed - orchestration layer handles command execution.
+        ImplementerAgent has Read, Write, Edit, Glob, Grep, Task, and Bash.
+        Bash is used for running validation commands (tests, lint, etc.).
         """
-        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task", "Bash"}
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
             f"ImplementerAgent tools mismatch. "
@@ -273,9 +272,9 @@ class TestImplementerAgentInitialization:
             f"Expected: {expected_tools}, Got: {actual_tools}"
         )
 
-        # Ensure Bash is NOT in the centralized tools (per US1 contract)
-        assert "Bash" not in CENTRALIZED_TOOLS, (
-            "Bash should be removed from IMPLEMENTER_TOOLS per US1"
+        # Bash should be in the centralized tools for running validation commands
+        assert "Bash" in CENTRALIZED_TOOLS, (
+            "Bash should be in IMPLEMENTER_TOOLS for running validation commands"
         )
 
 
@@ -300,15 +299,14 @@ class TestImplementerConstants:
         """Test IMPLEMENTER_TOOLS is a frozenset of strings (centralized, immutable)."""
         assert isinstance(IMPLEMENTER_TOOLS, frozenset)
         assert all(isinstance(tool, str) for tool in IMPLEMENTER_TOOLS)
-        assert len(IMPLEMENTER_TOOLS) >= 5  # Without Bash
+        assert len(IMPLEMENTER_TOOLS) >= 6  # With Bash
 
     def test_implementer_tools_contains_core_tools(self) -> None:
-        """Test IMPLEMENTER_TOOLS contains core development tools (no Bash per US3)."""
+        """Test IMPLEMENTER_TOOLS contains core development tools including Bash."""
         assert "Read" in IMPLEMENTER_TOOLS
         assert "Write" in IMPLEMENTER_TOOLS
         assert "Edit" in IMPLEMENTER_TOOLS
-        # Bash removed - orchestration layer handles command execution
-        assert "Bash" not in IMPLEMENTER_TOOLS
+        assert "Bash" in IMPLEMENTER_TOOLS
 
 
 # =============================================================================

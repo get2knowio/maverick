@@ -504,12 +504,33 @@ class WorkflowFileExecutor:
                 # Extract embedded events from step output (backward compat)
                 output, embedded_events = _extract_embedded_events(raw_output)
 
+                # Determine step success: for agent steps, if the result
+                # has an explicit success=False attribute (e.g.
+                # ImplementationResult), propagate that as step failure so
+                # the executor stops instead of silently continuing.
+                step_success = True
+                step_error: str | None = None
+                if (
+                    step_record.type == StepType.AGENT
+                    and hasattr(output, "success")
+                    and output.success is False
+                ):
+                    step_success = False
+                    # Extract error details from the result
+                    if hasattr(output, "errors") and output.errors:
+                        step_error = "; ".join(str(e) for e in output.errors)
+                    elif hasattr(output, "error") and output.error:
+                        step_error = str(output.error)
+                    else:
+                        step_error = f"Step '{step_record.name}' returned success=False"
+
                 step_result = StepResult(
                     name=step_record.name,
                     step_type=step_record.type,
-                    success=True,
+                    success=step_success,
                     output=output,
                     duration_ms=int((time.perf_counter() - step_start) * 1000),
+                    error=step_error,
                 )
             except Exception as e:
                 # Cancel handler task if still running

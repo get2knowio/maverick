@@ -474,6 +474,28 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
 
         import asyncio
 
+        # Suppress SDK transport cleanup noise.  When an agent is
+        # terminated (e.g. by the circuit breaker), the SDK's internal
+        # read task receives SIGTERM and raises ProcessError.  Since
+        # nobody retrieves that exception, asyncio's default handler
+        # logs "Task exception was never retrieved" to stderr.  We
+        # install a temporary handler that silences this specific case.
+        loop = asyncio.get_running_loop()
+        _prev_handler = loop.get_exception_handler()
+
+        def _suppress_sdk_process_error(
+            loop_ref: asyncio.AbstractEventLoop,
+            ctx: dict[str, object],
+        ) -> None:
+            exc = ctx.get("exception")
+            if exc is not None and type(exc).__name__ == "ProcessError":
+                return  # Expected during forced agent shutdown
+            if _prev_handler is not None:
+                _prev_handler(loop_ref, ctx)
+            else:
+                loop_ref.default_exception_handler(ctx)
+
+        loop.set_exception_handler(_suppress_sdk_process_error)
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
@@ -513,6 +535,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             # Otherwise, wrap the SDK error
             raise self._wrap_sdk_error(e) from e
         finally:
-            # Yield to event loop so SDK transport cleanup tasks are processed,
-            # preventing "Task exception was never retrieved" warnings.
+            # Yield to event loop so SDK transport cleanup tasks are
+            # processed before restoring the original exception handler.
             await asyncio.sleep(0)
+            loop.set_exception_handler(_prev_handler)

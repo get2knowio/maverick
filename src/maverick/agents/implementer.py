@@ -15,6 +15,7 @@ from maverick.agents.base import MaverickAgent
 from maverick.agents.prompts.common import (
     CODE_QUALITY_PRINCIPLES,
     FRAMEWORK_CONVENTIONS,
+    TOOL_USAGE_BASH,
     TOOL_USAGE_EDIT,
     TOOL_USAGE_GLOB,
     TOOL_USAGE_GREP,
@@ -90,7 +91,7 @@ to a later phase — write tests in the same session as the implementation.
 
 ## Tool Usage Guidelines
 
-You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
+You have access to: **Read, Write, Edit, Glob, Grep, Task, Bash**
 
 ### Read
 {TOOL_USAGE_READ}
@@ -114,16 +115,9 @@ You have access to: **Read, Write, Edit, Glob, Grep, Task, run_validation**
 - When tasks are marked **[P]** (parallel), launch them simultaneously via
   multiple Task tool calls in a single response. This maximizes throughput.
 
-### run_validation
-- You do NOT have Bash access. To run commands use run_validation instead.
-- Call with types: ["sync"] to install or update dependencies. Always do
-  this after modifying pyproject.toml, package.json, or similar files.
-- Call with types: ["test"] to run tests after implementing code.
-- Call with types: ["lint"] or ["format"] to check for style issues.
-- Call with types: ["format", "lint", "test"] to run multiple checks at once.
-- Use this to verify your code works BEFORE completing the task.
-- Do NOT rely solely on the orchestration layer to catch errors — take
-  ownership of delivering working code.
+### Bash
+{TOOL_USAGE_BASH}
+$validation_commands
 
 **CRITICAL**: You MUST use Write and Edit to create and modify source files.
 Reading and analyzing is NOT enough — actually implement the code.
@@ -233,9 +227,9 @@ After all tasks in the phase are attempted:
 - Verify that the implemented features match what the task descriptions
   specified — do not leave partial implementations
 - Confirm that every new source file has a corresponding test file
-- Run run_validation with types: ["sync"] (if you modified dependency
-  files), then ["format", "lint", "test"]. Fix any issues found before
-  completing.
+- Run the project's validation commands via Bash (sync dependencies if you
+  modified dependency files, then format, lint, test). Fix any issues found
+  before completing.
 
 ### Rules
 
@@ -244,16 +238,50 @@ After all tasks in the phase are attempted:
 - You MUST create test files for every source module you create. If you
   create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
   tests or defer them to a later phase.
-- You do NOT have Bash access. Use run_validation for all commands.
-- The orchestration workflow handles git commits after you finish.
-- Use run_validation to run tests, lint, and format checks before
-  completing. If you modified dependency files, run sync first.
+- Use Bash to run validation commands (sync deps, format, lint, test)
+  before completing. The orchestration workflow handles git commits after
+  you finish.
 - Do NOT include commit messages in your output — the workflow generates
   them automatically.
 - Follow the project's conventions from CLAUDE.md if it exists.
 - Read files before editing them. Do not guess at file contents.
 - Prefer Edit over Write for existing files to make targeted changes.
 """
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+#: Mapping from ValidationConfig field names to human-readable labels.
+_VALIDATION_LABELS: dict[str, str] = {
+    "sync_cmd": "Sync dependencies",
+    "format_cmd": "Format",
+    "lint_cmd": "Lint",
+    "typecheck_cmd": "Type check",
+    "test_cmd": "Test",
+}
+
+
+def _format_validation_commands(
+    commands: dict[str, list[str]] | None,
+) -> str:
+    """Format validation commands dict into a prompt-friendly string.
+
+    Args:
+        commands: Mapping of command type to argv list (e.g.
+            ``{"test_cmd": ["pytest", "-x", "--tb=short"]}``).
+
+    Returns:
+        Markdown snippet listing each command, or empty string if none.
+    """
+    if not commands:
+        return ""
+    lines = ["\n#### Project Commands (from maverick.yaml)"]
+    for key, argv in commands.items():
+        label = _VALIDATION_LABELS.get(key, key)
+        lines.append(f"- **{label}**: `{' '.join(argv)}`")
+    return "\n".join(lines)
 
 
 # =============================================================================
@@ -289,6 +317,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         max_tokens: int | None = None,
         temperature: float | None = None,
         project_type: str | None = None,
+        validation_commands: dict[str, list[str]] | None = None,
     ) -> None:
         """Initialize ImplementerAgent.
 
@@ -298,22 +327,23 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             max_tokens: Optional maximum output tokens (SDK default used if None).
             temperature: Optional sampling temperature 0.0-1.0 (SDK default).
             project_type: Project type for skill guidance (auto-detected if None).
+            validation_commands: Optional dict of validation type to command list,
+                loaded from maverick.yaml. Injected into the system prompt as guidance.
         """
+        # Format validation commands for prompt injection
+        validation_section = _format_validation_commands(validation_commands)
+
         # Render prompt with skill guidance for this project type
         system_prompt = render_prompt(
             IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
             project_type=project_type,
+            extra_context={"validation_commands": validation_section},
         )
-
-        # Build allowed tools list, adding validation MCP tool if server is present
-        tools = list(IMPLEMENTER_TOOLS)
-        if mcp_servers and "validation-tools" in mcp_servers:
-            tools.append("mcp__validation-tools__run_validation")
 
         super().__init__(
             name="implementer",
             system_prompt=system_prompt,
-            allowed_tools=tools,
+            allowed_tools=list(IMPLEMENTER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
