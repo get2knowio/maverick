@@ -31,6 +31,7 @@ def _mock_command_runner() -> patch:
         return_value=mock_runner,
     )
 
+
 # ── Help-text tests ──────────────────────────────────────────────────
 
 

@@ -61,8 +61,8 @@ class ValidationRunner:
         env: dict[str, str] | None = None
         if cwd:
             local_bins = [
-                cwd / ".venv" / "bin",        # Python (uv/pip/venv)
-                cwd / "node_modules" / ".bin", # Node.js (npm/yarn/pnpm)
+                cwd / ".venv" / "bin",  # Python (uv/pip/venv)
+                cwd / "node_modules" / ".bin",  # Node.js (npm/yarn/pnpm)
             ]
             found = [str(p) for p in local_bins if p.is_dir()]
             if found:
@@ -145,7 +145,7 @@ class ValidationRunner:
 
             if not result.passed:
                 overall_success = False
-                logger.warning(
+                logger.debug(
                     "Validation stage '%s' failed (duration=%dms, fix_attempts=%d)",
                     stage.name,
                     result.duration_ms,

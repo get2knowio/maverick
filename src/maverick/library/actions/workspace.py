@@ -75,7 +75,7 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
         return state
 
     except Exception as e:
-        logger.error(f"Git command failed: {e}")
+        logger.debug(f"Git command failed: {e}")
         return WorkspaceState(
             branch_name=branch_name,
             base_branch=base_branch,
@@ -86,9 +86,7 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
         )
 
 
-async def _propagate_git_identity(
-    user_repo: Path, workspace_path: Path
-) -> None:
+async def _propagate_git_identity(user_repo: Path, workspace_path: Path) -> None:
     """Copy git user.name / user.email from the user repo into the workspace.
 
     jj reads author info from its own config, so we write the identity
@@ -162,7 +160,7 @@ async def create_fly_workspace(
         }
 
     except Exception as e:
-        logger.error("create_fly_workspace_failed", error=str(e))
+        logger.debug("create_fly_workspace_failed", error=str(e))
         return {
             "success": False,
             "workspace_path": None,

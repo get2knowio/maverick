@@ -342,9 +342,7 @@ async def _eject(
             )
             if not result.success:
                 err_console.print(
-                    format_error(
-                        f"Push to origin failed: {result.stderr.strip()}"
-                    )
+                    format_error(f"Push to origin failed: {result.stderr.strip()}")
                 )
                 raise SystemExit(ExitCode.FAILURE)
         except SystemExit:

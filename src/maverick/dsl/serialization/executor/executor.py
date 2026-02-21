@@ -518,7 +518,7 @@ class WorkflowFileExecutor:
                     with contextlib.suppress(asyncio.CancelledError):
                         await handler_task
 
-                logger.exception(f"Step '{step_record.name}' failed")
+                logger.debug("Step '%s' failed", step_record.name, exc_info=True)
 
                 step_result = StepResult(
                     name=step_record.name,

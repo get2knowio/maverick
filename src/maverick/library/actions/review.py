@@ -311,7 +311,7 @@ async def gather_pr_context(
         )
 
     except Exception as e:
-        logger.error(f"Failed to gather PR context: {e}")
+        logger.debug(f"Failed to gather PR context: {e}")
         return ReviewContextResult(
             pr_metadata=PRMetadata(
                 number=pr_number,
@@ -419,7 +419,7 @@ async def gather_local_review_context(
         )
 
     except Exception as e:
-        logger.error(f"Failed to gather local review context: {e}")
+        logger.debug(f"Failed to gather local review context: {e}")
         return ReviewContextResult(
             pr_metadata=PRMetadata(
                 number=None,

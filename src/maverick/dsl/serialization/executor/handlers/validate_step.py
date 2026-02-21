@@ -209,7 +209,7 @@ async def execute_validate_step(
 
             output = await runner.run()
         except Exception as e:
-            logger.error(f"Validation runner failed: {e}")
+            logger.debug("Validation runner failed: %s", e)
             await stream.emit_progress(f"Validation failed: {e}", level="error")
             return ValidationResult(
                 success=False,
@@ -257,9 +257,11 @@ async def execute_validate_step(
                     status="failed",
                     details=details,
                 )
-                logger.warning(
-                    f"Validation stage '{stage_result.stage_name}' failed "
-                    f"({stage_result.duration_ms}ms, {error_count} errors)"
+                logger.debug(
+                    "Validation stage '%s' failed (%dms, %d errors)",
+                    stage_result.stage_name,
+                    stage_result.duration_ms,
+                    error_count,
                 )
 
         # Emit "skipped" for stages the runner never reached

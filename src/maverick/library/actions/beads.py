@@ -165,7 +165,7 @@ async def create_beads(
     try:
         epic = await client.create_bead(epic_def)
     except Exception as e:
-        logger.error("epic_creation_failed", error=str(e))
+        logger.debug("epic_creation_failed", error=str(e))
         return BeadCreationResult(
             epic=None,
             work_beads=(),
@@ -187,7 +187,7 @@ async def create_beads(
             created_map[defn.title] = created.bd_id
         except Exception as e:
             error_msg = f"Failed to create bead '{defn.title}': {e}"
-            logger.error("bead_creation_failed", title=defn.title, error=str(e))
+            logger.debug("bead_creation_failed", title=defn.title, error=str(e))
             errors.append(error_msg)
 
     return BeadCreationResult(
@@ -332,7 +332,7 @@ async def wire_dependencies(
             error_msg = (
                 f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
             )
-            logger.error(
+            logger.debug(
                 "dependency_wiring_failed",
                 blocker_id=dep.blocker_id,
                 blocked_id=dep.blocked_id,
@@ -443,7 +443,7 @@ async def mark_bead_complete(
             error=None,
         )
     except Exception as e:
-        logger.error("bead_close_failed", bead_id=bead_id, error=str(e))
+        logger.debug("bead_close_failed", bead_id=bead_id, error=str(e))
         return MarkBeadCompleteResult(
             success=False,
             bead_id=bead_id,
@@ -575,7 +575,7 @@ async def create_beads_from_failures(
             created_ids.append(created.bd_id)
         except Exception as e:
             error_msg = f"Failed to create fix bead '{defn.title}': {e}"
-            logger.error("fix_bead_creation_failed", title=defn.title, error=str(e))
+            logger.debug("fix_bead_creation_failed", title=defn.title, error=str(e))
             errors.append(error_msg)
 
     return CreateBeadsFromFailuresResult(
@@ -676,7 +676,7 @@ async def create_beads_from_findings(
             created_ids.append(created.bd_id)
         except Exception as e:
             error_msg = f"Failed to create review bead '{defn.title}': {e}"
-            logger.error("review_bead_creation_failed", title=defn.title, error=str(e))
+            logger.debug("review_bead_creation_failed", title=defn.title, error=str(e))
             errors.append(error_msg)
 
     return CreateBeadsFromFindingsResult(

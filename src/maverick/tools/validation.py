@@ -333,7 +333,7 @@ def create_validation_tools_server(
                 else:
                     status = "failed"
                     success = False
-                    logger.warning(
+                    logger.debug(
                         "Validation '%s' failed with code %s in %sms",
                         validation_type,
                         return_code,

@@ -114,7 +114,7 @@ async def git_has_changes(
         }
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git status check failed: {e}")
+        logger.debug(f"Git status check failed: {e}")
         # On error, assume there might be changes to be safe
         return {
             "has_staged": True,
@@ -149,7 +149,7 @@ async def git_check_and_stage(
     if status["has_any"]:
         stage_result = await git_stage_all(cwd=cwd)
         if not stage_result["success"]:
-            logger.error("Failed to stage changes: %s", stage_result.get("error"))
+            logger.debug("Failed to stage changes: %s", stage_result.get("error"))
             # Still return the status so callers know changes exist even
             # though staging failed – downstream steps will see has_any=True
             # and attempt their own staging via git_commit(add_all=True).
@@ -198,7 +198,7 @@ async def git_add(
         return {"success": True, "error": None}
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git add failed: {e}")
+        logger.debug(f"Git add failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -237,7 +237,7 @@ async def git_stage_all(
         return {"success": True, "error": None}
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git stage all failed: {e}")
+        logger.debug(f"Git stage all failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -348,7 +348,7 @@ async def git_commit(
         }
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git commit failed: {e}")
+        logger.debug(f"Git commit failed: {e}")
         return {
             "success": False,
             "commit_sha": None,
@@ -415,7 +415,7 @@ async def git_push(
         }
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git push failed: {e}")
+        logger.debug(f"Git push failed: {e}")
         return {
             "success": False,
             "remote": "origin",
@@ -522,7 +522,7 @@ async def git_merge(
         }
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Git merge failed: {e}")
+        logger.debug(f"Git merge failed: {e}")
         return {
             "success": False,
             "branch": branch,
@@ -615,7 +615,7 @@ async def create_git_branch(
         }
 
     except (RuntimeError, OSError) as e:
-        logger.error(f"Branch operation failed: {e}")
+        logger.debug(f"Branch operation failed: {e}")
         return {
             "success": False,
             "branch_name": branch_name,

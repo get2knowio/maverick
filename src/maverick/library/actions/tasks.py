@@ -46,5 +46,5 @@ async def get_phase_names(task_file: str | Path) -> list[str]:
         )
         return phase_names
     except Exception as e:
-        logger.error("Failed to parse task file", task_file=str(path), error=str(e))
+        logger.debug("Failed to parse task file", task_file=str(path), error=str(e))
         return []
