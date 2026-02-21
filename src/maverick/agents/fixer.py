@@ -141,7 +141,7 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
         """
         super().__init__(
             name="fixer",
-            system_prompt=FIXER_SYSTEM_PROMPT,
+            instructions=FIXER_SYSTEM_PROMPT,
             allowed_tools=list(FIXER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,

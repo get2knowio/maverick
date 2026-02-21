@@ -100,7 +100,7 @@ def registry():
             super().__init__(
                 name="mock-reviewer",
                 model="test",
-                system_prompt="Test reviewer",
+                instructions="Test reviewer",
                 allowed_tools=[],
             )
 
@@ -115,7 +115,7 @@ def registry():
             super().__init__(
                 name="mock-agent",
                 model="test",
-                system_prompt="Test agent",
+                instructions="Test agent",
                 allowed_tools=[],
             )
 
@@ -127,7 +127,7 @@ def registry():
             super().__init__(
                 name="analyzer",
                 model="test",
-                system_prompt="Analyzer",
+                instructions="Analyzer",
                 allowed_tools=[],
             )
 
@@ -139,7 +139,7 @@ def registry():
             super().__init__(
                 name="failing-agent",
                 model="test",
-                system_prompt="Failing agent",
+                instructions="Failing agent",
                 allowed_tools=[],
             )
 

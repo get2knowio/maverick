@@ -73,7 +73,7 @@ class TestStreamingContextTextToToolTransition:
 
     @pytest.mark.asyncio
     async def test_emit_text_after_tool_adds_blank_line(self) -> None:
-        """Text emitted after tool call gets double newline (existing behavior)."""
+        """Text emitted after tool call gets single newline for spacing."""
         emitted: list[str] = []
 
         async def capture(event: AgentStreamChunk | StepOutput) -> None:
@@ -85,8 +85,11 @@ class TestStreamingContextTextToToolTransition:
             await stream.emit_text("Analysis complete.")
 
         assert len(emitted) == 2
-        assert emitted[1].startswith("\n\n"), (
-            f"Text after tool should get double newline, got: {emitted[1]!r}"
+        assert emitted[1].startswith("\n"), (
+            f"Text after tool should get newline, got: {emitted[1]!r}"
+        )
+        assert not emitted[1].startswith("\n\n"), (
+            f"Text after tool should get single newline, not double, got: {emitted[1]!r}"
         )
 
     @pytest.mark.asyncio
@@ -109,8 +112,9 @@ class TestStreamingContextTextToToolTransition:
         # Tool after text: single newline
         assert emitted[1].startswith("\n")
         assert not emitted[1].startswith("\n\n")
-        # Text after tool: double newline
-        assert emitted[2].startswith("\n\n")
+        # Text after tool: single newline
+        assert emitted[2].startswith("\n")
+        assert not emitted[2].startswith("\n\n")
 
     @pytest.mark.asyncio
     async def test_no_callback_is_noop(self) -> None:

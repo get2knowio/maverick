@@ -128,12 +128,12 @@ class TestImplementerTools:
 
     def test_implementer_tools_exact_composition(self) -> None:
         """Test IMPLEMENTER_TOOLS contains exactly the expected tools."""
-        expected = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
+        expected = {"Read", "Write", "Edit", "Glob", "Grep", "Task", "Bash"}
         assert expected == IMPLEMENTER_TOOLS
 
-    def test_implementer_tools_has_no_bash(self) -> None:
-        """Test IMPLEMENTER_TOOLS does not include Bash."""
-        assert "Bash" not in IMPLEMENTER_TOOLS
+    def test_implementer_tools_has_bash(self) -> None:
+        """Test IMPLEMENTER_TOOLS includes Bash for running validation commands."""
+        assert "Bash" in IMPLEMENTER_TOOLS
 
     def test_implementer_tools_has_read_capability(self) -> None:
         """Test IMPLEMENTER_TOOLS includes Read."""
@@ -245,10 +245,10 @@ class TestToolSetRelationships:
         assert "Read" in ISSUE_FIXER_TOOLS
         # GENERATOR_TOOLS is empty, so it doesn't have Read
 
-    def test_no_tool_set_contains_bash(self) -> None:
-        """Test no tool set includes Bash (removed per FR-006)."""
+    def test_only_implementer_tools_contain_bash(self) -> None:
+        """Test only IMPLEMENTER_TOOLS includes Bash for running commands."""
         assert "Bash" not in REVIEWER_TOOLS
-        assert "Bash" not in IMPLEMENTER_TOOLS
+        assert "Bash" in IMPLEMENTER_TOOLS
         assert "Bash" not in FIXER_TOOLS
         assert "Bash" not in ISSUE_FIXER_TOOLS
         assert "Bash" not in GENERATOR_TOOLS
@@ -318,12 +318,12 @@ class TestToolSetOperations:
     def test_issue_fixer_is_subset_of_implementer(self) -> None:
         """Test ISSUE_FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS.
 
-        The implementer has Task for subagent-based parallelization;
-        the issue fixer does not need it.
+        The implementer has Task for subagent-based parallelization
+        and Bash for running validation commands; the issue fixer has neither.
         """
         assert ISSUE_FIXER_TOOLS.issubset(IMPLEMENTER_TOOLS)
-        # The extra tool is Task
-        assert {"Task"} == IMPLEMENTER_TOOLS - ISSUE_FIXER_TOOLS
+        # The extra tools are Task and Bash
+        assert {"Task", "Bash"} == IMPLEMENTER_TOOLS - ISSUE_FIXER_TOOLS
 
 
 # =============================================================================

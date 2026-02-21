@@ -38,7 +38,7 @@ Basic Usage:
         def __init__(self, config: AgentConfig):
             super().__init__(
                 name="implementer",
-                system_prompt=IMPLEMENTER_SYSTEM_PROMPT,
+                instructions=IMPLEMENTER_SYSTEM_PROMPT,
                 allowed_tools=list(IMPLEMENTER_TOOLS),  # Convert to list
                 model=config.model,
             )
@@ -122,12 +122,12 @@ __all__: list[str] = [
 #: enable finding relevant code sections for review.
 REVIEWER_TOOLS: frozenset[str] = frozenset({"Read", "Glob", "Grep"})
 
-#: Code modification tools with subagent support (ImplementerAgent).
+#: Code modification tools with subagent and shell support (ImplementerAgent).
 #:
-#: Implementers write and edit code and can spawn subagents for parallel
-#: task execution. The orchestration layer handles test execution and validation.
+#: Implementers write and edit code, can spawn subagents for parallel
+#: task execution, and run shell commands (install deps, run tests, lint, etc.).
 IMPLEMENTER_TOOLS: frozenset[str] = frozenset(
-    {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
+    {"Read", "Write", "Edit", "Glob", "Grep", "Task", "Bash"}
 )
 
 #: Minimal tools for targeted file fixes (FixerAgent).

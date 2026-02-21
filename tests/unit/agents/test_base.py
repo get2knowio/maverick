@@ -60,12 +60,12 @@ class TestMaverickAgentInitialization:
         """Test agent creation with only required parameters."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="You are a test agent.",
+            instructions="You are a test agent.",
             allowed_tools=["Read", "Write"],
         )
 
         assert agent.name == "test-agent"
-        assert agent.system_prompt == "You are a test agent."
+        assert agent.instructions == "You are a test agent."
         assert agent.allowed_tools == ["Read", "Write"]
         assert agent.model == DEFAULT_MODEL
         assert agent.mcp_servers == {}
@@ -74,29 +74,29 @@ class TestMaverickAgentInitialization:
         """Test name property returns correct value."""
         agent = ConcreteTestAgent(
             name="my-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
         assert agent.name == "my-agent"
 
-    def test_system_prompt_property(self) -> None:
-        """Test system_prompt property returns correct value."""
+    def test_instructions_property(self) -> None:
+        """Test instructions property returns correct value."""
         prompt = "You are a specialized test agent."
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt=prompt,
+            instructions=prompt,
             allowed_tools=[],
         )
 
-        assert agent.system_prompt == prompt
+        assert agent.instructions == prompt
 
     def test_allowed_tools_property_returns_copy(self) -> None:
         """Test allowed_tools property returns a copy, not reference."""
         original_tools = ["Read", "Write"]
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=original_tools,
         )
 
@@ -114,7 +114,7 @@ class TestMaverickAgentInitialization:
         """Test model defaults to DEFAULT_MODEL when not specified."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -126,7 +126,7 @@ class TestMaverickAgentInitialization:
         custom_model = "claude-opus-4-5-20251101"
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
             model=custom_model,
         )
@@ -137,7 +137,7 @@ class TestMaverickAgentInitialization:
         """Test mcp_servers defaults to empty dict when not specified."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -148,7 +148,7 @@ class TestMaverickAgentInitialization:
         servers = {"github": {"url": "http://example.com"}}
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
             mcp_servers=servers,
         )
@@ -177,7 +177,7 @@ class TestValidateTools:
         # Should not raise
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=list(BUILTIN_TOOLS),
         )
 
@@ -189,7 +189,7 @@ class TestValidateTools:
             # Should not raise
             agent = ConcreteTestAgent(
                 name="test-agent",
-                system_prompt="Test prompt",
+                instructions="Test prompt",
                 allowed_tools=[tool],
             )
             assert tool in agent.allowed_tools
@@ -199,7 +199,7 @@ class TestValidateTools:
         # Should not raise
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["mcp__github__create_pr", "mcp__github__list_issues"],
             mcp_servers={"github": {"url": "http://example.com"}},
         )
@@ -212,7 +212,7 @@ class TestValidateTools:
         with pytest.raises(InvalidToolError) as exc_info:
             ConcreteTestAgent(
                 name="test-agent",
-                system_prompt="Test prompt",
+                instructions="Test prompt",
                 allowed_tools=["UnknownTool"],
             )
 
@@ -231,7 +231,7 @@ class TestValidateTools:
         # Should not raise
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[
                 "mcp__github__create_pr",
                 "mcp__gitlab__merge_request",
@@ -247,7 +247,7 @@ class TestValidateTools:
         with pytest.raises(InvalidToolError) as exc_info:
             ConcreteTestAgent(
                 name="test-agent",
-                system_prompt="Test prompt",
+                instructions="Test prompt",
                 allowed_tools=["mcp__github__create_pr"],
                 mcp_servers={},  # No servers configured
             )
@@ -260,7 +260,7 @@ class TestValidateTools:
         # Should not raise
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read", "Write", "mcp__github__create_pr"],
             mcp_servers={"github": {"url": "http://example.com"}},
         )
@@ -286,7 +286,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -305,7 +305,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read", "Write"],
             model="custom-model",
             mcp_servers={"github": {"url": "http://example.com"}},
@@ -319,7 +319,12 @@ class TestBuildOptions:
 
         mock_options_class.assert_called_once_with(
             allowed_tools=["Read", "Write"],
-            system_prompt="Test prompt",
+            system_prompt={
+                "type": "preset",
+                "preset": "claude_code",
+                "append": "Test prompt",
+            },
+            setting_sources=["project", "user"],
             model="custom-model",
             permission_mode="acceptEdits",
             mcp_servers={"github": {"url": "http://example.com"}},
@@ -334,7 +339,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -355,7 +360,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -375,7 +380,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
             max_tokens=4096,
         )
@@ -396,7 +401,7 @@ class TestBuildOptions:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
             temperature=0.7,
         )
@@ -424,7 +429,7 @@ class TestWrapSDKError:
         """Test wraps CLINotFoundError from SDK."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -442,7 +447,7 @@ class TestWrapSDKError:
         """Test wraps ProcessError with exit_code and stderr."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -464,7 +469,7 @@ class TestWrapSDKError:
         """Test wraps CLIConnectionError to NetworkError."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -482,7 +487,7 @@ class TestWrapSDKError:
         """Test wraps CLIJSONDecodeError to MalformedResponseError."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -504,7 +509,7 @@ class TestWrapSDKError:
 
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -524,7 +529,7 @@ class TestWrapSDKError:
         """Test wraps ProcessError with SIGTERM (-15) exit code."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -549,7 +554,7 @@ class TestWrapSDKError:
         """Test wraps ProcessError with SIGKILL (-9) exit code."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -570,7 +575,7 @@ class TestWrapSDKError:
         """Test wraps ProcessError with unknown signal number gracefully."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -591,7 +596,7 @@ class TestWrapSDKError:
         """Test exit code 1 still gets the existing capacity exhaustion heuristic."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -610,7 +615,7 @@ class TestWrapSDKError:
         """Test wraps generic errors to AgentError."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -627,7 +632,7 @@ class TestWrapSDKError:
         """Test wraps unknown SDK error types to AgentError."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -655,7 +660,7 @@ class TestExtractUsage:
         """Test extracts usage from ResultMessage."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -687,7 +692,7 @@ class TestExtractUsage:
         """Test returns zeros when no ResultMessage is found."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -712,7 +717,7 @@ class TestExtractUsage:
         """Test handles empty message list."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -728,7 +733,7 @@ class TestExtractUsage:
         """Test handles ResultMessage without usage attribute."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -753,7 +758,7 @@ class TestExtractUsage:
         """Test handles partial usage data in ResultMessage."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 
@@ -789,7 +794,7 @@ class TestQuery:
         """Test streams messages from ClaudeSDKClient."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -838,7 +843,7 @@ class TestQuery:
         """Test raises StreamingError with partial messages on mid-stream failure."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -884,7 +889,7 @@ class TestQuery:
         """Test wraps SDK errors when no partial messages have been received."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -920,7 +925,7 @@ class TestQuery:
         """Test wraps CLINotFoundError from SDK during query."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -966,7 +971,7 @@ class TestQuery:
         """Test builds options with provided cwd parameter."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -1002,7 +1007,7 @@ class TestQuery:
         """Test handles Path object for cwd parameter."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=["Read"],
         )
 
@@ -1048,7 +1053,7 @@ class TestExecuteMethod:
         """Test concrete agent implementation can execute successfully."""
         agent = ConcreteTestAgent(
             name="test-agent",
-            system_prompt="Test prompt",
+            instructions="Test prompt",
             allowed_tools=[],
         )
 

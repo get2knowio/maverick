@@ -72,6 +72,13 @@ TOOL_USAGE_TASK = """\
 - Provide clear, detailed prompts to subagents since they start with no context.
   Include file paths, requirements, and conventions they need to follow."""
 
+TOOL_USAGE_BASH = """\
+- Use Bash to run shell commands: install dependencies, run tests, lint, format, etc.
+- Always verify your code works by running the project's validation commands
+  before completing a task.
+- Do NOT use Bash for git operations (commits, pushes) — the orchestration
+  layer handles version control."""
+
 # =============================================================================
 # Code Quality Principles
 # =============================================================================

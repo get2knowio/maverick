@@ -37,7 +37,7 @@ class ValidAgent(MaverickAgent[dict[str, Any], str]):
     def __init__(self) -> None:
         super().__init__(
             name="test_agent",
-            system_prompt="Test agent",
+            instructions="Test agent",
             allowed_tools=[],
         )
 
@@ -102,7 +102,7 @@ class AgentWithoutExecute(MaverickAgent[dict[str, Any], str]):
     def __init__(self) -> None:
         super().__init__(
             name="incomplete_agent",
-            system_prompt="Incomplete agent",
+            instructions="Incomplete agent",
             allowed_tools=[],
         )
 

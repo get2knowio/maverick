@@ -34,17 +34,11 @@ class TestImplementerAgentToolPermissions:
         assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS
 
     def test_implementer_agent_has_expected_tools(self) -> None:
-        """Test ImplementerAgent has Read, Write, Edit, Glob, Grep, Task."""
+        """Test ImplementerAgent has Read, Write, Edit, Glob, Grep, Task, Bash."""
         agent = ImplementerAgent()
 
-        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task"}
+        expected_tools = {"Read", "Write", "Edit", "Glob", "Grep", "Task", "Bash"}
         assert set(agent.allowed_tools) == expected_tools
-
-    def test_implementer_agent_has_no_bash(self) -> None:
-        """Test ImplementerAgent does not have Bash tool."""
-        agent = ImplementerAgent()
-
-        assert "Bash" not in agent.allowed_tools
 
     def test_implementer_agent_has_read_capability(self) -> None:
         """Test ImplementerAgent has Read tool."""
@@ -66,29 +60,22 @@ class TestImplementerAgentToolPermissions:
         assert "Glob" in agent.allowed_tools
         assert "Grep" in agent.allowed_tools
 
-    def test_implementer_agent_with_validation_mcp_server(self) -> None:
-        """Test ImplementerAgent adds MCP validation tool when server is present."""
-        from maverick.tools.validation import create_validation_tools_server
-
-        server = create_validation_tools_server()
-        agent = ImplementerAgent(mcp_servers={"validation-tools": server})
-
-        assert "mcp__validation-tools__run_validation" in agent.allowed_tools
-        # Base tools should still be present
-        assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS | {
-            "mcp__validation-tools__run_validation"
-        }
-
-    def test_implementer_agent_without_validation_server(self) -> None:
-        """Test ImplementerAgent without validation server has base tools only."""
+    def test_implementer_agent_has_bash(self) -> None:
+        """Test ImplementerAgent has Bash tool for running commands."""
         agent = ImplementerAgent()
-        assert "mcp__validation-tools__run_validation" not in agent.allowed_tools
+        assert "Bash" in agent.allowed_tools
+
+    def test_implementer_agent_tools_match_constant(self) -> None:
+        """Test ImplementerAgent tools match IMPLEMENTER_TOOLS exactly."""
+        agent = ImplementerAgent()
         assert set(agent.allowed_tools) == IMPLEMENTER_TOOLS
 
-    def test_implementer_agent_with_other_mcp_server(self) -> None:
-        """Test non-validation MCP server doesn't add validation tool."""
-        agent = ImplementerAgent(mcp_servers={"other-server": {"name": "other"}})
-        assert "mcp__validation-tools__run_validation" not in agent.allowed_tools
+    def test_implementer_agent_with_validation_commands(self) -> None:
+        """Test validation commands are injected into the system prompt."""
+        commands = {"test_cmd": ["pytest", "-x"], "lint_cmd": ["ruff", "check", "."]}
+        agent = ImplementerAgent(validation_commands=commands)
+        assert "pytest -x" in agent.instructions
+        assert "ruff check ." in agent.instructions
 
 
 class TestCodeReviewerAgentToolPermissions:
@@ -198,7 +185,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "UnknownTool"],
                 )
 
@@ -225,7 +212,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="implementer-with-bash",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
                 )
 
@@ -249,7 +236,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="reviewer-with-write",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "Write", "Glob", "Grep"],
                 )
 
@@ -272,7 +259,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "CustomTool"],
                 )
 
@@ -296,7 +283,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "mcp__github__create_pr"],
                     mcp_servers={},  # No servers configured
                 )
@@ -377,14 +364,14 @@ class TestAgentToolComparison:
         assert "Read" in implementer.allowed_tools
         assert "Read" in issue_fixer.allowed_tools
 
-    def test_no_agent_has_bash_tool(self) -> None:
-        """Test that no agent uses Bash tool by default."""
+    def test_only_implementer_has_bash_tool(self) -> None:
+        """Test that only the implementer agent has Bash tool access."""
         reviewer = CodeReviewerAgent()
         implementer = ImplementerAgent()
         issue_fixer = IssueFixerAgent()
 
         assert "Bash" not in reviewer.allowed_tools
-        assert "Bash" not in implementer.allowed_tools
+        assert "Bash" in implementer.allowed_tools
         assert "Bash" not in issue_fixer.allowed_tools
 
 

@@ -49,7 +49,7 @@ def registry() -> ComponentRegistry:
         def __init__(self) -> None:
             super().__init__(
                 name="test_agent",
-                system_prompt="Test agent",
+                instructions="Test agent",
                 allowed_tools=[],
             )
 
@@ -63,7 +63,7 @@ def registry() -> ComponentRegistry:
         def __init__(self) -> None:
             super().__init__(
                 name="test_generator",
-                system_prompt="Test generator",
+                instructions="Test generator",
                 allowed_tools=[],
             )
 

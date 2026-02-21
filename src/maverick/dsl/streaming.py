@@ -200,7 +200,7 @@ class StreamingContext:
 
         output_text = text
         if self._last_was_tool and self._has_output:
-            output_text = "\n\n" + text
+            output_text = "\n" + text
 
         self._last_was_tool = False
         self._has_output = True
@@ -257,7 +257,7 @@ class StreamingContext:
 
         # Add spacing if coming from tool output
         if self._last_was_tool and self._has_output:
-            message = "\n\n" + message
+            message = "\n" + message
 
         self._last_was_tool = False
         self._has_output = True

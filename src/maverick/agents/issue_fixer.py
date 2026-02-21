@@ -158,7 +158,7 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         """
         super().__init__(
             name="issue-fixer",
-            system_prompt=ISSUE_FIXER_SYSTEM_PROMPT,
+            instructions=ISSUE_FIXER_SYSTEM_PROMPT,
             allowed_tools=list(ISSUE_FIXER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,

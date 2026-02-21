@@ -388,6 +388,10 @@ async def execute_workflow_run(
                             f"({event.step_type.value})... ",
                             end="",
                         )
+                        # Loop/subworkflow steps contain nested steps that
+                        # should not increment the top-level counter.
+                        if event.step_type.value in ("loop", "subworkflow"):
+                            workflow_depth += 1
                     else:
                         # Nested steps: show indented without numbering
                         indent = "  " * (workflow_depth - 1)
@@ -398,6 +402,10 @@ async def execute_workflow_run(
                         )
 
                 elif isinstance(event, StepCompleted):
+                    # Pop depth when a loop/subworkflow step completes
+                    if event.step_type.value in ("loop", "subworkflow"):
+                        workflow_depth = max(1, workflow_depth - 1)
+
                     # Calculate duration
                     duration_sec = event.duration_ms / 1000
 
