@@ -53,8 +53,7 @@
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/projects/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/projects/site,target=/workspaces/site,type=bind,consistency=cached"
+    // "source=${localEnv:HOME}/projects/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached"
   ],
   "postCreateCommand": "python3 --version && uv --version && node --version"
 }
