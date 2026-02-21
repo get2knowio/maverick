@@ -51,26 +51,56 @@ def _detect_sync_command(working_dir: Path) -> list[str] | None:
     return None
 
 
+def _load_sync_cmd_from_config(working_dir: Path) -> list[str] | None:
+    """Try to read sync_cmd from maverick.yaml in the given directory.
+
+    Args:
+        working_dir: Directory that may contain maverick.yaml.
+
+    Returns:
+        Configured sync command list, or None if not found.
+    """
+    try:
+        from maverick.config import load_config
+
+        config = load_config(config_path=working_dir / "maverick.yaml")
+        if config.validation.sync_cmd:
+            logger.info(
+                "sync_cmd_from_config",
+                command=" ".join(config.validation.sync_cmd),
+            )
+            return list(config.validation.sync_cmd)
+    except Exception:
+        pass
+    return None
+
+
 async def sync_dependencies(
     cwd: str | None = None,
     sync_cmd: list[str] | None = None,
 ) -> DependencySyncResult:
     """Sync/install project dependencies.
 
-    Uses the explicit sync_cmd if provided, otherwise auto-detects from
-    lock/manifest files in the working directory.
+    Resolution order: explicit sync_cmd > maverick.yaml config > auto-detection.
 
     Args:
         cwd: Working directory (defaults to current directory).
-        sync_cmd: Explicit sync command from config (highest priority).
+        sync_cmd: Explicit sync command (highest priority).
 
     Returns:
         DependencySyncResult with success status and details.
     """
     working_dir = Path(cwd) if cwd else Path.cwd()
 
-    # Determine which command to run
-    command = sync_cmd if sync_cmd else _detect_sync_command(working_dir)
+    # Determine which command to run:
+    # 1. Explicit parameter
+    # 2. maverick.yaml sync_cmd
+    # 3. Auto-detect from lock/manifest files
+    command = sync_cmd
+    if not command:
+        command = _load_sync_cmd_from_config(working_dir)
+    if not command:
+        command = _detect_sync_command(working_dir)
 
     if command is None:
         logger.info("no_sync_command_detected", cwd=str(working_dir))

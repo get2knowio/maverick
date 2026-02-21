@@ -188,7 +188,7 @@ async def run_preflight_checks(
         if not api_result.success:
             api_available = False
             errors.extend(api_result.errors)
-            logger.error("Anthropic API check failed", errors=api_result.errors)
+            logger.debug("Anthropic API check failed", errors=api_result.errors)
             api_err = (
                 api_result.errors[0] if api_result.errors else "credentials missing"
             )
@@ -210,7 +210,7 @@ async def run_preflight_checks(
         if shutil.which("git") is None:
             git_available = False
             errors.append("Git is not installed or not on PATH")
-            logger.error("Git not found")
+            logger.debug("Git not found")
             await _emit_check(event_callback, "Git", False, "not installed")
         else:
             logger.info("Git is available")
@@ -234,7 +234,7 @@ async def run_preflight_checks(
                         "Git user.name is not configured. "
                         "Run: git config --global user.name 'Your Name'"
                     )
-                    logger.error("Git user.name not configured")
+                    logger.debug("Git user.name not configured")
                     await _emit_check(
                         event_callback,
                         "Git user.name",
@@ -261,7 +261,7 @@ async def run_preflight_checks(
                         "Git user.email is not configured. "
                         "Run: git config --global user.email 'you@example.com'"
                     )
-                    logger.error("Git user.email not configured")
+                    logger.debug("Git user.email not configured")
                     await _emit_check(
                         event_callback,
                         "Git user.email",
@@ -291,7 +291,7 @@ async def run_preflight_checks(
                 "jj (Jujutsu) is not installed or not on PATH. "
                 "Install from: https://martinvonz.github.io/jj/latest/install-and-setup/"
             )
-            logger.error("jj CLI not found")
+            logger.debug("jj CLI not found")
             await _emit_check(event_callback, "jj CLI", False, "not installed")
         else:
             logger.info("jj CLI is available")
@@ -367,7 +367,7 @@ async def run_preflight_checks(
                 "bd CLI is not installed or not on PATH. "
                 "Run 'maverick init' to initialise the beads tracker."
             )
-            logger.error("bd CLI not found")
+            logger.debug("bd CLI not found")
             await _emit_check(event_callback, "bd CLI", False, "not installed")
         else:
             logger.info("bd CLI is available")
@@ -405,7 +405,7 @@ async def run_preflight_checks(
                 errors.append(
                     f"Tool '{tool_name}' (stage '{stage_name}') not found on PATH"
                 )
-                logger.error(
+                logger.debug(
                     "Validation tool check failed",
                     tool=tool_name,
                     stage=stage_name,
@@ -472,7 +472,7 @@ async def run_preflight_checks(
     if success:
         logger.info("All preflight checks passed")
     else:
-        logger.error(
+        logger.debug(
             "Preflight checks failed",
             error_count=len(errors),
             errors=errors,

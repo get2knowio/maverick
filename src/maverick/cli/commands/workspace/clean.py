@@ -30,21 +30,15 @@ async def clean(ctx: click.Context, yes: bool) -> None:
     manager = WorkspaceManager(user_repo_path=user_repo)
 
     if not manager.exists:
-        console.print(
-            format_warning("No workspace to clean up.")
-        )
+        console.print(format_warning("No workspace to clean up."))
         return
 
     if not yes:
-        console.print(
-            f"Will remove workspace at: {manager.workspace_path}"
-        )
+        console.print(f"Will remove workspace at: {manager.workspace_path}")
         answer = console.input("Continue? [y/N] ")
         if not answer.strip().lower().startswith("y"):
             console.print("Cancelled.")
             return
 
     await manager.teardown()
-    console.print(
-        format_success("Workspace cleaned up.")
-    )
+    console.print(format_success("Workspace cleaned up."))

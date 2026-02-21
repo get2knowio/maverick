@@ -225,9 +225,7 @@ class TestJjRepositoryDiff:
     ) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         await repo.diff(base="main", head="feature")
-        mock_client.diff.assert_called_once_with(
-            revision="feature", from_rev="main"
-        )
+        mock_client.diff.assert_called_once_with(revision="feature", from_rev="main")
 
     @pytest.mark.asyncio
     async def test_diff_head_translates(
@@ -235,9 +233,7 @@ class TestJjRepositoryDiff:
     ) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         await repo.diff(base="HEAD", head="HEAD")
-        mock_client.diff.assert_called_once_with(
-            revision="@-", from_rev="@-"
-        )
+        mock_client.diff.assert_called_once_with(revision="@-", from_rev="@-")
 
 
 # =====================================================================
@@ -272,9 +268,7 @@ class TestJjRepositoryDiffStats:
     ) -> None:
         mock_client.diff_stat.return_value = JjDiffStatResult()
         await repo.diff_stats(base="HEAD")
-        mock_client.diff_stat.assert_called_once_with(
-            revision="@", from_rev="@-"
-        )
+        mock_client.diff_stat.assert_called_once_with(revision="@", from_rev="@-")
 
 
 # =====================================================================
@@ -411,15 +405,9 @@ class TestJjRepositoryCommitMessages:
     ) -> None:
         mock_client.log.return_value = JjLogResult(
             changes=(
-                JjChangeInfo(
-                    change_id="a", commit_id="a1", description="first"
-                ),
-                JjChangeInfo(
-                    change_id="b", commit_id="b1", description=""
-                ),
-                JjChangeInfo(
-                    change_id="c", commit_id="c1", description="third"
-                ),
+                JjChangeInfo(change_id="a", commit_id="a1", description="first"),
+                JjChangeInfo(change_id="b", commit_id="b1", description=""),
+                JjChangeInfo(change_id="c", commit_id="c1", description="third"),
             ),
         )
         messages = await repo.commit_messages(limit=5)

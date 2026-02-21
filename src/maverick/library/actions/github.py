@@ -60,7 +60,7 @@ async def create_github_pr(
         result = await _runner.run(cmd)
 
         if not result.success:
-            logger.error(f"PR creation failed: {result.stderr}")
+            logger.debug(f"PR creation failed: {result.stderr}")
             return PRCreationResult(
                 success=False,
                 pr_number=None,
@@ -92,7 +92,7 @@ async def create_github_pr(
         )
 
     except Exception as e:
-        logger.error(f"PR creation failed: {e}")
+        logger.debug(f"PR creation failed: {e}")
         return PRCreationResult(
             success=False,
             pr_number=None,
@@ -137,7 +137,7 @@ async def fetch_github_issues(
         result = await _runner.run(cmd)
 
         if not result.success:
-            logger.error(f"Failed to fetch GitHub issues: {result.stderr}")
+            logger.debug(f"Failed to fetch GitHub issues: {result.stderr}")
             return FetchIssuesResult(
                 success=False,
                 issues=(),
@@ -173,7 +173,7 @@ async def fetch_github_issues(
         )
 
     except Exception as e:
-        logger.error(f"Failed to fetch GitHub issues: {e}")
+        logger.debug(f"Failed to fetch GitHub issues: {e}")
         return FetchIssuesResult(
             success=False,
             issues=(),
@@ -204,7 +204,7 @@ async def fetch_github_issue(issue_number: int) -> FetchSingleIssueResult:
         result = await _runner.run(cmd)
 
         if not result.success:
-            logger.error(
+            logger.debug(
                 f"Failed to fetch GitHub issue #{issue_number}: {result.stderr}"
             )
             return FetchSingleIssueResult(
@@ -236,7 +236,7 @@ async def fetch_github_issue(issue_number: int) -> FetchSingleIssueResult:
         )
 
     except Exception as e:
-        logger.error(f"Failed to fetch GitHub issue #{issue_number}: {e}")
+        logger.debug(f"Failed to fetch GitHub issue #{issue_number}: {e}")
         return FetchSingleIssueResult(
             success=False,
             issue=None,

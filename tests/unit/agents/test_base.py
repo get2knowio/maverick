@@ -520,6 +520,92 @@ class TestWrapSDKError:
         assert result.timeout_seconds == 30
         assert "Operation timed out" in result.message
 
+    def test_wraps_process_error_sigterm_with_signal_name(self) -> None:
+        """Test wraps ProcessError with SIGTERM (-15) exit code."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+        )
+
+        sdk_error = MagicMock()
+        sdk_error.__class__.__name__ = "ProcessError"
+        sdk_error.exit_code = -15
+        sdk_error.stderr = None
+        sdk_error.__str__ = MagicMock(return_value="Command failed with exit code -15")
+
+        result = agent._wrap_sdk_error(sdk_error)
+
+        assert isinstance(result, ProcessError)
+        assert result.exit_code == -15
+        assert "SIGTERM" in result.message
+        assert "killed by" in result.message
+        assert (
+            "timeout" in result.message.lower()
+            or "termination" in result.message.lower()
+        )
+
+    def test_wraps_process_error_sigkill_with_signal_name(self) -> None:
+        """Test wraps ProcessError with SIGKILL (-9) exit code."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+        )
+
+        sdk_error = MagicMock()
+        sdk_error.__class__.__name__ = "ProcessError"
+        sdk_error.exit_code = -9
+        sdk_error.stderr = None
+        sdk_error.__str__ = MagicMock(return_value="Command failed with exit code -9")
+
+        result = agent._wrap_sdk_error(sdk_error)
+
+        assert isinstance(result, ProcessError)
+        assert result.exit_code == -9
+        assert "SIGKILL" in result.message
+        assert "killed by" in result.message
+
+    def test_wraps_process_error_unknown_signal_gracefully(self) -> None:
+        """Test wraps ProcessError with unknown signal number gracefully."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+        )
+
+        sdk_error = MagicMock()
+        sdk_error.__class__.__name__ = "ProcessError"
+        sdk_error.exit_code = -99  # Not a standard signal
+        sdk_error.stderr = None
+        sdk_error.__str__ = MagicMock(return_value="Command failed with exit code -99")
+
+        result = agent._wrap_sdk_error(sdk_error)
+
+        assert isinstance(result, ProcessError)
+        assert result.exit_code == -99
+        assert "signal 99" in result.message
+        assert "killed by" in result.message
+
+    def test_wraps_process_error_exit_code_1_unchanged(self) -> None:
+        """Test exit code 1 still gets the existing capacity exhaustion heuristic."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            system_prompt="Test prompt",
+            allowed_tools=[],
+        )
+
+        sdk_error = MagicMock()
+        sdk_error.__class__.__name__ = "ProcessError"
+        sdk_error.exit_code = 1
+        sdk_error.stderr = "Check stderr output for details"
+        sdk_error.__str__ = MagicMock(return_value="Process error")
+
+        result = agent._wrap_sdk_error(sdk_error)
+
+        assert isinstance(result, ProcessError)
+        assert "capacity exhaustion" in result.message
+
     def test_wraps_generic_errors_to_agent_error(self) -> None:
         """Test wraps generic errors to AgentError."""
         agent = ConcreteTestAgent(

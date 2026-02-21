@@ -63,8 +63,10 @@ JJ_CLONE_TIMEOUT: float = 600.0
 #: Max retries for network operations.
 JJ_NETWORK_RETRIES: int = 3
 
-#: Regex for parsing ``jj log`` structured output lines.
-_LOG_SEPARATOR = "\x1f"  # ASCII unit separator
+#: ASCII unit separator for parsing ``jj log`` structured output lines.
+_LOG_SEPARATOR = "\x1f"
+#: jj template expression that emits the separator between fields.
+_TMPL_SEP = ' ++ "\\x1f" ++ '
 
 
 class JjClient:
@@ -435,9 +437,11 @@ class JjClient:
         Returns:
             :class:`JjLogResult` with raw output and parsed changes.
         """
-        # Use structured template for machine-readable parsing
+        # Use structured template for machine-readable parsing.
+        # Fields are concatenated with ++ "\x1f" ++ so jj emits them
+        # separated by the ASCII unit separator character.
         template = (
-            _LOG_SEPARATOR.join(
+            _TMPL_SEP.join(
                 [
                     "change_id.short()",
                     "commit_id.short()",
@@ -449,7 +453,7 @@ class JjClient:
                     "empty",
                 ]
             )
-            + '"\\n"'
+            + ' ++ "\\n"'
         )
 
         stdout = await self._run_jj_stdout(
@@ -688,7 +692,7 @@ class JjClient:
             List of :class:`JjBookmark`.
         """
         template = (
-            _LOG_SEPARATOR.join(
+            _TMPL_SEP.join(
                 [
                     "name",
                     "present",

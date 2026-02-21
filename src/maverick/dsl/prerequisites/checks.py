@@ -281,62 +281,6 @@ async def check_jj() -> PrerequisiteResult:
     )
 
 
-@prerequisite_registry.register(
-    name="jj_colocated",
-    display_name="Jujutsu Colocated Repo",
-    dependencies=("jj", "git_repo"),
-    cost=1,
-    remediation=(
-        "Initialize a colocated jj repo: jj git init --colocate\n"
-        "This shares the .git directory so GitPython reads still work."
-    ),
-)
-async def check_jj_colocated() -> PrerequisiteResult:
-    """Check that the current directory has a colocated jj repository."""
-    start = time.monotonic()
-
-    try:
-        proc = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
-                "jj",
-                "root",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=5,
-        )
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip() if stderr else "Not a jj repository"
-            return PrerequisiteResult(
-                success=False,
-                message=f"Not in a jj repository: {error_msg}",
-                duration_ms=int((time.monotonic() - start) * 1000),
-            )
-
-        jj_root = stdout.decode().strip()
-        return PrerequisiteResult(
-            success=True,
-            message=f"Jujutsu colocated repo found ({jj_root})",
-            duration_ms=int((time.monotonic() - start) * 1000),
-            details={"jj_root": jj_root},
-        )
-
-    except TimeoutError:
-        return PrerequisiteResult(
-            success=False,
-            message="Jujutsu repository check timed out",
-            duration_ms=int((time.monotonic() - start) * 1000),
-        )
-    except OSError as e:
-        return PrerequisiteResult(
-            success=False,
-            message=f"Jujutsu repository check failed: {e}",
-            duration_ms=int((time.monotonic() - start) * 1000),
-        )
-
-
 # =============================================================================
 # GitHub CLI Prerequisites
 # =============================================================================

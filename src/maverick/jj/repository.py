@@ -81,9 +81,7 @@ class JjRepository:
                 revision=_translate_ref(head), from_rev=jj_base
             )
         else:
-            result = await self._client.diff(
-                revision="@", from_rev=jj_base
-            )
+            result = await self._client.diff(revision="@", from_rev=jj_base)
         return result.output
 
     async def diff_stats(self, base: str = "HEAD") -> DiffStats:
@@ -212,7 +210,7 @@ def _parse_stat_output(raw: str) -> tuple[list[str], dict[str, tuple[int, int]]]
             filename = m.group(1).strip()
             files.append(filename)
             # Count + and - characters in the rest of the line
-            rest = line[m.end():]
+            rest = line[m.end() :]
             adds = rest.count("+")
             dels = rest.count("-")
             per_file[filename] = (adds, dels)

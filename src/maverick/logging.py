@@ -89,35 +89,19 @@ def _is_tty() -> bool:
     return sys.stderr.isatty()
 
 
-def _get_development_processors() -> list[Processor]:
-    """Get processors for development (pretty console output).
+def _get_structlog_processors() -> list[Processor]:
+    """Get processors for structlog's configure().
 
-    Automatically detects TTY and disables colors when output is piped/redirected.
-
-    Returns:
-        List of processors for development environment.
-    """
-    use_colors = _is_tty()
-    return [
-        *_get_shared_processors(),
-        structlog.processors.format_exc_info,
-        structlog.dev.ConsoleRenderer(
-            colors=use_colors,
-            exception_formatter=structlog.dev.plain_traceback,
-        ),
-    ]
-
-
-def _get_production_processors() -> list[Processor]:
-    """Get processors for production (JSON output).
+    Uses ``wrap_for_formatter`` as the final processor so that rendering
+    happens exactly once in the stdlib handler's ProcessorFormatter (not
+    duplicated by both structlog and stdlib paths).
 
     Returns:
-        List of processors for production environment.
+        List of processors for structlog configuration.
     """
     return [
         *_get_shared_processors(),
-        structlog.processors.dict_tracebacks,
-        structlog.processors.JSONRenderer(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ]
 
 
@@ -148,15 +132,11 @@ def configure_logging(
     use_json = force_json or _is_json_output()
     log_level = level if level is not None else _get_log_level()
 
-    # Choose processors based on output format
-    if use_json:
-        processors = _get_production_processors()
-    else:
-        processors = _get_development_processors()
-
-    # Configure structlog
+    # Configure structlog — rendering is deferred to the stdlib
+    # ProcessorFormatter via wrap_for_formatter so each message is
+    # rendered exactly once.
     structlog.configure(
-        processors=processors,
+        processors=_get_structlog_processors(),
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -176,27 +156,31 @@ def configure_logging(
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(log_level)
 
-    # Use structlog's formatter for stdlib logging
+    # Use structlog's ProcessorFormatter for final rendering.
+    # ``foreign_pre_chain`` handles stdlib loggers (not structlog loggers);
+    # structlog loggers arrive pre-processed via wrap_for_formatter.
     if use_json:
-        # For JSON output, use structlog's ProcessorFormatter
         handler.setFormatter(
             structlog.stdlib.ProcessorFormatter(
                 processors=[
                     structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                    structlog.processors.dict_tracebacks,
                     structlog.processors.JSONRenderer(),
                 ],
                 foreign_pre_chain=_get_shared_processors(),
             )
         )
     else:
-        # For console output, use structlog's ConsoleRenderer
-        # Auto-detect TTY to disable colors when output is piped/redirected
         use_colors = _is_tty()
         handler.setFormatter(
             structlog.stdlib.ProcessorFormatter(
                 processors=[
                     structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                    structlog.dev.ConsoleRenderer(colors=use_colors),
+                    structlog.processors.format_exc_info,
+                    structlog.dev.ConsoleRenderer(
+                        colors=use_colors,
+                        exception_formatter=structlog.dev.plain_traceback,
+                    ),
                 ],
                 foreign_pre_chain=_get_shared_processors(),
             )

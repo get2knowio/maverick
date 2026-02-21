@@ -62,7 +62,7 @@ async def process_selected_issues(
             if isinstance(raw_result, Exception):
                 # Issue processing raised an exception - record as failed
                 # Satisfies FR-021: graceful handling without crashing workflow
-                logger.error(
+                logger.debug(
                     f"Issue {issue.get('number')} failed with exception: {raw_result}"
                 )
                 result: dict[str, Any] = {

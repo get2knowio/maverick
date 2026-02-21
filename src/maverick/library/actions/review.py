@@ -311,7 +311,7 @@ async def gather_pr_context(
         )
 
     except Exception as e:
-        logger.error(f"Failed to gather PR context: {e}")
+        logger.debug(f"Failed to gather PR context: {e}")
         return ReviewContextResult(
             pr_metadata=PRMetadata(
                 number=pr_number,
@@ -334,6 +334,7 @@ async def gather_local_review_context(
     include_spec_files: bool = False,
     spec_dir: str | None = None,
     exclude_patterns: tuple[str, ...] | list[str] | None = None,
+    cwd: str | None = None,
 ) -> ReviewContextResult:
     """Gather local review context including uncommitted changes.
 
@@ -348,6 +349,7 @@ async def gather_local_review_context(
         spec_dir: Directory containing spec files (auto-detect if None).
         exclude_patterns: Glob patterns for files to exclude from review scope.
             Defaults to DEFAULT_EXCLUDE_PATTERNS.
+        cwd: Working directory for git operations (defaults to current directory).
 
     Returns:
         ReviewContextResult with diff, changed files, and optionally spec files.
@@ -358,7 +360,7 @@ async def gather_local_review_context(
         exclude_patterns = tuple(exclude_patterns)
 
     try:
-        repo = AsyncGitRepository()
+        repo = AsyncGitRepository(cwd)
 
         current_branch = await repo.current_branch()
 
@@ -417,7 +419,7 @@ async def gather_local_review_context(
         )
 
     except Exception as e:
-        logger.error(f"Failed to gather local review context: {e}")
+        logger.debug(f"Failed to gather local review context: {e}")
         return ReviewContextResult(
             pr_metadata=PRMetadata(
                 number=None,
@@ -795,6 +797,7 @@ async def run_review_fix_loop(
     skip_if_approved: bool = True,
     generate_report: bool = False,
     stream_callback: StreamCallback | None = None,
+    cwd: str | None = None,
 ) -> ReviewFixLoopResult | ReviewAndFixReport:
     """Execute review-fix loop with dual-agent review and single fixer.
 
@@ -816,6 +819,8 @@ async def run_review_fix_loop(
         generate_report: When True (default), generate a
             ``ReviewAndFixReport`` instead of the raw ``ReviewFixLoopResult``.
         stream_callback: Optional callback for streaming agent output text.
+        cwd: Working directory for review/fix operations (defaults to current
+            directory). When provided, overrides any cwd in pr_context.
 
     Returns:
         When *generate_report* is True: ``ReviewAndFixReport`` with the final
@@ -825,6 +830,10 @@ async def run_review_fix_loop(
     # Convert pr_context if it's a ReviewContextResult
     if hasattr(pr_context, "to_dict"):
         pr_context = pr_context.to_dict()
+
+    # Inject explicit cwd into pr_context so reviewers/fixers use it
+    if cwd:
+        pr_context["cwd"] = cwd
 
     async def _maybe_report(
         result: ReviewFixLoopResult,

@@ -37,9 +37,7 @@ class TestWorkspaceStatus:
         """Shows warning when no workspace exists."""
         mock_manager = MagicMock()
         mock_manager.exists = False
-        mock_manager.workspace_path = Path(
-            "/home/user/.maverick/workspaces/proj"
-        )
+        mock_manager.workspace_path = Path("/home/user/.maverick/workspaces/proj")
 
         with patch(
             "maverick.workspace.manager.WorkspaceManager",
@@ -55,9 +53,7 @@ class TestWorkspaceStatus:
         """Shows workspace info when workspace exists."""
         mock_manager = MagicMock()
         mock_manager.exists = True
-        mock_manager.workspace_path = Path(
-            "/home/user/.maverick/workspaces/proj"
-        )
+        mock_manager.workspace_path = Path("/home/user/.maverick/workspaces/proj")
         mock_manager.get_state.return_value = WorkspaceState.ACTIVE
 
         with patch(
@@ -74,9 +70,7 @@ class TestWorkspaceStatus:
         """Shows ejected state for ejected workspace."""
         mock_manager = MagicMock()
         mock_manager.exists = True
-        mock_manager.workspace_path = Path(
-            "/home/user/.maverick/workspaces/proj"
-        )
+        mock_manager.workspace_path = Path("/home/user/.maverick/workspaces/proj")
         mock_manager.get_state.return_value = WorkspaceState.EJECTED
 
         with patch(
@@ -120,9 +114,7 @@ class TestWorkspaceClean:
         """--yes skips confirmation and cleans up."""
         mock_manager = AsyncMock()
         mock_manager.exists = True
-        mock_manager.workspace_path = Path(
-            "/home/user/.maverick/workspaces/proj"
-        )
+        mock_manager.workspace_path = Path("/home/user/.maverick/workspaces/proj")
 
         with patch(
             "maverick.workspace.manager.WorkspaceManager",

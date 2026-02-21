@@ -18,6 +18,20 @@ from maverick.cli.commands.land import (
 )
 from maverick.cli.context import ExitCode
 
+
+def _mock_command_runner() -> patch:
+    """Patch CommandRunner so phase-2 ``git push`` succeeds in tests."""
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.stderr = ""
+    mock_runner = AsyncMock()
+    mock_runner.run.return_value = mock_result
+    return patch(
+        "maverick.runners.command.CommandRunner",
+        return_value=mock_runner,
+    )
+
+
 # ── Help-text tests ──────────────────────────────────────────────────
 
 
@@ -95,9 +109,12 @@ class TestApprovePath:
         mock_manager = AsyncMock()
         mock_manager.exists = True
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _approve(
                 manager=mock_manager,
@@ -112,9 +129,7 @@ class TestApprovePath:
         mock_client.bookmark_set.assert_awaited_once_with(
             "maverick/myproject", revision="@-"
         )
-        mock_client.git_push.assert_awaited_once_with(
-            bookmark="maverick/myproject"
-        )
+        mock_client.git_push.assert_awaited_once_with(bookmark="maverick/myproject")
         mock_manager.teardown.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -124,9 +139,12 @@ class TestApprovePath:
         mock_manager = AsyncMock()
         mock_manager.exists = False
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _approve(
                 manager=mock_manager,
@@ -255,9 +273,12 @@ class TestEjectPath:
         mock_manager = AsyncMock()
         mock_manager.set_state = MagicMock()
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _eject(
                 manager=mock_manager,
@@ -282,9 +303,12 @@ class TestEjectPath:
         mock_manager = AsyncMock()
         mock_manager.set_state = MagicMock()
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _eject(
                 manager=mock_manager,
@@ -295,9 +319,7 @@ class TestEjectPath:
                 cwd=Path("/tmp/workspace"),
             )
 
-        mock_client.bookmark_set.assert_awaited_once_with(
-            "my/preview", revision="@-"
-        )
+        mock_client.bookmark_set.assert_awaited_once_with("my/preview", revision="@-")
 
     @pytest.mark.asyncio
     async def test_eject_sets_workspace_state_to_ejected(self) -> None:
@@ -308,9 +330,12 @@ class TestEjectPath:
         mock_manager = AsyncMock()
         mock_manager.set_state = MagicMock()
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _eject(
                 manager=mock_manager,
@@ -330,9 +355,12 @@ class TestEjectPath:
         mock_manager = AsyncMock()
         mock_manager.set_state = MagicMock()
 
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "maverick.jj.client.JjClient",
+                return_value=mock_client,
+            ),
+            _mock_command_runner(),
         ):
             await _eject(
                 manager=mock_manager,
@@ -442,9 +470,7 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
             mock_path.cwd.return_value.resolve.return_value = Path(
                 "/home/user/myproject"
@@ -478,13 +504,9 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             # Should not raise — custom branch accepted
             await _finalize(base="main", branch="my/custom-branch")
 
@@ -508,13 +530,9 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             await _finalize(base="main", branch=None)
 
         mock_manager.teardown.assert_awaited_once()
@@ -539,13 +557,9 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             await _finalize(base="main", branch=None)
 
         mock_manager.teardown.assert_not_awaited()
@@ -570,13 +584,9 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             # Should NOT raise
             await _finalize(base="main", branch=None)
 
@@ -596,13 +606,9 @@ class TestFinalizePath:
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
             ),
-            patch(
-                "maverick.cli.commands.land.Path"
-            ) as mock_path,
+            patch("maverick.cli.commands.land.Path") as mock_path,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             # Should NOT raise
             await _finalize(base="main", branch=None)
 

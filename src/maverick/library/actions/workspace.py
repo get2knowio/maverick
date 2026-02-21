@@ -75,7 +75,7 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
         return state
 
     except Exception as e:
-        logger.error(f"Git command failed: {e}")
+        logger.debug(f"Git command failed: {e}")
         return WorkspaceState(
             branch_name=branch_name,
             base_branch=base_branch,
@@ -84,6 +84,30 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
             task_file_path=None,
             error=str(e),
         )
+
+
+async def _propagate_git_identity(user_repo: Path, workspace_path: Path) -> None:
+    """Copy git user.name / user.email from the user repo into the workspace.
+
+    jj reads author info from its own config, so we write the identity
+    into the workspace's local jj config so that ``jj describe`` /
+    ``jj new`` produce commits with the correct author.
+    """
+    runner = CommandRunner(timeout=10.0)
+
+    for key in ("user.name", "user.email"):
+        result = await runner.run(
+            ["git", "config", key],
+            cwd=user_repo,
+        )
+        value = result.stdout.strip()
+        if not value:
+            continue
+        await runner.run(
+            ["jj", "config", "set", "--repo", key, value],
+            cwd=workspace_path,
+        )
+        logger.debug("propagated_git_identity", key=key, value=value)
 
 
 async def create_fly_workspace(
@@ -117,6 +141,10 @@ async def create_fly_workspace(
         already_exists = manager.exists
         info = await manager.create_and_bootstrap()
 
+        # Propagate git identity so jj commits have author set
+        ws_path = Path(info.workspace_path)
+        await _propagate_git_identity(user_repo, ws_path)
+
         logger.info(
             "fly_workspace_ready",
             workspace_path=info.workspace_path,
@@ -132,7 +160,7 @@ async def create_fly_workspace(
         }
 
     except Exception as e:
-        logger.error("create_fly_workspace_failed", error=str(e))
+        logger.debug("create_fly_workspace_failed", error=str(e))
         return {
             "success": False,
             "workspace_path": None,

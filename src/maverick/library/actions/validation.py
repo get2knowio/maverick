@@ -319,11 +319,11 @@ async def _invoke_fixer_agent(
             }
 
     except ImportError as e:
-        logger.error("Failed to import agent modules: %s", e)
+        logger.debug("Failed to import agent modules: %s", e)
         return {"success": False, "error": f"Import error: {e}"}
     except ValueError as e:
         # AgentContext.from_cwd raises ValueError for invalid directories
-        logger.error("Invalid context configuration: %s", e)
+        logger.debug("Invalid context configuration: %s", e)
         return {"success": False, "error": f"Context error: {e}"}
     except Exception as e:
         logger.exception("Unexpected error invoking fixer agent: %s", e)
@@ -373,7 +373,7 @@ async def _run_validation(
                 )
 
         if not validation_stages:
-            logger.error("No valid stages to run for validation")
+            logger.debug("No valid stages to run for validation")
             return {"success": False, "stages": [], "error": "No valid stages"}
 
         # Create runner and execute
@@ -408,7 +408,7 @@ async def _run_validation(
         }
 
     except ImportError as e:
-        logger.error("Failed to import validation modules: %s", e)
+        logger.debug("Failed to import validation modules: %s", e)
         return {"success": False, "stages": [], "error": f"Import error: {e}"}
     except Exception as e:
         logger.exception("Unexpected error running validation: %s", e)

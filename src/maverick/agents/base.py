@@ -291,9 +291,25 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             exit_code = getattr(error, "exit_code", None)
             stderr = getattr(error, "stderr", None)
 
+            # Negative exit codes indicate the process was killed by a signal
+            if exit_code is not None and exit_code < 0:
+                import signal as signal_module
+
+                sig_num = -exit_code
+                try:
+                    sig_name = signal_module.Signals(sig_num).name
+                except ValueError:
+                    sig_name = f"signal {sig_num}"
+                raw_msg = (
+                    f"Claude CLI process was killed by {sig_name} "
+                    f"(exit code: {exit_code}). "
+                    f"This typically indicates a timeout, resource limit, "
+                    f"or external termination. "
+                    f"Original: {raw_msg}"
+                )
             # Exit code 1 with no useful stderr often means capacity
             # exhaustion or a transient API failure.
-            if exit_code == 1 and (
+            elif exit_code == 1 and (
                 not stderr or stderr == "Check stderr output for details"
             ):
                 raw_msg = (
@@ -456,6 +472,8 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         tool_call_counts: dict[str, int] = {}
         message_count = 0
 
+        import asyncio
+
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
@@ -494,3 +512,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
                 ) from e
             # Otherwise, wrap the SDK error
             raise self._wrap_sdk_error(e) from e
+        finally:
+            # Yield to event loop so SDK transport cleanup tasks are processed,
+            # preventing "Task exception was never retrieved" warnings.
+            await asyncio.sleep(0)

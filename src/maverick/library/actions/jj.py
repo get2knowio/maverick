@@ -26,9 +26,9 @@ from maverick.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _make_client(cwd: Path | None = None) -> JjClient:
+def _make_client(cwd: str | Path | None = None) -> JjClient:
     """Create a JjClient for the given (or current) working directory."""
-    return JjClient(cwd=cwd or Path.cwd())
+    return JjClient(cwd=Path(cwd) if cwd else Path.cwd())
 
 
 # =============================================================================
@@ -60,7 +60,7 @@ async def jj_describe(
         await client.describe(message)
         return {"success": True, "error": None}
     except (JjError, OSError) as e:
-        logger.error("jj_describe_failed", error=str(e))
+        logger.debug("jj_describe_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -92,7 +92,7 @@ async def jj_snapshot_operation(
             "error": None,
         }
     except (JjError, OSError) as e:
-        logger.error("jj_snapshot_failed", error=str(e))
+        logger.debug("jj_snapshot_failed", error=str(e))
         return {
             "success": False,
             "operation_id": None,
@@ -122,7 +122,7 @@ async def jj_restore_operation(
         await client.restore_operation(operation_id)
         return {"success": True, "error": None}
     except (JjError, OSError) as e:
-        logger.error("jj_restore_failed", error=str(e))
+        logger.debug("jj_restore_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -152,7 +152,7 @@ async def jj_squash(
         await client.squash(into=target)
         return {"success": True, "error": None}
     except (JjError, OSError) as e:
-        logger.error("jj_squash_failed", error=str(e))
+        logger.debug("jj_squash_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -172,7 +172,7 @@ async def jj_absorb(cwd: Path | None = None) -> dict[str, Any]:
         await client.absorb()
         return {"success": True, "error": None}
     except (JjError, OSError) as e:
-        logger.error("jj_absorb_failed", error=str(e))
+        logger.debug("jj_absorb_failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -203,7 +203,7 @@ async def jj_log(
             "error": None,
         }
     except (JjError, OSError) as e:
-        logger.error("jj_log_failed", error=str(e))
+        logger.debug("jj_log_failed", error=str(e))
         return {"success": False, "output": "", "error": str(e)}
 
 
@@ -232,7 +232,7 @@ async def jj_diff(
             "error": None,
         }
     except (JjError, OSError) as e:
-        logger.error("jj_diff_failed", error=str(e))
+        logger.debug("jj_diff_failed", error=str(e))
         return {"success": False, "output": "", "error": str(e)}
 
 
@@ -274,7 +274,7 @@ async def jj_commit_bead(
             "error": None,
         }
     except (JjError, OSError) as e:
-        logger.error("jj_commit_bead_failed", error=str(e))
+        logger.debug("jj_commit_bead_failed", error=str(e))
         return {
             "success": False,
             "message": message,
@@ -389,7 +389,7 @@ async def curate_history(
         }
 
     except (JjError, OSError) as e:
-        logger.error("curate_history_failed", error=str(e))
+        logger.debug("curate_history_failed", error=str(e))
         return {
             "success": False,
             "absorb_ran": absorb_ran,
@@ -430,8 +430,14 @@ async def gather_curation_context(
         # 1. Get commit list via structured log
         try:
             log_result = await client.log(revset=revset, limit=1000)
-        except JjError:
-            # Empty revset — no commits to curate
+        except JjError as e:
+            # Log the actual error — silently returning empty can mask bugs
+            logger.warning(
+                "gather_curation_no_commits",
+                revset=revset,
+                cwd=str(cwd),
+                error=str(e),
+            )
             return {
                 "success": True,
                 "commits": [],
@@ -449,9 +455,7 @@ async def gather_curation_context(
 
         # 2. Get summary log with file stats
         try:
-            stat_result = await client.diff_stat(
-                revision="@-", from_rev=base_revision
-            )
+            stat_result = await client.diff_stat(revision="@-", from_rev=base_revision)
             log_summary = stat_result.output
         except JjError:
             log_summary = ""
@@ -485,7 +489,7 @@ async def gather_curation_context(
         }
 
     except (JjError, OSError) as e:
-        logger.error("gather_curation_context_failed", error=str(e))
+        logger.debug("gather_curation_context_failed", error=str(e))
         return {
             "success": False,
             "commits": [],
@@ -562,7 +566,7 @@ async def execute_curation_plan(
                     f"jj {command} {' '.join(args)}: "
                     f"{result.stderr.strip()}"
                 )
-                logger.error(error_msg)
+                logger.debug(error_msg)
 
                 # Rollback
                 await jj_restore_operation(snapshot_id, cwd=cwd)
@@ -590,7 +594,7 @@ async def execute_curation_plan(
         }
 
     except (JjError, OSError) as e:
-        logger.error("execute_curation_plan_failed", error=str(e))
+        logger.debug("execute_curation_plan_failed", error=str(e))
         # Attempt rollback
         await jj_restore_operation(snapshot_id, cwd=cwd)
         return {

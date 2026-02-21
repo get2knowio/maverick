@@ -1,21 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.7.0 → 1.8.0
+Version change: 1.8.0 → 1.9.0
 Modified principles: None
 Added sections:
-  - Appendix D: Repository and Branch Naming Conventions
-  - Guardrail #10 in Principle X (branch naming enforcement)
+  - Guardrail #11: Workspace Isolation (cwd threading for hidden workspaces)
+  - Guardrail #12: DSL Expression Type Safety (string coercion at boundaries)
+  - Appendix E: Workspace Isolation Architecture
+  - Appendix B: Added jj (Jujutsu) as canonical library
+  - Technology Stack: Added jj, VcsRepository, WorkspaceManager rows
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
-  - .specify/templates/spec-template.md: ✅ Compatible (branch naming already uses ### format)
-  - .specify/templates/tasks-template.md: ✅ Compatible (references feature branches correctly)
+  - .specify/templates/spec-template.md: ✅ Compatible (no workspace-specific content)
+  - .specify/templates/tasks-template.md: ✅ Compatible (no workspace-specific content)
 Propagation:
-  - CLAUDE.md: ✅ Updated - added Multi-Repository Development section
+  - CLAUDE.md: ✅ Updated - added Workspace Isolation and DSL Type Safety sections
 Follow-up TODOs: None
-Source: Branch naming confusion incident 2026-01-21 - maverick repo had sample-project branch
-(001-greet-cli) that was merged and deleted. Added documentation to prevent recurrence.
+Source: Workspace isolation debugging session 2026-02-20 - implementer agent was writing to
+user repo (Path.cwd()) instead of hidden workspace because cwd was not threaded through DSL
+steps. Also discovered DSL expressions always resolve to strings, causing 'str' object has
+no attribute 'is_dir' when passed where Path expected.
 -->
 
 # Maverick Constitution
@@ -285,6 +290,32 @@ the design before proceeding.
     - Verify `git remote -v` before pushing to ensure you're targeting the correct repo
     (Enforces repository isolation. See Appendix D for multi-repo workflow.)
 
+11. **Workspace isolation requires explicit cwd threading**: All DSL steps that operate
+    inside a hidden workspace (`~/.maverick/workspaces/<project>/`) MUST receive an
+    explicit `cwd` parameter pointing to the workspace path. Without it, agents and
+    validators default to `Path.cwd()` (the user's working directory), silently writing
+    files to the wrong location.
+    - Agent steps: pass `cwd` in the `context` dict
+    - Validate steps: pass `cwd` via workflow `inputs` (ValidateStepRecord does not
+      support `kwargs`)
+    - Subworkflow/fragment steps: wire `cwd` through the fragment's `inputs` schema
+    - Review actions: pass `cwd` to `gather_local_review_context()` and
+      `run_review_fix_loop()` so diffs are computed against the workspace, not the
+      user repo
+    (Enforces Principles II and VIII. See Appendix E for architecture.)
+
+12. **DSL expressions resolve to strings — coerce at boundaries**: All `${{ }}`
+    expressions in YAML workflows resolve to JSON-serializable types (primarily strings).
+    Action handlers and boundary code MUST coerce these to native Python types before use:
+    - Paths: `Path(cwd) if cwd else Path.cwd()` — never pass raw strings to APIs
+      expecting `Path`
+    - Integers: `int(value)` — YAML `max_iterations` fields typed as `int` cannot
+      accept `${{ }}` expression strings
+    - Booleans: explicit `bool()` or truthiness checks
+    - Violations cause runtime `AttributeError` or `TypeError` that are hard to trace
+      back to the DSL layer
+    (Enforces Principle VI typed contracts.)
+
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
 the principle it operationalizes.
@@ -373,6 +404,10 @@ These technology choices are non-negotiable constraints for all Maverick develop
 | Testing | pytest + pytest-asyncio | All tests async-compatible |
 | Linting | Ruff | Fast, comprehensive Python linter |
 | Type Checking | MyPy | Strict mode recommended |
+| VCS (writes) | Jujutsu (jj) | `maverick.jj.client.JjClient` for all jj ops |
+| VCS (reads) | GitPython | `maverick.git` wraps GitPython (read-only) |
+| VCS (protocol) | VcsRepository | `maverick.vcs` abstracts git/jj for reads |
+| Workspaces | WorkspaceManager | `maverick.workspace` — hidden jj clones |
 
 ## Code Style & Conventions
 
@@ -435,6 +470,18 @@ src/maverick/
 ├── agents/              # Agent implementations
 │   ├── base.py          # MaverickAgent abstract base class
 │   └── *.py             # Concrete agent implementations
+├── jj/                  # JjClient — typed jj (Jujutsu) wrapper
+│   ├── client.py        # JjClient (CommandRunner-based, async)
+│   ├── models.py        # Frozen dataclass result types
+│   ├── errors.py        # JjError hierarchy under MaverickError
+│   └── repository.py    # JjRepository (VcsRepository protocol impl)
+├── vcs/                 # VCS abstraction layer
+│   ├── protocol.py      # VcsRepository runtime-checkable protocol
+│   └── factory.py       # create_vcs_repository() auto-detection
+├── workspace/           # Hidden workspace lifecycle management
+│   ├── manager.py       # WorkspaceManager (create/bootstrap/teardown)
+│   ├── models.py        # WorkspaceInfo, WorkspaceState, result types
+│   └── errors.py        # WorkspaceError hierarchy
 ├── workflows/           # Workflow orchestration
 ├── runners/             # Deterministic command execution (git, gh, validation)
 ├── tools/               # MCP tool definitions (delegate to runners)
@@ -471,8 +518,10 @@ MUST comply with these principles.
 - Module size thresholds (Principle XI) MUST be checked before merging large files
 - Ownership expectations (Principle XII) apply to all contributors including AI agents
 - Branch naming conventions (Guardrail #10, Appendix D) MUST be verified before pushing
+- Workspace cwd threading (Guardrail #11, Appendix E) MUST be verified for all new DSL steps
+- DSL expression type coercion (Guardrail #12) MUST be verified at action boundaries
 
-**Version**: 1.8.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-01-21
+**Version**: 1.9.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-02-20
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -481,7 +530,10 @@ or custom implementations. Violations found in code review MUST be refactored.
 
 | Domain | Library | Maverick Wrapper | Do NOT Use |
 |--------|---------|------------------|------------|
-| Git Operations | GitPython | `maverick.git.GitRepository`, `AsyncGitRepository` | `subprocess.run("git ...")` |
+| VCS Writes | Jujutsu (jj) | `maverick.jj.client.JjClient`, `maverick.library.actions.jj` | `subprocess.run("git commit/push ...")` |
+| VCS Reads | GitPython | `maverick.git.GitRepository`, `AsyncGitRepository` | `subprocess.run("git ...")` for reads |
+| VCS Abstraction | VcsRepository | `maverick.vcs.factory.create_vcs_repository()` | Direct git/jj calls for portable reads |
+| Workspaces | WorkspaceManager | `maverick.workspace.manager.WorkspaceManager` | Manual `jj git clone` or `git clone` |
 | GitHub API | PyGithub | `maverick.utils.github_client.GitHubClient` | `subprocess.run("gh ...")` except auth |
 | Logging | structlog | `maverick.logging.get_logger()` | stdlib `logging.getLogger()` |
 | Retry Logic | tenacity | `@retry`, `AsyncRetrying` | Manual `for attempt in range()` |
@@ -490,10 +542,20 @@ or custom implementations. Violations found in code review MUST be refactored.
 **Usage Examples**:
 
 ```python
-# Git operations - CORRECT
+# VCS write operations (jj) - CORRECT
+from maverick.library.actions.jj import git_commit, git_push
+result = await git_commit("feat: add feature", cwd=workspace_path)
+await git_push(cwd=workspace_path)
+
+# VCS read operations (GitPython) - CORRECT
 from maverick.git import GitRepository, AsyncGitRepository
 repo = GitRepository(path)
 branch = repo.current_branch()
+
+# Workspace lifecycle - CORRECT
+from maverick.workspace.manager import WorkspaceManager
+manager = WorkspaceManager(project_root, project_name)
+info = await manager.create()  # returns WorkspaceInfo with .path
 
 # Logging - CORRECT
 from maverick.logging import get_logger
@@ -654,3 +716,74 @@ If you accidentally push a branch to the wrong repository:
 **Rationale**: The 001-greet-cli incident (2026-01-21) demonstrated how easily branch
 confusion can occur when working across multiple repositories. Clear naming conventions
 and verification procedures prevent wasted effort and repository pollution.
+
+## Appendix E: Workspace Isolation Architecture
+
+The `fly` command creates a hidden jj workspace at `~/.maverick/workspaces/<project>/`
+where all agent work happens. The user's working directory is never modified during fly.
+After fly completes, `land` curates and pushes commits from the workspace.
+
+### The CWD Contract
+
+Every DSL step that operates inside the workspace MUST receive the workspace path as its
+working directory. The workspace path flows through the DSL like this:
+
+```
+create_workspace step
+  └── output.workspace_path (string, e.g. "/home/user/.maverick/workspaces/my-project")
+        │
+        ├── implement (agent step)
+        │     context.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        │
+        ├── validate_and_fix (subworkflow/fragment)
+        │     inputs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        │     └── (fragment wires cwd to its internal validate + fix_loop steps)
+        │
+        ├── gather_review_context (python step)
+        │     kwargs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        │
+        └── git_commit (python step)
+              kwargs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+```
+
+### Why Explicit CWD Is Required
+
+- **Agent steps**: The Claude agent's tool server resolves file paths relative to `cwd`.
+  Without explicit cwd, the agent reads/writes the user's repo instead of the workspace.
+- **Validate steps**: `ValidationRunner` runs `ruff`, `pytest`, etc. in a subprocess.
+  Without cwd, these run against the user's repo (which may not have the workspace's changes).
+- **Review actions**: `AsyncGitRepository(cwd)` computes diffs against the workspace.
+  Without cwd, diffs show nothing because the user repo hasn't changed.
+- **jj actions**: `JjClient(cwd=Path(workspace_path))` operates on the workspace's
+  `.jj/` store. The `_make_client` helper accepts `str | Path | None` and coerces with
+  `Path(cwd)` to handle DSL string expressions.
+
+### Type Coercion at the Boundary
+
+DSL `${{ }}` expressions always resolve to strings (JSON-serializable). When a step
+handler receives a workspace path from the DSL, it MUST convert:
+
+```python
+# In action code or step handler:
+from pathlib import Path
+
+def _make_client(cwd: str | Path | None = None) -> JjClient:
+    return JjClient(cwd=Path(cwd) if cwd else Path.cwd())
+
+# In validate step handler:
+input_cwd = context.inputs.get("cwd")
+cwd = Path(input_cwd) if input_cwd else Path.cwd()
+```
+
+### Preflight Tool Availability
+
+Preflight checks for validation tools (`ruff`, `pytest`, `mypy`) MUST be deferred when
+running in workspace mode. The workspace's `.venv` doesn't exist until bootstrap runs
+(after `create_workspace`). Use `check_validation_tools: false` in preflight kwargs and
+rely on the `sync_deps` step to install tools before validation runs.
+
+**Rationale**: The workspace isolation debugging session (2026-02-20) revealed that the
+implementer agent was silently writing files to the user's repo instead of the hidden
+workspace because no step passed `cwd`. The bug was invisible — fly "succeeded" but
+`land` found nothing to push. Explicit cwd threading is the only reliable way to ensure
+workspace isolation.

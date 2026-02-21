@@ -75,9 +75,7 @@ class TestJjDescribe:
 
         assert result["success"] is True
         assert result["error"] is None
-        mock_client.describe.assert_called_once_with(
-            "WIP bead(42): auth feature"
-        )
+        mock_client.describe.assert_called_once_with("WIP bead(42): auth feature")
 
     @pytest.mark.asyncio
     async def test_handles_failure(self) -> None:
@@ -232,9 +230,7 @@ class TestJjLog:
         """Test shows jj log output."""
         log_output = "@ abc123 user description\n"
         mock_client = make_mock_client()
-        mock_client.log.return_value = JjLogResult(
-            success=True, output=log_output
-        )
+        mock_client.log.return_value = JjLogResult(success=True, output=log_output)
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_log()
@@ -246,9 +242,7 @@ class TestJjLog:
     async def test_custom_revset(self) -> None:
         """Test uses custom revset and limit."""
         mock_client = make_mock_client()
-        mock_client.log.return_value = JjLogResult(
-            success=True, output="output\n"
-        )
+        mock_client.log.return_value = JjLogResult(success=True, output="output\n")
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_log(revset="::@", limit=5)
@@ -278,9 +272,7 @@ class TestJjDiff:
         """Test shows diff in git format."""
         diff_output = "diff --git a/file.py b/file.py\n"
         mock_client = make_mock_client()
-        mock_client.diff.return_value = JjDiffResult(
-            success=True, output=diff_output
-        )
+        mock_client.diff.return_value = JjDiffResult(success=True, output=diff_output)
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_diff()
@@ -324,9 +316,7 @@ class TestJjCommitBead:
         """Test describe + new is called in sequence."""
         mock_client = make_mock_client()
         mock_client.describe.return_value = JjDescribeResult(success=True)
-        mock_client.new.return_value = JjNewResult(
-            success=True, change_id="kxyz"
-        )
+        mock_client.new.return_value = JjNewResult(success=True, change_id="kxyz")
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_commit_bead("bead(42): add feature")
@@ -518,18 +508,32 @@ class TestCurateHistory:
             success=True,
             output="",
             changes=(
-                JjChangeInfo(change_id="a1", commit_id="c1",
-                             description="bead(10): fix test failures"),
-                JjChangeInfo(change_id="a2", commit_id="c2",
-                             description="bead(9): fixup import order"),
-                JjChangeInfo(change_id="a3", commit_id="c3",
-                             description="bead(8): lint cleanup"),
-                JjChangeInfo(change_id="a4", commit_id="c4",
-                             description="bead(7): format code"),
-                JjChangeInfo(change_id="a5", commit_id="c5",
-                             description="bead(6): typecheck corrections"),
-                JjChangeInfo(change_id="a6", commit_id="c6",
-                             description="bead(5): add new feature"),
+                JjChangeInfo(
+                    change_id="a1",
+                    commit_id="c1",
+                    description="bead(10): fix test failures",
+                ),
+                JjChangeInfo(
+                    change_id="a2",
+                    commit_id="c2",
+                    description="bead(9): fixup import order",
+                ),
+                JjChangeInfo(
+                    change_id="a3", commit_id="c3", description="bead(8): lint cleanup"
+                ),
+                JjChangeInfo(
+                    change_id="a4", commit_id="c4", description="bead(7): format code"
+                ),
+                JjChangeInfo(
+                    change_id="a5",
+                    commit_id="c5",
+                    description="bead(6): typecheck corrections",
+                ),
+                JjChangeInfo(
+                    change_id="a6",
+                    commit_id="c6",
+                    description="bead(5): add new feature",
+                ),
             ),
         )
         mock_client.squash.return_value = JjSquashResult(success=True)
@@ -557,18 +561,14 @@ class TestCurateHistory:
         """Test uses custom base revision in revset."""
         mock_client = make_mock_client()
         mock_client.absorb.return_value = JjAbsorbResult(success=True)
-        mock_client.log.return_value = JjLogResult(
-            success=True, output="", changes=()
-        )
+        mock_client.log.return_value = JjLogResult(success=True, output="", changes=())
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await curate_history(base_revision="develop")
 
         assert result["success"] is True
         # Verify the revset used "develop"
-        mock_client.log.assert_called_once_with(
-            revset="develop..@-", limit=1000
-        )
+        mock_client.log.assert_called_once_with(revset="develop..@-", limit=1000)
 
 
 class TestGatherCurationContext:
@@ -582,22 +582,20 @@ class TestGatherCurationContext:
             success=True,
             output="",
             changes=(
-                JjChangeInfo(change_id="abc123", commit_id="c1",
-                             description="add user auth"),
-                JjChangeInfo(change_id="def456", commit_id="c2",
-                             description="add login page"),
+                JjChangeInfo(
+                    change_id="abc123", commit_id="c1", description="add user auth"
+                ),
+                JjChangeInfo(
+                    change_id="def456", commit_id="c2", description="add login page"
+                ),
             ),
         )
         mock_client.diff_stat.side_effect = [
             # Summary stat
             JjDiffStatResult(success=True, output="summary stats"),
             # Per-commit stats
-            JjDiffStatResult(
-                success=True, output=" src/auth.py | 50 ++++\n"
-            ),
-            JjDiffStatResult(
-                success=True, output=" src/login.py | 30 ++++\n"
-            ),
+            JjDiffStatResult(success=True, output=" src/auth.py | 50 ++++\n"),
+            JjDiffStatResult(success=True, output=" src/login.py | 30 ++++\n"),
         ]
 
         with patch(MOCK_CLIENT, return_value=mock_client):
@@ -643,14 +641,10 @@ class TestGatherCurationContext:
         mock_client.log.side_effect = JjError("empty")
 
         with patch(MOCK_CLIENT, return_value=mock_client):
-            result = await gather_curation_context(
-                base_revision="develop"
-            )
+            result = await gather_curation_context(base_revision="develop")
 
         assert result["success"] is True
-        mock_client.log.assert_called_once_with(
-            revset="develop..@-", limit=1000
-        )
+        mock_client.log.assert_called_once_with(revset="develop..@-", limit=1000)
 
 
 class TestExecuteCurationPlan:
@@ -715,13 +709,9 @@ class TestExecuteCurationPlan:
         mock_client = make_mock_client()
         mock_client._runner.run.side_effect = [
             # jj squash -r abc123 (succeeds)
-            CommandResult(
-                returncode=0, stdout="", stderr="", duration_ms=50
-            ),
+            CommandResult(returncode=0, stdout="", stderr="", duration_ms=50),
             # jj squash -r bad456 (fails)
-            CommandResult(
-                returncode=1, stdout="", stderr="conflict", duration_ms=50
-            ),
+            CommandResult(returncode=1, stdout="", stderr="conflict", duration_ms=50),
         ]
 
         with (

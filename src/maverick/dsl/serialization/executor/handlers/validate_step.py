@@ -121,10 +121,20 @@ async def execute_validate_step(
     if isinstance(stages, str):
         stages = [stages]
 
-    # Load config if not provided
+    # Determine working directory: explicit input > project_root config > cwd
+    # The workflow (or parent subworkflow) may pass a cwd input to direct
+    # validation into a specific directory (e.g., a hidden jj workspace).
+    input_cwd = context.inputs.get("cwd")
+    if input_cwd:
+        cwd = Path(input_cwd)
+    else:
+        cwd = Path.cwd()
+
+    # Load config if not provided — use workspace cwd so we pick up the
+    # project's maverick.yaml even when running in a hidden workspace.
     if config is None:
         try:
-            config = load_config()
+            config = load_config(config_path=cwd / "maverick.yaml")
         except Exception as e:
             logger.warning(f"Failed to load maverick.yaml config: {e}, using defaults")
             config = MaverickConfig()
@@ -132,9 +142,9 @@ async def execute_validate_step(
     validation_config = config.validation
     timeout = validation_config.timeout_seconds
 
-    # Determine working directory (use project_root from config or cwd)
-    # Resolved before stage-building so _has_source_files can use it.
-    cwd = validation_config.project_root or Path.cwd()
+    # Apply project_root from config only when no explicit cwd was given
+    if not input_cwd and validation_config.project_root:
+        cwd = validation_config.project_root
 
     # Build ValidationStage objects for each requested stage
     validation_stages: list[ValidationStage] = []
@@ -199,7 +209,7 @@ async def execute_validate_step(
 
             output = await runner.run()
         except Exception as e:
-            logger.error(f"Validation runner failed: {e}")
+            logger.debug("Validation runner failed: %s", e)
             await stream.emit_progress(f"Validation failed: {e}", level="error")
             return ValidationResult(
                 success=False,
@@ -247,9 +257,11 @@ async def execute_validate_step(
                     status="failed",
                     details=details,
                 )
-                logger.warning(
-                    f"Validation stage '{stage_result.stage_name}' failed "
-                    f"({stage_result.duration_ms}ms, {error_count} errors)"
+                logger.debug(
+                    "Validation stage '%s' failed (%dms, %d errors)",
+                    stage_result.stage_name,
+                    stage_result.duration_ms,
+                    error_count,
                 )
 
         # Emit "skipped" for stages the runner never reached
