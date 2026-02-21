@@ -122,7 +122,7 @@ class TestStreamTextCallbackTextToToolTransition:
 
     @pytest.mark.asyncio
     async def test_tool_to_text_transition_adds_blank_line(self) -> None:
-        """Text after tool call gets double newline prefix (existing behavior)."""
+        """Text after tool call gets single newline prefix for spacing."""
         emitted = await _run_with_chunks(
             [
                 "\u2514 Read: foo.py\n",
@@ -131,8 +131,11 @@ class TestStreamTextCallbackTextToToolTransition:
         )
 
         text_outputs = [t for t in emitted if "\u2514" not in t]
-        assert any(t.startswith("\n\n") for t in text_outputs), (
-            f"Text after tool call should get double newline, got: {text_outputs!r}"
+        assert any(t.startswith("\n") for t in text_outputs), (
+            f"Text after tool call should get newline, got: {text_outputs!r}"
+        )
+        assert not any(t.startswith("\n\n") for t in text_outputs), (
+            f"Text after tool call should get single newline, not double, got: {text_outputs!r}"
         )
 
     @pytest.mark.asyncio

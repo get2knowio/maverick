@@ -206,7 +206,7 @@ async def execute_agent_step(
             # This creates visual separation (blank line) between modes
             output_text = text
             if last_was_tool_call and not is_tool_call and text.strip():
-                output_text = "\n\n" + text
+                output_text = "\n" + text
 
             # Ensure tool call starts on a new line after streamed text
             if has_emitted_text and not last_was_tool_call and is_tool_call:
