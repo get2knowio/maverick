@@ -42,7 +42,7 @@ class MockAgent(MaverickAgent):
         """
         super().__init__(
             name=name,
-            system_prompt="Mock system prompt",
+            instructions="Mock system prompt",
             allowed_tools=["Read", "Write"],
         )
         self.custom_param = custom_param
@@ -81,7 +81,7 @@ class AnotherMockAgent(MaverickAgent):
         """
         super().__init__(
             name=name,
-            system_prompt="Another mock prompt",
+            instructions="Another mock prompt",
             allowed_tools=[],
         )
 
@@ -244,7 +244,7 @@ def test_register_decorator_works_for_class_level_registration() -> None:
             """Initialize the decorated agent."""
             super().__init__(
                 name="decorated",
-                system_prompt="Decorated prompt",
+                instructions="Decorated prompt",
                 allowed_tools=[],
             )
 
@@ -398,7 +398,7 @@ def test_decorator_defaults_to_global_registry() -> None:
             """Initialize the globally decorated agent."""
             super().__init__(
                 name="global_decorated",
-                system_prompt="Global decorated prompt",
+                instructions="Global decorated prompt",
                 allowed_tools=[],
             )
 

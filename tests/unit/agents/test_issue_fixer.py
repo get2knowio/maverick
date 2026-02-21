@@ -116,7 +116,7 @@ class TestIssueFixerAgentInitialization:
     def test_default_initialization(self, agent: IssueFixerAgent) -> None:
         """Test agent initializes with correct defaults."""
         assert agent.name == "issue-fixer"
-        assert agent.system_prompt == ISSUE_FIXER_SYSTEM_PROMPT
+        assert agent.instructions == ISSUE_FIXER_SYSTEM_PROMPT
         # Compare as sets since allowed_tools is a list and
         # ISSUE_FIXER_TOOLS is a frozenset
         assert set(agent.allowed_tools) == set(ISSUE_FIXER_TOOLS)
@@ -132,26 +132,26 @@ class TestIssueFixerAgentInitialization:
         agent = IssueFixerAgent(mcp_servers=mcp_config)
         assert agent.mcp_servers == mcp_config
 
-    def test_system_prompt_emphasizes_minimal_changes(
+    def test_instructions_emphasizes_minimal_changes(
         self, agent: IssueFixerAgent
     ) -> None:
-        """Test system prompt emphasizes minimal, targeted fixes."""
-        prompt = agent.system_prompt
+        """Test instructions emphasizes minimal, targeted fixes."""
+        prompt = agent.instructions
         assert "minimal" in prompt.lower() or "MINIMUM" in prompt
         assert "root cause" in prompt.lower()
         assert "target <100 lines" in prompt or "100 lines" in prompt
 
-    def test_system_prompt_includes_verification_steps(
+    def test_instructions_includes_verification_steps(
         self, agent: IssueFixerAgent
     ) -> None:
-        """Test system prompt includes verification requirements."""
-        prompt = agent.system_prompt
+        """Test instructions includes verification requirements."""
+        prompt = agent.instructions
         assert "verification" in prompt.lower() or "Verification" in prompt
         assert "test" in prompt.lower()
 
-    def test_system_prompt_includes_commit_format(self, agent: IssueFixerAgent) -> None:
-        """Test system prompt specifies commit message format."""
-        prompt = agent.system_prompt
+    def test_instructions_includes_commit_format(self, agent: IssueFixerAgent) -> None:
+        """Test instructions specifies commit message format."""
+        prompt = agent.instructions
         assert "fix(" in prompt.lower() or "Fixes #" in prompt
         assert "issue_number" in prompt.lower()
 
@@ -164,7 +164,7 @@ class TestIssueFixerAgentInitialization:
 class TestIssueFixerConstants:
     """Tests for IssueFixerAgent constants."""
 
-    def test_system_prompt_is_non_empty(self) -> None:
+    def test_instructions_is_non_empty(self) -> None:
         """Test ISSUE_FIXER_SYSTEM_PROMPT is defined."""
         assert ISSUE_FIXER_SYSTEM_PROMPT
         assert len(ISSUE_FIXER_SYSTEM_PROMPT) > 100

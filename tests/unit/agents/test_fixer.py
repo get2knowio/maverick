@@ -76,7 +76,7 @@ class TestFixerAgentInitialization:
     def test_default_initialization(self, agent: FixerAgent) -> None:
         """Test agent initializes with correct defaults."""
         assert agent.name == "fixer"
-        assert agent.system_prompt == FIXER_SYSTEM_PROMPT
+        assert agent.instructions == FIXER_SYSTEM_PROMPT
         assert agent.allowed_tools == list(FIXER_TOOLS)
 
     def test_allowed_tools_matches_contract(self, agent: FixerAgent) -> None:
@@ -125,44 +125,44 @@ class TestFixerAgentInitialization:
 # =============================================================================
 
 
-class TestFixerSystemPrompt:
-    """Tests for FixerAgent system prompt (T032)."""
+class TestFixerInstructions:
+    """Tests for FixerAgent instructions (T032)."""
 
-    def test_system_prompt_is_defined(self) -> None:
+    def test_instructions_is_defined(self) -> None:
         """Test FIXER_SYSTEM_PROMPT is defined and non-empty (T032)."""
         assert FIXER_SYSTEM_PROMPT
         assert len(FIXER_SYSTEM_PROMPT) > 100
 
-    def test_system_prompt_emphasizes_targeted_fixes(self, agent: FixerAgent) -> None:
-        """Test system prompt emphasizes targeted, minimal changes (T032)."""
-        prompt = agent.system_prompt
+    def test_instructions_emphasizes_targeted_fixes(self, agent: FixerAgent) -> None:
+        """Test instructions emphasizes targeted, minimal changes (T032)."""
+        prompt = agent.instructions
         assert "targeted" in prompt.lower() or "minimal" in prompt.lower()
         assert "fix" in prompt.lower()
 
-    def test_system_prompt_lists_available_tools(self, agent: FixerAgent) -> None:
-        """Test system prompt lists the three available tools (T032)."""
-        prompt = agent.system_prompt
+    def test_instructions_lists_available_tools(self, agent: FixerAgent) -> None:
+        """Test instructions lists the three available tools (T032)."""
+        prompt = agent.instructions
         assert "Read" in prompt
         assert "Write" in prompt
         assert "Edit" in prompt
 
-    def test_system_prompt_specifies_constraints(self, agent: FixerAgent) -> None:
-        """Test system prompt specifies agent constraints (T032)."""
-        prompt = agent.system_prompt
+    def test_instructions_specifies_constraints(self, agent: FixerAgent) -> None:
+        """Test instructions specifies agent constraints (T032)."""
+        prompt = agent.instructions
         # Should not search for files
         assert "explicit" in prompt.lower() or "receive" in prompt.lower()
         # Should make minimal changes
         assert "minimal" in prompt.lower() or "necessary" in prompt.lower()
 
-    def test_system_prompt_does_not_request_json_output(
+    def test_instructions_does_not_request_json_output(
         self, agent: FixerAgent
     ) -> None:
-        """Test system prompt does not ask for JSON output (T032).
+        """Test instructions does not ask for JSON output (T032).
 
         The fixer applies fixes via tools; success is determined by
         re-running validation, not by the agent's self-report.
         """
-        prompt = agent.system_prompt
+        prompt = agent.instructions
         assert "json" not in prompt.lower()
 
 

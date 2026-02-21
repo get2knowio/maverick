@@ -38,7 +38,7 @@ Basic Usage:
         def __init__(self, config: AgentConfig):
             super().__init__(
                 name="implementer",
-                system_prompt=IMPLEMENTER_SYSTEM_PROMPT,
+                instructions=IMPLEMENTER_SYSTEM_PROMPT,
                 allowed_tools=list(IMPLEMENTER_TOOLS),  # Convert to list
                 model=config.model,
             )

@@ -126,7 +126,7 @@ class TestCodeReviewerAgentInitialization:
     def test_default_initialization(self, agent: CodeReviewerAgent) -> None:
         """Test agent initializes with correct defaults."""
         assert agent.name == "code-reviewer"
-        assert agent.system_prompt == SYSTEM_PROMPT
+        assert agent.instructions == SYSTEM_PROMPT
         assert set(agent.allowed_tools) == set(REVIEWER_TOOLS)
 
     def test_custom_model(self) -> None:
@@ -134,25 +134,25 @@ class TestCodeReviewerAgentInitialization:
         custom_agent = CodeReviewerAgent(model="claude-3-opus-20240229")
         assert custom_agent.model == "claude-3-opus-20240229"
 
-    def test_system_prompt_contains_review_dimensions(
+    def test_instructions_contains_review_dimensions(
         self, agent: CodeReviewerAgent
     ) -> None:
-        """Test system prompt includes all review dimensions."""
-        prompt = agent.system_prompt
+        """Test instructions includes all review dimensions."""
+        prompt = agent.instructions
         assert "correctness" in prompt.lower() or "Correctness" in prompt
         assert "security" in prompt.lower() or "Security" in prompt
         assert "style" in prompt.lower() or "Style" in prompt
         assert "performance" in prompt.lower() or "Performance" in prompt
 
-    def test_system_prompt_mentions_pre_gathered_context(
+    def test_instructions_mentions_pre_gathered_context(
         self, agent: CodeReviewerAgent
     ) -> None:
-        """Test system prompt mentions pre-gathered context (T025).
+        """Test instructions mentions pre-gathered context (T025).
 
         Agent should understand that diffs and file contents are provided
         by the orchestration layer, not retrieved by the agent itself.
         """
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
         assert (
             "pre-gathered" in prompt
             or "provided" in prompt

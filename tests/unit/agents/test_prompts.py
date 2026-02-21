@@ -34,7 +34,7 @@ class TestPromptsDoNotMentionGitOperations:
         focus on code implementation, not git execution.
         """
         agent = ImplementerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT mention running git commands
         assert "run git" not in prompt
@@ -49,7 +49,7 @@ class TestPromptsDoNotMentionGitOperations:
         analyze provided diffs, not execute git commands.
         """
         agent = CodeReviewerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT mention running git commands
         # (unless as negative guidance "don't")
@@ -73,7 +73,7 @@ class TestPromptsDoNotMentionGitOperations:
         focus on implementing the fix.
         """
         agent = IssueFixerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT mention running git commands
         assert "run git" not in prompt
@@ -91,7 +91,7 @@ class TestPromptsDoNotMentionPROperations:
         PR creation is handled by orchestration/workflow layer.
         """
         agent = ImplementerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "create pr" not in prompt
         assert "create pull request" not in prompt
@@ -104,7 +104,7 @@ class TestPromptsDoNotMentionPROperations:
         Reviewers analyze code, they don't create PRs.
         """
         agent = CodeReviewerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "create pr" not in prompt
         assert "create pull request" not in prompt
@@ -117,7 +117,7 @@ class TestPromptsDoNotMentionPROperations:
         PR creation is handled by orchestration/workflow layer.
         """
         agent = IssueFixerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "create pr" not in prompt
         assert "create pull request" not in prompt
@@ -134,7 +134,7 @@ class TestPromptsDoNotMentionAPIOperations:
         External integrations are handled by orchestration/tools layer.
         """
         agent = ImplementerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "api call" not in prompt
         assert "http request" not in prompt
@@ -146,7 +146,7 @@ class TestPromptsDoNotMentionAPIOperations:
         Issue/PR data is pre-fetched by orchestration.
         """
         agent = CodeReviewerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "api call" not in prompt
         assert "http request" not in prompt
@@ -158,7 +158,7 @@ class TestPromptsDoNotMentionAPIOperations:
         Issue data is pre-fetched by orchestration.
         """
         agent = IssueFixerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         assert "api call" not in prompt
         assert "http request" not in prompt
@@ -190,7 +190,7 @@ class TestPromptsDoNotMentionBashExecution:
         While agent has Bash tool, prompt should not instruct it to run validation.
         """
         agent = ImplementerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT instruct to run validation commands
         assert "run validation" not in prompt or "orchestration" in prompt
@@ -204,7 +204,7 @@ class TestPromptsDoNotMentionBashExecution:
         Reviewer analyzes pre-gathered context, doesn't execute commands.
         """
         agent = CodeReviewerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT instruct to execute commands for analysis
         assert "execute command" not in prompt or "orchestration" in prompt
@@ -216,7 +216,7 @@ class TestPromptsDoNotMentionBashExecution:
         Validation is run by orchestration layer.
         """
         agent = IssueFixerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should NOT instruct to run validation commands
         assert "run validation" not in prompt or "orchestration" in prompt
@@ -232,7 +232,7 @@ class TestPromptsExplainConstrainedRole:
         Should clarify what the agent does vs what orchestration does.
         """
         agent = ImplementerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should mention orchestration or that some tasks are handled externally
         assert "orchestration" in prompt or "orchestrated" in prompt
@@ -243,7 +243,7 @@ class TestPromptsExplainConstrainedRole:
         Should clarify that diffs and files are provided by orchestration.
         """
         agent = CodeReviewerAgent()
-        prompt = agent.system_prompt.lower()
+        prompt = agent.instructions.lower()
 
         # Should mention that context is provided/pre-gathered
         has_context_explanation = any(

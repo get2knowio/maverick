@@ -369,7 +369,7 @@ def mock_implementer_agent() -> MagicMock:
 
     # Set agent properties
     agent.name = "implementer"
-    agent.system_prompt = "Mock implementer agent"
+    agent.instructions = "Mock implementer agent"
     agent.allowed_tools = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 
     return agent

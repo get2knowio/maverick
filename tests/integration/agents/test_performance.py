@@ -149,7 +149,7 @@ class TestRegistryIntegration:
             def __init__(self) -> None:
                 super().__init__(
                     name="integration_test",
-                    system_prompt="Integration test agent",
+                    instructions="Integration test agent",
                     allowed_tools=[],
                 )
 
@@ -197,7 +197,7 @@ class TestRegistryIntegration:
             def __init__(self) -> None:
                 super().__init__(
                     name="decorated_integration",
-                    system_prompt="Decorated integration agent",
+                    instructions="Decorated integration agent",
                     allowed_tools=[],
                 )
 
@@ -235,7 +235,7 @@ class TestErrorHandlingIntegration:
         with pytest.raises(InvalidToolError) as exc_info:
             TestBadToolAgent(
                 name="bad_tool_agent",
-                system_prompt="Test",
+                instructions="Test",
                 allowed_tools=["NonExistentTool"],
             )
 

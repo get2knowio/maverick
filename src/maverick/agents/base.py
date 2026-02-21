@@ -97,7 +97,8 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
 
     Attributes:
         name: Unique identifier for the agent.
-        system_prompt: System prompt defining agent behavior.
+        instructions: Agent-specific role and behavioral guidelines (appended
+            to the Claude Code system prompt preset).
         allowed_tools: Tools the agent may use.
         model: Claude model ID (defaults to claude-sonnet-4-5-20250929).
         mcp_servers: MCP server configurations for custom tools.
@@ -108,7 +109,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             def __init__(self):
                 super().__init__(
                     name="greeter",
-                    system_prompt="You are a friendly greeter.",
+                    instructions="You are a friendly greeter.",
                     allowed_tools=[],
                 )
 
@@ -126,7 +127,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
     def __init__(
         self,
         name: str,
-        system_prompt: str,
+        instructions: str,
         allowed_tools: list[str],
         model: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
@@ -137,7 +138,11 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
 
         Args:
             name: Unique identifier for the agent.
-            system_prompt: System prompt defining agent behavior.
+            instructions: Agent-specific role and behavioral guidelines.
+                This is appended to the Claude Code system prompt preset
+                via the ``{"type": "preset", "preset": "claude_code",
+                "append": instructions}`` pattern.  It should describe
+                *who the agent is*, not what task it is doing right now.
             allowed_tools: Tools the agent may use (validated at construction).
             model: Optional Claude model ID.
             mcp_servers: Optional MCP server configurations.
@@ -148,7 +153,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             InvalidToolError: If any tool in allowed_tools is unknown.
         """
         self._name = name
-        self._system_prompt = system_prompt
+        self._instructions = instructions
         self._allowed_tools = list(allowed_tools)
         self._model = model or DEFAULT_MODEL
         self._mcp_servers = mcp_servers or {}
@@ -165,9 +170,9 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         return self._name
 
     @property
-    def system_prompt(self) -> str:
-        """System prompt defining agent behavior."""
-        return self._system_prompt
+    def instructions(self) -> str:
+        """Agent-specific role and behavioral guidelines (appended to preset)."""
+        return self._instructions
 
     @property
     def allowed_tools(self) -> list[str]:
@@ -250,7 +255,12 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
 
         return ClaudeAgentOptions(
             allowed_tools=self._allowed_tools,
-            system_prompt=self._system_prompt,
+            system_prompt={
+                "type": "preset",
+                "preset": "claude_code",
+                "append": self._instructions,
+            },
+            setting_sources=["project", "user"],
             model=self._model,
             permission_mode=DEFAULT_PERMISSION_MODE,
             mcp_servers=self._mcp_servers,

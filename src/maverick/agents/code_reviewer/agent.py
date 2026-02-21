@@ -62,7 +62,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
 
     Attributes:
         name: Always "code-reviewer"
-        system_prompt: Expert code reviewer prompt with review dimensions
+        instructions: Expert code reviewer prompt with review dimensions
         allowed_tools: Read-only tools only
         model: Claude model ID (inherited from MaverickAgent)
 
@@ -96,7 +96,7 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
         """
         super().__init__(
             name="code-reviewer",
-            system_prompt=SYSTEM_PROMPT,
+            instructions=SYSTEM_PROMPT,
             allowed_tools=list(REVIEWER_TOOLS),
             model=model,
             max_tokens=max_tokens,

@@ -192,7 +192,7 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
 
     Attributes:
         name: "unified-reviewer"
-        system_prompt: Combined review prompt covering all perspectives
+        instructions: Combined review prompt covering all perspectives
         allowed_tools: Read-only tools plus Task for spawning subagents
     """
 
@@ -217,14 +217,14 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
         tools = list(REVIEWER_TOOLS) + ["Task"]
 
         # Render prompt with skill guidance and project conventions
-        system_prompt = render_prompt(
+        rendered_instructions = render_prompt(
             UNIFIED_REVIEWER_PROMPT_TEMPLATE,
             project_type=project_type,
         )
 
         super().__init__(
             name="unified-reviewer",
-            system_prompt=system_prompt,
+            instructions=rendered_instructions,
             allowed_tools=tools,
             model=model,
             max_tokens=max_tokens,

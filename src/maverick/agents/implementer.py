@@ -334,7 +334,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         validation_section = _format_validation_commands(validation_commands)
 
         # Render prompt with skill guidance for this project type
-        system_prompt = render_prompt(
+        rendered_instructions = render_prompt(
             IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
             project_type=project_type,
             extra_context={"validation_commands": validation_section},
@@ -342,7 +342,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
 
         super().__init__(
             name="implementer",
-            system_prompt=system_prompt,
+            instructions=rendered_instructions,
             allowed_tools=list(IMPLEMENTER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,

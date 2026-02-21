@@ -74,8 +74,8 @@ class TestImplementerAgentToolPermissions:
         """Test validation commands are injected into the system prompt."""
         commands = {"test_cmd": ["pytest", "-x"], "lint_cmd": ["ruff", "check", "."]}
         agent = ImplementerAgent(validation_commands=commands)
-        assert "pytest -x" in agent.system_prompt
-        assert "ruff check ." in agent.system_prompt
+        assert "pytest -x" in agent.instructions
+        assert "ruff check ." in agent.instructions
 
 
 class TestCodeReviewerAgentToolPermissions:
@@ -185,7 +185,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "UnknownTool"],
                 )
 
@@ -212,7 +212,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="implementer-with-bash",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
                 )
 
@@ -236,7 +236,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="reviewer-with-write",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "Write", "Glob", "Grep"],
                 )
 
@@ -259,7 +259,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "CustomTool"],
                 )
 
@@ -283,7 +283,7 @@ class TestUnauthorizedToolRejection:
             def __init__(self) -> None:
                 super().__init__(
                     name="test-agent",
-                    system_prompt="Test",
+                    instructions="Test",
                     allowed_tools=["Read", "mcp__github__create_pr"],
                     mcp_servers={},  # No servers configured
                 )

@@ -152,7 +152,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
 
     Attributes:
         name: "simple-fixer"
-        system_prompt: Focused on fixing with accountability
+        instructions: Focused on fixing with accountability
         allowed_tools: File operations plus Task for parallel work
     """
 
@@ -174,7 +174,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
 
         super().__init__(
             name="simple-fixer",
-            system_prompt=SIMPLE_FIXER_PROMPT,
+            instructions=SIMPLE_FIXER_PROMPT,
             allowed_tools=tools,
             model=model,
             max_tokens=max_tokens,
