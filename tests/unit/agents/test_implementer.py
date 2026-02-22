@@ -199,9 +199,7 @@ class TestImplementerAgentInitialization:
         assert "mandatory" in prompt.lower() or "must" in prompt.lower()
         assert "test file" in prompt.lower() or "test files" in prompt.lower()
 
-    def test_instructions_mentions_orchestration(
-        self, agent: ImplementerAgent
-    ) -> None:
+    def test_instructions_mentions_orchestration(self, agent: ImplementerAgent) -> None:
         """Test instructions mentions orchestration layer (T024).
 
         Agent should understand it operates within an orchestration context

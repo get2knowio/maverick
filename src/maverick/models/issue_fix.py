@@ -77,7 +77,11 @@ class FixResult(BaseModel):
     commit_sha: str | None = Field(default=None, description="Commit SHA")
     verification_passed: bool = Field(default=False, description="Fix verified")
     validation_passed: bool = Field(default=True, description="Validation passed")
-    output: str = Field(default="", description="Raw output for debugging")
+    output: str = Field(
+        default="",
+        description="Raw output for debugging. "
+        "Deprecated: prefer fix_description and files_changed for structured access.",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional context"
     )

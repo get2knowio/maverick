@@ -299,23 +299,14 @@ async def _invoke_fixer_agent(
         result = await agent.execute(context)
 
         if result.success:
-            output = result.output or ""
             return {
                 "success": True,
-                "changes_made": output[:200] if output else "Fix applied",
+                "changes_made": result.summary or "Fix applied",
             }
         else:
-            # Extract error message from result
-            error_messages = []
-            for error in result.errors or []:
-                if hasattr(error, "message"):
-                    error_messages.append(error.message)
-                else:
-                    error_messages.append(str(error))
-
             return {
                 "success": False,
-                "error": "; ".join(error_messages) if error_messages else "Fix failed",
+                "error": result.error_details or "Fix failed",
             }
 
     except ImportError as e:

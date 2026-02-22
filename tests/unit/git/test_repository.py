@@ -395,7 +395,11 @@ class TestCheckout:
         repo.commit("Other branch commit", add_all=True)
 
         # Switch back and modify README.md without committing
-        repo.checkout("master")
+        # Detect the original default branch (may be "main" or "master")
+        default_branch = next(
+            b.name for b in Repo(temp_git_repo).branches if b.name != "other"
+        )
+        repo.checkout(default_branch)
         readme.write_text("# Uncommitted local changes\n")
 
         # Try to checkout - should fail due to conflict

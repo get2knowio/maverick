@@ -1,7 +1,7 @@
-# Specification Quality Checklist: TUI Real-Time Execution Visibility
+# Specification Quality Checklist: Typed Agent Output Contracts
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-01-12
+**Created**: 2026-02-21
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,8 +31,6 @@
 
 ## Notes
 
-- All checklist items pass validation
-- The spec is comprehensive and covers loop iteration visibility, agent streaming panel, and debugging capabilities
-- Edge cases are well-defined with expected behaviors
-- Success criteria include specific latency targets (100ms) and capacity limits (100KB output, 3 nesting levels)
-- Assumptions section documents dependencies on claude-agent-sdk and Textual framework capabilities
+- SC-001 references "regex-based JSON extraction" which is a specific implementation detail, but it describes the *current* behavior to be replaced — acceptable as a measurable delta.
+- FR-007 ("audit and tighten") is intentionally vague on specifics because the audit itself will determine what changes are needed. The requirement is that the audit happens, not what it finds.
+- The spec references Pydantic as a technology choice. This is acceptable because Pydantic is already the established project standard (per CLAUDE.md) — this is a project constraint, not an implementation decision.

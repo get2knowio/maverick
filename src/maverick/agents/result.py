@@ -64,6 +64,12 @@ class AgentUsage:
 class AgentResult:
     """Structured result from agent execution (FR-008).
 
+    .. deprecated::
+        Prefer agent-specific typed result models (e.g. ``FixerResult``,
+        ``FixResult``, ``ImplementationResult``) which provide structured
+        fields instead of opaque ``output: str``. ``AgentResult`` remains
+        for agents that have not yet migrated to typed contracts.
+
     This is an immutable value object that represents the outcome of an
     agent's execute() method. It contains the success status, output text,
     any errors that occurred, usage statistics, and arbitrary metadata.
