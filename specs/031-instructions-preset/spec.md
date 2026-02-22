@@ -5,6 +5,15 @@
 **Status**: Draft
 **Input**: User description: "Update Maverick's agent base class to use the Claude Agent SDK's claude_code system prompt preset instead of raw system prompt strings."
 
+## Clarifications
+
+### Session 2026-02-22
+
+- Q: What should the new parameter name be for agent-specific guidance (replacing `system_prompt`)? → A: `instructions` — aligns with Claude Agent SDK's native parameter name.
+- Q: How should project-level and user-level configuration be loaded? → A: SDK-native sources (`FileSource` / source-loading API), not Maverick's own config system.
+- Q: What is the prompt assembly precedence order? → A: Preset → Project config (CLAUDE.md) → User config → Agent `instructions` (highest priority).
+- Q: Migration strategy for renaming `system_prompt` → `instructions`? → A: Clean break — rename everywhere in one shot, no deprecation shim (internal API only).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Agents Inherit Claude Code Capabilities (Priority: P1)
@@ -59,25 +68,25 @@ As a developer working on a project that uses Maverick, project-level configurat
 - What happens when an agent's instructions string is empty? The agent should still function using the Claude Code preset alone.
 - What happens when agent instructions contain markdown formatting or special characters? They should be passed through without corruption.
 - How are agents that do NOT need Claude Code capabilities handled? One-shot generator-style agents (which produce structured output without interactive tool use) may use a direct system prompt instead of the preset, since they don't need Claude Code's tool-usage patterns.
-- What happens when project-level and user-level settings conflict with agent instructions? The standard Claude Code precedence rules should apply (agent instructions are most specific and take priority).
+- What happens when project-level and user-level settings conflict with agent instructions? Precedence (lowest → highest): preset → project config → user config → agent `instructions`. The most specific layer wins.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: All interactive agents (those that use tools and multi-turn conversations) MUST receive the Claude Code system prompt preset as their foundational prompt
-- **FR-002**: Each agent's role-specific guidance MUST be appended to the preset, not used as a standalone replacement
-- **FR-003**: The parameter for agent-specific guidance MUST be named to clearly indicate it is appended instructions, not a full system prompt
-- **FR-004**: All interactive agents MUST load project-level and user-level configuration sources when constructing their system prompt
+- **FR-002**: Each agent's role-specific guidance MUST be appended to the preset, not used as a standalone replacement. Precedence order (lowest to highest priority): Claude Code preset → project config (CLAUDE.md) → user config → agent `instructions`
+- **FR-003**: The parameter for agent-specific guidance MUST be named `instructions` (matching the Claude Agent SDK's native term), replacing the current `system_prompt` parameter
+- **FR-004**: All interactive agents MUST load project-level and user-level configuration via the Claude Agent SDK's native source-loading mechanism (e.g., `FileSource`) when constructing their agent configuration
 - **FR-005**: One-shot agents (generators that produce structured output without tool use) MAY use a direct system prompt without the preset, as they do not benefit from Claude Code's interactive capabilities
 - **FR-006**: Agents with no role-specific guidance (empty instructions) MUST still function correctly using the preset alone
-- **FR-007**: All existing concrete agent implementations MUST be updated to use the new parameter naming convention
+- **FR-007**: All existing concrete agent implementations MUST be updated to use `instructions` in a single clean rename (no deprecation shim; this is an internal API)
 
 ### Key Entities
 
 - **MaverickAgent**: The abstract base class for all interactive, tool-using agents. Owns the preset configuration and instructions-appending behavior.
 - **GeneratorAgent**: A separate base class for one-shot, structured-output agents. Does not use the preset pattern.
-- **Agent Instructions**: Role-specific guidance text that describes who the agent is and how it should behave for its specific task domain. Appended to the preset.
+- **Agent Instructions** (`instructions` parameter): Role-specific guidance text that describes who the agent is and how it should behave for its specific task domain. Appended to the preset. Named to match the Claude Agent SDK's native `instructions` parameter.
 
 ## Success Criteria *(mandatory)*
 
@@ -92,7 +101,7 @@ As a developer working on a project that uses Maverick, project-level configurat
 ## Assumptions
 
 - The Claude Agent SDK supports the preset system prompt pattern with an append mechanism.
-- The Claude Agent SDK supports loading project-level and user-level setting sources.
+- The Claude Agent SDK supports loading project-level and user-level setting sources via its native `FileSource` / source-loading API.
 - The GeneratorAgent hierarchy intentionally does not need the Claude Code preset, as generators are one-shot and do not use interactive tools.
 - Existing agent prompt constants (the role-specific guidance strings) are valid as "instructions" appended to the preset — they do not rely on being the entire system prompt.
 - The Claude Code preset includes all standard Claude Code behaviors (tool usage patterns, file editing conventions, safety guardrails) and is maintained by the SDK.
