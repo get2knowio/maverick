@@ -49,10 +49,13 @@ class TestExpandVariables:
         assert "/test/path" in result
         del os.environ["TEST_VAR"]
 
-    def test_no_expansion_in_quotes(self) -> None:
-        """Test that single quotes prevent expansion."""
+    def test_expansion_in_quotes(self) -> None:
+        """os.path.expandvars expands even inside single quotes."""
         result = expand_variables("echo '$HOME'")
-        assert "$HOME" in result or "HOME" in result.upper()
+        # expandvars does NOT respect shell quoting — $HOME is expanded
+        import os
+
+        assert os.environ["HOME"] in result
 
 
 class TestParseCompoundCommand:

@@ -89,7 +89,8 @@ class TestStreamingContextTextToToolTransition:
             f"Text after tool should get newline, got: {emitted[1]!r}"
         )
         assert not emitted[1].startswith("\n\n"), (
-            f"Text after tool should get single newline, not double, got: {emitted[1]!r}"
+            "Text after tool should get single newline, "
+            f"not double, got: {emitted[1]!r}"
         )
 
     @pytest.mark.asyncio

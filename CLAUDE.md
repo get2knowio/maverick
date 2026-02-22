@@ -539,8 +539,10 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
 
 ## Active Technologies
-
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Rich, Pydantic, PyYAML, GitPython
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK v0.1.18 (`claude-agent-sdk`, `output_format` structured output), Click, Rich, Pydantic, PyYAML, GitPython
 - YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`)
 - JSON files under `.maverick/checkpoints/` for checkpoint persistence
 - DSL-based workflow definitions with YAML serialization
+
+## Recent Changes
+- 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output
