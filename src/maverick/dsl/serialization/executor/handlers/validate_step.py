@@ -125,10 +125,7 @@ async def execute_validate_step(
     # The workflow (or parent subworkflow) may pass a cwd input to direct
     # validation into a specific directory (e.g., a hidden jj workspace).
     input_cwd = context.inputs.get("cwd")
-    if input_cwd:
-        cwd = Path(input_cwd)
-    else:
-        cwd = Path.cwd()
+    cwd = Path(input_cwd) if input_cwd else Path.cwd()
 
     # Load config if not provided — use workspace cwd so we pick up the
     # project's maverick.yaml even when running in a hidden workspace.

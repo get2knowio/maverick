@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Evolve Maverick's agent output system from opaque string-based results to typed Pydantic output contracts."
 
+## Clarifications
+
+### Session 2026-02-21
+
+- Q: What parsing strategy should `validate_output` use — extract JSON from markdown code blocks, require pure JSON, or a hybrid approach? → A: Extract JSON from markdown code blocks, then validate with Pydantic. No raw-text fallbacks (no regex fallback for JSON embedded in prose). If no code block is found or JSON is invalid, return a structured validation error.
+- Q: How should the `ReviewResult` naming collision (Pydantic model vs. frozen dataclass) be resolved for the contracts module? → A: Rename the dataclass version (from `review_models.py`) to `GroupedReviewResult` to reflect its grouped-findings structure. The Pydantic `ReviewResult` keeps its name.
+- Q: Should frozen dataclass output types (`Finding`, `FindingGroup`, `GroupedReviewResult`, `FixOutcome`) be converted to Pydantic models or left as dataclasses? → A: Convert all output dataclasses to Pydantic models for uniform `model_dump_json()` serialization, schema validation, and consistent `validate_output` support.
+- Q: What level of detail should the new `FixerResult` model capture? → A: Lightweight — `success: bool`, `summary: str`, `files_mentioned: list[str]`, `error_details: str | None`. The file list is agent best-effort (not authoritative); workflows rely on git diff for ground truth.
+- Q: What should be explicitly out of scope for this feature? → A: Three items excluded: (1) agent input contracts/context types, (2) changes to agent system prompts or Claude prompting strategy, (3) converting the `AgentResult` frozen dataclass itself to Pydantic.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Eliminate Regex JSON Extraction from Agent Outputs (Priority: P1)
@@ -71,8 +81,8 @@ When a developer adds a new agent or needs to understand what agents return, the
 - **FR-002**: The code reviewer's parsing pipeline MUST replace regex-based JSON extraction with a validated parsing approach that returns Pydantic model instances or explicit errors.
 - **FR-003**: The `SimpleFixerAgent`'s `_parse_outcomes` method MUST replace regex-based JSON extraction with validated parsing consistent with FR-002.
 - **FR-004**: A centralized contracts module MUST re-export all agent output models from a single import location.
-- **FR-005**: The contracts module MUST include a `validate_output(raw: str, model: type[BaseModel]) -> BaseModel` utility that parses raw text into a validated model or raises a descriptive error.
-- **FR-006**: All output models MUST be serializable to JSON via Pydantic's `.model_dump_json()` for cross-context passing.
+- **FR-005**: The contracts module MUST include a `validate_output(raw: str, model: type[BaseModel]) -> BaseModel` utility that extracts JSON from markdown code blocks (` ```json ... ``` `), validates it against the given Pydantic model, and returns a validated instance or raises a descriptive error. No raw-text or regex fallbacks for JSON embedded in prose.
+- **FR-006**: All output models MUST be Pydantic `BaseModel` subclasses, serializable to JSON via `.model_dump_json()` for cross-context passing. Existing frozen dataclass output types (`Finding`, `FindingGroup`, `GroupedReviewResult`, `FixOutcome`) MUST be converted to Pydantic models.
 - **FR-007**: The `IssueFixerAgent`'s `FixResult` model MUST be audited and tightened — any `str` fields that carry structured data (e.g., `files_changed`) should use typed sub-models.
 - **FR-008**: Orchestration code in the review-fix workflow MUST consume typed result models, not raw string outputs.
 - **FR-009**: The DSL agent step handler's `_extract_output_text` function MUST support all new typed result models for display/streaming purposes.
@@ -83,9 +93,15 @@ When a developer adds a new agent or needs to understand what agents return, the
 ### Key Entities
 
 - **Agent Output Contract**: A Pydantic `BaseModel` subclass that defines the structured return type for a specific agent. Each agent has exactly one output contract. Contracts are immutable once published (additive changes only).
-- **FixerResult**: New output contract for `FixerAgent` — describes files touched and whether fixes were applied. Replaces the generic `AgentResult`.
+- **FixerResult**: New output contract for `FixerAgent`. Fields: `success: bool`, `summary: str`, `files_mentioned: list[str]` (best-effort, not authoritative — workflows use git diff for ground truth), `error_details: str | None`. Replaces the generic `AgentResult`.
 - **Contracts Module**: Centralized registry that re-exports all output contracts and provides the `validate_output` utility.
-- **ReviewFinding / FixOutcome / FixResult / ImplementationResult / ReviewResult**: Existing output types that are already structured. These are adopted into the contracts module as-is (or with minor tightening for `FixResult`).
+- **ReviewFinding / FixOutcome / FixResult / ImplementationResult / ReviewResult / GroupedReviewResult**: Existing output types that are already structured. These are adopted into the contracts module as-is (or with minor tightening for `FixResult`). The dataclass `ReviewResult` from `review_models.py` is renamed to `GroupedReviewResult` to resolve the naming collision with the Pydantic `ReviewResult` from `review.py`.
+
+### Out of Scope
+
+- **Agent input contracts / context types**: Typing or restructuring agent input models (e.g., `AgentContext`, `ReviewContext`) is not part of this feature.
+- **Agent prompt changes**: No modifications to agent system prompts or Claude prompting strategy. Agents already produce JSON in markdown code blocks; this feature changes how that output is parsed, not how it is produced.
+- **`AgentResult` dataclass-to-Pydantic conversion**: The `AgentResult` frozen dataclass remains as-is for backward compatibility. It is deprecated in docstrings but not converted.
 
 ## Success Criteria *(mandatory)*
 

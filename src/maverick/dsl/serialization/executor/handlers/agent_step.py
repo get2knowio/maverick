@@ -349,8 +349,37 @@ def _extract_output_text(result: Any) -> str:
     Returns:
         Extracted text content, or empty string if no text found.
     """
+    # Uses duck-typing (hasattr) rather than isinstance to avoid importing
+    # agent-specific types into this generic handler module. Checks are ordered
+    # from most specific to least specific to avoid false matches.
     if result is None:
         return ""
+
+    # Check for FixerResult-style objects (.summary field)
+    if hasattr(result, "summary") and hasattr(result, "files_mentioned"):
+        summary = result.summary
+        status = "Success" if getattr(result, "success", False) else "Failed"
+        parts = [f"{status}: {summary}"]
+        files = getattr(result, "files_mentioned", [])
+        if files:
+            parts.append(f"{len(files)} file(s) mentioned")
+        error = getattr(result, "error_details", None)
+        if error:
+            parts.append(f"error: {error}")
+        return ", ".join(parts)
+
+    # Check for GroupedReviewResult-style objects (.all_findings property)
+    if hasattr(result, "all_findings") and hasattr(result, "groups"):
+        findings = result.all_findings
+        count = len(findings) if findings else 0
+        groups = getattr(result, "groups", [])
+        return f"Review complete: {count} finding(s) in {len(groups)} group(s)"
+
+    # Check for list[FixOutcome]-style results
+    if isinstance(result, list) and result and hasattr(result[0], "outcome"):
+        total = len(result)
+        fixed = sum(1 for o in result if getattr(o, "outcome", "") == "fixed")
+        return f"Fix outcomes: {fixed}/{total} fixed"
 
     # Check for AgentResult-style objects with non-empty 'output' attribute
     if hasattr(result, "output"):

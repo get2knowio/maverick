@@ -12,6 +12,8 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
+from pydantic import BaseModel
+
 from maverick.constants import DEFAULT_MODEL
 
 if TYPE_CHECKING:
@@ -133,6 +135,7 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         mcp_servers: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        output_model: type[BaseModel] | None = None,
     ) -> None:
         """Initialize the MaverickAgent.
 
@@ -148,6 +151,9 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             mcp_servers: Optional MCP server configurations.
             max_tokens: Optional maximum output tokens (SDK default used if None).
             temperature: Optional sampling temperature 0.0-1.0 (SDK default).
+            output_model: Optional Pydantic model class for SDK structured
+                output enforcement.  When set, the SDK constrains the
+                agent's final output to conform to the model's JSON schema.
 
         Raises:
             InvalidToolError: If any tool in allowed_tools is unknown.
@@ -160,6 +166,15 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._stream_callback: StreamCallback | None = None
+        self._output_model = output_model
+        self._output_format: dict[str, Any] | None = (
+            {
+                "type": "json_schema",
+                "schema": output_model.model_json_schema(),
+            }
+            if output_model is not None
+            else None
+        )
 
         # Validate tools at construction time (FR-002)
         self._validate_tools(self._allowed_tools, self._mcp_servers)
@@ -253,21 +268,25 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         if self._temperature is not None:
             extra_args["temperature"] = str(self._temperature)
 
-        return ClaudeAgentOptions(
-            allowed_tools=self._allowed_tools,
-            system_prompt={
+        options_kwargs: dict[str, Any] = {
+            "allowed_tools": self._allowed_tools,
+            "system_prompt": {
                 "type": "preset",
                 "preset": "claude_code",
                 "append": self._instructions,
             },
-            setting_sources=["project", "user"],
-            model=self._model,
-            permission_mode=DEFAULT_PERMISSION_MODE,
-            mcp_servers=self._mcp_servers,
-            cwd=str(cwd) if cwd else None,
-            extra_args=extra_args,
-            include_partial_messages=True,  # Enable token-by-token streaming
-        )
+            "setting_sources": ["project", "user"],
+            "model": self._model,
+            "permission_mode": DEFAULT_PERMISSION_MODE,
+            "mcp_servers": self._mcp_servers,
+            "cwd": str(cwd) if cwd else None,
+            "extra_args": extra_args,
+            "include_partial_messages": True,  # Enable token-by-token streaming
+        }
+        if self._output_format is not None:
+            options_kwargs["output_format"] = self._output_format
+
+        return ClaudeAgentOptions(**options_kwargs)
 
     def _wrap_sdk_error(self, error: Exception) -> Exception:
         """Map Claude SDK errors to Maverick error hierarchy (FR-007).
@@ -367,6 +386,30 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         from maverick.agents.utils import extract_usage
 
         return extract_usage(messages)
+
+    def _extract_structured_output(
+        self,
+        messages: list[Message],
+    ) -> dict[str, Any] | None:
+        """Extract structured output from SDK ResultMessage.
+
+        Searches messages (in reverse) for a ``ResultMessage`` with
+        ``structured_output`` populated.  Returns the raw dict for the
+        caller to validate via ``model_validate()``.
+
+        Args:
+            messages: List of SDK messages from query() or client interaction.
+
+        Returns:
+            Parsed dict from structured_output, or None if not found.
+        """
+        for msg in reversed(messages):
+            if (
+                type(msg).__name__ == "ResultMessage"
+                and getattr(msg, "structured_output", None) is not None
+            ):
+                return msg.structured_output  # type: ignore[union-attr,no-any-return]
+        return None
 
     @abstractmethod
     async def execute(self, context: TContext) -> TResult:
