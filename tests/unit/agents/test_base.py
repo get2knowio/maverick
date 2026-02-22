@@ -449,7 +449,10 @@ class TestBuildOptions:
         assert call_kwargs["system_prompt"]["append"] == ""
 
     def test_system_prompt_is_always_a_dict(self) -> None:
-        """Test system_prompt is always a dict with required keys, never a raw string."""
+        """Test system_prompt is always a dict with required keys.
+
+        Never a raw string — contract invariant #1.
+        """
         mock_options_class = MagicMock()
 
         agent = ConcreteTestAgent(
@@ -471,7 +474,10 @@ class TestBuildOptions:
         assert "append" in call_kwargs["system_prompt"]
 
     def test_instructions_with_markdown_and_special_chars_preserved(self) -> None:
-        """Test instructions with markdown and special characters passed through unchanged."""
+        """Test instructions with markdown and special characters passed through unchanged.
+
+        Verifies the append field preserves the exact string without modification.
+        """
         mock_options_class = MagicMock()
 
         markdown_instructions = (
@@ -498,7 +504,10 @@ class TestBuildOptions:
         assert call_kwargs["system_prompt"]["append"] == markdown_instructions
 
     def test_setting_sources_is_project_then_user_ordered_list(self) -> None:
-        """Test setting_sources is exactly ['project', 'user'] as a list in order (FR-004)."""
+        """Test setting_sources is exactly ['project', 'user'] as a list in order.
+
+        FR-004: project first, then user; must be a list not a tuple or set.
+        """
         mock_options_class = MagicMock()
 
         agent = ConcreteTestAgent(

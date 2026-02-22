@@ -316,7 +316,10 @@ class TestBuildOptionsContract:
     """Tests verifying GeneratorAgent._build_options() negative contracts (FR-005)."""
 
     def test_build_options_matches_generator_contract(self) -> None:
-        """Test GeneratorAgent._build_options() matches generator contract: raw string prompt, single-shot, no tools (FR-005)."""
+        """Test GeneratorAgent._build_options() matches generator contract.
+
+        Verifies: raw string prompt (not preset dict), single-shot, no tools (FR-005).
+        """
         mock_options_class = MagicMock()
 
         with patch(
@@ -337,7 +340,10 @@ class TestBuildOptionsContract:
         assert call_kwargs["allowed_tools"] == []
 
     def test_build_options_does_not_include_setting_sources(self) -> None:
-        """Test GeneratorAgent does NOT include setting_sources in options (negative test for FR-005)."""
+        """Test GeneratorAgent does NOT include setting_sources in options.
+
+        Negative test for FR-005: generators do not load project/user config.
+        """
         mock_options_class = MagicMock()
 
         with patch(
