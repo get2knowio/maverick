@@ -474,7 +474,7 @@ class TestBuildOptions:
         assert "append" in call_kwargs["system_prompt"]
 
     def test_instructions_with_markdown_and_special_chars_preserved(self) -> None:
-        """Test instructions with markdown and special characters passed through unchanged.
+        """Test instructions with markdown and special chars passed through unchanged.
 
         Verifies the append field preserves the exact string without modification.
         """
