@@ -494,12 +494,16 @@ class WorkflowFileExecutor:
                     except TimeoutError:
                         continue
 
-                # Get handler result (may raise exception)
-                raw_output = await handler_task
-
-                # Yield any remaining queued events
+                # Yield any remaining queued events before awaiting the
+                # handler result. The handler task may have put events in
+                # the queue and then raised an exception (e.g. loop step
+                # failure). If we drain the queue after awaiting, those
+                # events are lost when the exception is caught below.
                 while not event_queue.empty():
                     yield event_queue.get_nowait()
+
+                # Get handler result (may raise exception)
+                raw_output = await handler_task
 
                 # Extract embedded events from step output (backward compat)
                 output, embedded_events = _extract_embedded_events(raw_output)
