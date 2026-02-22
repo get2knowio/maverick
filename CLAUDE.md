@@ -543,6 +543,6 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`)
 - JSON files under `.maverick/checkpoints/` for checkpoint persistence
 - DSL-based workflow definitions with YAML serialization
-
 ## Recent Changes
+- 031-instructions-preset: Verified Claude Code preset + instructions pattern for all interactive agents
 - 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output

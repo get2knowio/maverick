@@ -91,6 +91,17 @@ class TestMaverickAgentInitialization:
 
         assert agent.instructions == prompt
 
+    def test_instructions_property_is_read_only(self) -> None:
+        """Test instructions property cannot be set (contract invariant #3)."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Original instructions",
+            allowed_tools=[],
+        )
+
+        with pytest.raises(AttributeError):
+            agent.instructions = "New instructions"  # type: ignore[misc]
+
     def test_allowed_tools_property_returns_copy(self) -> None:
         """Test allowed_tools property returns a copy, not reference."""
         original_tools = ["Read", "Write"]
@@ -415,6 +426,108 @@ class TestBuildOptions:
         call_args = mock_options_class.call_args
         assert call_args is not None
         assert call_args.kwargs["extra_args"]["temperature"] == "0.7"
+
+    def test_empty_instructions_uses_preset_alone(self) -> None:
+        """Test agent with empty instructions uses Claude Code preset alone (FR-006)."""
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="",
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert call_kwargs["system_prompt"]["type"] == "preset"
+        assert call_kwargs["system_prompt"]["preset"] == "claude_code"
+        assert call_kwargs["system_prompt"]["append"] == ""
+
+    def test_system_prompt_is_always_a_dict(self) -> None:
+        """Test system_prompt is always a dict with required keys.
+
+        Never a raw string — contract invariant #1.
+        """
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="You are a test agent.",
+            allowed_tools=["Read"],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert isinstance(call_kwargs["system_prompt"], dict)
+        assert "type" in call_kwargs["system_prompt"]
+        assert "preset" in call_kwargs["system_prompt"]
+        assert "append" in call_kwargs["system_prompt"]
+
+    def test_instructions_with_markdown_and_special_chars_preserved(self) -> None:
+        """Test instructions with markdown and special chars passed through unchanged.
+
+        Verifies the append field preserves the exact string without modification.
+        """
+        mock_options_class = MagicMock()
+
+        markdown_instructions = (
+            "**bold text**\n"
+            "# header\n"
+            "`code snippet`\n"
+            "line with newline\n"
+            "special chars: & < > \" '"
+        )
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions=markdown_instructions,
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert call_kwargs["system_prompt"]["append"] == markdown_instructions
+
+    def test_setting_sources_is_project_then_user_ordered_list(self) -> None:
+        """Test setting_sources is exactly ['project', 'user'] as a list in order.
+
+        FR-004: project first, then user; must be a list not a tuple or set.
+        """
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        setting_sources = call_kwargs["setting_sources"]
+        assert isinstance(setting_sources, list), (
+            "setting_sources must be a list, not a tuple or set"
+        )
+        assert setting_sources == ["project", "user"]
 
 
 # =============================================================================
