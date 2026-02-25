@@ -66,7 +66,7 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 **Acceptance Scenarios**:
 
 1. **Given** a `StepExecutorConfig` with a custom timeout, **When** an agent step runs, **Then** the executor enforces the specified timeout rather than any provider default.
-2. **Given** no explicit `StepExecutorConfig`, **When** an agent step runs, **Then** the executor uses sensible defaults matching current behavior.
+2. **Given** no explicit `StepExecutorConfig`, **When** an agent step runs, **Then** the executor uses defaults matching current behavior: `timeout=300s`, `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model or temperature override (inherited from agent/workflow config).
 
 ---
 
@@ -77,26 +77,43 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 - What happens when `output_schema` validation fails on partial/streaming output? Validation applies only to the final result, not intermediate stream chunks.
 - How does the executor handle agent steps that use MCP tool servers? MCP server references are passed through to the provider adapter; the executor itself is tool-agnostic.
 
+## Clarifications
+
+### Session 2026-02-22
+
+- Q: What is the instantiation lifecycle of `ClaudeStepExecutor`? → A: Per-workflow run — created once at workflow start, reused for all steps in that run.
+- Q: How does `StepExecutorConfig.retry_policy` relate to MaverickAgent's internal tenacity retries? → A: Executor retry is authoritative — the executor applies the retry policy at the outermost scope; ClaudeStepExecutor bypasses internal agent-level retries when a retry policy is provided.
+- Q: Where in the module hierarchy should `StepExecutor`, `ExecutorResult`, and `StepExecutorConfig` be defined? → A: `maverick.dsl.executor` — a module within the DSL package, keeping the protocol close to its primary consumer (`execute_agent_step`) with no provider-specific dependencies.
+- Q: What structured log events should the executor emit for observability? → A: Three events via `get_logger()`: `executor.step_start` (step name, agent, config), `executor.step_complete` (duration, token usage, success), `executor.step_error` (error type, attempt number).
+- Q: What are the default values for `StepExecutorConfig` when none is provided? → A: `timeout=300` (seconds), `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model/temperature override (inherit from agent/workflow config).
+
 ## Requirements *(mandatory)*
+
+### Non-Functional Requirements
+
+- **NFR-001**: The executor MUST emit structured log events via `maverick.logging.get_logger()` at three instrumentation points:
+  - `executor.step_start` — fields: `step_name`, `agent_name`, `config` (serialized StepExecutorConfig)
+  - `executor.step_complete` — fields: `step_name`, `duration_ms`, `usage` (token/cost metadata), `success`
+  - `executor.step_error` — fields: `step_name`, `error_type`, `attempt_number`
 
 ### Functional Requirements
 
 - **FR-001**: System MUST define a `StepExecutor` runtime-checkable protocol with an `execute()` method accepting prompt, instructions, allowed_tools, cwd, output_schema, and config parameters.
 - **FR-002**: System MUST provide an `ExecutorResult` value object containing the execution output, success status, usage metadata, and any streaming events collected during execution.
 - **FR-003**: System MUST provide a `StepExecutorConfig` value object for per-step configuration (timeout, model, temperature, max_tokens, retry policy).
-- **FR-004**: System MUST provide a `ClaudeStepExecutor` implementation that wraps the existing `MaverickAgent.query()` and agent lifecycle, preserving streaming, circuit-breaker, and error-wrapping behavior.
+- **FR-004**: System MUST provide a `ClaudeStepExecutor` implementation that wraps the existing `MaverickAgent.query()` and agent lifecycle, preserving streaming, circuit-breaker, and error-wrapping behavior. When `StepExecutorConfig.retry_policy` is provided, the executor applies it at the outermost scope and bypasses any internal agent-level tenacity retries to prevent double-retrying.
 - **FR-005**: System MUST integrate the StepExecutor into the DSL agent step handler (`execute_agent_step`) so all agent steps route through the executor.
 - **FR-006**: System MUST preserve all existing agent step behavior (streaming events, error propagation, context resolution) when using the ClaudeStepExecutor adapter.
 - **FR-007**: System MUST validate agent output against `output_schema` when provided, raising a typed validation error on mismatch.
 - **FR-008**: System MUST allow the StepExecutor implementation to be selected or configured at the workflow level, defaulting to the Claude adapter.
-- **FR-009**: System MUST expose the StepExecutor protocol as a stable public interface that alternative provider adapters can implement without depending on Maverick internals.
+- **FR-009**: System MUST expose the StepExecutor protocol as a stable public interface (at `maverick.dsl.executor`) that alternative provider adapters can implement without depending on Maverick internals or provider-specific packages.
 
 ### Key Entities
 
 - **StepExecutor**: Protocol defining the provider-agnostic execution interface. Single method: `execute()`.
 - **ExecutorResult**: Frozen dataclass containing `output` (the agent's result), `success` (bool), `usage` (token/cost metadata), and `events` (streaming events emitted during execution).
-- **StepExecutorConfig**: Frozen dataclass for per-step execution settings — timeout, model override, temperature, max_tokens, retry policy.
-- **ClaudeStepExecutor**: Concrete implementation wrapping MaverickAgent and Claude Agent SDK. Handles agent instantiation, prompt dispatch, streaming, and result extraction.
+- **StepExecutorConfig**: Frozen dataclass for per-step execution settings — timeout, model override, temperature, max_tokens, retry policy. Defaults: `timeout=300s`, `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model/temperature override.
+- **ClaudeStepExecutor**: Concrete implementation wrapping MaverickAgent and Claude Agent SDK. Handles agent instantiation, prompt dispatch, streaming, and result extraction. **Lifecycle**: created once per workflow run and reused across all agent steps in that run; a new instance is constructed at workflow start and discarded at workflow completion.
 
 ## Success Criteria *(mandatory)*
 
@@ -105,7 +122,7 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 - **SC-001**: All existing workflow tests pass without modification after the StepExecutor integration, confirming zero regressions.
 - **SC-002**: A new provider adapter can be implemented by satisfying the StepExecutor protocol alone — no imports from `maverick.agents` or `claude-agent-sdk` required.
 - **SC-003**: Agent step execution latency does not increase by more than 5% compared to the current direct path (the abstraction layer adds negligible overhead).
-- **SC-004**: The StepExecutor protocol and its supporting types are defined in a single module with no dependencies on provider-specific packages.
+- **SC-004**: The StepExecutor protocol and its supporting types are defined in `maverick.dsl.executor` with no dependencies on provider-specific packages (e.g., `claude-agent-sdk`).
 
 ## Assumptions
 
