@@ -3,6 +3,9 @@
 This module provides lightweight data structures for tracking code review
 findings and fix outcomes. Designed for simplicity over the previous
 complex IssueRegistry approach.
+
+Finding, FindingGroup, GroupedReviewResult, and FixOutcome are Pydantic
+BaseModel subclasses with ``ConfigDict(frozen=True)`` for immutability.
 """
 
 from __future__ import annotations
@@ -11,24 +14,24 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+from pydantic import BaseModel, ConfigDict, field_validator
+
 __all__ = [
     "Finding",
     "FindingGroup",
-    "ReviewResult",
+    "GroupedReviewResult",
     "FixOutcome",
     "FixAttempt",
     "TrackedFinding",
     "FindingTracker",
 ]
 
-
 # -----------------------------------------------------------------------------
-# Core Finding Models
+# Core Finding Models (Pydantic)
 # -----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class Finding:
+class Finding(BaseModel):
     """A single code review finding.
 
     Attributes:
@@ -41,6 +44,8 @@ class Finding:
         fix_hint: Optional suggestion for fixing
     """
 
+    model_config = ConfigDict(frozen=True)
+
     id: str
     file: str
     line: str
@@ -49,36 +54,27 @@ class Finding:
     category: str
     fix_hint: str | None = None
 
+    @field_validator("line", mode="before")
+    @classmethod
+    def _coerce_line_to_str(cls, v: object) -> str:
+        """Coerce line to str for backward compat with int-valued checkpoints."""
+        return str(v)
+
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        result = {
-            "id": self.id,
-            "file": self.file,
-            "line": self.line,
-            "issue": self.issue,
-            "severity": self.severity,
-            "category": self.category,
-        }
-        if self.fix_hint:
-            result["fix_hint"] = self.fix_hint
-        return result
+        """Alias for ``model_dump()`` for backward compatibility."""
+        return self.model_dump(exclude_none=True)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Finding:
-        """Create Finding from dictionary."""
-        return cls(
-            id=data["id"],
-            file=data["file"],
-            line=str(data["line"]),
-            issue=data["issue"],
-            severity=data["severity"],
-            category=data["category"],
-            fix_hint=data.get("fix_hint"),
-        )
+        """Create Finding from dictionary.
+
+        Handles legacy data where ``line`` may be an int via the
+        ``_coerce_line_to_str`` field validator.
+        """
+        return cls.model_validate(data)
 
 
-@dataclass(frozen=True, slots=True)
-class FindingGroup:
+class FindingGroup(BaseModel):
     """A group of findings that can be fixed independently.
 
     Findings within a group have no dependencies on each other and
@@ -86,48 +82,48 @@ class FindingGroup:
 
     Attributes:
         description: Brief description of the group (e.g., "Batch 1").
-        findings: Tuple of findings in this group.
+        findings: List of findings in this group.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     description: str
-    findings: tuple[Finding, ...]
+    findings: list[Finding]
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "description": self.description,
-            "findings": [f.to_dict() for f in self.findings],
-        }
+        """Alias for ``model_dump()`` for backward compatibility."""
+        return self.model_dump(exclude_none=True)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FindingGroup:
         """Create FindingGroup from dictionary."""
-        return cls(
-            description=data["description"],
-            findings=tuple(Finding.from_dict(f) for f in data["findings"]),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(frozen=True, slots=True)
-class ReviewResult:
+class GroupedReviewResult(BaseModel):
     """Result from the unified reviewer.
 
     Contains all findings grouped by parallelization opportunity.
 
+    Renamed from ``ReviewResult`` to avoid collision with the Pydantic
+    ``ReviewResult`` in ``maverick.models.review``.
+
     Attributes:
-        groups: Tuple of finding groups
+        groups: List of finding groups
     """
 
-    groups: tuple[FindingGroup, ...]
+    model_config = ConfigDict(frozen=True)
+
+    groups: list[FindingGroup]
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {"groups": [g.to_dict() for g in self.groups]}
+        """Alias for ``model_dump()`` for backward compatibility."""
+        return self.model_dump(exclude_none=True)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ReviewResult:
-        """Create ReviewResult from dictionary."""
-        return cls(groups=tuple(FindingGroup.from_dict(g) for g in data["groups"]))
+    def from_dict(cls, data: dict[str, Any]) -> GroupedReviewResult:
+        """Create GroupedReviewResult from dictionary."""
+        return cls.model_validate(data)
 
     @property
     def all_findings(self) -> list[Finding]:
@@ -140,13 +136,16 @@ class ReviewResult:
         return sum(len(g.findings) for g in self.groups)
 
 
+# Backward-compatible alias
+ReviewResult = GroupedReviewResult
+
+
 # -----------------------------------------------------------------------------
-# Fix Outcome Models
+# Fix Outcome Models (Pydantic)
 # -----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class FixOutcome:
+class FixOutcome(BaseModel):
     """Outcome of attempting to fix a single finding.
 
     Attributes:
@@ -155,26 +154,25 @@ class FixOutcome:
         explanation: Brief explanation of what happened
     """
 
+    model_config = ConfigDict(frozen=True)
+
     id: str
     outcome: Literal["fixed", "blocked", "deferred"]
     explanation: str
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "outcome": self.outcome,
-            "explanation": self.explanation,
-        }
+        """Alias for ``model_dump()`` for backward compatibility."""
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FixOutcome:
         """Create FixOutcome from dictionary."""
-        return cls(
-            id=data["id"],
-            outcome=data["outcome"],
-            explanation=data["explanation"],
-        )
+        return cls.model_validate(data)
+
+
+# -----------------------------------------------------------------------------
+# Tracking Models (remain as dataclasses — not agent output types)
+# -----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,11 +188,6 @@ class FixAttempt:
     timestamp: datetime
     outcome: Literal["fixed", "blocked", "deferred"]
     explanation: str
-
-
-# -----------------------------------------------------------------------------
-# Finding Tracker
-# -----------------------------------------------------------------------------
 
 
 @dataclass
@@ -228,7 +221,7 @@ class FindingTracker:
         ...     print("All done!")
     """
 
-    def __init__(self, review_result: ReviewResult) -> None:
+    def __init__(self, review_result: GroupedReviewResult) -> None:
         """Initialize tracker from review result.
 
         Args:
@@ -259,15 +252,8 @@ class FindingTracker:
         for tf in self._findings.values():
             if tf.status == "fixed" or tf.status == "blocked":
                 continue
-            # For open status, check if deferred too many times
-            elif tf.status == "open":
-                if len(tf.attempts) == 0:
-                    # Never attempted, actionable
-                    actionable.append(tf.finding)
-                elif len(tf.attempts) < 3:
-                    # Under retry limit, actionable
-                    actionable.append(tf.finding)
-                # else: exceeded retry limit, not actionable
+            elif tf.status == "open" and len(tf.attempts) < 3:
+                actionable.append(tf.finding)
         return actionable
 
     def get_actionable_with_groups(self) -> list[FindingGroup]:
@@ -284,7 +270,7 @@ class FindingTracker:
                 result.append(
                     FindingGroup(
                         description=group.description,
-                        findings=tuple(group_findings),
+                        findings=group_findings,
                     )
                 )
         return result
@@ -302,7 +288,6 @@ class FindingTracker:
         if tf is None:
             raise KeyError(f"Unknown finding ID: {outcome.id}")
 
-        # Record the attempt
         tf.attempts.append(
             FixAttempt(
                 timestamp=datetime.now(),
@@ -311,12 +296,10 @@ class FindingTracker:
             )
         )
 
-        # Update status based on outcome
         if outcome.outcome == "fixed":
             tf.status = "fixed"
         elif outcome.outcome == "blocked":
             tf.status = "blocked"
-        # deferred: status stays "open" but attempts track retries
 
     def record_outcomes(self, outcomes: list[FixOutcome]) -> None:
         """Record multiple fix outcomes.
@@ -343,10 +326,9 @@ class FindingTracker:
         """
         unresolved = []
         for tf in self._findings.values():
-            if tf.status == "blocked":
-                unresolved.append(tf)
-            elif tf.status == "open" and len(tf.attempts) >= 3:
-                # Deferred too many times, treat as blocked
+            if tf.status == "blocked" or (
+                tf.status == "open" and len(tf.attempts) >= 3
+            ):
                 unresolved.append(tf)
             elif len(tf.attempts) > 0:
                 last = tf.attempts[-1]
