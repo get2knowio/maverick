@@ -160,6 +160,25 @@ class AgentStepRecord(StepRecord):
         None,
         description="Optional action to call for rollback/compensation",
     )
+    output_schema: str | None = Field(
+        None,
+        description=(
+            "Dotted Python path to a Pydantic BaseModel subclass "
+            "for output validation. "
+            "E.g. 'maverick.agents.reviewer.ReviewResult'. "
+            "When provided, agent output is validated and ExecutorResult.output "
+            "contains a validated model instance."
+        ),
+    )
+    executor_config: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Per-step executor configuration overrides. Supported keys: "
+            "'timeout' (int seconds), 'retry_policy.max_attempts' (int), "
+            "'model' (str), 'temperature' (float), 'max_tokens' (int). "
+            "Example: {timeout: 600, model: claude-opus-4-6}"
+        ),
+    )
 
 
 class GenerateStepRecord(StepRecord):

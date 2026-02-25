@@ -355,6 +355,11 @@ class WorkflowFileExecutor:
         # Build execution context
         exec_context = context.create_execution_context(workflow.name, inputs)
 
+        # Inject ClaudeStepExecutor once per workflow run (FR-008)
+        from maverick.dsl.executor import ClaudeStepExecutor
+
+        exec_context.step_executor = ClaudeStepExecutor(registry=self._registry)
+
         # Store checkpoint location for nested checkpoint handling
         self._checkpoint_location = checkpoint_location
 
