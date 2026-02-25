@@ -209,7 +209,9 @@ class ClaudeStepExecutor:
 
         try:
             result = await self._execute_with_retry_and_timeout(
-                agent_instance, prompt, effective_config,
+                agent_instance,
+                prompt,
+                effective_config,
                 attempt_tracker=attempt_tracker,
             )
 
@@ -324,9 +326,7 @@ class ClaudeStepExecutor:
             ):
                 with attempt:
                     if attempt_tracker is not None:
-                        attempt_tracker[0] = (
-                            attempt.retry_state.attempt_number
-                        )
+                        attempt_tracker[0] = attempt.retry_state.attempt_number
                     if config.timeout is not None:
                         final_result = await asyncio.wait_for(
                             _call_once(),
@@ -337,9 +337,7 @@ class ClaudeStepExecutor:
             return final_result
         else:
             if config.timeout is not None:
-                return await asyncio.wait_for(
-                    _call_once(), timeout=config.timeout
-                )
+                return await asyncio.wait_for(_call_once(), timeout=config.timeout)
             return await _call_once()
 
     def _build_agent_kwargs(self, agent_name: str) -> dict[str, Any]:

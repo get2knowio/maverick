@@ -214,9 +214,7 @@ def _resolve_output_schema(step: AgentStepRecord) -> type[BaseModel] | None:
         module = importlib.import_module(module_path)
         cls = getattr(module, class_name)
     except (ImportError, AttributeError, ValueError) as e:
-        raise ConfigError(
-            f"Cannot resolve output_schema '{schema_path}': {e}"
-        ) from e
+        raise ConfigError(f"Cannot resolve output_schema '{schema_path}': {e}") from e
 
     if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
         raise ConfigError(
@@ -267,5 +265,3 @@ def _resolve_executor_config(step: AgentStepRecord) -> StepExecutorConfig | None
         temperature=config_dict.get("temperature"),
         max_tokens=config_dict.get("max_tokens"),
     )
-
-
