@@ -358,12 +358,14 @@ class TestClaudeStepExecutorEndToEnd:
         class _UsageResult:
             """Simulates an agent result with usage metadata."""
 
-            class Usage:
+            class Usage:  # noqa: N801 — lowercase alias needed below
                 input_tokens = 100
                 output_tokens = 50
                 cache_read_tokens = 10
                 cache_write_tokens = 5
                 total_cost_usd = 0.001
+
+            usage = Usage
 
         class _AgentWithUsage:
             name = "usage-agent"
