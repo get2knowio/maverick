@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    pass
+    from maverick.dsl.events import AgentStreamChunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +55,7 @@ class ExecutorResult:
     output: Any
     success: bool
     usage: UsageMetadata | None
-    events: tuple[Any, ...]  # tuple[AgentStreamChunk, ...] at runtime
+    events: tuple[AgentStreamChunk, ...]
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""

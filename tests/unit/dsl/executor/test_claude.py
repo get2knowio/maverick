@@ -286,7 +286,10 @@ class TestClaudeStepExecutorStreaming:
         assert result.success is True
 
     async def test_streaming_agent_no_duplicate_output_event(self) -> None:
-        """When output was streamed, no extra OUTPUT chunk is emitted for the return value."""
+        """No extra OUTPUT chunk emitted for return value.
+
+        When output was already streamed, duplicates are avoided.
+        """
 
         class _StreamingAgent:
             name = "streamer"
@@ -339,7 +342,10 @@ class TestClaudeStepExecutorStreaming:
         assert thinking[0].agent_name == "My Custom Agent"
 
     async def test_no_event_callback_does_not_raise(self) -> None:
-        """Executing without event_callback still works (events collected internally)."""
+        """Executing without event_callback still works.
+
+        Events are collected internally.
+        """
         executor = _make_executor()
         result = await executor.execute(
             step_name="step",
@@ -803,7 +809,10 @@ class TestClaudeStepExecutorOutputSchema:
         assert result.output.issues == []
 
     async def test_schema_validation_error_has_validation_errors(self) -> None:
-        """OutputSchemaValidationError exposes the underlying pydantic ValidationError."""
+        """OutputSchemaValidationError exposes pydantic error.
+
+        The underlying pydantic ValidationError is accessible.
+        """
 
         class _BadAgent:
             name = "bad"

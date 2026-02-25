@@ -17,7 +17,11 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from maverick.dsl.errors import ReferenceResolutionError
 from maverick.dsl.events import AgentStreamChunk
-from maverick.dsl.executor.config import DEFAULT_EXECUTOR_CONFIG, StepExecutorConfig
+from maverick.dsl.executor.config import (
+    DEFAULT_EXECUTOR_CONFIG,
+    IMPLEMENTER_AGENT_NAME,
+    StepExecutorConfig,
+)
 from maverick.dsl.executor.errors import OutputSchemaValidationError
 from maverick.dsl.executor.protocol import EventCallback
 from maverick.dsl.executor.result import ExecutorResult, UsageMetadata
@@ -62,7 +66,8 @@ class ClaudeStepExecutor:
             step_name: DSL step name for observability logging.
             agent_name: Registered agent name (registry key).
             prompt: Provider-specific context/prompt (ImplementerContext, dict, etc.).
-            instructions: Optional system instructions override (unused by current agents).
+            instructions: Optional system instructions override
+                (unused by current agents).
             allowed_tools: Optional tool list override (unused by current agents).
             cwd: Working directory (unused directly; passed through prompt context).
             output_schema: Optional Pydantic BaseModel subclass for output validation.
@@ -198,9 +203,14 @@ class ClaudeStepExecutor:
             agent_name=display_name,
         )
 
+        # Mutable counter so _execute_with_retry_and_timeout can
+        # report which attempt failed (NFR-001 observability).
+        attempt_tracker: list[int] = [1]
+
         try:
             result = await self._execute_with_retry_and_timeout(
-                agent_instance, prompt, effective_config
+                agent_instance, prompt, effective_config,
+                attempt_tracker=attempt_tracker,
             )
 
             # T027: Extract text output from result and emit OUTPUT chunk
@@ -238,6 +248,7 @@ class ClaudeStepExecutor:
                 error_type=type(e).__name__,
                 error=str(e),
                 duration_ms=duration_ms,
+                attempt_number=attempt_tracker[0],
             )
             raise
 
@@ -273,20 +284,24 @@ class ClaudeStepExecutor:
         agent: Any,
         prompt: Any,
         config: StepExecutorConfig,
+        *,
+        attempt_tracker: list[int] | None = None,
     ) -> Any:
         """Execute agent with optional retry and timeout.
 
         Args:
             agent: Instantiated agent with execute() method.
             prompt: Context to pass to agent.execute().
-            config: Execution configuration with timeout and retry_policy.
+            config: Execution config (timeout and retry_policy).
+            attempt_tracker: Mutable ``[int]`` updated with
+                the current attempt number for observability.
 
         Returns:
             Agent execution result.
 
         Raises:
-            asyncio.TimeoutError: If timeout is set and execution exceeds it.
-            tenacity.RetryError: If retry_policy is set and max_attempts exceeded.
+            asyncio.TimeoutError: If execution exceeds timeout.
+            tenacity.RetryError: If max_attempts exceeded.
         """
 
         async def _call_once() -> Any:
@@ -300,27 +315,39 @@ class ClaudeStepExecutor:
             final_result: Any = None
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(rp.max_attempts),
-                wait=wait_exponential(multiplier=1, min=rp.wait_min, max=rp.wait_max),
+                wait=wait_exponential(
+                    multiplier=1,
+                    min=rp.wait_min,
+                    max=rp.wait_max,
+                ),
                 reraise=True,
             ):
                 with attempt:
+                    if attempt_tracker is not None:
+                        attempt_tracker[0] = (
+                            attempt.retry_state.attempt_number
+                        )
                     if config.timeout is not None:
                         final_result = await asyncio.wait_for(
-                            _call_once(), timeout=config.timeout
+                            _call_once(),
+                            timeout=config.timeout,
                         )
                     else:
                         final_result = await _call_once()
             return final_result
         else:
             if config.timeout is not None:
-                return await asyncio.wait_for(_call_once(), timeout=config.timeout)
+                return await asyncio.wait_for(
+                    _call_once(), timeout=config.timeout
+                )
             return await _call_once()
 
     def _build_agent_kwargs(self, agent_name: str) -> dict[str, Any]:
         """Build constructor kwargs for the agent class.
 
-        For the 'implementer' agent, injects validation_commands from
-        maverick.yaml configuration. All other agents get empty kwargs.
+        For the implementer agent, injects validation_commands
+        from maverick.yaml configuration. All other agents get
+        empty kwargs.
 
         Args:
             agent_name: Registered agent name.
@@ -328,7 +355,7 @@ class ClaudeStepExecutor:
         Returns:
             Dict of keyword arguments for agent class instantiation.
         """
-        if agent_name != "implementer":
+        if agent_name != IMPLEMENTER_AGENT_NAME:
             return {}
 
         try:

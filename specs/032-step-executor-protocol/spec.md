@@ -66,7 +66,7 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 **Acceptance Scenarios**:
 
 1. **Given** a `StepExecutorConfig` with a custom timeout, **When** an agent step runs, **Then** the executor enforces the specified timeout rather than any provider default.
-2. **Given** no explicit `StepExecutorConfig`, **When** an agent step runs, **Then** the executor uses defaults matching current behavior: `timeout=300s`, `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model or temperature override (inherited from agent/workflow config).
+2. **Given** no explicit `StepExecutorConfig`, **When** an agent step runs, **Then** the executor uses defaults matching current behavior: `timeout=300s`, no retry_policy override (`None` — agent internal retries apply as-is), no model or temperature override (inherited from agent/workflow config).
 
 ---
 
@@ -85,7 +85,7 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 - Q: How does `StepExecutorConfig.retry_policy` relate to MaverickAgent's internal tenacity retries? → A: Executor retry is authoritative — the executor applies the retry policy at the outermost scope; ClaudeStepExecutor bypasses internal agent-level retries when a retry policy is provided.
 - Q: Where in the module hierarchy should `StepExecutor`, `ExecutorResult`, and `StepExecutorConfig` be defined? → A: `maverick.dsl.executor` — a module within the DSL package, keeping the protocol close to its primary consumer (`execute_agent_step`) with no provider-specific dependencies.
 - Q: What structured log events should the executor emit for observability? → A: Three events via `get_logger()`: `executor.step_start` (step name, agent, config), `executor.step_complete` (duration, token usage, success), `executor.step_error` (error type, attempt number).
-- Q: What are the default values for `StepExecutorConfig` when none is provided? → A: `timeout=300` (seconds), `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model/temperature override (inherit from agent/workflow config).
+- Q: What are the default values for `StepExecutorConfig` when none is provided? → A: `timeout=300` (seconds), no retry_policy override (`None` — agent internal retries apply as-is), no model/temperature override (inherit from agent/workflow config).
 
 ## Requirements *(mandatory)*
 
@@ -112,7 +112,7 @@ A workflow author or operator configures executor behavior (timeouts, retry poli
 
 - **StepExecutor**: Protocol defining the provider-agnostic execution interface. Single method: `execute()`.
 - **ExecutorResult**: Frozen dataclass containing `output` (the agent's result), `success` (bool), `usage` (token/cost metadata), and `events` (streaming events emitted during execution).
-- **StepExecutorConfig**: Frozen dataclass for per-step execution settings — timeout, model override, temperature, max_tokens, retry policy. Defaults: `timeout=300s`, `retry_policy=stop_after_attempt(3)` with `wait_exponential(min=1, max=10)`, no model/temperature override.
+- **StepExecutorConfig**: Frozen dataclass for per-step execution settings — timeout, model override, temperature, max_tokens, retry policy. Defaults: `timeout=300s`, no retry_policy override (`None` — agent internal retries apply as-is), no model/temperature override.
 - **ClaudeStepExecutor**: Concrete implementation wrapping MaverickAgent and Claude Agent SDK. Handles agent instantiation, prompt dispatch, streaming, and result extraction. **Lifecycle**: created once per workflow run and reused across all agent steps in that run; a new instance is constructed at workflow start and discarded at workflow completion.
 
 ## Success Criteria *(mandatory)*

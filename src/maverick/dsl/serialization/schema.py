@@ -163,7 +163,8 @@ class AgentStepRecord(StepRecord):
     output_schema: str | None = Field(
         None,
         description=(
-            "Dotted Python path to a Pydantic BaseModel subclass for output validation. "
+            "Dotted Python path to a Pydantic BaseModel subclass "
+            "for output validation. "
             "E.g. 'maverick.agents.reviewer.ReviewResult'. "
             "When provided, agent output is validated and ExecutorResult.output "
             "contains a validated model instance."

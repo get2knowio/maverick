@@ -64,7 +64,6 @@ _CONTEXT_BUILDER_PATH = (
 class TestMockExecutorInjection:
     """Tests for mock StepExecutor injection via context.step_executor."""
 
-    @pytest.mark.asyncio
     async def test_mock_executor_called_with_correct_params(self) -> None:
         """execute_agent_step calls executor.execute() with correct params."""
         mock_result = ExecutorResult(
@@ -104,7 +103,6 @@ class TestMockExecutorInjection:
         assert call_kwargs["step_name"] == "test_step"
         assert call_kwargs["agent_name"] == "test_agent"
 
-    @pytest.mark.asyncio
     async def test_handler_output_result_equals_executor_result_output(self) -> None:
         """HandlerOutput.result equals ExecutorResult.output."""
         mock_result = ExecutorResult(
@@ -141,11 +139,13 @@ class TestMockExecutorInjection:
         assert isinstance(output, HandlerOutput)
         assert output.result == mock_result.output
 
-    @pytest.mark.asyncio
     async def test_handler_output_events_match_executor_result_events_no_callback(
         self,
     ) -> None:
-        """Without event_callback, HandlerOutput.events == list(ExecutorResult.events)."""
+        """HandlerOutput.events == list(ExecutorResult.events).
+
+        Asserted when no event_callback is provided.
+        """
         chunk = AgentStreamChunk(
             step_name="test_step",
             agent_name="test_agent",
@@ -187,7 +187,6 @@ class TestMockExecutorInjection:
         assert isinstance(output, HandlerOutput)
         assert output.events == list(mock_result.events)
 
-    @pytest.mark.asyncio
     async def test_handler_output_events_empty_when_callback_provided(self) -> None:
         """With event_callback, HandlerOutput.events is empty (no double-emission)."""
         chunk = AgentStreamChunk(
@@ -242,7 +241,6 @@ class TestMockExecutorInjection:
 class TestClaudeStepExecutorEndToEnd:
     """End-to-end tests using ClaudeStepExecutor with mock MaverickAgent."""
 
-    @pytest.mark.asyncio
     async def test_claude_executor_produces_correct_output(self) -> None:
         """ClaudeStepExecutor runs mock agent and produces correct HandlerOutput."""
 
@@ -273,7 +271,6 @@ class TestClaudeStepExecutorEndToEnd:
         assert isinstance(output, HandlerOutput)
         assert output.result == "expected output"
 
-    @pytest.mark.asyncio
     async def test_claude_executor_streaming_events_forwarded(self) -> None:
         """ClaudeStepExecutor forwards streaming events via event_callback."""
 
@@ -319,9 +316,11 @@ class TestClaudeStepExecutorEndToEnd:
         output_chunks = [e for e in received if e.chunk_type == "output"]
         assert any("chunk data" in c.text for c in output_chunks)
 
-    @pytest.mark.asyncio
     async def test_no_step_executor_falls_back_to_new_claude_executor(self) -> None:
-        """When context.step_executor is None, handler creates a default ClaudeStepExecutor."""
+        """Handler creates a default ClaudeStepExecutor.
+
+        Triggered when context.step_executor is None.
+        """
 
         class _MockAgent:
             name = "mock"
@@ -350,14 +349,16 @@ class TestClaudeStepExecutorEndToEnd:
         assert isinstance(output, HandlerOutput)
         assert output.result == "fallback result"
 
-    @pytest.mark.asyncio
     async def test_claude_executor_usage_metadata_extracted(self) -> None:
-        """ClaudeStepExecutor extracts usage metadata from agent result when available."""
+        """ClaudeStepExecutor extracts usage metadata.
+
+        Verifies extraction from agent result when available.
+        """
 
         class _UsageResult:
             """Simulates an agent result with usage metadata."""
 
-            class usage:
+            class Usage:
                 input_tokens = 100
                 output_tokens = 50
                 cache_read_tokens = 10
@@ -393,7 +394,6 @@ class TestClaudeStepExecutorEndToEnd:
 class TestOutputSchemaEndToEnd:
     """End-to-end tests for output_schema YAML field → Pydantic validation."""
 
-    @pytest.mark.asyncio
     async def test_output_schema_none_returns_raw_result(self) -> None:
         """Without output_schema, agent raw result is returned unchanged."""
 
@@ -431,7 +431,6 @@ class TestOutputSchemaEndToEnd:
         assert isinstance(output.result, dict)
         assert output.result["summary"] == "good code"
 
-    @pytest.mark.asyncio
     async def test_invalid_output_schema_path_raises_config_error(self) -> None:
         """Invalid dotted path for output_schema raises ConfigError."""
 
@@ -466,7 +465,6 @@ class TestOutputSchemaEndToEnd:
                     registry=registry,
                 )
 
-    @pytest.mark.asyncio
     async def test_output_schema_validates_dict_output(self) -> None:
         """When output_schema is valid, executor validates agent dict output."""
 
@@ -498,9 +496,11 @@ class TestOutputSchemaEndToEnd:
         assert result.output.summary == "great"
         assert result.output.score == 99
 
-    @pytest.mark.asyncio
     async def test_output_schema_raises_on_invalid_data(self) -> None:
-        """OutputSchemaValidationError raised when agent output fails schema validation."""
+        """OutputSchemaValidationError raised on invalid data.
+
+        Agent output that fails schema validation triggers it.
+        """
 
         class _StrictResult(BaseModel):
             required_field: str  # This field is required
@@ -534,7 +534,6 @@ class TestOutputSchemaEndToEnd:
 class TestExecutorConfigEndToEnd:
     """Tests for executor_config YAML field deserialization."""
 
-    @pytest.mark.asyncio
     async def test_executor_config_timeout_applied(self) -> None:
         """executor_config timeout is applied to the step."""
 
@@ -570,7 +569,6 @@ class TestExecutorConfigEndToEnd:
                     registry=registry,
                 )
 
-    @pytest.mark.asyncio
     async def test_executor_config_unknown_key_raises_config_error(self) -> None:
         """executor_config with unknown key raises ConfigError."""
 
@@ -605,7 +603,6 @@ class TestExecutorConfigEndToEnd:
                     registry=registry,
                 )
 
-    @pytest.mark.asyncio
     async def test_no_executor_config_uses_default(self) -> None:
         """Without executor_config, DEFAULT_EXECUTOR_CONFIG is applied."""
 
@@ -637,9 +634,11 @@ class TestExecutorConfigEndToEnd:
         assert isinstance(output, HandlerOutput)
         assert output.result == "result"
 
-    @pytest.mark.asyncio
     async def test_executor_config_model_override_passed_to_executor(self) -> None:
-        """executor_config model override is deserialized and available on StepExecutorConfig."""
+        """executor_config model override is deserialized.
+
+        Verified available on StepExecutorConfig.
+        """
 
         class _Agent:
             name = "test"
@@ -689,7 +688,6 @@ class TestExecutorConfigEndToEnd:
         assert config.model == "claude-opus-4-6"
         assert config.timeout == 120
 
-    @pytest.mark.asyncio
     async def test_executor_config_retry_policy_deserialized(self) -> None:
         """executor_config retry_policy dict is deserialized to RetryPolicy."""
         from maverick.dsl.executor.config import RetryPolicy
@@ -774,7 +772,6 @@ class TestStepExecutorProtocolConformance:
         executor = _CustomExecutor()
         assert isinstance(executor, StepExecutor)
 
-    @pytest.mark.asyncio
     async def test_mock_satisfying_protocol_works_as_step_executor(self) -> None:
         """Any async object with execute() can serve as StepExecutor via injection."""
 

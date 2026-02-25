@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+# Canonical agent name used by the implementer step in DSL workflows.
+IMPLEMENTER_AGENT_NAME = "implementer"
+
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:

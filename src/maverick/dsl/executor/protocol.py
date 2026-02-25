@@ -18,7 +18,8 @@ from maverick.dsl.executor.result import ExecutorResult
 
 # EventCallback is defined locally here to avoid a circular import:
 #   protocol.py → handlers.base → context.py → protocol.py (TYPE_CHECKING)
-# The definition mirrors maverick.dsl.serialization.executor.handlers.base.EventCallback.
+# The definition mirrors
+# maverick.dsl.serialization.executor.handlers.base.EventCallback.
 EventCallback = Callable[[Any], Coroutine[Any, Any, None]]
 """Async callback for streaming events. Called with each ProgressEvent as it arrives."""
 

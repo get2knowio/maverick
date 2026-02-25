@@ -15,6 +15,7 @@ from __future__ import annotations
 from maverick.dsl.executor.claude import ClaudeStepExecutor
 from maverick.dsl.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
+    IMPLEMENTER_AGENT_NAME,
     RetryPolicy,
     StepExecutorConfig,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "UsageMetadata",
     "ClaudeStepExecutor",
     "DEFAULT_EXECUTOR_CONFIG",
+    "IMPLEMENTER_AGENT_NAME",
     "ExecutorError",
     "OutputSchemaValidationError",
     "EventCallback",

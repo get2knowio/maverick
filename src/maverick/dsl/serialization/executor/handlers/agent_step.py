@@ -17,7 +17,11 @@ from pydantic import BaseModel
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
-from maverick.dsl.executor.config import RetryPolicy, StepExecutorConfig
+from maverick.dsl.executor.config import (
+    IMPLEMENTER_AGENT_NAME,
+    RetryPolicy,
+    StepExecutorConfig,
+)
 from maverick.dsl.serialization.executor import context as context_module
 from maverick.dsl.serialization.executor.context_resolution import (
     resolve_context_builder,
@@ -83,7 +87,7 @@ async def execute_agent_step(
     )
 
     # Convert dict to ImplementerContext for implementer agent
-    if step.agent == "implementer" and isinstance(agent_context, dict):
+    if step.agent == IMPLEMENTER_AGENT_NAME and isinstance(agent_context, dict):
         agent_context = await _convert_to_implementer_context(agent_context)
 
     # Get or create executor
@@ -100,6 +104,10 @@ async def execute_agent_step(
     step_config = _resolve_executor_config(step)
 
     # Delegate execution to StepExecutor
+    # TODO(032): Forward instructions/allowed_tools/cwd per FR-001.
+    # The StepExecutor protocol accepts these but AgentStepRecord
+    # does not yet surface them. Once the DSL schema adds
+    # instructions/allowed_tools/cwd fields, pass them here.
     executor_result = await executor.execute(
         step_name=step.name,
         agent_name=step.agent,
@@ -131,8 +139,9 @@ async def execute_agent_step(
 
             context_module.register_rollback(context, step.name, rollback_wrapper)
 
-    # When event_callback was provided, events were already forwarded in real-time.
-    # Returning them in HandlerOutput.events would cause double-emission in the executor.
+    # When event_callback was provided, events were already forwarded
+    # in real-time. Returning them in HandlerOutput.events would cause
+    # double-emission in the executor.
     events_to_embed = [] if event_callback else list(executor_result.events)
     return HandlerOutput(result=executor_result.output, events=events_to_embed)
 
@@ -203,9 +212,18 @@ def _resolve_output_schema(step: AgentStepRecord) -> type[BaseModel] | None:
     try:
         module_path, class_name = schema_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
-        return getattr(module, class_name)
+        cls = getattr(module, class_name)
     except (ImportError, AttributeError, ValueError) as e:
-        raise ConfigError(f"Cannot resolve output_schema '{schema_path}': {e}") from e
+        raise ConfigError(
+            f"Cannot resolve output_schema '{schema_path}': {e}"
+        ) from e
+
+    if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
+        raise ConfigError(
+            f"output_schema '{schema_path}' resolved to {cls!r}, "
+            f"which is not a Pydantic BaseModel subclass"
+        )
+    return cls
 
 
 def _resolve_executor_config(step: AgentStepRecord) -> StepExecutorConfig | None:
@@ -251,20 +269,3 @@ def _resolve_executor_config(step: AgentStepRecord) -> StepExecutorConfig | None
     )
 
 
-def _extract_validation_commands(
-    validation: Any,
-) -> dict[str, list[str]]:
-    """Extract validation commands from a ValidationConfig for prompt injection.
-
-    Args:
-        validation: A ValidationConfig instance.
-
-    Returns:
-        Dict mapping command type (e.g. "test_cmd") to argv list.
-    """
-    commands: dict[str, list[str]] = {}
-    for key in ("sync_cmd", "format_cmd", "lint_cmd", "typecheck_cmd", "test_cmd"):
-        value = getattr(validation, key, None)
-        if value:
-            commands[key] = list(value)
-    return commands
