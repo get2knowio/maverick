@@ -13,7 +13,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from maverick.dsl.executor.config import StepExecutorConfig
+from maverick.dsl.executor.config import StepConfig
 from maverick.dsl.executor.result import ExecutorResult
 
 # EventCallback is defined locally here to avoid a circular import:
@@ -51,7 +51,7 @@ class StepExecutor(Protocol):
         allowed_tools: list[str] | None = None,
         cwd: Path | None = None,
         output_schema: type[BaseModel] | None = None,
-        config: StepExecutorConfig | None = None,
+        config: StepConfig | None = None,
         event_callback: EventCallback | None = None,
     ) -> ExecutorResult:
         """Execute an agent step and return a typed result.

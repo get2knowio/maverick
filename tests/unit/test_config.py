@@ -438,3 +438,92 @@ notifications:
         and "topic" in record.message.lower()
     ]
     assert len(notification_warnings) == 0
+
+
+class TestMaverickConfigSteps:
+    """Tests for MaverickConfig.steps field (033-step-config)."""
+
+    def test_steps_default_empty_dict(self, clean_env: None, temp_dir: Path) -> None:
+        """steps field defaults to empty dict."""
+        import os
+
+        os.chdir(temp_dir)
+        from maverick.config import MaverickConfig
+
+        config = MaverickConfig()
+        assert config.steps == {}
+
+    def test_steps_with_valid_step_config(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """steps field accepts valid StepConfig values from YAML."""
+        import os
+
+        os.chdir(temp_dir)
+        from maverick.dsl.types import AutonomyLevel
+
+        yaml_content = """
+steps:
+  review:
+    autonomy: consultant
+    timeout: 300
+  implement:
+    max_retries: 3
+"""
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(yaml_content)
+
+        from maverick.config import load_config
+
+        config = load_config()
+        assert "review" in config.steps
+        assert config.steps["review"].autonomy == AutonomyLevel.CONSULTANT
+        assert config.steps["review"].timeout == 300
+        assert config.steps["implement"].max_retries == 3
+
+    def test_steps_from_yaml(self, clean_env: None, temp_dir: Path) -> None:
+        """steps field loads from maverick.yaml."""
+        import os
+
+        os.chdir(temp_dir)
+
+        yaml_content = """
+steps:
+  review_code:
+    autonomy: consultant
+    timeout: 300
+  implement_feature:
+    max_retries: 3
+"""
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(yaml_content)
+
+        from maverick.config import load_config
+
+        config = load_config()
+        assert "review_code" in config.steps
+        assert config.steps["review_code"].timeout == 300
+        assert "implement_feature" in config.steps
+        assert config.steps["implement_feature"].max_retries == 3
+
+    def test_steps_invalid_value_rejected(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """steps field rejects invalid StepConfig values."""
+        import os
+
+        os.chdir(temp_dir)
+
+        yaml_content = """
+steps:
+  review_code:
+    temperature: 5.0
+"""
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(yaml_content)
+
+        from maverick.config import load_config
+        from maverick.exceptions import ConfigError
+
+        with pytest.raises(ConfigError):
+            load_config()

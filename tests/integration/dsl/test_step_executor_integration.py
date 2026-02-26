@@ -687,7 +687,7 @@ class TestExecutorConfigEndToEnd:
         assert len(captured_config) == 1
         config = captured_config[0]
         assert config is not None
-        assert config.model == "claude-opus-4-6"
+        assert config.model_id == "claude-opus-4-6"
         assert config.timeout == 120
 
     async def test_executor_config_retry_policy_deserialized(self) -> None:

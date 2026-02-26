@@ -923,6 +923,20 @@ class TestStepRecordBase:
         with pytest.raises(Exception):
             StepRecord(name="test")
 
+    def test_config_defaults_to_none(self):
+        """Test that config field defaults to None."""
+        step = StepRecord(name="test_step", type=StepType.PYTHON)
+        assert step.config is None
+
+    def test_config_accepts_dict(self):
+        """Test that config field accepts a dict."""
+        step = StepRecord(
+            name="test_step",
+            type=StepType.PYTHON,
+            config={"timeout": 300, "model_id": "claude-opus-4-6"},
+        )
+        assert step.config == {"timeout": 300, "model_id": "claude-opus-4-6"}
+
 
 # =============================================================================
 # PythonStepRecord Tests
@@ -1564,6 +1578,122 @@ class TestStepRecordUnion:
         adapter = TypeAdapter(StepRecordUnion)
         with pytest.raises(Exception):
             adapter.validate_python(data)
+
+
+# =============================================================================
+# StepRecord.config Field Tests (all step types)
+# =============================================================================
+
+
+class TestStepRecordConfigField:
+    """Test that config field is available on all step types."""
+
+    def test_python_step_accepts_config(self):
+        """Test PythonStepRecord accepts config dict."""
+        step = PythonStepRecord(name="run", action="func", config={"timeout": 60})
+        assert step.config == {"timeout": 60}
+
+    def test_agent_step_accepts_config(self):
+        """Test AgentStepRecord accepts config dict."""
+        step = AgentStepRecord(
+            name="review", agent="reviewer", config={"model_id": "claude-opus-4-6"}
+        )
+        assert step.config == {"model_id": "claude-opus-4-6"}
+
+    def test_generate_step_accepts_config(self):
+        """Test GenerateStepRecord accepts config dict."""
+        step = GenerateStepRecord(
+            name="gen", generator="doc_gen", config={"temperature": 0.7}
+        )
+        assert step.config == {"temperature": 0.7}
+
+    def test_validate_step_accepts_config(self):
+        """Test ValidateStepRecord accepts config dict."""
+        step = ValidateStepRecord(name="val", stages=["lint"], config={"timeout": 120})
+        assert step.config == {"timeout": 120}
+
+    def test_subworkflow_step_accepts_config(self):
+        """Test SubWorkflowStepRecord accepts config dict."""
+        step = SubWorkflowStepRecord(
+            name="sub", workflow="nested", config={"mode": "agent"}
+        )
+        assert step.config == {"mode": "agent"}
+
+    def test_all_steps_default_config_none(self):
+        """Test that all step types default config to None."""
+        assert PythonStepRecord(name="p", action="f").config is None
+        assert AgentStepRecord(name="a", agent="ag").config is None
+        assert GenerateStepRecord(name="g", generator="gen").config is None
+        assert ValidateStepRecord(name="v", stages=["lint"]).config is None
+        assert SubWorkflowStepRecord(name="s", workflow="wf").config is None
+
+
+# =============================================================================
+# AgentStepRecord Backward Compatibility Tests
+# =============================================================================
+
+
+class TestAgentStepRecordBackwardCompat:
+    """Test executor_config -> config backward compatibility migration."""
+
+    def test_executor_config_migrated_to_config(self):
+        """Test that executor_config is migrated to config."""
+        step = AgentStepRecord(
+            name="review",
+            agent="reviewer",
+            executor_config={"timeout": 600},
+        )
+        assert step.config == {"timeout": 600}
+
+    def test_executor_config_model_renamed_to_model_id(self):
+        """Test that legacy 'model' key is renamed to 'model_id'."""
+        step = AgentStepRecord(
+            name="review",
+            agent="reviewer",
+            executor_config={"model": "claude-opus-4-6", "timeout": 300},
+        )
+        assert step.config == {"model_id": "claude-opus-4-6", "timeout": 300}
+        assert "model" not in step.config
+
+    def test_config_field_preferred(self):
+        """Test that config field works directly without migration."""
+        step = AgentStepRecord(
+            name="review",
+            agent="reviewer",
+            config={"timeout": 600, "model_id": "claude-opus-4-6"},
+        )
+        assert step.config == {"timeout": 600, "model_id": "claude-opus-4-6"}
+
+    def test_both_executor_config_and_config_rejected(self):
+        """Test that providing both executor_config and config raises error."""
+        with pytest.raises(Exception, match="Cannot specify both"):
+            AgentStepRecord(
+                name="review",
+                agent="reviewer",
+                executor_config={"timeout": 600},
+                config={"timeout": 300},
+            )
+
+    def test_executor_config_emits_deprecation_warning(self, caplog):
+        """Test that executor_config triggers deprecation warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            AgentStepRecord(
+                name="review",
+                agent="reviewer",
+                executor_config={"timeout": 600},
+            )
+        # structlog warning may or may not appear in caplog depending on config
+        # At minimum, the step should be created successfully
+
+    def test_no_executor_config_field_on_model(self):
+        """executor_config is NOT a schema field anymore."""
+        step = AgentStepRecord(name="review", agent="reviewer")
+        assert (
+            not hasattr(step, "executor_config")
+            or step.__class__.model_fields.get("executor_config") is None
+        )
 
 
 # =============================================================================

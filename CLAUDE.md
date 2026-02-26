@@ -545,6 +545,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - DSL-based workflow definitions with YAML serialization
 - Python 3.10+ with `from __future__ import annotations` + Claude Agent SDK (`claude-agent-sdk`), Pydantic, tenacity, structlog (032-step-executor-protocol)
 - N/A (no persistence changes) (032-step-executor-protocol)
+- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (config models), PyYAML (serialization), Claude Agent SDK (executor) (033-step-config)
+- N/A (YAML config files only) (033-step-config)
 ## Recent Changes
 - 031-instructions-preset: Verified Claude Code preset + instructions pattern for all interactive agents
 - 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output

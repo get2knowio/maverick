@@ -20,6 +20,7 @@ from maverick.dsl.events import AgentStreamChunk
 from maverick.dsl.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
     IMPLEMENTER_AGENT_NAME,
+    RetryPolicy,
     StepExecutorConfig,
 )
 from maverick.dsl.executor.errors import OutputSchemaValidationError
@@ -90,7 +91,7 @@ class ClaudeStepExecutor:
             "executor.step_start",
             step_name=step_name,
             agent_name=agent_name,
-            config=effective_config.to_dict(),
+            config=effective_config.model_dump(exclude_none=True),
         )
         start_time = time.monotonic()
 
@@ -312,15 +313,24 @@ class ClaudeStepExecutor:
                 result = await result
             return result
 
-        if config.retry_policy:
-            rp = config.retry_policy
+        # Resolve effective retry policy: max_retries (preferred) takes
+        # precedence over the legacy retry_policy field.  The two are
+        # mutually exclusive at the StepConfig validation layer, so at
+        # most one will be set.
+        effective_retry: RetryPolicy | None = None
+        if config.max_retries is not None and config.max_retries > 0:
+            effective_retry = RetryPolicy(max_attempts=config.max_retries)
+        elif config.retry_policy is not None:
+            effective_retry = config.retry_policy
+
+        if effective_retry is not None:
             final_result: Any = None
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(rp.max_attempts),
+                stop=stop_after_attempt(effective_retry.max_attempts),
                 wait=wait_exponential(
                     multiplier=1,
-                    min=rp.wait_min,
-                    max=rp.wait_max,
+                    min=effective_retry.wait_min,
+                    max=effective_retry.wait_max,
                 ),
                 reraise=True,
             ):
