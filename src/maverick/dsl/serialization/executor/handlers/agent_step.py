@@ -103,11 +103,15 @@ async def execute_agent_step(
     output_schema = _resolve_output_schema(step)
 
     # Resolve step config via 4-layer precedence (033-step-config)
-    maverick_cfg = (
-        context.maverick_config
-        if hasattr(context, "maverick_config") and context.maverick_config
-        else None
-    )
+    maverick_cfg = context.maverick_config if context else None
+    if maverick_cfg is None:
+        logger.debug(
+            "no_maverick_config_in_context",
+            step_name=step.name,
+            msg="Falling back to default model config; "
+            "set context.maverick_config "
+            "for full 4-layer resolution",
+        )
     step_config = resolve_step_config(
         inline_config=step.config,
         project_step_config=(

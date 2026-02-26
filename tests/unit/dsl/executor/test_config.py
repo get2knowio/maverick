@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import yaml
 from pydantic import ValidationError as PydanticValidationError
 
 from maverick.config import AgentConfig, ModelConfig
@@ -332,6 +333,26 @@ class TestStepConfig:
         config = StepConfig()
         d = config.model_dump(exclude_none=True)
         assert d == {}
+
+    def test_yaml_round_trip(self) -> None:
+        """StepConfig survives YAML dump -> load round-trip."""
+        original = StepConfig(
+            mode=StepMode.AGENT,
+            autonomy=AutonomyLevel.CONSULTANT,
+            provider="claude",
+            model_id="claude-opus-4-6",
+            temperature=0.7,
+            max_tokens=4096,
+            timeout=600,
+            max_retries=3,
+            allowed_tools=["Read", "Glob"],
+            prompt_suffix="Focus on security",
+        )
+
+        yaml_str = yaml.dump(original.model_dump(mode="json", exclude_none=True))
+        loaded = StepConfig.model_validate(yaml.safe_load(yaml_str))
+
+        assert loaded == original
 
     # --- Alias identity ---
 

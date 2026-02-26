@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -20,6 +20,9 @@ from maverick.constants import (
 )
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
+
+if TYPE_CHECKING:
+    from maverick.dsl.executor.config import StepConfig
 
 __all__ = [
     "MaverickConfig",
@@ -277,6 +280,7 @@ class MaverickConfig(BaseSettings):
         env_prefix="MAVERICK_",
         env_nested_delimiter="__",
         extra="ignore",
+        defer_build=True,
     )
 
     github: GitHubConfig = Field(default_factory=GitHubConfig)
@@ -291,11 +295,15 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
-    steps: dict[str, Any] = Field(
+    steps: dict[str, StepConfig] = Field(
         default_factory=dict,
         description="Project-level step configuration defaults keyed by step name.",
     )
     project_conventions: str = ""
+
+    def __init__(self, **data: Any) -> None:
+        _ensure_model_rebuilt()
+        super().__init__(**data)
 
     @field_validator("steps", mode="before")
     @classmethod
@@ -312,7 +320,15 @@ class MaverickConfig(BaseSettings):
             elif isinstance(val, StepConfig):
                 result[key] = val
             else:
-                result[key] = val
+                raise ConfigError(
+                    message=(
+                        f"Invalid step config for '{key}': "
+                        f"expected dict or StepConfig, "
+                        f"got {type(val).__name__}"
+                    ),
+                    field=f"steps.{key}",
+                    value=val,
+                )
         return result
 
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
@@ -353,6 +369,28 @@ class MaverickConfig(BaseSettings):
         )
 
 
+_model_rebuilt = False
+
+
+def _ensure_model_rebuilt() -> None:
+    """Resolve the StepConfig forward reference on first use.
+
+    Called lazily from ``MaverickConfig.__init__`` (not at module scope)
+    to avoid circular imports.  By the time any caller instantiates the
+    model, all modules have finished loading and the import succeeds.
+    """
+    global _model_rebuilt  # noqa: PLW0603
+    if _model_rebuilt:
+        return
+
+    from maverick.dsl.executor.config import StepConfig  # noqa: F811
+
+    MaverickConfig.model_rebuild(
+        _types_namespace={"StepConfig": StepConfig},
+    )
+    _model_rebuilt = True
+
+
 def get_user_config_path() -> Path:
     """Get the path to the user configuration file.
 
@@ -380,6 +418,8 @@ def load_config(config_path: Path | None = None) -> MaverickConfig:
     Raises:
         ConfigError: If configuration is invalid
     """
+    _ensure_model_rebuilt()
+
     if config_path is None:
         config_path = Path.cwd() / "maverick.yaml"
 

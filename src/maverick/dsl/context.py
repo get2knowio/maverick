@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from maverick.config import MaverickConfig
     from maverick.dsl.executor.protocol import StepExecutor
     from maverick.dsl.results import RollbackRegistration, StepResult
     from maverick.dsl.types import RollbackAction
@@ -69,6 +70,9 @@ class WorkflowContext:
             These are executed in reverse order if workflow fails.
         step_executor: Optional executor for agent steps. When set, execute_agent_step
             delegates to this executor. Injected once per workflow run (FR-008).
+        maverick_config: Optional MaverickConfig for 4-layer step config resolution.
+            When set, agent steps resolve model/token/temperature settings via
+            inline > project step > agent > global precedence (033-step-config).
 
     Example:
         >>> context = WorkflowContext(
@@ -87,6 +91,7 @@ class WorkflowContext:
     iteration_context: dict[str, Any] = field(default_factory=dict)
     _pending_rollbacks: list[RollbackRegistration] = field(default_factory=list)
     step_executor: StepExecutor | None = field(default=None)
+    maverick_config: MaverickConfig | None = field(default=None)
 
     def get_step_output(self, step_name: str, default: Any = None) -> Any:
         """Get step output, returning default if step not found.

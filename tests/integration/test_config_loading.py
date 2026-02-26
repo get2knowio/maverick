@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from maverick.exceptions import ConfigError
+
 
 class TestConfigLoadingIntegration:
     """Integration tests for the full configuration loading flow."""
@@ -273,3 +275,77 @@ model:
 
         assert result.model_id == "global-model"
         assert result.temperature == 0.2
+
+    def test_invalid_inline_config_raises_config_error(
+        self,
+        clean_env: None,
+        temp_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid inline config propagates ConfigError through the full pipeline.
+
+        An agent-type step with ``mode: deterministic`` creates a mode/type
+        mismatch that must surface as a ``ConfigError`` after YAML-load and
+        resolve_step_config.
+        """
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text("""
+model:
+  model_id: global-model
+""")
+
+        from maverick.config import load_config
+        from maverick.dsl.executor.config import resolve_step_config
+        from maverick.dsl.types import StepType
+
+        config = load_config()
+
+        # mode: deterministic on an agent step type is incompatible
+        with pytest.raises(ConfigError, match="Mode/type mismatch"):
+            resolve_step_config(
+                inline_config={"mode": "deterministic"},
+                project_step_config=None,
+                agent_config=None,
+                global_model=config.model,
+                step_type=StepType.AGENT,
+                step_name="bad_step",
+            )
+
+    def test_invalid_inline_temperature_raises_config_error(
+        self,
+        clean_env: None,
+        temp_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Out-of-range temperature in inline config raises ConfigError.
+
+        Temperature must be between 0.0 and 1.0. A value of 5.0 should
+        be caught during StepConfig validation and raised as ConfigError.
+        """
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text("""
+model:
+  model_id: global-model
+""")
+
+        from maverick.config import load_config
+        from maverick.dsl.executor.config import resolve_step_config
+        from maverick.dsl.types import StepType
+
+        config = load_config()
+
+        with pytest.raises(ConfigError, match="Invalid inline config"):
+            resolve_step_config(
+                inline_config={"temperature": 5.0},
+                project_step_config=None,
+                agent_config=None,
+                global_model=config.model,
+                step_type=StepType.AGENT,
+                step_name="bad_temp_step",
+            )
