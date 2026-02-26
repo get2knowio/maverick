@@ -90,7 +90,7 @@ class ClaudeStepExecutor:
             "executor.step_start",
             step_name=step_name,
             agent_name=agent_name,
-            config=effective_config.to_dict(),
+            config=effective_config.model_dump(exclude_none=True),
         )
         start_time = time.monotonic()
 

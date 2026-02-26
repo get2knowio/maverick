@@ -11,7 +11,10 @@ import asyncio
 import importlib
 import inspect
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from maverick.config import ModelConfig
 
 from pydantic import BaseModel
 
@@ -19,8 +22,7 @@ from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
 from maverick.dsl.executor.config import (
     IMPLEMENTER_AGENT_NAME,
-    RetryPolicy,
-    StepExecutorConfig,
+    resolve_step_config,
 )
 from maverick.dsl.serialization.executor import context as context_module
 from maverick.dsl.serialization.executor.context_resolution import (
@@ -100,8 +102,22 @@ async def execute_agent_step(
     # Resolve output_schema dotted path if provided (FR-007)
     output_schema = _resolve_output_schema(step)
 
-    # Deserialize executor_config if provided (US4)
-    step_config = _resolve_executor_config(step)
+    # Resolve step config via 4-layer precedence (033-step-config)
+    maverick_cfg = (
+        context.maverick_config
+        if hasattr(context, "maverick_config") and context.maverick_config
+        else None
+    )
+    step_config = resolve_step_config(
+        inline_config=step.config,
+        project_step_config=(
+            maverick_cfg.steps.get(step.name) if maverick_cfg else None
+        ),
+        agent_config=(maverick_cfg.agents.get(step.agent) if maverick_cfg else None),
+        global_model=(maverick_cfg.model if maverick_cfg else _default_model_config()),
+        step_type=step.type,
+        step_name=step.name,
+    )
 
     # Delegate execution to StepExecutor
     # TODO(032): Forward instructions/allowed_tools/cwd per FR-001.
@@ -224,44 +240,12 @@ def _resolve_output_schema(step: AgentStepRecord) -> type[BaseModel] | None:
     return cls
 
 
-def _resolve_executor_config(step: AgentStepRecord) -> StepExecutorConfig | None:
-    """Deserialize executor_config dict to StepExecutorConfig if present.
-
-    Args:
-        step: AgentStepRecord potentially containing executor_config.
+def _default_model_config() -> ModelConfig:
+    """Return a default ModelConfig for when context doesn't provide one.
 
     Returns:
-        StepExecutorConfig instance, or None if not specified.
-
-    Raises:
-        ConfigError: If executor_config contains unrecognized keys.
+        ModelConfig with built-in defaults.
     """
-    config_dict = getattr(step, "executor_config", None)
-    if not config_dict:
-        return None
+    from maverick.config import ModelConfig
 
-    known_keys = {"timeout", "retry_policy", "model", "temperature", "max_tokens"}
-    unknown_keys = set(config_dict.keys()) - known_keys
-    if unknown_keys:
-        raise ConfigError(
-            f"Unrecognized executor_config keys: {unknown_keys}. "
-            f"Supported keys: {known_keys}"
-        )
-
-    retry_policy = None
-    if "retry_policy" in config_dict:
-        rp_dict = config_dict["retry_policy"]
-        if isinstance(rp_dict, dict):
-            retry_policy = RetryPolicy(
-                max_attempts=rp_dict.get("max_attempts", 3),
-                wait_min=rp_dict.get("wait_min", 1.0),
-                wait_max=rp_dict.get("wait_max", 10.0),
-            )
-
-    return StepExecutorConfig(
-        timeout=config_dict.get("timeout"),
-        retry_policy=retry_policy,
-        model=config_dict.get("model"),
-        temperature=config_dict.get("temperature"),
-        max_tokens=config_dict.get("max_tokens"),
-    )
+    return ModelConfig()

@@ -291,7 +291,30 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
+    steps: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Project-level step configuration defaults keyed by step name.",
+    )
     project_conventions: str = ""
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _coerce_step_configs(cls, v: Any) -> Any:
+        """Coerce dict entries to StepConfig via lazy import to avoid circular deps."""
+        if not isinstance(v, dict):
+            return v
+        from maverick.dsl.executor.config import StepConfig
+
+        result = {}
+        for key, val in v.items():
+            if isinstance(val, dict):
+                result[key] = StepConfig(**val)
+            elif isinstance(val, StepConfig):
+                result[key] = val
+            else:
+                result[key] = val
+        return result
+
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod

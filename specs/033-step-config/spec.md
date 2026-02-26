@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Expand Maverick's configuration model to support rich per-step configuration, unifying the provider selection from ADR-001 with the execution mode and autonomy levels from ADR-002."
 
+## Clarifications
+
+### Session 2026-02-25
+
+- Q: What is the relationship between the new `StepConfig` and the existing `StepExecutorConfig` (in `dsl/executor/config.py`) and `executor_config` YAML field on `AgentStepRecord`? → A: StepConfig replaces and extends StepExecutorConfig. The existing `StepExecutorConfig` is renamed/superseded by `StepConfig` and expanded with `mode`, `autonomy`, `provider`, `allowed_tools`, `prompt_suffix`, `prompt_file`. The YAML field `executor_config` is renamed to `config`.
+- Q: What is the full config resolution order given the existing `MaverickConfig.agents` (per-agent model overrides) layer? → A: Four-layer resolution: step config > project-level steps config > agent config > global model defaults.
+- Q: How does the `mode` field interact with the step `type` discriminator (agent, python, validate, generate)? → A: Mode is inferred from step type when omitted (`type: agent/generate` → `mode: agent`; `type: python/validate` → `mode: deterministic`). If explicitly set, it must be consistent with the step type or validation rejects the mismatch.
+- Q: Does the `provider` field drive executor selection now, or is it purely future-proofing? → A: Future-proofing placeholder. Validated to accept only `"claude"` (sole supported value). Stored in config for forward compatibility but does not influence executor selection in this feature.
+- Q: What is the type and semantics of `allowed_tools`? → A: `list[str] | None` where each string is a tool name. `None` (default) means all tools allowed. Empty list `[]` means no tools permitted.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Configure Step Execution Mode Per Workflow Step (Priority: P1)
@@ -77,7 +87,7 @@ A project maintainer defines default step configurations in `maverick.yaml` unde
 
 **Why this priority**: Project-level step configuration is a convenience layer. The core value is delivered by inline workflow-level step configuration (P1/P2). Project-level defaults add polish for teams managing multiple workflows.
 
-**Independent Test**: Can be fully tested by setting step defaults in `maverick.yaml`, defining a workflow with a matching step name, and verifying the merge precedence (workflow inline > project config > built-in defaults).
+**Independent Test**: Can be fully tested by setting step defaults in `maverick.yaml`, defining a workflow with a matching step name, and verifying the four-layer merge precedence (workflow inline config > project-level steps config > agent config > global model defaults).
 
 **Acceptance Scenarios**:
 
@@ -94,6 +104,8 @@ A project maintainer defines default step configurations in `maverick.yaml` unde
 - What happens when `temperature` is set outside the valid range (e.g., negative or > 1.0)? Pydantic validation rejects the value with a descriptive error.
 - What happens when a step name in `maverick.yaml` does not match any workflow step? The configuration is silently ignored (no error for unused defaults).
 - What happens when `autonomy` is set without `mode: agent`? Validation rejects the configuration since autonomy levels only apply to agent-mode steps.
+- What happens when `mode: agent` is explicitly set on a `type: python` step? Validation rejects the mismatch since `mode` must be consistent with the step's `type` discriminator.
+- What happens when a step uses the legacy `executor_config` field instead of `config`? The system accepts `executor_config` for backward compatibility and maps it to `StepConfig`, but emits a deprecation warning.
 
 ## Requirements *(mandatory)*
 
@@ -101,14 +113,14 @@ A project maintainer defines default step configurations in `maverick.yaml` unde
 
 - **FR-001**: System MUST provide a `StepMode` enumeration with values `deterministic` and `agent` to classify each step's execution strategy.
 - **FR-002**: System MUST provide an `AutonomyLevel` enumeration with four ordered levels: `operator` (deterministic only), `collaborator` (agent proposes, code validates), `consultant` (agent executes, code verifies), and `approver` (agent autonomous, escalates exceptions).
-- **FR-003**: System MUST provide a `StepConfig` model that consolidates all per-step tunables: `mode`, `autonomy`, `provider`, `model_id`, `allowed_tools`, `prompt_suffix`, `prompt_file`, `timeout`, `max_retries`, `temperature`, and `max_tokens`.
+- **FR-003**: System MUST provide a `StepConfig` Pydantic model that replaces and extends the existing `StepExecutorConfig` dataclass, consolidating all per-step tunables: `mode`, `autonomy`, `provider`, `model_id`, `allowed_tools` (`list[str] | None`, where `None` = all tools, `[]` = no tools), `prompt_suffix`, `prompt_file`, `timeout`, `max_retries`, `temperature`, and `max_tokens`.
 - **FR-004**: `StepConfig` MUST default to `mode: deterministic` and `autonomy: operator` when no values are specified, ensuring safe-by-default behavior.
 - **FR-005**: `StepConfig` MUST validate that agent-specific fields (`autonomy` above operator, `allowed_tools`, `prompt_suffix`, `prompt_file`) are only set when `mode` is `agent`.
 - **FR-006**: `StepConfig` MUST validate that `prompt_suffix` and `prompt_file` are mutually exclusive.
 - **FR-007**: `StepConfig` MUST inherit unset model fields (`model_id`, `temperature`, `max_tokens`) from the global `ModelConfig` at resolution time, not at definition time.
-- **FR-008**: DSL step records (agent, generate, validate, python) MUST accept an optional `config` field of type `StepConfig`.
+- **FR-008**: DSL step records (agent, generate, validate, python) MUST accept an optional `config` field of type `StepConfig`, replacing the existing `executor_config` field on `AgentStepRecord`. The `mode` field is inferred from the step's `type` when omitted (`type: agent/generate` → `mode: agent`; `type: python/validate` → `mode: deterministic`); if explicitly set, it must be consistent with the step type.
 - **FR-009**: `MaverickConfig` MUST support a `steps: dict[str, StepConfig]` field for project-level step configuration defaults.
-- **FR-010**: Step configuration resolution MUST follow precedence: workflow inline config > project-level `steps` config > built-in defaults.
+- **FR-010**: Step configuration resolution MUST follow four-layer precedence: workflow inline `config` > project-level `steps` config (from `maverick.yaml`) > agent-level config (from `MaverickConfig.agents`) > global model defaults (from `MaverickConfig.model`).
 - **FR-011**: `StepConfig` MUST be serializable to and from YAML/JSON for workflow file compatibility.
 - **FR-012**: All existing workflows MUST continue to function without modification (backward compatibility).
 
@@ -130,8 +142,10 @@ A project maintainer defines default step configurations in `maverick.yaml` unde
 
 ## Assumptions
 
-- **A-001**: The `provider` field defaults to `"claude"` as the only currently supported provider. The field exists to support future provider adapters (per the 032 Step Executor Protocol spec) without configuration model changes.
+- **A-001**: The `provider` field defaults to `"claude"` as the only currently supported provider. It is a future-proofing placeholder: validated to accept only `"claude"`, stored in config for forward compatibility, but does not influence executor selection in this feature. Executor routing is handled by the 032 Step Executor Protocol.
 - **A-002**: `AutonomyLevel` ordering (operator < collaborator < consultant < approver) is informational for this spec. Enforcement of autonomy semantics (what each level permits) is the responsibility of the step executor, not the configuration model.
 - **A-003**: `timeout` is specified in seconds as an integer. Sub-second precision is not required for step-level timeouts.
 - **A-004**: `prompt_file` paths are resolved relative to the workflow file's directory, consistent with existing DSL path resolution patterns.
 - **A-005**: The `steps` key in `maverick.yaml` uses step names as keys. Step names are unique within a workflow but may collide across workflows; project-level defaults apply to all steps with matching names.
+- **A-006**: `StepConfig` replaces and extends the existing `StepExecutorConfig` dataclass (`dsl/executor/config.py`) and the `executor_config` YAML field on `AgentStepRecord`. The old `executor_config` field is renamed to `config` with a deprecation/migration path for backward compatibility (FR-012).
+- **A-007**: `allowed_tools` is typed as `list[str] | None`. `None` (default) means all tools are allowed. An empty list `[]` means no tools are permitted. Each string is a tool name matching MCP tool naming conventions.

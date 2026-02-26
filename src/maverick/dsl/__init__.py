@@ -72,13 +72,22 @@ from maverick.dsl.steps import (
 )
 
 # Types
-from maverick.dsl.types import ContextBuilder, Predicate, RollbackAction, StepType
+from maverick.dsl.types import (
+    AutonomyLevel,
+    ContextBuilder,
+    Predicate,
+    RollbackAction,
+    StepMode,
+    StepType,
+)
 
 __all__: list[str] = [
     # Types
+    "AutonomyLevel",
     "ContextBuilder",
     "Predicate",
     "RollbackAction",
+    "StepMode",
     "StepType",
     # Context
     "WorkflowContext",
