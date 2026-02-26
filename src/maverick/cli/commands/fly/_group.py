@@ -51,6 +51,12 @@ from maverick.cli.workflow_executor import execute_workflow_run
     default=None,
     help="Write session journal (JSONL) to this file path.",
 )
+@click.option(
+    "--deterministic",
+    is_flag=True,
+    default=False,
+    help="Force all Python steps to deterministic mode (ignore mode: agent).",
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -61,6 +67,7 @@ async def fly(
     skip_review: bool,
     list_steps: bool,
     session_log: Path | None,
+    deterministic: bool,
 ) -> None:
     """Run a bead-driven development workflow.
 
@@ -81,6 +88,7 @@ async def fly(
         f"max_beads={max_beads}",
         f"dry_run={str(dry_run).lower()}",
         f"skip_review={str(skip_review).lower()}",
+        f"force_deterministic={str(deterministic).lower()}",
     ]
     if epic:
         input_parts.insert(0, f"epic_id={epic}")

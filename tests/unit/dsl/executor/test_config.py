@@ -440,9 +440,9 @@ class TestInferStepMode:
         with pytest.raises(ValueError, match="incompatible"):
             infer_step_mode(StepType.AGENT, StepMode.DETERMINISTIC)
 
-    def test_mismatch_agent_on_python_step(self):
-        with pytest.raises(ValueError, match="incompatible"):
-            infer_step_mode(StepType.PYTHON, StepMode.AGENT)
+    def test_python_step_accepts_agent_mode_override(self):
+        """PYTHON + AGENT is allowed via _MODE_OVERRIDABLE (Spec 034)."""
+        assert infer_step_mode(StepType.PYTHON, StepMode.AGENT) == StepMode.AGENT
 
     def test_mismatch_agent_on_validate_step(self):
         with pytest.raises(ValueError, match="incompatible"):
@@ -455,6 +455,23 @@ class TestInferStepMode:
     def test_mismatch_deterministic_on_subworkflow_step(self):
         with pytest.raises(ValueError, match="incompatible"):
             infer_step_mode(StepType.SUBWORKFLOW, StepMode.DETERMINISTIC)
+
+    def test_validate_step_still_rejects_agent_mode(self):
+        """VALIDATE + AGENT is still rejected (not in _MODE_OVERRIDABLE)."""
+        with pytest.raises(ValueError, match="incompatible"):
+            infer_step_mode(StepType.VALIDATE, StepMode.AGENT)
+
+    def test_branch_step_still_rejects_agent_mode(self):
+        """BRANCH + AGENT is still rejected."""
+        with pytest.raises(ValueError, match="incompatible"):
+            infer_step_mode(StepType.BRANCH, StepMode.AGENT)
+
+    def test_python_step_deterministic_explicit_still_works(self):
+        """PYTHON + DETERMINISTIC (explicit) returns DETERMINISTIC."""
+        assert (
+            infer_step_mode(StepType.PYTHON, StepMode.DETERMINISTIC)
+            == StepMode.DETERMINISTIC
+        )
 
     # All 8 step types covered
     def test_all_step_types_have_mapping(self):

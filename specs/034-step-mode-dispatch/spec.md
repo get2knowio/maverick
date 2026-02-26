@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Enable any workflow step to be executed either deterministically (current behavior) or via an AI agent, controlled by per-step configuration."
 
+## Clarifications
+
+### Session 2026-02-26
+
+- Q: How should intent descriptions be stored alongside Python step handlers? → A: Registry dict mapping action names to intent strings, defined in a central `intents.py` module alongside the action registry.
+- Q: When the deterministic handler "validates" the agent's result at Collaborator level, what does validation mean concretely? → A: Re-execute the deterministic handler with the same inputs, compare outputs structurally; accept agent result only if structurally equivalent.
+- Q: What timeout applies to agent-mode execution during dispatch? → A: Inherit from `StepConfig.timeout` (Spec 033) — single source of truth, no separate dispatch-level timeout.
+- Q: When agent-mode falls back to deterministic, should inputs be re-resolved or reused? → A: Reuse already-resolved inputs for consistency and performance.
+- Q: Can dispatch mode be overridden globally at runtime (e.g., force all steps deterministic)? → A: Yes, via a `--deterministic` CLI flag that forces all steps to deterministic mode regardless of per-step config.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Run a Python Step via an AI Agent Instead of Deterministic Code (Priority: P1)
@@ -97,6 +107,7 @@ The system emits structured log events for every dispatch decision: which mode a
 - What happens when the deterministic fallback also fails after an agent failure? The error from the deterministic handler propagates normally — the system does not attempt further recovery.
 - What happens when `mode: agent` is set but no StepExecutor is configured or available? The system falls back to deterministic execution and logs a warning about the missing executor.
 - What happens when the agent produces a result in a different format than the deterministic handler would? At Collaborator level, the deterministic handler's validation catches the format mismatch. At Consultant level, schema verification catches it. At Approver level, the result is accepted as-is (operator has explicitly opted into full agent autonomy).
+- What happens when Collaborator-level validation is used on a side-effecting action (e.g., `git_commit`, `git_push`)? Re-executing the deterministic handler would double-execute the side effect (two commits, two pushes). The system MUST detect side-effecting actions (via the action's `requires` metadata or a curated set) and automatically fall back to Consultant-level verification instead of Collaborator-level re-execution for those actions, logging a warning about the downgrade.
 
 ## Requirements *(mandatory)*
 
@@ -106,21 +117,23 @@ The system emits structured log events for every dispatch decision: which mode a
 - **FR-002**: System MUST NOT alter dispatch behavior for `StepType.AGENT`, `StepType.GENERATE`, `StepType.VALIDATE`, or control-flow step types (`BRANCH`, `LOOP`, `CHECKPOINT`, `SUBWORKFLOW`). Mode-aware dispatch applies only to `StepType.PYTHON` steps.
 - **FR-003**: System MUST enforce autonomy level semantics when `mode == AGENT`:
   - Operator: warn and fall back to deterministic execution.
-  - Collaborator: agent proposes a result; the deterministic handler validates it before acceptance. On validation failure, the deterministic handler runs independently.
-  - Consultant: agent executes; the system verifies the result matches the expected output contract. Discrepancies are logged but the result is accepted.
+  - Collaborator: agent proposes a result; the deterministic handler is re-executed with the same resolved inputs and the outputs are compared structurally. If structurally equivalent, the agent result is accepted. On validation failure, the deterministic handler's result is used instead.
+  - Consultant: agent executes; the system verifies the result matches the expected output contract (schema or structural checks). Discrepancies are logged but the result is accepted.
   - Approver: agent executes with full autonomy; the system only intervenes on hard failures (unhandled exceptions, schema violations).
-- **FR-004**: System MUST provide an intent description for each existing Python step handler, co-located with the handler, describing what the step accomplishes in plain language.
+- **FR-004**: System MUST provide an intent description for each existing Python step handler, stored in a central intent registry dict (`intents.py`) alongside the action registry, describing what the step accomplishes in plain language.
 - **FR-005**: System MUST construct the agent prompt from the step's intent description, the step's resolved inputs, and any configured `prompt_suffix` or `prompt_file` content (per Spec 033).
-- **FR-006**: System MUST fall back to the deterministic Python handler when agent-mode execution fails due to exceptions, timeouts, or schema violations, provided a deterministic handler exists for that step.
+- **FR-006**: System MUST fall back to the deterministic Python handler when agent-mode execution fails due to exceptions, timeouts, or schema violations, provided a deterministic handler exists for that step. The fallback MUST reuse the already-resolved inputs (not re-resolve expressions) for consistency.
 - **FR-007**: System MUST emit structured log events (via structlog) for: mode selection (deterministic vs. agent), autonomy-level checks (validation, verification, acceptance), and fallback occurrences (agent-to-deterministic).
 - **FR-008**: System MUST preserve identical default behavior for all existing workflows — steps without explicit `mode` configuration default to `DETERMINISTIC` with `OPERATOR` autonomy, producing no behavioral change.
 - **FR-009**: System MUST NOT require modifications to existing YAML workflow files — mode and autonomy are supplied via `StepConfig` (per Spec 033), not changes to step definitions.
 - **FR-010**: System MUST integrate with the StepExecutor protocol defined in Spec 032 for agent-mode execution, not bypass it with direct agent instantiation.
+- **FR-011**: System MUST support a `--deterministic` CLI flag that forces all Python steps to execute in deterministic mode regardless of per-step `StepConfig.mode` settings, serving as a production safety valve.
+- **FR-012**: Agent-mode execution timeout MUST be governed by `StepConfig.timeout` (per Spec 033) as the single source of truth — no separate dispatch-level timeout is introduced.
 
 ### Key Entities
 
 - **Step Dispatcher**: The decision point in the workflow executor that examines a step's `StepConfig.mode` and routes execution to the deterministic handler or to a StepExecutor-based agent path.
-- **Intent Description**: A plain-language statement co-located with each Python step handler, describing what the step accomplishes. Serves as the agent's primary prompt when the step runs in agent mode.
+- **Intent Description**: A plain-language statement describing what a Python step accomplishes. Stored in a central registry dict (`intents.py`) mapping action names to intent strings, co-located with the action registry. Serves as the agent's primary prompt when the step runs in agent mode.
 - **Autonomy Gate**: The per-level logic that determines how an agent's result is validated, verified, or accepted based on the configured `AutonomyLevel`.
 
 ## Success Criteria *(mandatory)*
@@ -137,12 +150,14 @@ The system emits structured log events for every dispatch decision: which mode a
 ## Assumptions
 
 - **A-001**: Specs 032 (StepExecutor Protocol) and 033 (StepConfig) are implemented before this feature. This spec depends on `StepExecutor`, `StepConfig`, `StepMode`, and `AutonomyLevel` being available.
-- **A-002**: "Validation" at Collaborator level means invoking the deterministic handler to check whether the agent's proposed result is acceptable. The deterministic handler acts as a validator, not a separate validation step.
+- **A-002**: "Validation" at Collaborator level means re-executing the deterministic handler with the same resolved inputs and structurally comparing the outputs. The agent's result is accepted only if it is structurally equivalent to the deterministic handler's result; otherwise, the deterministic handler's result is used.
 - **A-003**: "Verification" at Consultant level means checking the agent's result against the step's output contract (schema or structural checks). It does not re-execute the step deterministically.
 - **A-004**: Intent descriptions are static, human-authored strings. They are not generated at runtime.
 - **A-005**: The prompt constructed for agent-mode execution includes resolved inputs (after expression evaluation), not raw `${{ }}` expressions.
 - **A-006**: Fallback from agent to deterministic is a one-shot attempt. If the deterministic handler also fails, the error propagates normally — there is no retry cascade between modes.
 - **A-007**: This feature does not introduce new step types. It adds an alternative execution path for existing `StepType.PYTHON` steps.
+- **A-008**: Fallback execution reuses the already-resolved inputs from the original dispatch — inputs are not re-resolved, avoiding state drift during agent execution.
+- **A-009**: The `--deterministic` CLI flag overrides all per-step `mode` settings at runtime, forcing deterministic execution globally. This is an operational safety mechanism, not a configuration layer.
 
 ## Dependencies
 
