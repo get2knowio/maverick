@@ -310,3 +310,49 @@ class TestConstants:
     def test_default_model(self) -> None:
         """Test DEFAULT_MODEL is set correctly."""
         assert DEFAULT_MODEL == "claude-sonnet-4-5-20250929"
+
+
+class TestBuildOptionsContract:
+    """Tests verifying GeneratorAgent._build_options() negative contracts (FR-005)."""
+
+    def test_build_options_matches_generator_contract(self) -> None:
+        """Test GeneratorAgent._build_options() matches generator contract.
+
+        Verifies: raw string prompt (not preset dict), single-shot, no tools (FR-005).
+        """
+        mock_options_class = MagicMock()
+
+        with patch(
+            "maverick.agents.generators.base.ClaudeAgentOptions", mock_options_class
+        ):
+            ConcreteGenerator(
+                name="test-generator",
+                system_prompt="You are a text generator.",
+            )
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        # system_prompt must be a raw string, not a preset dict
+        assert isinstance(call_kwargs["system_prompt"], str)
+        assert not isinstance(call_kwargs["system_prompt"], dict)
+        # max_turns must be 1 (single-shot)
+        assert call_kwargs["max_turns"] == 1
+        # allowed_tools must be empty (no tools for generators)
+        assert call_kwargs["allowed_tools"] == []
+
+    def test_build_options_does_not_include_setting_sources(self) -> None:
+        """Test GeneratorAgent does NOT include setting_sources in options.
+
+        Negative test for FR-005: generators do not load project/user config.
+        """
+        mock_options_class = MagicMock()
+
+        with patch(
+            "maverick.agents.generators.base.ClaudeAgentOptions", mock_options_class
+        ):
+            ConcreteGenerator(
+                name="test-generator",
+                system_prompt="You are a text generator.",
+            )
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert "setting_sources" not in call_kwargs

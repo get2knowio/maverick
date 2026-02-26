@@ -222,7 +222,7 @@ async def _filter_deleted_files(
     Returns:
         Filtered list of findings for existing files.
     """
-    from maverick.models.review_models import FixOutcome
+    from maverick.agents.contracts import FixOutcome
 
     remaining = []
     for finding in findings:
