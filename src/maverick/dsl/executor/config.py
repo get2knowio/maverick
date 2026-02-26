@@ -185,6 +185,14 @@ class StepConfig(BaseModel):
         return self
 
 
+_MODE_OVERRIDABLE: frozenset[StepType] = frozenset({StepType.PYTHON})
+"""Step types that accept an explicit mode override different from the inferred default.
+
+Currently only ``StepType.PYTHON`` supports ``mode: agent`` to enable
+mode-aware dispatch (Spec 034).
+"""
+
+
 def infer_step_mode(
     step_type: StepType,
     explicit_mode: StepMode | None,
@@ -198,7 +206,8 @@ def infer_step_mode(
     - branch, loop, checkpoint → StepMode.DETERMINISTIC
 
     When ``explicit_mode`` is provided, validates it is consistent with
-    the step type.
+    the step type. Step types in ``_MODE_OVERRIDABLE`` accept an explicit
+    mode that differs from the inferred default (e.g. PYTHON + AGENT).
 
     Args:
         step_type: The step's type discriminator.
@@ -208,7 +217,8 @@ def infer_step_mode(
         The resolved StepMode.
 
     Raises:
-        ValueError: If explicit_mode contradicts the step type.
+        ValueError: If explicit_mode contradicts the step type and the
+            step type is not in ``_MODE_OVERRIDABLE``.
     """
     _type_to_mode: dict[StepType, StepMode] = {
         StepType.AGENT: StepMode.AGENT,
@@ -227,6 +237,8 @@ def infer_step_mode(
         return inferred
 
     if explicit_mode != inferred:
+        if step_type in _MODE_OVERRIDABLE:
+            return explicit_mode
         raise ValueError(
             f"mode={explicit_mode.value!r} is incompatible with "
             f"step type={step_type.value!r} (expected {inferred.value!r})"
