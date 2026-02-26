@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from maverick.models.review_models import (
     Finding,
@@ -12,6 +13,7 @@ from maverick.models.review_models import (
     FindingTracker,
     FixAttempt,
     FixOutcome,
+    GroupedReviewResult,
     ReviewResult,
     TrackedFinding,
 )
@@ -548,3 +550,586 @@ class TestFixAttempt:
         assert attempt.timestamp == now
         assert attempt.outcome == "fixed"
         assert attempt.explanation == "Done"
+
+
+# =============================================================================
+# Pydantic-specific behavior tests for converted models
+# =============================================================================
+
+
+class TestGroupedReviewResultAlias:
+    """Verify ReviewResult is a backward-compatible alias."""
+
+    def test_review_result_is_grouped_review_result(self) -> None:
+        """ReviewResult should be the same class as GroupedReviewResult."""
+        assert ReviewResult is GroupedReviewResult
+
+    def test_isinstance_check(self) -> None:
+        """Instances created via ReviewResult should be GroupedReviewResult."""
+        result = ReviewResult(
+            groups=[
+                FindingGroup(
+                    description="G1",
+                    findings=[
+                        Finding(
+                            id="F001",
+                            file="a.py",
+                            line="1",
+                            issue="Issue",
+                            severity="major",
+                            category="clean_code",
+                        ),
+                    ],
+                ),
+            ]
+        )
+        assert isinstance(result, GroupedReviewResult)
+
+
+class TestFindingPydantic:
+    """Pydantic-specific behavior tests for Finding."""
+
+    def test_keyword_only_construction(self) -> None:
+        """Finding must be constructed with keyword arguments."""
+        finding = Finding(
+            id="F001",
+            file="src/foo.py",
+            line="42",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+        )
+        assert finding.id == "F001"
+        assert finding.file == "src/foo.py"
+        assert finding.line == "42"
+
+    def test_frozen_immutability(self) -> None:
+        """Finding should reject attribute assignment (frozen model)."""
+        finding = Finding(
+            id="F001",
+            file="src/foo.py",
+            line="42",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+        )
+        with pytest.raises(ValidationError):
+            finding.id = "F002"  # type: ignore[misc]
+
+    def test_frozen_immutability_optional_field(self) -> None:
+        """Frozen model should also reject assignment on optional fields."""
+        finding = Finding(
+            id="F001",
+            file="src/foo.py",
+            line="42",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+        )
+        with pytest.raises(ValidationError):
+            finding.fix_hint = "new hint"  # type: ignore[misc]
+
+    def test_model_dump_round_trip(self) -> None:
+        """model_dump/model_validate should round-trip correctly."""
+        original = Finding(
+            id="F001",
+            file="src/foo.py",
+            line="42",
+            issue="Test issue",
+            severity="major",
+            category="clean_code",
+            fix_hint="Fix it",
+        )
+
+        dumped = original.model_dump()
+        restored = Finding.model_validate(dumped)
+
+        assert restored == original
+        assert restored.id == "F001"
+        assert restored.fix_hint == "Fix it"
+
+    def test_model_dump_includes_none_fields(self) -> None:
+        """model_dump() includes None fields; to_dict() excludes them."""
+        finding = Finding(
+            id="F001",
+            file="a.py",
+            line="1",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+        )
+
+        full_dump = finding.model_dump()
+        to_dict_dump = finding.to_dict()
+
+        # model_dump includes fix_hint=None
+        assert "fix_hint" in full_dump
+        assert full_dump["fix_hint"] is None
+
+        # to_dict excludes fix_hint when None
+        assert "fix_hint" not in to_dict_dump
+
+    def test_to_dict_is_model_dump_exclude_none(self) -> None:
+        """to_dict() should be equivalent to model_dump(exclude_none=True)."""
+        finding = Finding(
+            id="F001",
+            file="src/foo.py",
+            line="42",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+            fix_hint="Hint",
+        )
+
+        assert finding.to_dict() == finding.model_dump(exclude_none=True)
+
+    def test_to_dict_is_model_dump_exclude_none_without_optional(self) -> None:
+        """to_dict() with None fields matches model_dump(exclude_none=True)."""
+        finding = Finding(
+            id="F001",
+            file="a.py",
+            line="1",
+            issue="Test",
+            severity="major",
+            category="clean_code",
+        )
+
+        assert finding.to_dict() == finding.model_dump(exclude_none=True)
+
+    def test_from_dict_is_model_validate(self) -> None:
+        """from_dict() should produce same result as model_validate (str line)."""
+        data = {
+            "id": "F001",
+            "file": "a.py",
+            "line": "42",
+            "issue": "Test",
+            "severity": "major",
+            "category": "clean_code",
+        }
+
+        from_dict_result = Finding.from_dict(data)
+        model_validate_result = Finding.model_validate(data)
+
+        assert from_dict_result == model_validate_result
+
+    def test_backward_compat_line_as_int(self) -> None:
+        """from_dict() should coerce line from int to str for checkpoint compat."""
+        data = {
+            "id": "F001",
+            "file": "a.py",
+            "line": 99,
+            "issue": "Test",
+            "severity": "major",
+            "category": "clean_code",
+        }
+
+        finding = Finding.from_dict(data)
+        assert finding.line == "99"
+        assert isinstance(finding.line, str)
+
+    def test_invalid_severity_rejected(self) -> None:
+        """Finding should reject invalid severity values via Literal validation."""
+        with pytest.raises(ValidationError):
+            Finding(
+                id="F001",
+                file="a.py",
+                line="1",
+                issue="Test",
+                severity="trivial",  # type: ignore[arg-type]
+                category="clean_code",
+            )
+
+    def test_missing_required_field_rejected(self) -> None:
+        """Finding should reject construction with missing required fields."""
+        with pytest.raises(ValidationError):
+            Finding(  # type: ignore[call-arg]
+                id="F001",
+                file="a.py",
+                # line is missing
+                issue="Test",
+                severity="major",
+                category="clean_code",
+            )
+
+
+class TestFindingGroupPydantic:
+    """Pydantic-specific behavior tests for FindingGroup."""
+
+    def test_keyword_only_construction(self) -> None:
+        """FindingGroup must be constructed with keyword arguments."""
+        group = FindingGroup(
+            description="Batch 1",
+            findings=[
+                Finding(
+                    id="F001",
+                    file="a.py",
+                    line="1",
+                    issue="Issue",
+                    severity="major",
+                    category="clean_code",
+                ),
+            ],
+        )
+        assert group.description == "Batch 1"
+        assert len(group.findings) == 1
+
+    def test_frozen_immutability(self) -> None:
+        """FindingGroup should reject attribute assignment (frozen model)."""
+        group = FindingGroup(
+            description="Batch 1",
+            findings=[],
+        )
+        with pytest.raises(ValidationError):
+            group.description = "Changed"  # type: ignore[misc]
+
+    def test_frozen_immutability_findings_field(self) -> None:
+        """FindingGroup should reject replacing the findings field."""
+        group = FindingGroup(
+            description="Batch 1",
+            findings=[],
+        )
+        with pytest.raises(ValidationError):
+            group.findings = [  # type: ignore[misc]
+                Finding(
+                    id="F001",
+                    file="a.py",
+                    line="1",
+                    issue="Issue",
+                    severity="major",
+                    category="clean_code",
+                ),
+            ]
+
+    def test_model_dump_round_trip(self) -> None:
+        """model_dump/model_validate should round-trip FindingGroup."""
+        original = FindingGroup(
+            description="Batch 1",
+            findings=[
+                Finding(
+                    id="F001",
+                    file="a.py",
+                    line="1",
+                    issue="Issue 1",
+                    severity="major",
+                    category="clean_code",
+                ),
+                Finding(
+                    id="F002",
+                    file="b.py",
+                    line="10",
+                    issue="Issue 2",
+                    severity="minor",
+                    category="type_hints",
+                    fix_hint="Add type hints",
+                ),
+            ],
+        )
+
+        dumped = original.model_dump()
+        restored = FindingGroup.model_validate(dumped)
+
+        assert restored == original
+        assert len(restored.findings) == 2
+        assert restored.findings[1].fix_hint == "Add type hints"
+
+    def test_to_dict_is_model_dump_exclude_none(self) -> None:
+        """to_dict() should be equivalent to model_dump(exclude_none=True)."""
+        group = FindingGroup(
+            description="Test",
+            findings=[
+                Finding(
+                    id="F001",
+                    file="a.py",
+                    line="1",
+                    issue="Issue",
+                    severity="major",
+                    category="clean_code",
+                ),
+            ],
+        )
+
+        assert group.to_dict() == group.model_dump(exclude_none=True)
+
+    def test_from_dict_is_model_validate(self) -> None:
+        """from_dict() should produce the same result as model_validate."""
+        data = {
+            "description": "Test group",
+            "findings": [
+                {
+                    "id": "F001",
+                    "file": "a.py",
+                    "line": "1",
+                    "issue": "Issue",
+                    "severity": "major",
+                    "category": "clean_code",
+                },
+            ],
+        }
+
+        from_dict_result = FindingGroup.from_dict(data)
+        model_validate_result = FindingGroup.model_validate(data)
+
+        assert from_dict_result == model_validate_result
+
+    def test_backward_compat_findings_with_int_line(self) -> None:
+        """from_dict() should handle findings with int line (checkpoint compat)."""
+        data = {
+            "description": "Legacy group",
+            "findings": [
+                {
+                    "id": "F001",
+                    "file": "a.py",
+                    "line": 42,
+                    "issue": "Issue",
+                    "severity": "major",
+                    "category": "clean_code",
+                },
+            ],
+        }
+
+        # FindingGroup.from_dict -> model_validate handles nested Finding
+        # construction. Pydantic coerces int to str for the line field.
+        group = FindingGroup.from_dict(data)
+        assert group.findings[0].line == "42"
+
+
+class TestGroupedReviewResultPydantic:
+    """Pydantic-specific behavior tests for GroupedReviewResult."""
+
+    def test_keyword_only_construction(self) -> None:
+        """GroupedReviewResult must be constructed with keyword arguments."""
+        result = GroupedReviewResult(
+            groups=[
+                FindingGroup(
+                    description="G1",
+                    findings=[
+                        Finding(
+                            id="F001",
+                            file="a.py",
+                            line="1",
+                            issue="Issue",
+                            severity="major",
+                            category="clean_code",
+                        ),
+                    ],
+                ),
+            ]
+        )
+        assert len(result.groups) == 1
+
+    def test_frozen_immutability(self) -> None:
+        """GroupedReviewResult should reject attribute assignment."""
+        result = GroupedReviewResult(groups=[])
+        with pytest.raises(ValidationError):
+            result.groups = []  # type: ignore[misc]
+
+    def test_model_dump_round_trip(self) -> None:
+        """model_dump/model_validate should round-trip GroupedReviewResult."""
+        original = GroupedReviewResult(
+            groups=[
+                FindingGroup(
+                    description="Group 1",
+                    findings=[
+                        Finding(
+                            id="F001",
+                            file="a.py",
+                            line="1",
+                            issue="Issue 1",
+                            severity="major",
+                            category="clean_code",
+                        ),
+                    ],
+                ),
+                FindingGroup(
+                    description="Group 2",
+                    findings=[
+                        Finding(
+                            id="F002",
+                            file="b.py",
+                            line="2",
+                            issue="Issue 2",
+                            severity="critical",
+                            category="security",
+                            fix_hint="Fix this now",
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        dumped = original.model_dump()
+        restored = GroupedReviewResult.model_validate(dumped)
+
+        assert restored == original
+        assert restored.total_count == 2
+        assert restored.groups[1].findings[0].fix_hint == "Fix this now"
+
+    def test_to_dict_is_model_dump_exclude_none(self) -> None:
+        """to_dict() should be equivalent to model_dump(exclude_none=True)."""
+        result = GroupedReviewResult(
+            groups=[
+                FindingGroup(
+                    description="G1",
+                    findings=[
+                        Finding(
+                            id="F001",
+                            file="a.py",
+                            line="1",
+                            issue="Issue",
+                            severity="major",
+                            category="clean_code",
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        assert result.to_dict() == result.model_dump(exclude_none=True)
+
+    def test_from_dict_is_model_validate(self) -> None:
+        """from_dict() should produce the same result as model_validate."""
+        data = {
+            "groups": [
+                {
+                    "description": "G1",
+                    "findings": [
+                        {
+                            "id": "F001",
+                            "file": "a.py",
+                            "line": "1",
+                            "issue": "Issue",
+                            "severity": "major",
+                            "category": "clean_code",
+                        },
+                    ],
+                },
+            ]
+        }
+
+        from_dict_result = GroupedReviewResult.from_dict(data)
+        model_validate_result = GroupedReviewResult.model_validate(data)
+
+        assert from_dict_result == model_validate_result
+
+    def test_backward_compat_checkpoint_dict(self) -> None:
+        """from_dict() should handle checkpoint-style dicts with nested int lines."""
+        checkpoint_data = {
+            "groups": [
+                {
+                    "description": "Batch 1",
+                    "findings": [
+                        {
+                            "id": "F001",
+                            "file": "src/main.py",
+                            "line": 10,
+                            "issue": "Missing type hints",
+                            "severity": "minor",
+                            "category": "type_hints",
+                        },
+                        {
+                            "id": "F002",
+                            "file": "src/utils.py",
+                            "line": 55,
+                            "issue": "Security concern",
+                            "severity": "critical",
+                            "category": "security",
+                            "fix_hint": "Use parameterized query",
+                        },
+                    ],
+                },
+            ]
+        }
+
+        result = GroupedReviewResult.from_dict(checkpoint_data)
+
+        assert result.total_count == 2
+        assert result.groups[0].findings[0].line == "10"
+        assert result.groups[0].findings[1].line == "55"
+        assert result.groups[0].findings[1].fix_hint == "Use parameterized query"
+
+    def test_empty_groups(self) -> None:
+        """GroupedReviewResult should work with empty groups list."""
+        result = GroupedReviewResult(groups=[])
+        assert result.total_count == 0
+        assert result.all_findings == []
+        assert result.to_dict() == {"groups": []}
+
+
+class TestFixOutcomePydantic:
+    """Pydantic-specific behavior tests for FixOutcome."""
+
+    def test_keyword_only_construction(self) -> None:
+        """FixOutcome must be constructed with keyword arguments."""
+        outcome = FixOutcome(
+            id="F001",
+            outcome="fixed",
+            explanation="Done",
+        )
+        assert outcome.id == "F001"
+        assert outcome.outcome == "fixed"
+        assert outcome.explanation == "Done"
+
+    def test_frozen_immutability(self) -> None:
+        """FixOutcome should reject attribute assignment (frozen model)."""
+        outcome = FixOutcome(
+            id="F001",
+            outcome="fixed",
+            explanation="Done",
+        )
+        with pytest.raises(ValidationError):
+            outcome.outcome = "blocked"  # type: ignore[misc]
+
+    def test_model_dump_round_trip(self) -> None:
+        """model_dump/model_validate should round-trip FixOutcome."""
+        original = FixOutcome(
+            id="F001",
+            outcome="blocked",
+            explanation="Cannot fix due to external dependency",
+        )
+
+        dumped = original.model_dump()
+        restored = FixOutcome.model_validate(dumped)
+
+        assert restored == original
+
+    def test_to_dict_equals_model_dump(self) -> None:
+        """FixOutcome.to_dict() should equal model_dump() (no optional fields)."""
+        outcome = FixOutcome(
+            id="F001",
+            outcome="deferred",
+            explanation="Needs more context",
+        )
+
+        # FixOutcome has no optional fields, so model_dump() == to_dict()
+        assert outcome.to_dict() == outcome.model_dump()
+
+    def test_from_dict_is_model_validate(self) -> None:
+        """from_dict() should produce the same result as model_validate."""
+        data = {
+            "id": "F001",
+            "outcome": "fixed",
+            "explanation": "Resolved",
+        }
+
+        from_dict_result = FixOutcome.from_dict(data)
+        model_validate_result = FixOutcome.model_validate(data)
+
+        assert from_dict_result == model_validate_result
+
+    def test_invalid_outcome_rejected(self) -> None:
+        """FixOutcome should reject invalid outcome values via Literal validation."""
+        with pytest.raises(ValidationError):
+            FixOutcome(
+                id="F001",
+                outcome="skipped",  # type: ignore[arg-type]
+                explanation="Invalid",
+            )
+
+    def test_missing_required_field_rejected(self) -> None:
+        """FixOutcome should reject construction with missing required fields."""
+        with pytest.raises(ValidationError):
+            FixOutcome(  # type: ignore[call-arg]
+                id="F001",
+                outcome="fixed",
+                # explanation is missing
+            )

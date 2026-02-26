@@ -53,7 +53,7 @@ class TestWorkspaceManagerProperties:
     def test_workspace_path(
         self, user_repo: Path, ws_root: Path, manager: WorkspaceManager
     ) -> None:
-        assert manager.workspace_path == ws_root / "my-project"
+        assert manager.workspace_path == ws_root.resolve() / "my-project"
 
     def test_exists_false_initially(self, manager: WorkspaceManager) -> None:
         assert manager.exists is False
@@ -82,12 +82,12 @@ class TestWorkspaceManagerCreate:
             info = await manager.create()
 
         assert info.workspace_path == str(manager.workspace_path)
-        assert info.user_repo_path == str(user_repo)
+        assert info.user_repo_path == str(user_repo.resolve())
         assert info.state == WorkspaceState.ACTIVE.value
         assert info.created_at != ""
 
         mock_client.git_clone.assert_called_once_with(
-            source=user_repo,
+            source=user_repo.resolve(),
             target=manager.workspace_path,
         )
 

@@ -91,6 +91,17 @@ class TestMaverickAgentInitialization:
 
         assert agent.instructions == prompt
 
+    def test_instructions_property_is_read_only(self) -> None:
+        """Test instructions property cannot be set (contract invariant #3)."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Original instructions",
+            allowed_tools=[],
+        )
+
+        with pytest.raises(AttributeError):
+            agent.instructions = "New instructions"  # type: ignore[misc]
+
     def test_allowed_tools_property_returns_copy(self) -> None:
         """Test allowed_tools property returns a copy, not reference."""
         original_tools = ["Read", "Write"]
@@ -415,6 +426,108 @@ class TestBuildOptions:
         call_args = mock_options_class.call_args
         assert call_args is not None
         assert call_args.kwargs["extra_args"]["temperature"] == "0.7"
+
+    def test_empty_instructions_uses_preset_alone(self) -> None:
+        """Test agent with empty instructions uses Claude Code preset alone (FR-006)."""
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="",
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert call_kwargs["system_prompt"]["type"] == "preset"
+        assert call_kwargs["system_prompt"]["preset"] == "claude_code"
+        assert call_kwargs["system_prompt"]["append"] == ""
+
+    def test_system_prompt_is_always_a_dict(self) -> None:
+        """Test system_prompt is always a dict with required keys.
+
+        Never a raw string — contract invariant #1.
+        """
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="You are a test agent.",
+            allowed_tools=["Read"],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert isinstance(call_kwargs["system_prompt"], dict)
+        assert "type" in call_kwargs["system_prompt"]
+        assert "preset" in call_kwargs["system_prompt"]
+        assert "append" in call_kwargs["system_prompt"]
+
+    def test_instructions_with_markdown_and_special_chars_preserved(self) -> None:
+        """Test instructions with markdown and special chars passed through unchanged.
+
+        Verifies the append field preserves the exact string without modification.
+        """
+        mock_options_class = MagicMock()
+
+        markdown_instructions = (
+            "**bold text**\n"
+            "# header\n"
+            "`code snippet`\n"
+            "line with newline\n"
+            "special chars: & < > \" '"
+        )
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions=markdown_instructions,
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert call_kwargs["system_prompt"]["append"] == markdown_instructions
+
+    def test_setting_sources_is_project_then_user_ordered_list(self) -> None:
+        """Test setting_sources is exactly ['project', 'user'] as a list in order.
+
+        FR-004: project first, then user; must be a list not a tuple or set.
+        """
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        call_kwargs = mock_options_class.call_args.kwargs
+        setting_sources = call_kwargs["setting_sources"]
+        assert isinstance(setting_sources, list), (
+            "setting_sources must be a list, not a tuple or set"
+        )
+        assert setting_sources == ["project", "user"]
 
 
 # =============================================================================
@@ -1074,3 +1187,236 @@ class TestExecuteMethod:
         assert isinstance(result.usage, AgentUsage)
         assert result.usage.input_tokens == 100
         assert result.usage.output_tokens == 200
+
+
+# =============================================================================
+# _extract_structured_output Tests
+# =============================================================================
+
+
+class TestExtractStructuredOutput:
+    """Tests for _extract_structured_output method."""
+
+    def _make_agent(self) -> ConcreteTestAgent:
+        """Create a ConcreteTestAgent for testing."""
+        return ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+        )
+
+    def test_returns_dict_from_result_message_with_structured_output(self) -> None:
+        """Test returns dict when ResultMessage has structured_output populated."""
+        agent = self._make_agent()
+
+        result_msg = MagicMock()
+        result_msg.__class__.__name__ = "ResultMessage"
+        result_msg.structured_output = {"status": "ok", "score": 42}
+
+        output = agent._extract_structured_output([result_msg])
+
+        assert output == {"status": "ok", "score": 42}
+
+    def test_returns_none_when_structured_output_is_none(self) -> None:
+        """Test returns None when ResultMessage.structured_output is None."""
+        agent = self._make_agent()
+
+        result_msg = MagicMock()
+        result_msg.__class__.__name__ = "ResultMessage"
+        result_msg.structured_output = None
+
+        output = agent._extract_structured_output([result_msg])
+
+        assert output is None
+
+    def test_returns_none_for_non_result_messages(self) -> None:
+        """Test returns None when message list has only non-ResultMessage types."""
+        agent = self._make_agent()
+
+        text_msg = MagicMock()
+        text_msg.__class__.__name__ = "TextMessage"
+        text_msg.structured_output = {"should": "be ignored"}
+
+        assistant_msg = MagicMock()
+        assistant_msg.__class__.__name__ = "AssistantMessage"
+
+        output = agent._extract_structured_output([text_msg, assistant_msg])
+
+        assert output is None
+
+    def test_returns_none_for_empty_message_list(self) -> None:
+        """Test returns None for an empty message list."""
+        agent = self._make_agent()
+
+        output = agent._extract_structured_output([])
+
+        assert output is None
+
+    def test_returns_structured_output_from_last_result_message(self) -> None:
+        """Test returns structured_output from the last ResultMessage in the list."""
+        agent = self._make_agent()
+
+        text_msg = MagicMock()
+        text_msg.__class__.__name__ = "TextMessage"
+
+        assistant_msg = MagicMock()
+        assistant_msg.__class__.__name__ = "AssistantMessage"
+
+        result_msg = MagicMock()
+        result_msg.__class__.__name__ = "ResultMessage"
+        result_msg.structured_output = {"findings": ["a", "b"], "passed": True}
+
+        output = agent._extract_structured_output([text_msg, assistant_msg, result_msg])
+
+        assert output == {"findings": ["a", "b"], "passed": True}
+
+    def test_prefers_last_result_message_when_multiple_exist(self) -> None:
+        """Test picks the last ResultMessage when multiple are present."""
+        agent = self._make_agent()
+
+        first_result = MagicMock()
+        first_result.__class__.__name__ = "ResultMessage"
+        first_result.structured_output = {"version": 1}
+
+        second_result = MagicMock()
+        second_result.__class__.__name__ = "ResultMessage"
+        second_result.structured_output = {"version": 2}
+
+        output = agent._extract_structured_output([first_result, second_result])
+
+        # reversed() iteration means the last message is checked first
+        assert output == {"version": 2}
+
+    def test_skips_result_message_without_structured_output_attr(self) -> None:
+        """Test handles ResultMessage that has no structured_output attribute at all."""
+        agent = self._make_agent()
+
+        result_msg = MagicMock(spec=[])  # No attributes
+        result_msg.__class__ = type("ResultMessage", (), {"__name__": "ResultMessage"})
+
+        output = agent._extract_structured_output([result_msg])
+
+        # getattr(msg, "structured_output", None) returns None for missing attr
+        assert output is None
+
+
+# =============================================================================
+# output_model Parameter Wiring Tests
+# =============================================================================
+
+
+class TestOutputModelWiring:
+    """Tests for output_model parameter and _output_format construction."""
+
+    def test_output_format_is_none_when_output_model_is_none(self) -> None:
+        """Test _output_format is None when output_model is not provided."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+            output_model=None,
+        )
+
+        assert agent._output_format is None
+
+    def test_output_format_is_none_by_default(self) -> None:
+        """Test _output_format is None when output_model is omitted entirely."""
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+        )
+
+        assert agent._output_format is None
+
+    def test_output_format_has_correct_structure_with_model(self) -> None:
+        """_output_format has json_schema type when output_model is set."""
+        from pydantic import BaseModel
+
+        class SomeModel(BaseModel):
+            status: str
+            score: int
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+            output_model=SomeModel,
+        )
+
+        assert agent._output_format is not None
+        assert agent._output_format["type"] == "json_schema"
+        assert agent._output_format["schema"] == SomeModel.model_json_schema()
+
+        # Verify the schema contains expected keys from the model
+        schema = agent._output_format["schema"]
+        assert "properties" in schema
+        assert "status" in schema["properties"]
+        assert "score" in schema["properties"]
+
+    def test_build_options_includes_output_format_when_set(self) -> None:
+        """Test _build_options() passes output_format to ClaudeAgentOptions when set."""
+        from pydantic import BaseModel
+
+        class ReviewOutput(BaseModel):
+            passed: bool
+            comments: list[str]
+
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+            output_model=ReviewOutput,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        mock_options_class.assert_called_once()
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert "output_format" in call_kwargs
+        assert call_kwargs["output_format"]["type"] == "json_schema"
+        expected_schema = ReviewOutput.model_json_schema()
+        assert call_kwargs["output_format"]["schema"] == expected_schema
+
+    def test_build_options_omits_output_format_when_none(self) -> None:
+        """_build_options() omits output_format when None."""
+        mock_options_class = MagicMock()
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+            output_model=None,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"claude_agent_sdk": MagicMock(ClaudeAgentOptions=mock_options_class)},
+        ):
+            agent._build_options()
+
+        mock_options_class.assert_called_once()
+        call_kwargs = mock_options_class.call_args.kwargs
+        assert "output_format" not in call_kwargs
+
+    def test_output_model_stored_on_agent(self) -> None:
+        """Test output_model is stored as _output_model on the agent instance."""
+        from pydantic import BaseModel
+
+        class MyModel(BaseModel):
+            value: str
+
+        agent = ConcreteTestAgent(
+            name="test-agent",
+            instructions="Test prompt",
+            allowed_tools=[],
+            output_model=MyModel,
+        )
+
+        assert agent._output_model is MyModel

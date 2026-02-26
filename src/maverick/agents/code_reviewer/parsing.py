@@ -2,7 +2,7 @@
 
 This module contains functions for parsing and normalizing Claude's response:
 - JSON extraction from markdown-wrapped responses
-- Finding validation and severity normalization
+- Finding validation and severity normalization via validate_output
 - Response structure parsing
 """
 
@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
+from pydantic import BaseModel, model_validator
+
+from maverick.agents.contracts import validate_output
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
@@ -20,8 +23,74 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Internal wrapper model for validate_output integration
+# ---------------------------------------------------------------------------
+
+
+class _FindingsWrapper(BaseModel):
+    """Internal wrapper that validates a findings array via validate_output.
+
+    Uses a model_validator(mode='before') to normalize invalid severity values
+    to SUGGESTION before Pydantic field validation runs. This preserves the
+    existing T029 behavior (graceful severity defaulting) while using the
+    contracts module for JSON extraction.
+    """
+
+    # list[Any] is intentional (not list[ReviewFinding]): enables per-finding
+    # graceful degradation — one invalid finding won't reject the entire
+    # response.  Individual findings are validated separately in parse_findings().
+    findings: list[Any] = []
+
+    # Populated once at first use to avoid circular import at module level
+    _valid_severities: ClassVar[set[str] | None] = None
+    _default_severity: ClassVar[str | None] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_severities(cls, data: Any) -> Any:
+        """Normalize invalid severity values before field validation (T029)."""
+        if not isinstance(data, dict):
+            return data
+
+        # Lazy-load severity constants to avoid circular import
+        if cls._valid_severities is None:
+            from maverick.models.review import ReviewSeverity
+
+            cls._valid_severities = {s.value for s in ReviewSeverity}
+            cls._default_severity = ReviewSeverity.SUGGESTION.value
+
+        findings_data = data.get("findings")
+        if not isinstance(findings_data, list):
+            return data
+
+        for idx, finding in enumerate(findings_data):
+            if not isinstance(finding, dict):
+                continue
+            severity_value = finding.get("severity")
+            if (
+                severity_value is not None
+                and severity_value not in cls._valid_severities
+            ):
+                logger.warning(
+                    "invalid_severity_defaulting",
+                    severity_value=severity_value,
+                    index=idx,
+                    default=cls._default_severity,
+                )
+                finding["severity"] = cls._default_severity
+
+        return data
+
+
 def extract_json(text: str) -> str | None:
     """Extract JSON from text that may be wrapped in markdown code blocks.
+
+    Retained for backward compatibility. New code should prefer
+    ``validate_output()`` from ``maverick.agents.contracts``.
+
+    .. deprecated::
+        Use ``validate_output()`` from ``maverick.agents.contracts`` instead.
 
     Handles formats like:
     - Plain JSON
@@ -34,6 +103,15 @@ def extract_json(text: str) -> str | None:
     Returns:
         Extracted JSON string, or None if no JSON found.
     """
+    import warnings
+
+    warnings.warn(
+        "extract_json() is deprecated. "
+        "Use validate_output() from maverick.agents.contracts instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     # Try to extract from markdown code block first
     # Pattern: ```json ... ``` or ``` ... ```
     code_block_pattern = r"```(?:json)?\s*\n(.*?)\n```"
@@ -67,10 +145,13 @@ def extract_json(text: str) -> str | None:
 def parse_findings(response: str) -> list[ReviewFinding]:
     """Parse structured findings from Claude response (FR-011, FR-016).
 
-    Extracts ReviewFinding objects from the JSON response. Handles
-    malformed responses gracefully by logging errors and returning
-    partial results. Validates severity levels and defaults to SUGGESTION
-    for invalid severities (T029).
+    Uses ``validate_output()`` from ``maverick.agents.contracts`` to extract
+    JSON from markdown code blocks and validate against a ``_FindingsWrapper``
+    model. The wrapper normalizes invalid severity values to SUGGESTION before
+    Pydantic validation (T029).
+
+    Individual findings that fail Pydantic validation are logged and skipped
+    (graceful degradation).
 
     Args:
         response: Raw text response from Claude (expected to contain JSON).
@@ -81,58 +162,51 @@ def parse_findings(response: str) -> list[ReviewFinding]:
     Raises:
         No exceptions - gracefully degrades to empty list on errors.
     """
-    # Import here to avoid circular dependency
-    from maverick.models.review import ReviewFinding, ReviewSeverity
+    from maverick.models.review import ReviewFinding
 
-    # Extract JSON from response (may be wrapped in markdown code blocks)
-    json_str = extract_json(response)
+    # Use validate_output with strict=False for graceful fallback
+    wrapper = validate_output(response, _FindingsWrapper, strict=False)
 
-    if not json_str:
-        logger.warning("No JSON found in response, returning empty findings list")
+    if wrapper is None:
+        logger.warning(
+            "validate_output_returned_none",
+            context="findings_extraction",
+        )
         return []
 
-    # Parse JSON
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON: {e}")
-        return []
-
-    # Extract findings array from the response
-    findings_data = data.get("findings", [])
-    if not isinstance(findings_data, list):
-        logger.warning("'findings' field is not a list, returning empty")
-        return []
-
-    # Parse each finding with Pydantic validation
+    # wrapper.findings contains raw dicts (Any) after severity normalization.
+    # Validate each individually so one bad finding doesn't discard the rest.
     findings: list[ReviewFinding] = []
-    for idx, finding_dict in enumerate(findings_data):
+    for idx, finding_data in enumerate(wrapper.findings):
         try:
-            # Explicit severity validation before Pydantic validation (T029)
-            if "severity" in finding_dict:
-                severity_value = finding_dict["severity"]
-                valid_severities = {s.value for s in ReviewSeverity}
-
-                if severity_value not in valid_severities:
-                    logger.warning(
-                        f"Invalid severity '{severity_value}' at index {idx}, "
-                        f"using SUGGESTION as default"
-                    )
-                    finding_dict["severity"] = ReviewSeverity.SUGGESTION.value
-
-            finding = ReviewFinding.model_validate(finding_dict)
+            if isinstance(finding_data, dict):
+                finding = ReviewFinding.model_validate(finding_data)
+            elif isinstance(finding_data, ReviewFinding):
+                finding = finding_data
+            else:
+                logger.warning(
+                    "unexpected_finding_type",
+                    index=idx,
+                    finding_type=type(finding_data).__name__,
+                )
+                continue
 
             # T035: Log if finding has empty or very short suggestion
             if not finding.suggestion or len(finding.suggestion.strip()) < 10:
                 logger.debug(
-                    f"Finding at index {idx} has empty or insufficient suggestion "
-                    f"(file: {finding.file}, line: {finding.line})"
+                    "finding_insufficient_suggestion",
+                    index=idx,
+                    file=finding.file,
+                    line=finding.line,
                 )
 
             findings.append(finding)
         except Exception as e:
             logger.warning(
-                f"Failed to validate finding at index {idx}: {e}. Data: {finding_dict}"
+                "finding_validation_failed",
+                index=idx,
+                error=str(e),
+                data=finding_data,
             )
             # Continue processing remaining findings (graceful degradation)
             continue
@@ -143,8 +217,9 @@ def parse_findings(response: str) -> list[ReviewFinding]:
     )
     if findings_without_suggestions > 0:
         logger.info(
-            f"Review completed with {findings_without_suggestions} finding(s) "
-            f"lacking detailed suggestions out of {len(findings)} total"
+            "findings_lacking_suggestions",
+            without_suggestions=findings_without_suggestions,
+            total=len(findings),
         )
 
     return findings

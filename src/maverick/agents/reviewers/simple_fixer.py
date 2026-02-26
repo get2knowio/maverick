@@ -12,7 +12,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from maverick.agents.base import MaverickAgent
+from maverick.agents.contracts import validate_output
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
 from maverick.logging import get_logger
 from maverick.models.review_models import (
@@ -22,6 +25,13 @@ from maverick.models.review_models import (
 )
 
 logger = get_logger(__name__)
+
+
+class _FixOutcomesWrapper(BaseModel):
+    """Wrapper for validating fix outcomes JSON output."""
+
+    outcomes: list[FixOutcome]
+
 
 # ruff: noqa: E501
 SIMPLE_FIXER_PROMPT = """\
@@ -172,6 +182,10 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         # Add Task tool for spawning subagents
         tools = list(ISSUE_FIXER_TOOLS) + ["Task"]
 
+        # output_model is intentionally NOT set here: the agent uses a wrapper
+        # model (_FixOutcomesWrapper) that doesn't match the actual return type
+        # (list[FixOutcome]), and the validate_output fallback in _parse_outcomes
+        # handles extraction and per-item graceful degradation.
         super().__init__(
             name="simple-fixer",
             instructions=SIMPLE_FIXER_PROMPT,
@@ -313,7 +327,12 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         text: str,
         findings: list[Finding],
     ) -> list[FixOutcome]:
-        """Parse JSON outcomes from response.
+        """Parse JSON outcomes from response using validate_output.
+
+        Uses the centralized ``validate_output`` pipeline to extract and
+        validate JSON from the agent's markdown output.  Individual items
+        that fail Pydantic validation are gracefully degraded to deferred
+        outcomes rather than dropping the entire response.
 
         Args:
             text: Full response text.
@@ -322,22 +341,23 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         Returns:
             List of parsed FixOutcome objects.
         """
-        # Find JSON block
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+        # Try structured validation first (handles ```json blocks)
+        wrapper = validate_output(text, _FixOutcomesWrapper, strict=False)
+        if wrapper is not None:
+            return list(wrapper.outcomes)
+
+        # Fallback for per-item graceful degradation — when validate_output
+        # rejects the wrapper (e.g., individual FixOutcome has invalid outcome
+        # literal), extract and validate items individually, defaulting invalid
+        # ones to 'deferred'.
+
+        # Try code-block extraction
+        json_match = re.search(r"```(?:json)?\s*\n(.*?)\n\s*```", text, re.DOTALL)
         if json_match:
-            json_str = json_match.group(1)
+            json_str = json_match.group(1).strip()
         else:
-            # Try raw JSON
-            json_match = re.search(
-                r'(\{[^{}]*"outcomes"[^{}]*\[[\s\S]*?\][^{}]*\})',
-                text,
-                re.DOTALL,
-            )
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                logger.warning("no_json_found_in_fixer_output")
-                return []
+            logger.warning("no_json_found_in_fixer_output")
+            return []
 
         try:
             data = json.loads(json_str)
@@ -345,36 +365,33 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
             logger.error("json_parse_error", error=str(e))
             return []
 
-        outcomes_data = data.get("outcomes", [])
-        if not isinstance(outcomes_data, list):
+        outcomes_raw = data.get("outcomes", [])
+        if not isinstance(outcomes_raw, list):
             logger.error("outcomes_not_list")
             return []
 
-        outcomes = []
-        for item in outcomes_data:
+        outcomes: list[FixOutcome] = []
+        for item in outcomes_raw:
             if not isinstance(item, dict):
                 continue
-
-            finding_id = item.get("id", "")
-            outcome = item.get("outcome", "deferred")
-            explanation = item.get("explanation", "")
-
-            # Validate outcome value
-            if outcome not in ("fixed", "blocked", "deferred"):
+            try:
+                outcomes.append(FixOutcome.model_validate(item))
+            except ValidationError:
+                # Gracefully degrade: keep the id/explanation but force deferred
+                finding_id = item.get("id", "unknown")
+                explanation = item.get("explanation", "")
                 logger.warning(
-                    "invalid_outcome_value",
+                    "invalid_fix_outcome_item",
                     finding_id=finding_id,
-                    outcome=outcome,
+                    raw_outcome=item.get("outcome"),
                 )
-                outcome = "deferred"
-
-            outcomes.append(
-                FixOutcome(
-                    id=finding_id,
-                    outcome=outcome,
-                    explanation=explanation,
+                outcomes.append(
+                    FixOutcome(
+                        id=str(finding_id),
+                        outcome="deferred",
+                        explanation=explanation or "Invalid outcome from agent",
+                    )
                 )
-            )
 
         return outcomes
 
