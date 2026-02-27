@@ -11,8 +11,8 @@ from click.testing import CliRunner
 
 from maverick.main import cli
 
-# Patch target for the workflow execution
-_PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit.execute_workflow_run"
+# Patch target for the Python workflow execution
+_PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit.execute_python_workflow"
 
 
 class TestRefuelGroupRegistered:
@@ -70,7 +70,7 @@ class TestRefuelSpeckitCommand:
         assert result.exit_code != 0
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_delegates_to_workflow_run(
+    def test_delegates_to_python_workflow(
         self,
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
@@ -87,9 +87,13 @@ class TestRefuelSpeckitCommand:
         )
 
         mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        # args[0] = ctx, args[1] = workflow name
-        assert args[1] == "refuel-speckit"
+        # First positional arg is the click context
+        call_args = mock_execute.call_args
+        # Second positional arg is PythonWorkflowRunConfig
+        run_config = call_args[0][1]
+        from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
+
+        assert run_config.workflow_class is RefuelSpeckitWorkflow
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_passes_dry_run_as_input(
@@ -109,12 +113,8 @@ class TestRefuelSpeckitCommand:
         )
 
         mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        # args[2] = inputs tuple (workflow-level dry_run input)
-        inputs_tuple = args[2]
-        assert any("dry_run=true" in i for i in inputs_tuple)
-        # args[4] = CLI-level dry_run flag (skips preflight/executor)
-        assert args[4] is True
+        run_config = mock_execute.call_args[0][1]
+        assert run_config.inputs.get("dry_run") is True
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_cli_dry_run_is_false_by_default(
@@ -134,9 +134,8 @@ class TestRefuelSpeckitCommand:
         )
 
         mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        # args[4] = CLI-level dry_run flag
-        assert args[4] is False
+        run_config = mock_execute.call_args[0][1]
+        assert run_config.inputs.get("dry_run") is False
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_passes_spec_as_input(
@@ -156,28 +155,26 @@ class TestRefuelSpeckitCommand:
         )
 
         mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        inputs_tuple = args[2]
-        assert any("spec=001-test" in i for i in inputs_tuple)
+        run_config = mock_execute.call_args[0][1]
+        assert run_config.inputs.get("spec") == "001-test"
 
-    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_passes_list_steps_flag(
+    def test_list_steps_flag_exits_without_executing(
         self,
-        mock_execute: AsyncMock,
         cli_runner: CliRunner,
         temp_dir: Path,
         clean_env: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """--list-steps should print steps and exit without running the workflow."""
         os.chdir(temp_dir)
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
-        cli_runner.invoke(
+        result = cli_runner.invoke(
             cli,
             ["refuel", "speckit", "001-test", "--list-steps"],
         )
 
-        mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        # args[7] = list_steps
-        assert args[7] is True
+        # Should exit cleanly (SystemExit(0))
+        assert result.exit_code == 0
+        # Should show at least one step name
+        assert "parse_spec" in result.output or "checkout" in result.output

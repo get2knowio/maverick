@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Create Python-native workflow definitions that replace the YAML DSL for Maverick's opinionated workflows, while preserving the YAML DSL as a supported execution path."
 
+## Clarifications
+
+### Session 2026-02-26
+
+- Q: Should `execute()` return `AsyncIterator[ProgressEvent]` or `WorkflowResult`? → A: AsyncGenerator yielding events; final `WorkflowCompleted` event contains `WorkflowResult`
+- Q: What is the rollback scope for Python workflows? → A: Workspace-level only (teardown workspace on failure); bead-level retry handles step failures
+- Q: At what granularity should Python workflows persist checkpoints? → A: Per-bead — checkpoint after each bead completes successfully
+- Q: Should Python workflows use ComponentRegistry exclusively or allow direct action imports? → A: Registry for runtime dispatch + direct imports for type safety and IDE navigation
+- Q: How should Python workflows invoke other Python workflows? → A: Direct instantiation — parent creates child workflow and iterates its `execute()` generator
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Opinionated Workflows Defined in Python (Priority: P1)
@@ -13,11 +23,11 @@ A Maverick developer defines the `fly-beads` workflow as a Python class extendin
 
 **Why this priority**: This is the core value proposition. Python workflows unlock IDE navigation, refactoring support, type checking, and direct unit testing for the workflows that Maverick ships as its product. Without this, all workflow logic remains encoded in YAML strings with no compile-time safety.
 
-**Independent Test**: Can be fully tested by instantiating a `PythonWorkflow` subclass with a mock `MaverickConfig`, calling `execute()` with test inputs, and asserting the returned `WorkflowResult` contains the expected step results and final output.
+**Independent Test**: Can be fully tested by instantiating a `PythonWorkflow` subclass with a mock `MaverickConfig`, calling `execute()` with test inputs, collecting all yielded `ProgressEvent`s, and asserting the final `WorkflowCompleted` event contains the expected `WorkflowResult` with step results and final output.
 
 **Acceptance Scenarios**:
 
-1. **Given** a `PythonWorkflow` subclass with an `execute()` method, **When** the workflow is instantiated with a `MaverickConfig` and `execute()` is called with valid inputs, **Then** it returns a `WorkflowResult` with success status, step results, and final output.
+1. **Given** a `PythonWorkflow` subclass with an `execute()` method, **When** the workflow is instantiated with a `MaverickConfig` and `execute()` is called with valid inputs, **Then** it yields `ProgressEvent`s during execution and the final `WorkflowCompleted` event contains a `WorkflowResult` with success status, step results, and final output.
 2. **Given** a `PythonWorkflow` subclass, **When** a developer navigates to a step call within `execute()`, **Then** the IDE resolves the action's type signature, parameters, and docstring — providing the same navigation experience as any other Python code.
 3. **Given** a `PythonWorkflow` subclass, **When** a developer writes a unit test, **Then** they can mock individual action calls and assert workflow behavior without any YAML fixtures or registry bootstrapping.
 
@@ -93,13 +103,14 @@ The CLI commands (`maverick fly`, `maverick refuel speckit`) instantiate and exe
 - What happens when `resolve_step_config()` is called for a step name not defined in `maverick.yaml`? It returns the built-in defaults — no error, since project-level step config is optional.
 - What happens when a Python workflow and a YAML workflow have the same name? Python workflows take precedence for opinionated (built-in) workflows. User-authored YAML workflows in `.maverick/workflows/` are a separate namespace and are not affected.
 - What happens when a Python workflow needs to invoke a sub-workflow defined in YAML? The Python workflow can use a helper method to load and execute a YAML workflow via `WorkflowFileExecutor`, maintaining interoperability.
-- What happens when a Python workflow's `execute()` is cancelled (e.g., Ctrl+C)? Cancellation propagates as `asyncio.CancelledError`, and any registered rollback actions execute before the workflow terminates.
+- What happens when a Python workflow's `execute()` is cancelled (e.g., Ctrl+C)? Cancellation propagates as `asyncio.CancelledError`, and any registered rollback actions (workspace teardown) execute before the workflow terminates.
+- What happens when a Python workflow needs to invoke another Python workflow? The parent workflow creates a child workflow instance directly and iterates its `execute()` generator, forwarding yielded events to its own caller. No registry lookup is needed for Python-to-Python composition.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: System MUST provide a `PythonWorkflow` abstract base class with an `async execute(inputs: dict[str, Any]) -> AsyncIterator[ProgressEvent]` method that subclasses implement to define workflow logic.
+- **FR-001**: System MUST provide a `PythonWorkflow` abstract base class with an `async execute(inputs: dict[str, Any]) -> AsyncGenerator[ProgressEvent, None]` method that subclasses implement to define workflow logic. The generator yields `ProgressEvent`s during execution; the final yielded event MUST be `WorkflowCompleted`. The aggregated `WorkflowResult` MUST be stored on the workflow instance as `self.result` and accessible after the generator completes.
 - **FR-002**: `PythonWorkflow` MUST accept a `MaverickConfig` at construction time and use it for configuration resolution throughout execution.
 - **FR-003**: `PythonWorkflow` MUST provide a `resolve_step_config(step_name: str) -> StepConfig` method that merges built-in defaults with project-level overrides from `MaverickConfig.steps`.
 - **FR-004**: `PythonWorkflow` MUST provide helper methods for emitting progress events: `emit_step_started(name)`, `emit_step_completed(name, result)`, `emit_step_failed(name, error)`, `emit_workflow_completed(result)`.
@@ -109,8 +120,8 @@ The CLI commands (`maverick fly`, `maverick refuel speckit`) instantiate and exe
 - **FR-008**: CLI commands (`maverick fly`, `maverick refuel speckit`) MUST instantiate and execute the corresponding Python workflow class directly.
 - **FR-009**: Existing YAML workflows (user-authored and built-in discovery paths) MUST continue to function without modification via `WorkflowFileExecutor`.
 - **FR-010**: `PythonWorkflow` subclasses MUST be directly testable with standard pytest patterns — no YAML parsing, expression evaluation, or workflow discovery infrastructure required.
-- **FR-011**: `PythonWorkflow` MUST support rollback registration, allowing steps to register compensating actions that execute on workflow failure or cancellation.
-- **FR-012**: `PythonWorkflow` MUST support checkpointing, allowing workflows to persist state and resume from the last successful step after a failure.
+- **FR-011**: `PythonWorkflow` MUST support rollback registration scoped to workspace-level operations (e.g., workspace teardown on failure or cancellation). Rollback actions are simple async callables (`Callable[[], Awaitable[None]]`) — they do not receive `WorkflowContext` since Python workflows have no DSL context. Individual step failures are not rolled back — the bead-driven model handles retry at bead granularity.
+- **FR-012**: `PythonWorkflow` MUST support checkpointing at per-bead granularity, persisting state via `CheckpointStore` after each bead completes successfully. On resume, the workflow skips already-completed beads and continues from the next pending bead.
 - **FR-013**: Progress events emitted by Python workflows MUST be compatible with the existing `ProgressEvent` types defined in `maverick.dsl.events`, ensuring the CLI renders them identically.
 
 ### Key Entities
@@ -135,7 +146,7 @@ The CLI commands (`maverick fly`, `maverick refuel speckit`) instantiate and exe
 ## Assumptions
 
 - **A-001**: Specs 032 (StepExecutor Protocol), 033 (StepConfig), and 034 (Mode-Aware Dispatch) are implemented before this feature. Python workflows use `StepConfig` for configuration resolution and may use `StepExecutor` for agent-mode step dispatch.
-- **A-002**: The `ComponentRegistry` (actions, agents, generators, context builders) remains the canonical way to access registered components. Python workflows receive the registry at construction time rather than importing actions directly, preserving testability via mock registries.
+- **A-002**: The `ComponentRegistry` (actions, agents, generators, context builders) remains the canonical runtime dispatch mechanism. Python workflows receive the registry at construction time for testability (mock registries in tests). Additionally, action modules may be imported directly for type safety and IDE navigation (autocompletion, go-to-definition), but runtime dispatch goes through the registry.
 - **A-003**: The built-in YAML workflow files (`fly-beads.yaml`, `refuel-speckit.yaml`) will be retained in the repository for reference and for users who have extended them, but they will no longer be the primary execution path for the CLI commands.
 - **A-004**: Python workflows emit the same `ProgressEvent` types as YAML workflows. No new event types are required — the existing event vocabulary is sufficient.
 - **A-005**: Rollback and checkpointing in Python workflows use the same mechanisms as YAML workflows (rollback registration via context, checkpoint persistence via `CheckpointStore`), adapted for direct Python invocation.

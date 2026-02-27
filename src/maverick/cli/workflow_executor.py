@@ -2,10 +2,16 @@
 
 Contains ``execute_workflow_run`` — the core execution helper used by
 ``maverick fly`` and ``maverick refuel speckit`` commands.
+
+Also contains ``render_workflow_events`` — a shared event-rendering loop
+used by both YAML and Python workflow execution paths.
 """
 
 from __future__ import annotations
 
+import importlib
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -20,9 +26,17 @@ from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
 from maverick.dsl.serialization.parser import parse_workflow
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from maverick.dsl.discovery import DiscoveryResult
+    from maverick.dsl.events import ProgressEvent
+    from maverick.session_journal import SessionJournal
+    from maverick.workflows.base import PythonWorkflow
 
 
 def format_workflow_not_found_error(
@@ -55,6 +69,387 @@ def format_workflow_not_found_error(
     )
     err_console.print(error_msg)
     raise SystemExit(ExitCode.FAILURE)
+
+
+async def render_workflow_events(
+    events: AsyncIterator[ProgressEvent],
+    console_obj: Any,
+    session_journal: SessionJournal | None = None,
+    workflow_name: str | None = None,
+    total_steps: int | None = None,
+) -> None:
+    """Render workflow progress events to the console.
+
+    Shared between YAML and Python workflow execution paths. Handles
+    ValidationStarted/Completed/Failed, PreflightStarted/CheckPassed/
+    CheckFailed/Completed, WorkflowStarted, StepStarted, StepCompleted,
+    AgentStreamChunk, WorkflowCompleted, and StepOutput events.
+
+    Args:
+        events: Async iterator of ProgressEvent instances (accepts both
+            AsyncGenerator and AsyncIterator).
+        console_obj: Rich Console to render to.
+        session_journal: Optional SessionJournal for logging events.
+        workflow_name: Display name for the workflow (for header display).
+        total_steps: Total step count for progress numbering. If None,
+            step numbers are not shown.
+    """
+    from maverick.dsl.events import (
+        AgentStreamChunk,
+        PreflightCheckFailed,
+        PreflightCheckPassed,
+        PreflightCompleted,
+        PreflightStarted,
+        StepCompleted,
+        StepOutput,
+        StepStarted,
+        ValidationCompleted,
+        ValidationFailed,
+        ValidationStarted,
+        WorkflowCompleted,
+        WorkflowStarted,
+    )
+
+    step_index = 0
+    workflow_depth = 0  # Track nesting: 1 = main workflow, 2+ = subworkflows
+    _total_steps = total_steps if total_steps is not None else 0
+
+    async for event in events:
+        # Record event to session journal if active
+        if session_journal is not None:
+            await session_journal.record(event)
+
+        if isinstance(event, ValidationStarted):
+            console_obj.print("[cyan]Validating workflow...[/]", end="")
+
+        elif isinstance(event, ValidationCompleted):
+            console_obj.print(" [bold green]\u2713[/]")
+            if event.warnings_count > 0:
+                console_obj.print(f"  [yellow]({event.warnings_count} warning(s))[/]")
+            console_obj.print()
+
+        elif isinstance(event, ValidationFailed):
+            console_obj.print(" [bold red]\u2717[/]")
+            console_obj.print()
+            error_msg = format_error(
+                "Workflow validation failed",
+                details=list(event.errors),
+                suggestion="Fix validation errors and try again",
+            )
+            err_console.print(error_msg)
+            raise SystemExit(ExitCode.FAILURE)
+
+        elif isinstance(event, PreflightStarted):
+            if event.prerequisites:
+                console_obj.print("[cyan]Running preflight checks...[/]")
+
+        elif isinstance(event, PreflightCheckPassed):
+            console_obj.print(f"  [green]\u2713[/] [bold]{event.name}[/]")
+
+        elif isinstance(event, PreflightCheckFailed):
+            console_obj.print(
+                f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}"
+            )
+            if event.remediation:
+                console_obj.print(f"    [dim]Hint: {event.remediation}[/]")
+
+        elif isinstance(event, PreflightCompleted):
+            if not event.success:
+                error_msg = format_error(
+                    "Preflight checks failed",
+                    suggestion="Install missing prerequisites and try again.",
+                )
+                err_console.print(error_msg)
+            console_obj.print()
+
+        elif isinstance(event, WorkflowStarted):
+            workflow_depth += 1
+
+        elif isinstance(event, StepStarted):
+            type_icons = {
+                "python": "\u2699",
+                "agent": "\U0001f916",
+                "generate": "\u270d",
+                "validate": "\u2713",
+                "checkpoint": "\U0001f4be",
+            }
+            icon = type_icons.get(event.step_type.value, "\u25cf")
+            step_name = event.step_name
+
+            if workflow_depth == 1:
+                step_index += 1
+                if _total_steps > 0:
+                    console_obj.print(
+                        f"[blue][{step_index}/{_total_steps}] "
+                        f"{icon} {step_name}[/] "
+                        f"({event.step_type.value})... ",
+                        end="",
+                    )
+                else:
+                    console_obj.print(
+                        f"[blue]{icon} {step_name}[/] ({event.step_type.value})... ",
+                        end="",
+                    )
+                if event.step_type.value in ("loop", "subworkflow"):
+                    workflow_depth += 1
+            else:
+                indent = "  " * (workflow_depth - 1)
+                console_obj.print(
+                    f"[dim cyan]{indent}{icon} {step_name}[/] "
+                    f"({event.step_type.value})... ",
+                    end="",
+                )
+
+        elif isinstance(event, StepCompleted):
+            if event.step_type.value in ("loop", "subworkflow"):
+                workflow_depth = max(1, workflow_depth - 1)
+
+            duration_sec = event.duration_ms / 1000
+
+            if event.success:
+                console_obj.print(
+                    f"[bold green]\u2713[/] [dim]({duration_sec:.2f}s)[/]"
+                )
+            else:
+                console_obj.print(f"[bold red]\u2717[/] [dim]({duration_sec:.2f}s)[/]")
+
+        elif isinstance(event, AgentStreamChunk):
+            if event.chunk_type == "output":
+                console_obj.print(event.text, end="", highlight=False)
+            elif event.chunk_type == "thinking":
+                console_obj.print(f"[dim]{event.text}[/]")
+            elif event.chunk_type == "error":
+                err_console.print(f"[red]{event.text}[/]")
+
+        elif isinstance(event, StepOutput):
+            level_styles = {
+                "info": "[cyan]",
+                "success": "[green]",
+                "warning": "[yellow]",
+                "error": "[red]",
+            }
+            style = level_styles.get(event.level, "[cyan]")
+            prefix = f"  {style}{event.step_name}[/]: " if event.step_name else "  "
+            console_obj.print(f"{prefix}{event.message}")
+
+        elif isinstance(event, WorkflowCompleted):
+            workflow_depth -= 1
+
+            if workflow_depth > 0:
+                total_sec = event.total_duration_ms / 1000
+                console_obj.print(f"[dim]({total_sec:.2f}s)[/]")
+                continue
+
+            console_obj.print()
+            total_sec = event.total_duration_ms / 1000
+
+            if event.success:
+                console_obj.print(
+                    f"[bold green]Workflow completed successfully[/] "
+                    f"in {total_sec:.2f}s"
+                )
+            else:
+                console_obj.print(
+                    f"[bold red]Workflow failed[/] after {total_sec:.2f}s"
+                )
+
+
+@dataclass
+class PythonWorkflowRunConfig:
+    """Configuration for executing a Python workflow from the CLI.
+
+    Attributes:
+        workflow_class: PythonWorkflow subclass to instantiate and run.
+        inputs: Input dictionary to pass to the workflow.
+        session_log_path: Optional path to write session journal (JSONL).
+        restart: If True, clear existing checkpoint before running.
+    """
+
+    workflow_class: type[PythonWorkflow]
+    inputs: dict[str, Any] = field(default_factory=dict)
+    session_log_path: Path | None = None
+    restart: bool = False
+
+
+async def execute_python_workflow(
+    ctx: click.Context,
+    run_config: PythonWorkflowRunConfig,
+) -> None:
+    """Execute a Python workflow from a CLI command.
+
+    Instantiates a PythonWorkflow subclass, sets up the checkpoint store
+    and session journal (if configured), streams events through
+    ``render_workflow_events``, and displays a final summary.
+
+    Args:
+        ctx: Click context (used to retrieve MaverickConfig).
+        run_config: Configuration describing which workflow to run
+            and how to run it.
+    """
+    with cli_error_handler():
+        from maverick.config import load_config
+        from maverick.dsl.checkpoint.store import FileCheckpointStore
+        from maverick.session_journal import SessionJournal
+
+        # Retrieve config from CLI context (populated by the root ``cli`` group).
+        config = ctx.obj.get("config") if ctx.obj else None
+        if config is None:
+            config = load_config()
+
+        # Create registry with all built-in components registered.
+        registry = create_registered_registry()
+
+        # Create checkpoint store.
+        checkpoint_store = FileCheckpointStore()
+
+        # Determine workflow name from class (check WORKFLOW_NAME constant first).
+        wf_cls = run_config.workflow_class
+        workflow_name: str = getattr(wf_cls, "WORKFLOW_NAME", None) or (
+            # Derive from constants module if available.
+            _derive_workflow_name(wf_cls)
+        )
+
+        # Handle restart: clear existing checkpoint.
+        if run_config.restart:
+            existing = await checkpoint_store.load_latest(workflow_name)
+            if existing:
+                await checkpoint_store.clear(workflow_name)
+                console.print(
+                    "[yellow]Restarting workflow (cleared existing checkpoint)[/]"
+                )
+                console.print()
+        else:
+            existing = await checkpoint_store.load_latest(workflow_name)
+            if existing:
+                console.print(
+                    f"[cyan]Resuming from checkpoint "
+                    f"'{existing.checkpoint_id}' "
+                    f"(saved at {existing.saved_at})[/]"
+                )
+                console.print()
+
+        # Display workflow header.
+        console.print(f"[bold cyan]Executing workflow: {workflow_name}[/]")
+        if run_config.inputs:
+            input_summary = ", ".join(
+                f"{k}=[yellow]{v}[/]" for k, v in run_config.inputs.items()
+            )
+            console.print(f"Inputs: {input_summary}")
+        else:
+            console.print("Inputs: (none)")
+        console.print()
+
+        # Set up session journal if requested.
+        journal: SessionJournal | None = None
+        if run_config.session_log_path is not None:
+            journal = SessionJournal(run_config.session_log_path)
+            journal.write_header(workflow_name, run_config.inputs)
+            console.print(f"[dim]Session log: {run_config.session_log_path}[/]")
+            console.print()
+
+        # Create agent step executor (R-005: CLI must provide a ClaudeStepExecutor).
+        from maverick.dsl.executor import ClaudeStepExecutor
+
+        step_executor = ClaudeStepExecutor(registry=registry)
+
+        # Instantiate the workflow.
+        workflow = wf_cls(
+            config=config,
+            registry=registry,
+            checkpoint_store=checkpoint_store,
+            step_executor=step_executor,
+            workflow_name=workflow_name,
+        )
+
+        try:
+            await render_workflow_events(
+                workflow.execute(run_config.inputs),
+                console,
+                session_journal=journal,
+                workflow_name=workflow_name,
+            )
+        finally:
+            if journal is not None:
+                try:
+                    wf_result = workflow.result
+                    if wf_result is not None:
+                        journal.write_summary(
+                            {
+                                "success": wf_result.success,
+                                "total_duration_ms": wf_result.total_duration_ms,
+                            }
+                        )
+                    else:
+                        journal.write_summary({"success": False})
+                except Exception as exc:
+                    logger.warning("journal_summary_failed", error=str(exc))
+                    journal.write_summary({"success": False})
+                journal.close()
+
+        # Display final summary.
+        result = workflow.result
+        if result is None:
+            err_console.print(format_error("Workflow produced no result"))
+            raise SystemExit(ExitCode.FAILURE)
+
+        console.print()
+        completed_steps = sum(1 for s in result.step_results if s.success)
+        total_steps = len(result.step_results)
+        console.print(f"Steps: [green]{completed_steps}[/]/{total_steps} completed")
+
+        if result.success:
+            if result.final_output is not None:
+                output_str = str(result.final_output)
+                if len(output_str) > 200:
+                    output_str = output_str[:197] + "..."
+                console.print(f"Final output: {output_str}")
+            raise SystemExit(ExitCode.SUCCESS)
+        else:
+            failed_step = result.failed_step
+            if failed_step:
+                console.print()
+                error_msg = format_error(
+                    f"Step '{failed_step.name}' failed",
+                    details=[failed_step.error] if failed_step.error else None,
+                    suggestion="Check the step configuration and try again.",
+                )
+                err_console.print(error_msg)
+            raise SystemExit(ExitCode.FAILURE)
+
+
+def _derive_workflow_name(wf_cls: type) -> str:
+    """Derive a kebab-case workflow name from a class name.
+
+    Checks the class's constants module for WORKFLOW_NAME first. Falls back
+    to converting the class name to lowercase kebab-case.
+
+    Args:
+        wf_cls: PythonWorkflow subclass.
+
+    Returns:
+        Kebab-case workflow name string.
+    """
+    # Try to find WORKFLOW_NAME in the class's module package.
+    module_name = getattr(wf_cls, "__module__", "") or ""
+    # e.g. maverick.workflows.fly_beads.workflow
+    #   -> maverick.workflows.fly_beads.constants
+    pkg = ".".join(module_name.split(".")[:-1])
+    if pkg:
+        try:
+            constants_mod = importlib.import_module(f"{pkg}.constants")
+            name = getattr(constants_mod, "WORKFLOW_NAME", None)
+            if name:
+                return str(name)
+        except ImportError:
+            pass
+
+    # Fall back: class name → kebab-case (e.g. FlyBeadsWorkflow → fly-beads-workflow)
+    class_name = wf_cls.__name__
+    # Insert hyphens before uppercase letters following lowercase letters.
+    kebab = re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", class_name).lower()
+    # Remove trailing -workflow suffix if present.
+    kebab = re.sub(r"-workflow$", "", kebab)
+    return kebab
 
 
 async def execute_workflow_run(
@@ -205,17 +600,6 @@ async def execute_workflow_run(
             raise SystemExit(ExitCode.SUCCESS)
 
         # Execute workflow using WorkflowFileExecutor (CLI mode)
-        from maverick.dsl.events import (
-            AgentStreamChunk,
-            PreflightCheckFailed,
-            PreflightCheckPassed,
-            PreflightCompleted,
-            PreflightStarted,
-            StepCompleted,
-            StepStarted,
-            WorkflowCompleted,
-            WorkflowStarted,
-        )
         from maverick.dsl.serialization import WorkflowFileExecutor
 
         # Display workflow header
@@ -269,10 +653,8 @@ async def execute_workflow_run(
             validate_semantic=not no_validate,
         )
 
-        # Track step progress with nesting support
-        step_index = 0
+        # Track step count for progress display
         total_steps = len(workflow_obj.steps)
-        workflow_depth = 0  # Track nesting: 1 = main workflow, 2+ = subworkflows
 
         # Show limited execution message if --step was used
         if only_step_index is not None:
@@ -282,13 +664,6 @@ async def execute_workflow_run(
                 f"({only_step_index + 1}/{total_steps})[/]"
             )
             console.print()
-
-        # Execute workflow and display progress
-        from maverick.dsl.events import (
-            ValidationCompleted,
-            ValidationFailed,
-            ValidationStarted,
-        )
 
         # Set up session journal if requested
         from maverick.session_journal import SessionJournal
@@ -301,159 +676,18 @@ async def execute_workflow_run(
             console.print()
 
         try:
-            async for event in executor.execute(
-                workflow_obj,
-                inputs=input_dict,
-                resume_from_checkpoint=resume_from_checkpoint,
-                only_step=only_step_index,
-            ):
-                # Record event to session journal if active
-                if journal is not None:
-                    await journal.record(event)
-
-                if isinstance(event, ValidationStarted):
-                    # Show validation start
-                    console.print("[cyan]Validating workflow...[/]", end="")
-
-                elif isinstance(event, ValidationCompleted):
-                    # Show validation success
-                    console.print(" [bold green]\u2713[/]")
-                    if event.warnings_count > 0:
-                        console.print(
-                            f"  [yellow]({event.warnings_count} warning(s))[/]"
-                        )
-                    console.print()
-
-                elif isinstance(event, ValidationFailed):
-                    # Show validation failure
-                    console.print(" [bold red]\u2717[/]")
-                    console.print()
-
-                    # Display error details
-                    error_msg = format_error(
-                        "Workflow validation failed",
-                        details=list(event.errors),
-                        suggestion="Fix validation errors and try again",
-                    )
-                    err_console.print(error_msg)
-                    raise SystemExit(ExitCode.FAILURE)
-
-                elif isinstance(event, PreflightStarted):
-                    if event.prerequisites:
-                        console.print("[cyan]Running preflight checks...[/]")
-
-                elif isinstance(event, PreflightCheckPassed):
-                    console.print(f"  [green]\u2713[/] [bold]{event.name}[/]")
-
-                elif isinstance(event, PreflightCheckFailed):
-                    console.print(
-                        f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}"
-                    )
-                    if event.remediation:
-                        console.print(f"    [dim]Hint: {event.remediation}[/]")
-
-                elif isinstance(event, PreflightCompleted):
-                    if not event.success:
-                        error_msg = format_error(
-                            "Preflight checks failed",
-                            suggestion="Install missing prerequisites and try again.",
-                        )
-                        err_console.print(error_msg)
-                    console.print()
-
-                elif isinstance(event, WorkflowStarted):
-                    # Track workflow nesting depth
-                    workflow_depth += 1
-                    # Main workflow header already displayed above (depth == 1)
-                    # Subworkflow headers are shown as part of their parent step
-
-                elif isinstance(event, StepStarted):
-                    # Step type icon mapping
-                    type_icons = {
-                        "python": "\u2699",
-                        "agent": "\U0001f916",
-                        "generate": "\u270d",
-                        "validate": "\u2713",
-                        "checkpoint": "\U0001f4be",
-                    }
-                    icon = type_icons.get(event.step_type.value, "\u25cf")
-                    step_name = event.step_name
-
-                    # Only count and number top-level steps (depth == 1)
-                    if workflow_depth == 1:
-                        step_index += 1
-                        console.print(
-                            f"[blue][{step_index}/{total_steps}] "
-                            f"{icon} {step_name}[/] "
-                            f"({event.step_type.value})... ",
-                            end="",
-                        )
-                        # Loop/subworkflow steps contain nested steps that
-                        # should not increment the top-level counter.
-                        if event.step_type.value in ("loop", "subworkflow"):
-                            workflow_depth += 1
-                    else:
-                        # Nested steps: show indented without numbering
-                        indent = "  " * (workflow_depth - 1)
-                        console.print(
-                            f"[dim cyan]{indent}{icon} {step_name}[/] "
-                            f"({event.step_type.value})... ",
-                            end="",
-                        )
-
-                elif isinstance(event, StepCompleted):
-                    # Pop depth when a loop/subworkflow step completes
-                    if event.step_type.value in ("loop", "subworkflow"):
-                        workflow_depth = max(1, workflow_depth - 1)
-
-                    # Calculate duration
-                    duration_sec = event.duration_ms / 1000
-
-                    if event.success:
-                        console.print(
-                            f"[bold green]\u2713[/] [dim]({duration_sec:.2f}s)[/]"
-                        )
-                    else:
-                        console.print(
-                            f"[bold red]\u2717[/] [dim]({duration_sec:.2f}s)[/]"
-                        )
-
-                elif isinstance(event, AgentStreamChunk):
-                    # Stream agent output to console in real-time
-                    if event.chunk_type == "output":
-                        # Regular agent output - stream directly
-                        console.print(event.text, end="", highlight=False)
-                    elif event.chunk_type == "thinking":
-                        # Thinking indicator - dim styling
-                        console.print(f"[dim]{event.text}[/]")
-                    elif event.chunk_type == "error":
-                        # Error output - red styling
-                        err_console.print(f"[red]{event.text}[/]")
-
-                elif isinstance(event, WorkflowCompleted):
-                    # Decrement nesting depth
-                    workflow_depth -= 1
-
-                    # Only show summary for main workflow (depth back to 0)
-                    if workflow_depth > 0:
-                        # Subworkflow completed - show brief inline message
-                        total_sec = event.total_duration_ms / 1000
-                        console.print(f"[dim]({total_sec:.2f}s)[/]")
-                        continue
-
-                    # Main workflow summary
-                    console.print()
-                    total_sec = event.total_duration_ms / 1000
-
-                    if event.success:
-                        console.print(
-                            f"[bold green]Workflow completed successfully[/] "
-                            f"in {total_sec:.2f}s"
-                        )
-                    else:
-                        console.print(
-                            f"[bold red]Workflow failed[/] after {total_sec:.2f}s"
-                        )
+            await render_workflow_events(
+                executor.execute(
+                    workflow_obj,
+                    inputs=input_dict,
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    only_step=only_step_index,
+                ),
+                console,
+                session_journal=journal,
+                workflow_name=workflow_obj.name,
+                total_steps=total_steps,
+            )
         finally:
             if journal is not None:
                 try:

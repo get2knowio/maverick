@@ -10,8 +10,36 @@ from pathlib import Path
 
 import click
 
-from maverick.cli.context import async_command
-from maverick.cli.workflow_executor import execute_workflow_run
+from maverick.cli.console import console
+from maverick.cli.context import ExitCode, async_command
+from maverick.cli.workflow_executor import (
+    PythonWorkflowRunConfig,
+    execute_python_workflow,
+)
+from maverick.workflows.fly_beads import FlyBeadsWorkflow
+from maverick.workflows.fly_beads.constants import (
+    COMMIT,
+    CREATE_WORKSPACE,
+    IMPLEMENT,
+    PREFLIGHT,
+    REVIEW,
+    SELECT_BEAD,
+    SYNC_DEPS,
+    VALIDATE,
+    WORKFLOW_NAME,
+)
+
+# Ordered list of fly-beads steps for --list-steps display.
+_FLY_BEADS_STEPS = [
+    PREFLIGHT,
+    CREATE_WORKSPACE,
+    SELECT_BEAD,
+    IMPLEMENT,
+    SYNC_DEPS,
+    VALIDATE,
+    REVIEW,
+    COMMIT,
+]
 
 
 @click.command()
@@ -51,12 +79,6 @@ from maverick.cli.workflow_executor import execute_workflow_run
     default=None,
     help="Write session journal (JSONL) to this file path.",
 )
-@click.option(
-    "--deterministic",
-    is_flag=True,
-    default=False,
-    help="Force all Python steps to deterministic mode (ignore mode: agent).",
-)
 @click.pass_context
 @async_command
 async def fly(
@@ -67,7 +89,6 @@ async def fly(
     skip_review: bool,
     list_steps: bool,
     session_log: Path | None,
-    deterministic: bool,
 ) -> None:
     """Run a bead-driven development workflow.
 
@@ -84,27 +105,25 @@ async def fly(
         maverick fly --epic my-epic --dry-run
         maverick fly --skip-review --max-beads 5
     """
-    input_parts: list[str] = [
-        f"max_beads={max_beads}",
-        f"dry_run={str(dry_run).lower()}",
-        f"skip_review={str(skip_review).lower()}",
-        f"force_deterministic={str(deterministic).lower()}",
-    ]
-    if epic:
-        input_parts.insert(0, f"epic_id={epic}")
-    else:
-        # Pass empty string so the workflow receives the input (not missing)
-        input_parts.insert(0, "epic_id=")
+    if list_steps:
+        console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
+        console.print()
+        console.print("[bold]Steps:[/]")
+        for i, step_name in enumerate(_FLY_BEADS_STEPS, 1):
+            console.print(f"  {i}. {step_name} [dim](python)[/]")
+        console.print()
+        raise SystemExit(ExitCode.SUCCESS)
 
-    await execute_workflow_run(
+    await execute_python_workflow(
         ctx,
-        "fly-beads",
-        tuple(input_parts),
-        None,  # input_file
-        dry_run,  # CLI-level dry_run
-        False,  # restart
-        False,  # no_validate
-        list_steps,
-        None,  # only_step
-        session_log_path=session_log,
+        PythonWorkflowRunConfig(
+            workflow_class=FlyBeadsWorkflow,
+            inputs={
+                "epic_id": epic or "",
+                "max_beads": max_beads,
+                "dry_run": dry_run,
+                "skip_review": skip_review,
+            },
+            session_log_path=session_log,
+        ),
     )
