@@ -129,6 +129,23 @@ async def _call_action(action: Callable[..., Any], inputs: dict[str, Any]) -> An
     return result
 
 
+def _build_user_prompt(resolved_inputs: dict[str, Any]) -> str:
+    """Build the user-level prompt from resolved step inputs.
+
+    Args:
+        resolved_inputs: Step inputs as structured context.
+
+    Returns:
+        User prompt string with serialized inputs and output instructions.
+    """
+    serialized_inputs = json.dumps(resolved_inputs, indent=2, default=str)
+    return (
+        f"You have been given the following inputs:\n{serialized_inputs}\n\n"
+        "Produce output that matches what the deterministic handler would produce.\n"
+        "Output your result as valid JSON."
+    )
+
+
 def build_agent_prompt(
     *,
     intent: str,
@@ -157,12 +174,7 @@ def build_agent_prompt(
         instructions += f"\n\n{prompt_file_content}"
 
     # Build prompt (user-level) from resolved inputs
-    serialized_inputs = json.dumps(resolved_inputs, indent=2, default=str)
-    prompt = (
-        f"You have been given the following inputs:\n{serialized_inputs}\n\n"
-        "Produce output that matches what the deterministic handler would produce.\n"
-        "Output your result as valid JSON."
-    )
+    prompt = _build_user_prompt(resolved_inputs)
 
     return instructions, prompt
 
@@ -260,25 +272,87 @@ async def dispatch_agent_mode(
             fallback_used=True,
         )
 
-    # Build prompt
-    prompt_suffix = step_config.prompt_suffix
-    prompt_file_content = None
-    if step_config.prompt_file:
-        try:
-            prompt_file_content = Path(step_config.prompt_file).read_text()
-        except OSError:
-            logger.warning(
-                "dispatch.prompt_file_error",
-                step_name=step.name,
-                prompt_file=step_config.prompt_file,
-            )
+    # Build prompt — try resolve_prompt() first for registry consistency (036)
+    instructions: str | None = None
+    prompt: str | None = None
 
-    instructions, prompt = build_agent_prompt(
-        intent=intent,
-        resolved_inputs=resolved_inputs,
-        prompt_suffix=prompt_suffix,
-        prompt_file_content=prompt_file_content,
-    )
+    # Obtain MaverickConfig for prompt overrides
+    maverick_cfg = context.maverick_config if context else None
+
+    # Import PromptConfigError before try so the except clause is always valid
+    _prompt_config_error: type[Exception] | None = None
+    try:
+        from maverick.prompts.models import PromptConfigError
+
+        _prompt_config_error = PromptConfigError
+    except Exception:
+        pass
+
+    try:
+        from maverick.prompts.config import PromptOverrideConfig
+        from maverick.prompts.defaults import build_default_registry
+        from maverick.prompts.resolver import resolve_prompt
+
+        prompt_registry = build_default_registry()
+        if prompt_registry.has(step.name):
+            override: PromptOverrideConfig | None = None
+            if step_config.prompt_suffix:
+                override = PromptOverrideConfig(prompt_suffix=step_config.prompt_suffix)
+            elif step_config.prompt_file:
+                override = PromptOverrideConfig(prompt_file=step_config.prompt_file)
+            elif maverick_cfg and maverick_cfg.prompts.get(step.name):
+                override = maverick_cfg.prompts[step.name]
+
+            # project_root: ideally from workflow context; fall back to cwd
+            project_root = Path.cwd()
+
+            resolution = resolve_prompt(
+                step_name=step.name,
+                registry=prompt_registry,
+                override=override,
+                project_root=project_root,
+            )
+            instructions = resolution.text
+
+            logger.debug(
+                "dispatch.prompt_resolved",
+                step_name=step.name,
+                source=resolution.source.value,
+                override_applied=resolution.override_applied,
+            )
+    except Exception as exc:
+        # Configuration errors must surface to the user
+        if _prompt_config_error is not None and isinstance(exc, _prompt_config_error):
+            raise
+        logger.debug(
+            "dispatch.prompt_resolution_fallback",
+            step_name=step.name,
+            reason="falling back to manual prompt building",
+        )
+
+    # Fallback to existing build_agent_prompt if resolve_prompt was not used
+    if instructions is None:
+        prompt_suffix = step_config.prompt_suffix
+        prompt_file_content = None
+        if step_config.prompt_file:
+            try:
+                prompt_file_content = Path(step_config.prompt_file).read_text()
+            except OSError:
+                logger.warning(
+                    "dispatch.prompt_file_error",
+                    step_name=step.name,
+                    prompt_file=step_config.prompt_file,
+                )
+
+        instructions, prompt = build_agent_prompt(
+            intent=intent,
+            resolved_inputs=resolved_inputs,
+            prompt_suffix=prompt_suffix,
+            prompt_file_content=prompt_file_content,
+        )
+    else:
+        # Registry provided instructions; build user prompt from inputs
+        prompt = _build_user_prompt(resolved_inputs)
 
     # Execute via StepExecutor with timeout
     start_time = time.monotonic()

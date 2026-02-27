@@ -123,15 +123,57 @@ async def execute_agent_step(
         step_name=step.name,
     )
 
+    # Resolve prompt from registry, applying override if configured (036)
+    instructions: str | None = None
+
+    # Import PromptConfigError before try so the except clause is always valid
+    _prompt_config_error: type[Exception] | None = None
+    try:
+        from maverick.prompts.models import PromptConfigError
+
+        _prompt_config_error = PromptConfigError
+    except Exception:
+        pass
+
+    try:
+        from maverick.prompts.defaults import build_default_registry
+        from maverick.prompts.resolver import resolve_prompt
+
+        prompt_registry = build_default_registry()
+        if prompt_registry.has(step.name):
+            override = maverick_cfg.prompts.get(step.name) if maverick_cfg else None
+
+            # project_root: ideally from workflow context; fall back to cwd
+            project_root = Path.cwd()
+
+            resolution = resolve_prompt(
+                step_name=step.name,
+                registry=prompt_registry,
+                override=override,
+                project_root=project_root,
+            )
+            instructions = resolution.text
+    except Exception as exc:
+        # Configuration errors must surface to the user
+        if _prompt_config_error is not None and isinstance(exc, _prompt_config_error):
+            raise
+        logger.debug(
+            "prompt_resolution_skipped",
+            step_name=step.name,
+            reason="resolution failed, using default behavior",
+        )
+
     # Delegate execution to StepExecutor
-    # TODO(032): Forward instructions/allowed_tools/cwd per FR-001.
+    # TODO(032): Forward allowed_tools/cwd per FR-001.
     # The StepExecutor protocol accepts these but AgentStepRecord
     # does not yet surface them. Once the DSL schema adds
-    # instructions/allowed_tools/cwd fields, pass them here.
+    # allowed_tools/cwd fields, pass them here.
+    # NOTE(036): instructions is now resolved via prompt registry above.
     executor_result = await executor.execute(
         step_name=step.name,
         agent_name=step.agent,
         prompt=agent_context,
+        instructions=instructions,
         output_schema=output_schema,
         config=step_config,
         event_callback=event_callback,

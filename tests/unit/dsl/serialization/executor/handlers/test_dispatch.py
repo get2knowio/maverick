@@ -726,3 +726,166 @@ class TestEdgeCaseNoExecutorWarning:
         ]
         assert len(warning_calls) >= 1
         assert warning_calls[0].kwargs["step_name"] == "test_step"
+
+
+# ---------------------------------------------------------------------------
+# T056: resolve_prompt() integration hook in dispatch (036-prompt-config)
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchPromptResolutionHook:
+    """T056: dispatch_agent_mode uses resolve_prompt() for registered steps."""
+
+    async def test_registered_step_uses_resolved_prompt(self) -> None:
+        """When step.name is in the prompt registry, resolved text is used."""
+        mock_executor = _make_mock_executor(output="resolved_output")
+        registry = _make_registry()
+        # Use "implement" — a step name that IS in the default registry
+        step = _make_step(name="implement")
+        context = _make_context(step_executor=mock_executor)
+        step_config = StepConfig(mode=StepMode.AGENT, autonomy=AutonomyLevel.APPROVER)
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.dispatch.get_intent",
+            return_value="Implement the feature.",
+        ):
+            result = await dispatch_agent_mode(
+                step=step,
+                resolved_inputs={"task": "build widget"},
+                context=context,
+                registry=registry,
+                step_config=step_config,
+            )
+
+        assert isinstance(result, DispatchResult)
+        assert result.output == "resolved_output"
+
+        # Verify the executor was called with resolved instructions from registry
+        call_kwargs = mock_executor.execute.call_args.kwargs
+        instructions = call_kwargs["instructions"]
+        # The resolved prompt comes from IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
+        # NOT the intent-based "You are executing a workflow step" prefix
+        assert "You are executing a workflow step" not in instructions
+
+    async def test_unregistered_step_falls_back_to_build_agent_prompt(self) -> None:
+        """When step.name is NOT in the registry, build_agent_prompt is used."""
+        mock_executor = _make_mock_executor(output="fallback_output")
+        registry = _make_registry()
+        # "test_step" is NOT in the default prompt registry
+        step = _make_step(name="test_step")
+        context = _make_context(step_executor=mock_executor)
+        step_config = StepConfig(mode=StepMode.AGENT, autonomy=AutonomyLevel.APPROVER)
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.dispatch.get_intent",
+            return_value="Do something useful.",
+        ):
+            result = await dispatch_agent_mode(
+                step=step,
+                resolved_inputs={"key": "value"},
+                context=context,
+                registry=registry,
+                step_config=step_config,
+            )
+
+        assert isinstance(result, DispatchResult)
+        assert result.output == "fallback_output"
+
+        # Verify intent-based instructions were used (build_agent_prompt path)
+        call_kwargs = mock_executor.execute.call_args.kwargs
+        instructions = call_kwargs["instructions"]
+        assert "You are executing a workflow step" in instructions
+        assert "Do something useful." in instructions
+
+    async def test_prompt_suffix_applied_via_resolve_prompt(self) -> None:
+        """prompt_suffix applied via resolve_prompt for registered steps."""
+        mock_executor = _make_mock_executor(output="suffix_output")
+        registry = _make_registry()
+        step = _make_step(name="commit_message")  # registered with REPLACE policy
+        context = _make_context(step_executor=mock_executor)
+        step_config = StepConfig(
+            mode=StepMode.AGENT,
+            autonomy=AutonomyLevel.APPROVER,
+            prompt_suffix="Always include ticket number.",
+        )
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.dispatch.get_intent",
+            return_value="Generate a commit message.",
+        ):
+            result = await dispatch_agent_mode(
+                step=step,
+                resolved_inputs={},
+                context=context,
+                registry=registry,
+                step_config=step_config,
+            )
+
+        assert isinstance(result, DispatchResult)
+        call_kwargs = mock_executor.execute.call_args.kwargs
+        instructions = call_kwargs["instructions"]
+        # Suffix should be appended by resolve_prompt
+        assert "Always include ticket number." in instructions
+        # Should NOT be the intent-based format
+        assert "You are executing a workflow step" not in instructions
+
+    async def test_resolution_failure_falls_back_gracefully(self) -> None:
+        """If resolve_prompt raises, dispatch falls back to build_agent_prompt."""
+        mock_executor = _make_mock_executor(output="graceful_output")
+        registry = _make_registry()
+        step = _make_step(name="implement")
+        context = _make_context(step_executor=mock_executor)
+        step_config = StepConfig(mode=StepMode.AGENT, autonomy=AutonomyLevel.APPROVER)
+
+        with (
+            patch(
+                "maverick.dsl.serialization.executor.handlers.dispatch.get_intent",
+                return_value="Build the thing.",
+            ),
+            patch(
+                "maverick.prompts.defaults.build_default_registry",
+                side_effect=RuntimeError("registry construction failed"),
+            ),
+        ):
+            result = await dispatch_agent_mode(
+                step=step,
+                resolved_inputs={"x": 1},
+                context=context,
+                registry=registry,
+                step_config=step_config,
+            )
+
+        assert isinstance(result, DispatchResult)
+        assert result.output == "graceful_output"
+
+        # Should have fallen back to build_agent_prompt
+        call_kwargs = mock_executor.execute.call_args.kwargs
+        instructions = call_kwargs["instructions"]
+        assert "You are executing a workflow step" in instructions
+        assert "Build the thing." in instructions
+
+    async def test_resolved_prompt_includes_inputs_in_user_prompt(self) -> None:
+        """When resolve_prompt is used, inputs are still passed as the user prompt."""
+        mock_executor = _make_mock_executor(output="input_output")
+        registry = _make_registry()
+        step = _make_step(name="review")  # registered step
+        context = _make_context(step_executor=mock_executor)
+        step_config = StepConfig(mode=StepMode.AGENT, autonomy=AutonomyLevel.APPROVER)
+
+        with patch(
+            "maverick.dsl.serialization.executor.handlers.dispatch.get_intent",
+            return_value="Review the code.",
+        ):
+            result = await dispatch_agent_mode(
+                step=step,
+                resolved_inputs={"diff": "--- a/file.py\n+++ b/file.py"},
+                context=context,
+                registry=registry,
+                step_config=step_config,
+            )
+
+        assert isinstance(result, DispatchResult)
+        call_kwargs = mock_executor.execute.call_args.kwargs
+        prompt = call_kwargs["prompt"]
+        assert "diff" in prompt
+        assert "file.py" in prompt
