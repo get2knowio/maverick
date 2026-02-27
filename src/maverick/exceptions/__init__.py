@@ -40,6 +40,17 @@ from maverick.exceptions.beads import (
 # Configuration exceptions
 from maverick.exceptions.config import ConfigError
 
+# Flight plan and work unit exceptions
+from maverick.exceptions.flight import (
+    FlightError,
+    FlightPlanNotFoundError,
+    FlightPlanParseError,
+    FlightPlanValidationError,
+    WorkUnitDependencyError,
+    WorkUnitNotFoundError,
+    WorkUnitValidationError,
+)
+
 # Git-related exceptions
 from maverick.exceptions.git import (
     BranchExistsError,
@@ -183,4 +194,12 @@ __all__ = [
     "DuplicateStepNameError",
     "StagesNotFoundError",
     "WorkflowError",
+    # Flight
+    "FlightError",
+    "FlightPlanNotFoundError",
+    "FlightPlanParseError",
+    "FlightPlanValidationError",
+    "WorkUnitDependencyError",
+    "WorkUnitNotFoundError",
+    "WorkUnitValidationError",
 ]
