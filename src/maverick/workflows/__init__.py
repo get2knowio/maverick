@@ -1,23 +1,29 @@
 """Maverick Workflows Module.
 
-NOTE: Legacy Python workflow implementations have been removed.
-Workflows are now defined using the YAML-based DSL in maverick.library.workflows.
+Provides Python-native workflow implementations and the PythonWorkflow
+abstract base class.
 
-To run a workflow, use:
-    maverick workflow run <workflow-name>
+To run a workflow from the CLI:
+    maverick fly
+    maverick refuel speckit <spec>
 
-Available built-in workflows:
-    - feature: Full spec-based development workflow
-    - cleanup: Tech-debt resolution workflow
-    - review: Code review orchestration
-    - validate: Validation with optional fixes
-    - quick-fix: Quick issue fix
+Available built-in Python workflows:
+    - FlyBeadsWorkflow: Bead-driven development workflow
+    - RefuelSpeckitWorkflow: Spec-to-beads pipeline
 
-Custom workflows can be defined in:
-    - .maverick/workflows/ (project-level)
-    - ~/.config/maverick/workflows/ (user-level)
+Custom Python workflows can subclass PythonWorkflow:
+    from maverick.workflows import PythonWorkflow
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from maverick.workflows.base import PythonRollbackAction, PythonWorkflow
+from maverick.workflows.fly_beads import FlyBeadsWorkflow
+from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
+
+__all__ = [
+    "PythonWorkflow",
+    "PythonRollbackAction",
+    "FlyBeadsWorkflow",
+    "RefuelSpeckitWorkflow",
+]

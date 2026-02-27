@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # First 16 characters of SHA-256 provides sufficient uniqueness for workflow inputs
@@ -45,6 +45,8 @@ class CheckpointData:
         inputs_hash: SHA-256 hash (first 16 chars) of serialized inputs.
         step_results: Tuple of serialized StepResult dicts.
         saved_at: ISO 8601 timestamp of checkpoint creation.
+        user_data: Arbitrary user-provided data for resume logic (e.g.,
+            completed bead IDs). Accessible via PythonWorkflow.load_checkpoint().
     """
 
     checkpoint_id: str
@@ -52,6 +54,7 @@ class CheckpointData:
     inputs_hash: str
     step_results: tuple[dict[str, Any], ...]
     saved_at: str
+    user_data: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for persistence."""
@@ -61,6 +64,7 @@ class CheckpointData:
             "inputs_hash": self.inputs_hash,
             "step_results": list(self.step_results),
             "saved_at": self.saved_at,
+            "user_data": self.user_data,
         }
 
     @classmethod
@@ -79,4 +83,5 @@ class CheckpointData:
             inputs_hash=data["inputs_hash"],
             step_results=tuple(data["step_results"]),
             saved_at=data["saved_at"],
+            user_data=data.get("user_data", {}),
         )
