@@ -285,6 +285,33 @@ def _format_validation_commands(
 
 
 # =============================================================================
+# Context coercion
+# =============================================================================
+
+
+def _coerce_implementer_context(data: dict[str, Any]) -> ImplementerContext:
+    """Coerce a dict prompt to ImplementerContext.
+
+    Python workflows pass dicts via ClaudeStepExecutor; this converts them
+    to the typed model the agent expects.
+    """
+    task_file_str = data.get("task_file")
+    task_file = Path(task_file_str) if task_file_str else None
+    cwd_str = data.get("cwd")
+    cwd = Path(cwd_str) if cwd_str else Path.cwd()
+
+    return ImplementerContext(
+        task_file=task_file,
+        task_description=data.get("task_description"),
+        phase_name=data.get("phase_name"),
+        branch=data.get("branch") or data.get("branch_name") or "main",
+        cwd=cwd,
+        skip_validation=data.get("skip_validation", False),
+        dry_run=data.get("dry_run", False),
+    )
+
+
+# =============================================================================
 # ImplementerAgent
 # =============================================================================
 
@@ -350,11 +377,14 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             temperature=temperature,
         )
 
-    async def execute(self, context: ImplementerContext) -> ImplementationResult:
+    async def execute(
+        self, context: ImplementerContext | dict[str, Any]
+    ) -> ImplementationResult:
         """Execute tasks from file or description.
 
         Args:
             context: Execution context with task source and options.
+                Can be an ImplementerContext or a dict (auto-coerced).
 
         Returns:
             ImplementationResult with task outcomes and file changes.
@@ -363,6 +393,10 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
             TaskParseError: If task file has invalid format.
             AgentError: On unrecoverable execution errors.
         """
+        # Coerce dict to ImplementerContext (Python workflows pass dicts)
+        if isinstance(context, dict):
+            context = _coerce_implementer_context(context)
+
         # Route to phase mode if phase_name is specified
         if context.is_phase_mode:
             return await self._execute_phase_mode(context)

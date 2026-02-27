@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from maverick.agents.generators.dependency_extractor import DependencyExtractor
 from maverick.exceptions import WorkflowError
 from maverick.library.actions.beads import (
     create_beads,
@@ -104,15 +105,14 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         await self.emit_step_started(EXTRACT_DEPS)
         extracted_deps: str = ""
-        if self._step_executor is not None and parse_result.dependency_section:
+        if parse_result.dependency_section:
             try:
-                exec_result = await self._step_executor.execute(
-                    step_name=EXTRACT_DEPS,
-                    agent_name="dep_extractor",
-                    prompt={"dependency_section": parse_result.dependency_section},
+                extractor = DependencyExtractor()
+                dep_text = await extractor.generate(
+                    {"dependency_section": parse_result.dependency_section},
                 )
-                raw = exec_result.output if exec_result is not None else None
-                extracted_deps = str(raw) if raw is not None else ""
+                # generate() returns str when return_usage=False (default)
+                extracted_deps = str(dep_text)
             except Exception as exc:
                 logger.warning("dep_extraction_failed", error=str(exc))
                 extracted_deps = ""
