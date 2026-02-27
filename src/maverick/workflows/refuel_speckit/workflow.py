@@ -81,14 +81,22 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         # Step 1: Checkout spec branch
         # ------------------------------------------------------------------
         await self.emit_step_started(CHECKOUT)
-        checkout_result = await create_git_branch(branch_name=spec)
+        try:
+            checkout_result = await create_git_branch(branch_name=spec)
+        except Exception as exc:
+            await self.emit_step_failed(CHECKOUT, str(exc))
+            raise
         await self.emit_step_completed(CHECKOUT, output=checkout_result)
 
         # ------------------------------------------------------------------
         # Step 2: Parse spec directory
         # ------------------------------------------------------------------
         await self.emit_step_started(PARSE_SPEC)
-        parse_result = await parse_speckit(spec_dir=f"specs/{spec}")
+        try:
+            parse_result = await parse_speckit(spec_dir=f"specs/{spec}")
+        except Exception as exc:
+            await self.emit_step_failed(PARSE_SPEC, str(exc))
+            raise
         await self.emit_step_completed(PARSE_SPEC, output=parse_result)
 
         # ------------------------------------------------------------------
@@ -114,22 +122,30 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         # Step 4: Enrich bead descriptions
         # ------------------------------------------------------------------
         await self.emit_step_started(ENRICH_BEADS)
-        enriched_definitions = await enrich_bead_descriptions(
-            work_definitions=list(parse_result.work_definitions),
-            spec_dir=f"specs/{spec}",
-            dependency_section=parse_result.dependency_section,
-        )
+        try:
+            enriched_definitions = await enrich_bead_descriptions(
+                work_definitions=list(parse_result.work_definitions),
+                spec_dir=f"specs/{spec}",
+                dependency_section=parse_result.dependency_section,
+            )
+        except Exception as exc:
+            await self.emit_step_failed(ENRICH_BEADS, str(exc))
+            raise
         await self.emit_step_completed(ENRICH_BEADS, output=enriched_definitions)
 
         # ------------------------------------------------------------------
         # Step 5: Create beads
         # ------------------------------------------------------------------
         await self.emit_step_started(CREATE_BEADS)
-        bead_result = await create_beads(
-            epic_definition=parse_result.epic_definition,
-            work_definitions=enriched_definitions,
-            dry_run=dry_run,
-        )
+        try:
+            bead_result = await create_beads(
+                epic_definition=parse_result.epic_definition,
+                work_definitions=enriched_definitions,
+                dry_run=dry_run,
+            )
+        except Exception as exc:
+            await self.emit_step_failed(CREATE_BEADS, str(exc))
+            raise
         await self.emit_step_completed(CREATE_BEADS, output=bead_result)
 
         # ------------------------------------------------------------------
@@ -138,13 +154,17 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         wire_result = None
         if bead_result.epic is not None:
             await self.emit_step_started(WIRE_DEPS)
-            wire_result = await wire_dependencies(
-                work_definitions=enriched_definitions,
-                created_map=bead_result.created_map,
-                tasks_content=parse_result.tasks_content,
-                extracted_deps=extracted_deps,
-                dry_run=dry_run,
-            )
+            try:
+                wire_result = await wire_dependencies(
+                    work_definitions=enriched_definitions,
+                    created_map=bead_result.created_map,
+                    tasks_content=parse_result.tasks_content,
+                    extracted_deps=extracted_deps,
+                    dry_run=dry_run,
+                )
+            except Exception as exc:
+                await self.emit_step_failed(WIRE_DEPS, str(exc))
+                raise
             await self.emit_step_completed(WIRE_DEPS, output=wire_result)
 
         # ------------------------------------------------------------------
@@ -156,22 +176,34 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         if not dry_run:
             # Step 7: Commit bead data on spec branch
             await self.emit_step_started(COMMIT)
-            commit_result = await git_commit(
-                message=f"refuel(speckit): create beads for {spec}"
-            )
+            try:
+                commit_result = await git_commit(
+                    message=f"refuel(speckit): create beads for {spec}"
+                )
+            except Exception as exc:
+                await self.emit_step_failed(COMMIT, str(exc))
+                raise
             commit_sha = commit_result.get("commit_sha")
             await self.emit_step_completed(COMMIT, output=commit_result)
 
             # Step 8: Checkout main
             await self.emit_step_started(CHECKOUT_MAIN)
-            await create_git_branch(branch_name="main")
+            try:
+                await create_git_branch(branch_name="main")
+            except Exception as exc:
+                await self.emit_step_failed(CHECKOUT_MAIN, str(exc))
+                raise
             await self.emit_step_completed(
                 CHECKOUT_MAIN, output={"branch_name": "main"}
             )
 
             # Step 9: Merge spec branch into main
             await self.emit_step_started(MERGE)
-            merge_result = await git_merge(branch=spec)
+            try:
+                merge_result = await git_merge(branch=spec)
+            except Exception as exc:
+                await self.emit_step_failed(MERGE, str(exc))
+                raise
             merge_sha = merge_result.get("merge_commit")
             await self.emit_step_completed(MERGE, output=merge_result)
 
@@ -180,9 +212,9 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         result = RefuelSpeckitResult(
             epic=bead_result.epic,
-            work_beads=list(bead_result.work_beads),
-            dependencies=list(wire_result.dependencies) if wire_result else [],
-            errors=list(bead_result.errors),
+            work_beads=tuple(bead_result.work_beads),
+            dependencies=tuple(wire_result.dependencies) if wire_result else (),
+            errors=tuple(bead_result.errors),
             commit=commit_sha,
             merge=merge_sha,
         )

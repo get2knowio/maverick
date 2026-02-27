@@ -19,6 +19,7 @@ from maverick.cli.workflow_executor import (
 from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
 from maverick.workflows.refuel_speckit.constants import (
     CHECKOUT,
+    CHECKOUT_MAIN,
     COMMIT,
     CREATE_BEADS,
     ENRICH_BEADS,
@@ -38,6 +39,7 @@ _REFUEL_SPECKIT_STEPS = [
     CREATE_BEADS,
     WIRE_DEPS,
     COMMIT,
+    CHECKOUT_MAIN,
     MERGE,
 ]
 

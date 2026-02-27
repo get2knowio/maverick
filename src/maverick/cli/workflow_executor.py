@@ -96,10 +96,13 @@ async def render_workflow_events(
     """
     from maverick.dsl.events import (
         AgentStreamChunk,
+        CheckpointSaved,
         PreflightCheckFailed,
         PreflightCheckPassed,
         PreflightCompleted,
         PreflightStarted,
+        RollbackCompleted,
+        RollbackStarted,
         StepCompleted,
         StepOutput,
         StepStarted,
@@ -231,6 +234,25 @@ async def render_workflow_events(
             style = level_styles.get(event.level, "[cyan]")
             prefix = f"  {style}{event.step_name}[/]: " if event.step_name else "  "
             console_obj.print(f"{prefix}{event.message}")
+
+        elif isinstance(event, RollbackStarted):
+            console_obj.print(f"[yellow]  \u21a9 Rolling back: {event.step_name}...[/]")
+
+        elif isinstance(event, RollbackCompleted):
+            if event.success:
+                console_obj.print(
+                    f"[green]  \u2713 Rollback succeeded: {event.step_name}[/]"
+                )
+            else:
+                error_detail = f" ({event.error})" if event.error else ""
+                console_obj.print(
+                    f"[red]  \u2717 Rollback failed: {event.step_name}{error_detail}[/]"
+                )
+
+        elif isinstance(event, CheckpointSaved):
+            console_obj.print(
+                f"[dim]  \U0001f4be Checkpoint saved: {event.step_name}[/]"
+            )
 
         elif isinstance(event, WorkflowCompleted):
             workflow_depth -= 1

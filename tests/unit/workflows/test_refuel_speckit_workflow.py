@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from maverick.dsl.events import (
     StepCompleted,
     StepStarted,
@@ -130,7 +128,6 @@ _MODULE = "maverick.workflows.refuel_speckit.workflow"
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 class TestRefuelSpeckitWorkflow:
     """Tests for RefuelSpeckitWorkflow._run()."""
 

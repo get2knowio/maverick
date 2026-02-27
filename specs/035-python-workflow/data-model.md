@@ -114,6 +114,7 @@
     "beads_processed": int,
     "beads_succeeded": int,
     "beads_failed": int,
+    "beads_skipped": int,
 }
 ```
 
@@ -151,7 +152,7 @@ SELECTED → IMPLEMENTING → VALIDATING → REVIEWING → COMMITTING → COMPLE
 {
     "epic": dict,              # Epic bead info
     "work_beads": list[dict],  # Created work beads
-    "dependencies": dict,      # Wired dependencies
+    "dependencies": list[dict], # Wired dependencies
     "errors": list[str],       # Any errors encountered
     "commit": str | None,      # Commit hash (if not dry_run)
     "merge": str | None,       # Merge result (if not dry_run)
