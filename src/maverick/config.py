@@ -23,6 +23,7 @@ from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.dsl.executor.config import StepConfig
+    from maverick.prompts.config import PromptOverrideConfig
 
 __all__ = [
     "MaverickConfig",
@@ -299,6 +300,10 @@ class MaverickConfig(BaseSettings):
         default_factory=dict,
         description="Project-level step configuration defaults keyed by step name.",
     )
+    prompts: dict[str, PromptOverrideConfig] = Field(
+        default_factory=dict,
+        description="Prompt overrides keyed by step name.",
+    )
     project_conventions: str = ""
 
     def __init__(self, **data: Any) -> None:
@@ -330,6 +335,52 @@ class MaverickConfig(BaseSettings):
                     value=val,
                 )
         return result
+
+    @field_validator("prompts", mode="before")
+    @classmethod
+    def _coerce_prompt_overrides(cls, v: Any) -> Any:
+        """Coerce dict entries to PromptOverrideConfig."""
+        if not isinstance(v, dict):
+            return v
+        from maverick.prompts.config import PromptOverrideConfig
+
+        result = {}
+        for key, val in v.items():
+            if isinstance(val, dict):
+                result[key] = PromptOverrideConfig(**val)
+            elif isinstance(val, PromptOverrideConfig):
+                result[key] = val
+            else:
+                raise ConfigError(
+                    message=(
+                        f"Invalid prompt config for '{key}': "
+                        f"expected dict or PromptOverrideConfig, "
+                        f"got {type(val).__name__}"
+                    ),
+                    field=f"prompts.{key}",
+                    value=val,
+                )
+        return result
+
+    @model_validator(mode="after")
+    def _check_prompts_steps_conflict(self) -> Self:
+        """Detect conflicts between prompts: and steps: sections."""
+        if not self.prompts or not self.steps:
+            return self
+        for step_name, _override in self.prompts.items():
+            if step_name in self.steps:
+                step_cfg = self.steps[step_name]
+                has_step_suffix = getattr(step_cfg, "prompt_suffix", None) is not None
+                has_step_file = getattr(step_cfg, "prompt_file", None) is not None
+                if has_step_suffix or has_step_file:
+                    raise ConfigError(
+                        message=(
+                            f"Step '{step_name}' has prompt configuration in both "
+                            f"'prompts:' and 'steps:' sections. Use only one."
+                        ),
+                        field=f"prompts.{step_name}",
+                    )
+        return self
 
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
@@ -384,9 +435,13 @@ def _ensure_model_rebuilt() -> None:
         return
 
     from maverick.dsl.executor.config import StepConfig  # noqa: F811
+    from maverick.prompts.config import PromptOverrideConfig  # noqa: F811
 
     MaverickConfig.model_rebuild(
-        _types_namespace={"StepConfig": StepConfig},
+        _types_namespace={
+            "StepConfig": StepConfig,
+            "PromptOverrideConfig": PromptOverrideConfig,
+        },
     )
     _model_rebuilt = True
 

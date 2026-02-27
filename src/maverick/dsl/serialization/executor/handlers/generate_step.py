@@ -6,6 +6,7 @@ This module handles execution of GenerateStepRecord steps.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any
 
 from maverick.dsl.context import WorkflowContext
@@ -79,6 +80,47 @@ async def execute_generate_step(
             f"Generator classes must be instantiable without arguments."
         )
         raise
+
+    # Override system_prompt from prompt registry if registered (036)
+    maverick_cfg = context.maverick_config if context else None
+
+    # Import PromptConfigError before try so the except clause is always valid
+    _prompt_config_error: type[Exception] | None = None
+    try:
+        from maverick.prompts.models import PromptConfigError
+
+        _prompt_config_error = PromptConfigError
+    except Exception:
+        pass
+
+    try:
+        from maverick.prompts.defaults import build_default_registry
+        from maverick.prompts.resolver import resolve_prompt
+
+        prompt_registry = build_default_registry()
+        if prompt_registry.has(step.name):
+            override = maverick_cfg.prompts.get(step.name) if maverick_cfg else None
+
+            # project_root: ideally from workflow context; fall back to cwd
+            project_root = Path.cwd()
+
+            resolution = resolve_prompt(
+                step_name=step.name,
+                registry=prompt_registry,
+                override=override,
+                project_root=project_root,
+            )
+            if hasattr(generator_instance, "system_prompt"):
+                generator_instance.system_prompt = resolution.text
+    except Exception as exc:
+        # Configuration errors must surface to the user
+        if _prompt_config_error is not None and isinstance(exc, _prompt_config_error):
+            raise
+        logger.debug(
+            "prompt_resolution_skipped",
+            step_name=step.name,
+            reason="resolution failed, using default behavior",
+        )
 
     # Runtime validation: ensure generate method exists
     if not hasattr(generator_instance, "generate"):

@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User description: "Implement the three-tier prompt configuration layer from ADR-001: Maverick defaults -> provider-specific defaults -> user overrides."
 
+## Clarifications
+
+### Session 2026-02-27
+
+- Q: What is the YAML configuration structure for prompt overrides in maverick.yaml? → A: Nested under a top-level `prompts:` key with per-step entries containing either `prompt_suffix` (inline string) or `prompt_file` (path string), e.g. `prompts: { implement: { prompt_suffix: "Use snake_case" } }`.
+- Q: Which existing steps should have `augment_only` vs `replace` override policy? → A: Steps whose output is consumed by structured parsing (implement, review, fix) get `augment_only`; steps with free-form text output (commit_message, pr_description) get `replace`.
+- Q: Should `prompt_file` paths be restricted to within the project root for security? → A: Yes. Absolute paths and paths resolving outside the project root (via `../` traversal) MUST be rejected at validation time.
+- Q: Should prompt resolution emit structured log events? → A: Yes. Emit a DEBUG-level `prompt_resolved` structlog event with fields: step_name, provider, source (default/suffix/file/provider-variant), override_applied (bool).
+- Q: What is explicitly out of scope for this feature? → A: Runtime prompt hot-reloading, per-invocation CLI prompt overrides (--prompt flag), prompt versioning/history, and prompt A/B testing.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Default Prompts Work Without Configuration (Priority: P1)
@@ -74,7 +84,7 @@ A team uses multiple AI providers (e.g., Claude for implementation, a different 
 ### Edge Cases
 
 - What happens when both `prompt_suffix` and `prompt_file` are configured for the same step? The system rejects this as a configuration error at validation time (mutual exclusivity).
-- What happens when a `prompt_file` uses a relative path? It is resolved relative to the project root (where `maverick.yaml` lives).
+- What happens when a `prompt_file` uses a relative path? It is resolved relative to the project root (where `maverick.yaml` lives). Absolute paths and paths resolving outside the project root are rejected at validation time.
 - What happens when a step name in user config doesn't match any registered step? The system raises a validation error listing valid step names.
 - What happens when the default prompt registry is empty (e.g., during testing)? The system raises an error at workflow startup, not silently at step execution.
 - What happens when a `prompt_suffix` is an empty string? It is treated as "no suffix" — the default prompt is returned unchanged.
@@ -92,18 +102,52 @@ A team uses multiple AI providers (e.g., Claude for implementation, a different 
 - **FR-007**: Each step registered in the prompt registry MUST declare an override policy: either `replace` (allows full prompt replacement via `prompt_file`) or `augment_only` (only allows `prompt_suffix`).
 - **FR-008**: When a `prompt_file` is configured for a step with `augment_only` policy, the system MUST raise a clear error at configuration validation time, not at step execution time.
 - **FR-009**: When `prompt_suffix` is configured, the resolved prompt MUST be the base prompt followed by a clear separator (e.g., double newline and a heading) and then the suffix text.
-- **FR-010**: The `prompt_file` path MUST be resolved relative to the project root when relative, or used as-is when absolute.
+- **FR-010**: The `prompt_file` path MUST be resolved relative to the project root when relative. Absolute paths and paths that resolve outside the project root (via `../` traversal) MUST be rejected at validation time for security.
 - **FR-011**: System MUST validate that referenced `prompt_file` paths exist and are readable at workflow startup (fail-fast), not at step execution time.
 - **FR-012**: The prompt registry MUST be read-only after initialization. Runtime mutations are not permitted.
 - **FR-013**: Generator agents (one-shot, using `system_prompt`) MUST participate in the same registry and resolution mechanism as interactive agents (using `instructions`).
 - **FR-014**: The `resolve_prompt()` function MUST support template variable rendering (e.g., `$project_conventions`, `$validation_commands`) in both default prompts and user-supplied suffixes/files, using the existing `render_prompt()` mechanism.
+- **FR-015**: The `resolve_prompt()` function MUST emit a DEBUG-level `prompt_resolved` structlog event with fields: `step_name`, `provider`, `source` (one of `"default"`, `"suffix"`, `"file"`, `"provider-variant"`), and `override_applied` (bool).
+- **FR-016**: User prompt overrides MUST be configured in `maverick.yaml` under a top-level `prompts:` key, with per-step entries containing either `prompt_suffix` (inline string) or `prompt_file` (path string).
+
+### Default Override Policies
+
+The following default policy assignments apply to built-in steps:
+
+- **`augment_only`** (structured output consumed by downstream parsing): `implement`, `review`, `fix`, `issue_fix`, `curator`
+- **`replace`** (free-form text output): `commit_message`, `pr_description`, `pr_title`, `code_analyze`, `error_explain`, `dependency_extract`, `bead_enrich`
+
+New steps registered in the prompt registry MUST declare their policy explicitly. If omitted, the default is `augment_only` (safe by default). See data-model.md for the complete default registry entries table with `is_template` flags.
+
+### YAML Configuration Format
+
+Prompt overrides are configured under the `prompts:` key in `maverick.yaml`:
+
+```yaml
+prompts:
+  implement:
+    prompt_suffix: "Always use snake_case for database columns."
+  pr_description:
+    prompt_file: ".maverick/prompts/pr-description.md"
+```
+
+Each step entry may contain `prompt_suffix` (inline string) or `prompt_file` (path string), but not both.
+
+### Out of Scope
+
+The following are explicitly **out of scope** for this feature:
+
+- Runtime prompt hot-reloading (prompts are resolved once per step execution; changes require workflow restart)
+- Per-invocation CLI prompt overrides (e.g., a `--prompt` flag)
+- Prompt versioning or history tracking
+- Prompt A/B testing
 
 ### Key Entities
 
 - **PromptRegistry**: An immutable mapping of `(step_name, provider)` to `PromptEntry` objects. Populated at startup from existing agent prompt constants.
 - **PromptEntry**: Contains the default instructions text and the override policy (`replace` or `augment_only`) for a single step+provider combination.
 - **OverridePolicy**: An enumeration with two values: `replace` (full replacement allowed) and `augment_only` (only suffix appending allowed).
-- **PromptOverride**: User-provided override configuration for a single step, containing either `prompt_suffix` or `prompt_file` (mutually exclusive).
+- **PromptOverrideConfig**: User-provided override configuration for a single step, containing either `prompt_suffix` or `prompt_file` (mutually exclusive).
 
 ## Success Criteria *(mandatory)*
 
