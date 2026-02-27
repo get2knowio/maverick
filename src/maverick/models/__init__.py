@@ -113,12 +113,13 @@ try:
         FindingGroup,
         FindingTracker,
         FixOutcome,
+        GroupedReviewResult,
     )
     from maverick.models.review_models import (
         FixAttempt as SimpleFixAttempt,
     )
     from maverick.models.review_models import (
-        ReviewResult as SimpleReviewResult,
+        GroupedReviewResult as SimpleReviewResult,
     )
     from maverick.models.review_models import (
         TrackedFinding as SimpleTrackedFinding,
@@ -128,6 +129,7 @@ try:
         [
             "Finding",
             "FindingGroup",
+            "GroupedReviewResult",
             "SimpleReviewResult",
             "FixOutcome",
             "SimpleFixAttempt",

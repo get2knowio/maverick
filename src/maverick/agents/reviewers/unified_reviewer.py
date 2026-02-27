@@ -7,12 +7,11 @@ then consolidates findings into a prioritized, grouped list.
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
+from maverick.agents.contracts import validate_output
 from maverick.agents.prompts.common import (
     FRAMEWORK_CONVENTIONS,
     TOOL_USAGE_GLOB,
@@ -24,7 +23,7 @@ from maverick.agents.skill_prompts import render_prompt
 from maverick.agents.tools import REVIEWER_TOOLS
 from maverick.logging import get_logger
 from maverick.models.review_models import (
-    ReviewResult,
+    GroupedReviewResult,
 )
 
 logger = get_logger(__name__)
@@ -181,7 +180,7 @@ If no issues are found, return: `{{"groups": []}}`
 """
 
 
-class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
+class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResult]):
     """Agent for comprehensive code review with parallel expertise.
 
     This agent reviews code from multiple perspectives (Python best practices,
@@ -229,10 +228,11 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            output_model=GroupedReviewResult,
         )
         self._feature_name = feature_name
 
-    async def execute(self, context: dict[str, Any]) -> ReviewResult:
+    async def execute(self, context: dict[str, Any]) -> GroupedReviewResult:
         """Execute comprehensive code review.
 
         Args:
@@ -248,10 +248,8 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
 
         Raises:
             AgentError: On review failure.
-            MalformedResponseError: If JSON output cannot be parsed.
         """
         from maverick.agents.utils import extract_all_text, extract_streaming_text
-        from maverick.exceptions import MalformedResponseError
 
         # Build the review prompt
         prompt = self._build_review_prompt(context)
@@ -269,26 +267,36 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
                 if text:
                     await self.stream_callback(text)
 
-        # Extract text and parse JSON output
+        # --- Structured output path (SDK output_format) ---
+        structured = self._extract_structured_output(messages)
+        if structured is not None:
+            try:
+                result = GroupedReviewResult.model_validate(structured)
+            except Exception as e:
+                logger.warning(
+                    "structured_output_validation_failed",
+                    error=str(e),
+                )
+                # Fall through to text extraction path below
+            else:
+                logger.info(
+                    "review_complete",
+                    total_findings=result.total_count,
+                    groups=len(result.groups),
+                    source="structured_output",
+                )
+                return result
+
+        # --- Text extraction fallback (validate_output) ---
         text = extract_all_text(messages)
 
-        try:
-            result = self._parse_review_output(text)
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.error(
-                "failed_to_parse_review_output",
-                error=str(e),
-                raw_text=text[:500],
-            )
-            raise MalformedResponseError(
-                message=f"Failed to parse review output: {e}",
-                raw_response=text,
-            ) from e
+        result = self._parse_review_output(text)
 
         logger.info(
             "review_complete",
             total_findings=result.total_count,
             groups=len(result.groups),
+            source="text_extraction",
         )
 
         return result
@@ -345,37 +353,21 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], ReviewResult]):
 
         return "\n".join(parts)
 
-    def _parse_review_output(self, text: str) -> ReviewResult:
-        """Parse JSON output from review response.
+    def _parse_review_output(self, text: str) -> GroupedReviewResult:
+        """Parse JSON output from review response using validate_output.
+
+        Uses ``validate_output`` from ``maverick.agents.contracts`` to extract
+        and validate the JSON code block against ``GroupedReviewResult``.
 
         Args:
             text: Full response text containing JSON block.
 
         Returns:
-            Parsed ReviewResult.
-
-        Raises:
-            json.JSONDecodeError: If JSON is malformed.
-            KeyError: If required fields are missing.
+            Parsed GroupedReviewResult, or empty result if extraction fails.
         """
-        # Find JSON block in response
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            # Try to find raw JSON object
-            json_match = re.search(r"(\{[^{}]*\"groups\"[^{}]*\})", text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                # No findings - return empty result
-                logger.warning("no_json_found_in_review_output")
-                return ReviewResult(groups=())
+        result = validate_output(text, GroupedReviewResult, strict=False)
+        if result is not None:
+            return result
 
-        data = json.loads(json_str)
-
-        # Handle empty or missing groups
-        if not data.get("groups"):
-            return ReviewResult(groups=())
-
-        return ReviewResult.from_dict(data)
+        logger.warning("no_valid_review_output_found_in_text")
+        return GroupedReviewResult(groups=[])

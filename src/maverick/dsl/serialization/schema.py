@@ -108,6 +108,13 @@ class StepRecord(BaseModel):
         default_factory=list,
         description="Prerequisite names this step requires (e.g., ['git', 'gh_auth'])",
     )
+    config: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Per-step configuration overrides. Deserialized to StepConfig "
+            "at execution time."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
@@ -160,6 +167,63 @@ class AgentStepRecord(StepRecord):
         None,
         description="Optional action to call for rollback/compensation",
     )
+    output_schema: str | None = Field(
+        None,
+        description=(
+            "Dotted Python path to a Pydantic BaseModel subclass "
+            "for output validation. "
+            "E.g. 'maverick.agents.reviewer.ReviewResult'. "
+            "When provided, agent output is validated and ExecutorResult.output "
+            "contains a validated model instance."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_executor_config(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Map legacy executor_config to config with deprecation warning.
+
+        Handles backward compatibility for workflows using the old
+        ``executor_config`` YAML field (FR-012). Also renames the legacy
+        ``model`` key to ``model_id`` within the migrated config dict.
+
+        Args:
+            data: Raw input data dict.
+
+        Returns:
+            Data dict with executor_config migrated to config.
+
+        Raises:
+            ValueError: If both executor_config and config are provided.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        executor_config = data.get("executor_config")
+        config = data.get("config")
+
+        if executor_config is not None and config is not None:
+            raise ValueError(
+                "Cannot specify both 'executor_config' and 'config' on the "
+                "same step. Use 'config' (executor_config is deprecated)."
+            )
+
+        if executor_config is not None:
+            import structlog
+
+            structlog.get_logger(__name__).warning(
+                "executor_config_deprecated",
+                hint="Rename 'executor_config' to 'config' in your workflow YAML.",
+            )
+            # Rename legacy 'model' key to 'model_id' (FR-012)
+            if isinstance(executor_config, dict) and "model" in executor_config:
+                executor_config = dict(executor_config)
+                executor_config["model_id"] = executor_config.pop("model")
+            data = dict(data)
+            data["config"] = executor_config
+            del data["executor_config"]
+
+        return data
 
 
 class GenerateStepRecord(StepRecord):

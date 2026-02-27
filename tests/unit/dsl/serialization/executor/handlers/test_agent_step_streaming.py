@@ -135,7 +135,8 @@ class TestStreamTextCallbackTextToToolTransition:
             f"Text after tool call should get newline, got: {text_outputs!r}"
         )
         assert not any(t.startswith("\n\n") for t in text_outputs), (
-            f"Text after tool call should get single newline, not double, got: {text_outputs!r}"
+            "Text after tool call should get single newline, "
+            f"not double, got: {text_outputs!r}"
         )
 
     @pytest.mark.asyncio

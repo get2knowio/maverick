@@ -2,18 +2,28 @@
 
 This module handles execution of AgentStepRecord steps with streaming events.
 Implements T027 (AgentStreamChunk emission) and T028 (thinking indicator).
+Delegates execution to StepExecutor (FR-001, FR-008).
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from maverick.config import ModelConfig
+
+from pydantic import BaseModel
 
 from maverick.dsl.context import WorkflowContext
 from maverick.dsl.errors import ReferenceResolutionError
-from maverick.dsl.events import AgentStreamChunk
+from maverick.dsl.executor.config import (
+    IMPLEMENTER_AGENT_NAME,
+    resolve_step_config,
+)
 from maverick.dsl.serialization.executor import context as context_module
 from maverick.dsl.serialization.executor.context_resolution import (
     resolve_context_builder,
@@ -37,10 +47,10 @@ async def execute_agent_step(
     config: Any = None,
     event_callback: EventCallback | None = None,
 ) -> Any:
-    """Execute an agent step with streaming event emission.
+    """Execute an agent step by delegating to StepExecutor.
 
     Implements T027 (AgentStreamChunk emission during execution) and
-    T028 (thinking indicator at agent start).
+    T028 (thinking indicator at agent start) via StepExecutor.
 
     Args:
         step: AgentStepRecord containing agent reference and context.
@@ -48,19 +58,20 @@ async def execute_agent_step(
         context: WorkflowContext with inputs and step results.
         registry: Component registry for resolving agent.
         config: Optional configuration (unused).
+        event_callback: Optional callback for real-time event streaming.
 
     Returns:
         HandlerOutput containing:
-        - result: Agent execution result
-        - events: List of AgentStreamChunk events emitted during execution
+        - result: Agent execution result (ExecutorResult.output)
+        - events: List of AgentStreamChunk events (empty if event_callback
+          was provided, as events were forwarded in real-time)
 
     Raises:
         ReferenceResolutionError: If agent not found in registry.
+        OutputSchemaValidationError: If output_schema validation fails.
+        ConfigError: If executor_config or output_schema has invalid values.
     """
-    # Collect streaming events during execution
-    emitted_events: list[AgentStreamChunk] = []
-
-    # Check if agent exists in the agents registry
+    # Fast fail: check agent exists before expensive context building
     if not registry.agents.has(step.agent):
         raise ReferenceResolutionError(
             reference_type="agent",
@@ -78,219 +89,53 @@ async def execute_agent_step(
     )
 
     # Convert dict to ImplementerContext for implementer agent
-    if step.agent == "implementer" and isinstance(agent_context, dict):
-        task_file_str = agent_context.get("task_file")
-        # Handle case where expression evaluates to False instead of None
-        if isinstance(task_file_str, bool):
-            task_file_str = None
-        task_file = Path(task_file_str) if task_file_str else None
-        task_description = agent_context.get("task_description")
-        branch = agent_context.get("branch", "")
-        if not branch:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "git",
-                    "rev-parse",
-                    "--abbrev-ref",
-                    "HEAD",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await proc.communicate()
-                if proc.returncode == 0:
-                    branch = stdout.decode().strip()
-            except OSError:
-                pass
-        phase_name = agent_context.get("phase_name")
-        cwd_str = agent_context.get("cwd")
-        cwd = Path(cwd_str) if cwd_str else Path.cwd()
+    if step.agent == IMPLEMENTER_AGENT_NAME and isinstance(agent_context, dict):
+        agent_context = await _convert_to_implementer_context(agent_context)
 
-        agent_context = ImplementerContext(
-            task_file=task_file,
-            task_description=task_description,
-            phase_name=phase_name,
-            branch=branch,
-            cwd=cwd,
-            skip_validation=agent_context.get("skip_validation", False),
-            dry_run=agent_context.get("dry_run", False),
-        )
+    # Get or create executor
+    executor = context.step_executor
+    if executor is None:
+        from maverick.dsl.executor import ClaudeStepExecutor
 
-    # Get agent class from registry and instantiate
-    # Note: Registry stores agent classes (not instances)
-    agent_class = registry.agents.get(step.agent)
+        executor = ClaudeStepExecutor(registry=registry)
 
-    # Runtime validation: ensure it's callable
-    if not callable(agent_class):
-        raise TypeError(
-            f"Agent '{step.agent}' is not callable. "
-            f"Expected a class or callable, got {type(agent_class).__name__}"
-        )
+    # Resolve output_schema dotted path if provided (FR-007)
+    output_schema = _resolve_output_schema(step)
 
-    # Build kwargs for agent construction
-    agent_kwargs: dict[str, Any] = {}
-
-    # Inject validation commands from maverick.yaml as prompt guidance
-    if step.agent == "implementer":
-        try:
-            from maverick.config import load_config
-
-            maverick_config = load_config()
-            agent_kwargs["validation_commands"] = _extract_validation_commands(
-                maverick_config.validation,
-            )
-        except (ImportError, ModuleNotFoundError) as e:
-            logger.debug(
-                "validation_config_unavailable",
-                error=str(e),
-                reason="module_not_found",
-            )
-        except ConfigError as e:
-            logger.debug(
-                "validation_config_failed",
-                error=str(e),
-                reason="config_error",
-            )
-
-    try:
-        agent_instance = agent_class(**agent_kwargs)
-    except TypeError as e:
-        logger.error(
-            "failed_to_instantiate_agent",
-            agent=step.agent,
-            error=str(e),
-            hint="Agent classes must be instantiable without arguments",
-        )
-        raise
-
-    # Runtime validation: ensure execute method exists
-    if not hasattr(agent_instance, "execute"):
-        raise AttributeError(
-            f"Agent instance '{step.agent}' does not have an 'execute' method"
-        )
-
-    # Get agent name for events (use class name or configured name)
-    agent_name = getattr(agent_instance, "name", step.agent)
-
-    # Set up stream callback for real-time output streaming
-    # Track whether any output was actually streamed to avoid duplicate emission
-    has_event_callback = event_callback is not None
-    has_stream_attr = hasattr(agent_instance, "stream_callback")
-    output_was_streamed = False  # Track if streaming actually occurred
-    last_was_tool_call = False  # Track output type for proper line breaks
-    has_emitted_text = False  # Track if non-tool text was emitted
-    logger.info(
-        "stream_callback_setup",
-        has_event_callback=has_event_callback,
-        has_stream_attr=has_stream_attr,
-        agent=step.agent,
-    )
-    if has_event_callback and has_stream_attr:
-
-        async def stream_text_callback(text: str) -> None:
-            """Forward agent output to event queue as AgentStreamChunk.
-
-            Handles line break transitions between tool calls and text output:
-            - Tool calls use dim └ prefix (from _format_tool_call)
-            - First text after tool call gets extra newline prefix
-            """
-            nonlocal output_was_streamed, last_was_tool_call, has_emitted_text
-            output_was_streamed = True  # Mark that we actually streamed output
-
-            # Detect if this is a tool call (starts with └ or [dim]└)
-            stripped = text.lstrip("\n")
-            is_tool_call = stripped.startswith("\u2514") or stripped.startswith(
-                "[dim]\u2514"
-            )
-
-            # Add extra newlines when switching between tool output and text
-            # This creates visual separation (blank line) between modes
-            output_text = text
-            if last_was_tool_call and not is_tool_call and text.strip():
-                output_text = "\n" + text
-
-            # Ensure tool call starts on a new line after streamed text
-            if has_emitted_text and not last_was_tool_call and is_tool_call:
-                output_text = "\n" + output_text
-
-            last_was_tool_call = is_tool_call
-
-            # Track non-tool text emission
-            if not is_tool_call and text.strip():
-                has_emitted_text = True
-
-            chunk_event = AgentStreamChunk(
-                step_name=step.name,
-                agent_name=agent_name,
-                text=output_text,
-                chunk_type="output",
-            )
-            # event_callback is guaranteed non-None here (checked at line 141)
-            assert event_callback is not None  # for mypy
-            await event_callback(chunk_event)
-
-        agent_instance.stream_callback = stream_text_callback
-
-    # T028: Emit thinking indicator at agent start
-    thinking_event = AgentStreamChunk(
-        step_name=step.name,
-        agent_name=agent_name,
-        text="Agent is working...",
-        chunk_type="thinking",
-    )
-    if event_callback:
-        await event_callback(thinking_event)
-    else:
-        emitted_events.append(thinking_event)
-
-    logger.debug(
-        "agent_step_starting",
-        step_name=step.name,
-        agent_name=agent_name,
-    )
-
-    try:
-        # Call execute method (runtime validated above)
-        result = agent_instance.execute(agent_context)
-
-        # If result is a coroutine, await it
-        if inspect.iscoroutine(result):
-            result = await result
-
-        # T027: Extract text output from result and emit OUTPUT chunk
-        # Skip if output was already streamed in real-time to avoid duplication
-        # Only emit the final output when streaming didn't occur
-        if not output_was_streamed:
-            output_text = _extract_output_text(result)
-            if output_text:
-                output_event = AgentStreamChunk(
-                    step_name=step.name,
-                    agent_name=agent_name,
-                    text=output_text,
-                    chunk_type="output",
-                )
-                if event_callback:
-                    await event_callback(output_event)
-                else:
-                    emitted_events.append(output_event)
-
-    except Exception as e:
-        # T027: Emit ERROR chunk on exception
-        error_event = AgentStreamChunk(
+    # Resolve step config via 4-layer precedence (033-step-config)
+    maverick_cfg = context.maverick_config if context else None
+    if maverick_cfg is None:
+        logger.debug(
+            "no_maverick_config_in_context",
             step_name=step.name,
-            agent_name=agent_name,
-            text=str(e),
-            chunk_type="error",
+            msg="Falling back to default model config; "
+            "set context.maverick_config "
+            "for full 4-layer resolution",
         )
-        if event_callback:
-            await event_callback(error_event)
-        else:
-            emitted_events.append(error_event)
-        logger.error(
-            "agent_step_failed",
-            step_name=step.name,
-            error=str(e),
-        )
-        raise
+    step_config = resolve_step_config(
+        inline_config=step.config,
+        project_step_config=(
+            maverick_cfg.steps.get(step.name) if maverick_cfg else None
+        ),
+        agent_config=(maverick_cfg.agents.get(step.agent) if maverick_cfg else None),
+        global_model=(maverick_cfg.model if maverick_cfg else _default_model_config()),
+        step_type=step.type,
+        step_name=step.name,
+    )
+
+    # Delegate execution to StepExecutor
+    # TODO(032): Forward instructions/allowed_tools/cwd per FR-001.
+    # The StepExecutor protocol accepts these but AgentStepRecord
+    # does not yet surface them. Once the DSL schema adds
+    # instructions/allowed_tools/cwd fields, pass them here.
+    executor_result = await executor.execute(
+        step_name=step.name,
+        agent_name=step.agent,
+        prompt=agent_context,
+        output_schema=output_schema,
+        config=step_config,
+        event_callback=event_callback,
+    )
 
     # Register rollback if specified
     if step.rollback:
@@ -314,89 +159,97 @@ async def execute_agent_step(
 
             context_module.register_rollback(context, step.name, rollback_wrapper)
 
-    # Return result with events using typed HandlerOutput
-    return HandlerOutput(result=result, events=emitted_events)
+    # When event_callback was provided, events were already forwarded
+    # in real-time. Returning them in HandlerOutput.events would cause
+    # double-emission in the executor.
+    events_to_embed = [] if event_callback else list(executor_result.events)
+    return HandlerOutput(result=executor_result.output, events=events_to_embed)
 
 
-def _extract_validation_commands(
-    validation: Any,
-) -> dict[str, list[str]]:
-    """Extract validation commands from a ValidationConfig for prompt injection.
-
-    Args:
-        validation: A ValidationConfig instance.
-
-    Returns:
-        Dict mapping command type (e.g. "test_cmd") to argv list.
-    """
-    commands: dict[str, list[str]] = {}
-    for key in ("sync_cmd", "format_cmd", "lint_cmd", "typecheck_cmd", "test_cmd"):
-        value = getattr(validation, key, None)
-        if value:
-            commands[key] = list(value)
-    return commands
-
-
-def _extract_output_text(result: Any) -> str:
-    """Extract text output from an agent result.
-
-    Attempts to extract meaningful text content from various agent result
-    formats for streaming display.
+async def _convert_to_implementer_context(
+    agent_context: dict[str, Any],
+) -> ImplementerContext:
+    """Convert a dict agent context to an ImplementerContext.
 
     Args:
-        result: The result returned by agent.execute().
+        agent_context: Dict with task_file, task_description, branch, etc.
 
     Returns:
-        Extracted text content, or empty string if no text found.
+        ImplementerContext instance.
     """
-    if result is None:
-        return ""
+    task_file_str = agent_context.get("task_file")
+    # Handle case where expression evaluates to False instead of None
+    if isinstance(task_file_str, bool):
+        task_file_str = None
+    task_file = Path(task_file_str) if task_file_str else None
+    task_description = agent_context.get("task_description")
+    branch = agent_context.get("branch", "")
+    if not branch:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "rev-parse",
+                "--abbrev-ref",
+                "HEAD",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode == 0:
+                branch = stdout.decode().strip()
+        except OSError:
+            pass
+    phase_name = agent_context.get("phase_name")
+    cwd_str = agent_context.get("cwd")
+    cwd = Path(cwd_str) if cwd_str else Path.cwd()
 
-    # Check for AgentResult-style objects with non-empty 'output' attribute
-    if hasattr(result, "output"):
-        output = result.output
-        if isinstance(output, str) and output:
-            return output
-        if output is not None and not isinstance(output, str):
-            return str(output)
+    return ImplementerContext(
+        task_file=task_file,
+        task_description=task_description,
+        phase_name=phase_name,
+        branch=branch,
+        cwd=cwd,
+        skip_validation=agent_context.get("skip_validation", False),
+        dry_run=agent_context.get("dry_run", False),
+    )
 
-    # Check for dict with non-empty 'output' key
-    if isinstance(result, dict) and "output" in result:
-        output = result["output"]
-        if isinstance(output, str) and output:
-            return output
-        if output is not None and not isinstance(output, str):
-            return str(output)
 
-    # Check for ImplementationResult-style objects and generate summary
-    if hasattr(result, "tasks_completed") and hasattr(result, "success"):
-        parts = []
-        completed = getattr(result, "tasks_completed", 0)
-        failed = getattr(result, "tasks_failed", 0)
-        skipped = getattr(result, "tasks_skipped", 0)
-        success = getattr(result, "success", False)
+def _resolve_output_schema(step: AgentStepRecord) -> type[BaseModel] | None:
+    """Resolve the output_schema dotted path to a Pydantic BaseModel class.
 
-        status = "Completed" if success else "Failed"
-        parts.append(f"{status}: {completed} task(s) completed")
-        if failed > 0:
-            parts.append(f"{failed} failed")
-        if skipped > 0:
-            parts.append(f"{skipped} skipped")
+    Args:
+        step: AgentStepRecord potentially containing output_schema.
 
-        # Add file change info if available
-        files_changed = getattr(result, "files_changed", [])
-        if files_changed:
-            parts.append(f"{len(files_changed)} file(s) modified")
+    Returns:
+        The resolved BaseModel subclass, or None if not specified.
 
-        return ", ".join(parts)
+    Raises:
+        ConfigError: If the dotted path cannot be imported or resolved.
+    """
+    schema_path = getattr(step, "output_schema", None)
+    if not schema_path:
+        return None
+    try:
+        module_path, class_name = schema_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+    except (ImportError, AttributeError, ValueError) as e:
+        raise ConfigError(f"Cannot resolve output_schema '{schema_path}': {e}") from e
 
-    # Check for string result
-    if isinstance(result, str):
-        return result
+    if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
+        raise ConfigError(
+            f"output_schema '{schema_path}' resolved to {cls!r}, "
+            f"which is not a Pydantic BaseModel subclass"
+        )
+    return cls
 
-    # Fallback: convert to string if meaningful
-    result_str = str(result)
-    # Avoid unhelpful string representations
-    if result_str.startswith("<") and result_str.endswith(">"):
-        return ""
-    return result_str
+
+def _default_model_config() -> ModelConfig:
+    """Return a default ModelConfig for when context doesn't provide one.
+
+    Returns:
+        ModelConfig with built-in defaults.
+    """
+    from maverick.config import ModelConfig
+
+    return ModelConfig()

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
 from click.testing import CliRunner
 
 from maverick.cli.commands.fly._group import fly
+from maverick.main import cli
+
+# Patch target for the Python workflow execution
+_PATCH_EXECUTE = "maverick.cli.commands.fly._group.execute_python_workflow"
 
 
 class TestFlyCommand:
@@ -81,3 +90,71 @@ class TestFlyCommand:
         # Should NOT show subcommands like "beads" or "run"
         assert "beads" not in result.output.lower().split("options")[0]
         assert "Commands:" not in result.output
+
+
+class TestFlyCommandDelegation:
+    """Tests that fly CLI delegates to the correct Python workflow."""
+
+    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
+    def test_delegates_to_python_workflow(
+        self,
+        mock_execute: AsyncMock,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+        maverick_yaml: Path,
+    ) -> None:
+        """fly command delegates to execute_python_workflow with FlyBeadsWorkflow."""
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        cli_runner.invoke(cli, ["fly"])
+
+        mock_execute.assert_called_once()
+        # First positional arg is the click context; second is PythonWorkflowRunConfig
+        call_args = mock_execute.call_args
+        run_config = call_args[0][1]
+        from maverick.workflows.fly_beads import FlyBeadsWorkflow
+
+        assert run_config.workflow_class is FlyBeadsWorkflow
+
+    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
+    def test_passes_dry_run_as_input(
+        self,
+        mock_execute: AsyncMock,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+        maverick_yaml: Path,
+    ) -> None:
+        """--dry-run flag is forwarded as inputs['dry_run'] = True."""
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        cli_runner.invoke(cli, ["fly", "--dry-run"])
+
+        mock_execute.assert_called_once()
+        run_config = mock_execute.call_args[0][1]
+        assert run_config.inputs.get("dry_run") is True
+
+    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
+    def test_dry_run_false_by_default(
+        self,
+        mock_execute: AsyncMock,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+        maverick_yaml: Path,
+    ) -> None:
+        """dry_run defaults to False when --dry-run is not supplied."""
+        os.chdir(temp_dir)
+        monkeypatch.setattr(Path, "home", lambda: temp_dir)
+
+        cli_runner.invoke(cli, ["fly"])
+
+        mock_execute.assert_called_once()
+        run_config = mock_execute.call_args[0][1]
+        assert run_config.inputs.get("dry_run") is False

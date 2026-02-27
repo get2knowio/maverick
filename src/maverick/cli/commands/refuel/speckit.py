@@ -1,6 +1,6 @@
 """``maverick refuel speckit`` command.
 
-Delegates to the ``refuel-speckit`` DSL workflow via ``execute_workflow_run``.
+Delegates to the ``RefuelSpeckitWorkflow`` Python workflow.
 """
 
 from __future__ import annotations
@@ -10,8 +10,38 @@ from pathlib import Path
 import click
 
 from maverick.cli.commands.refuel._group import refuel
-from maverick.cli.context import async_command
-from maverick.cli.workflow_executor import execute_workflow_run
+from maverick.cli.console import console
+from maverick.cli.context import ExitCode, async_command
+from maverick.cli.workflow_executor import (
+    PythonWorkflowRunConfig,
+    execute_python_workflow,
+)
+from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
+from maverick.workflows.refuel_speckit.constants import (
+    CHECKOUT,
+    CHECKOUT_MAIN,
+    COMMIT,
+    CREATE_BEADS,
+    ENRICH_BEADS,
+    EXTRACT_DEPS,
+    MERGE,
+    PARSE_SPEC,
+    WIRE_DEPS,
+    WORKFLOW_NAME,
+)
+
+# Ordered list of refuel-speckit steps for --list-steps display.
+_REFUEL_SPECKIT_STEPS = [
+    CHECKOUT,
+    PARSE_SPEC,
+    EXTRACT_DEPS,
+    ENRICH_BEADS,
+    CREATE_BEADS,
+    WIRE_DEPS,
+    COMMIT,
+    CHECKOUT_MAIN,
+    MERGE,
+]
 
 
 @refuel.command()
@@ -55,18 +85,23 @@ async def speckit(
         maverick refuel speckit 001-greet-cli --dry-run
         maverick refuel speckit 001-greet-cli --list-steps
     """
-    await execute_workflow_run(
+    if list_steps:
+        console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
+        console.print()
+        console.print("[bold]Steps:[/]")
+        for i, step_name in enumerate(_REFUEL_SPECKIT_STEPS, 1):
+            console.print(f"  {i}. {step_name} [dim](python)[/]")
+        console.print()
+        raise SystemExit(ExitCode.SUCCESS)
+
+    await execute_python_workflow(
         ctx,
-        "refuel-speckit",
-        (
-            f"spec={spec}",
-            f"dry_run={str(dry_run).lower()}",
+        PythonWorkflowRunConfig(
+            workflow_class=RefuelSpeckitWorkflow,
+            inputs={
+                "spec": spec,
+                "dry_run": dry_run,
+            },
+            session_log_path=session_log,
         ),
-        None,  # input_file
-        dry_run,  # CLI-level dry_run: show plan and exit (skips preflight)
-        False,  # restart
-        False,  # no_validate
-        list_steps,
-        None,  # only_step
-        session_log_path=session_log,
     )

@@ -11,20 +11,20 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.context import AgentContext
+from maverick.agents.contracts import validate_output
 from maverick.agents.prompts.common import (
     TOOL_USAGE_EDIT,
     TOOL_USAGE_READ,
     TOOL_USAGE_WRITE,
 )
-from maverick.agents.result import AgentResult
 from maverick.agents.tools import FIXER_TOOLS
 from maverick.agents.utils import (
     extract_all_text,
     extract_streaming_text,
-    get_zero_usage,
 )
 from maverick.exceptions import AgentError
 from maverick.logging import get_logger
+from maverick.models.fixer import FixerResult
 
 logger = get_logger(__name__)
 
@@ -89,7 +89,7 @@ You have access to: **Read, Write, Edit**
 # =============================================================================
 
 
-class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
+class FixerAgent(MaverickAgent[AgentContext, FixerResult]):
     """Minimal agent for applying targeted validation fixes.
 
     This agent has the smallest tool set (Read, Write, Edit) and expects
@@ -98,7 +98,8 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
 
     Type Parameters:
         Context: AgentContext - base context type (uses extra dict for prompts)
-        Result: AgentResult - base result type (success/failure with errors)
+        Result: FixerResult - typed output contract with success, summary,
+            files_mentioned, and error_details fields.
 
     Use Cases:
         - Fixing linting errors at specific line numbers
@@ -147,14 +148,20 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
+            output_model=FixerResult,
         )
 
-    async def execute(self, context: AgentContext) -> AgentResult:
+    async def execute(self, context: AgentContext) -> FixerResult:
         """Apply a targeted fix based on the provided context.
 
         The agent uses its tools (Read, Write, Edit) to apply fixes.
         Success is determined by whether the agent completed without errors;
         the caller re-runs validation afterward to verify the fix worked.
+
+        Uses a three-tier output extraction strategy:
+        1. SDK structured output (``output_format`` enforcement)
+        2. ``validate_output()`` fallback (JSON code-block extraction)
+        3. Synthetic ``FixerResult`` from raw text
 
         Args:
             context: Runtime context containing:
@@ -163,10 +170,11 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
                 - config: Optional agent configuration
 
         Returns:
-            AgentResult with:
-                - success: True if the agent ran without errors
-                - output: Agent's text output (for logging/debugging)
-                - usage: Token usage statistics
+            FixerResult with:
+                - success: Whether the fix attempt succeeded
+                - summary: Human-readable description of what was done
+                - files_mentioned: Best-effort list of modified files
+                - error_details: Error description when success is False
 
         Raises:
             AgentError: Wrapped SDK errors (no automatic retries).
@@ -176,14 +184,10 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
             prompt = context.extra.get("prompt")
             if not prompt:
                 logger.error("No prompt provided in context.extra")
-                return AgentResult.failure_result(
-                    errors=[
-                        AgentError(
-                            message="No prompt provided in context.extra",
-                            agent_name=self.name,
-                        )
-                    ],
-                    usage=get_zero_usage(),
+                return FixerResult(
+                    success=False,
+                    summary="No prompt provided",
+                    error_details="No prompt provided in context.extra",
                 )
 
             logger.info("Applying fix with FixerAgent")
@@ -198,33 +202,39 @@ class FixerAgent(MaverickAgent[AgentContext, AgentResult]):
                     if text:
                         await self.stream_callback(text)
 
-            output = extract_all_text(messages)
-            usage = self._extract_usage(messages)
+            # --- Three-tier output extraction ---
 
-            # The agent's job is to apply fixes via tools. Whether the
-            # fix actually resolved validation errors is determined by
-            # re-running validation in the retry loop, not by the
-            # agent's self-report.
-            return AgentResult.success_result(
-                output=output,
-                usage=usage,
+            # Tier 1: SDK structured output (output_format enforcement)
+            structured = self._extract_structured_output(messages)
+            if structured is not None:
+                return FixerResult.model_validate(structured)
+
+            # Tier 2: validate_output fallback (JSON code-block extraction)
+            raw_text = extract_all_text(messages)
+            result = validate_output(raw_text, FixerResult, strict=False)
+            if result is not None:
+                return result
+
+            # Tier 3: Synthetic FixerResult from raw text
+            return FixerResult(
+                success=True,
+                summary=(
+                    raw_text[:200] if raw_text else "Fix applied (no structured output)"
+                ),
+                files_mentioned=[],
             )
 
         except AgentError as e:
-            # Wrap AgentError in failure result (don't re-raise)
             logger.error("Agent error during fix: %s", e)
-            return AgentResult.failure_result(
-                errors=[e],
-                usage=get_zero_usage(),
+            return FixerResult(
+                success=False,
+                summary="Agent error during fix",
+                error_details=str(e),
             )
         except Exception as e:
             logger.exception("Fix execution failed: %s", e)
-            return AgentResult.failure_result(
-                errors=[
-                    AgentError(
-                        message=str(e),
-                        agent_name=self.name,
-                    )
-                ],
-                usage=get_zero_usage(),
+            return FixerResult(
+                success=False,
+                summary="Fix execution failed",
+                error_details=str(e),
             )

@@ -4,12 +4,13 @@ Tests the fixer agent's functionality including:
 - Initialization and configuration (T031)
 - System prompt verification (T032)
 - Execute method signature and behavior (T033)
-- Targeted fix application
+- Three-tier output extraction (structured, validate_output, synthetic)
 - Error handling
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,10 +21,10 @@ from maverick.agents.fixer import (
     FIXER_SYSTEM_PROMPT,
     FixerAgent,
 )
-from maverick.agents.result import AgentResult, AgentUsage
 from maverick.agents.tools import FIXER_TOOLS
 from maverick.config import MaverickConfig
 from maverick.exceptions import AgentError
+from maverick.models.fixer import FixerResult
 
 # =============================================================================
 # Fixtures
@@ -119,6 +120,10 @@ class TestFixerAgentInitialization:
         agent = FixerAgent(mcp_servers=mcp_config)
         assert agent.mcp_servers == mcp_config
 
+    def test_output_model_set(self, agent: FixerAgent) -> None:
+        """Test output_model is set to FixerResult."""
+        assert agent._output_model is FixerResult
+
 
 # =============================================================================
 # T032: System Prompt Tests
@@ -154,9 +159,7 @@ class TestFixerInstructions:
         # Should make minimal changes
         assert "minimal" in prompt.lower() or "necessary" in prompt.lower()
 
-    def test_instructions_does_not_request_json_output(
-        self, agent: FixerAgent
-    ) -> None:
+    def test_instructions_does_not_request_json_output(self, agent: FixerAgent) -> None:
         """Test instructions does not ask for JSON output (T032).
 
         The fixer applies fixes via tools; success is determined by
@@ -175,14 +178,13 @@ class TestExecuteMethod:
     """Tests for the execute method (T033)."""
 
     @pytest.mark.asyncio
-    async def test_execute_returns_agent_result(
+    async def test_execute_returns_fixer_result(
         self,
         agent: FixerAgent,
         fix_context: AgentContext,
         sample_agent_output: str,
     ) -> None:
-        """Test execute returns AgentResult on success (T033)."""
-        # Mock the Claude query
+        """Test execute returns FixerResult on success (T033)."""
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_text_block = MagicMock()
@@ -191,21 +193,13 @@ class TestExecuteMethod:
         mock_message.content = [mock_text_block]
         type(mock_message).__name__ = "AssistantMessage"
 
-        # Mock ResultMessage for usage tracking
-        mock_result_msg = MagicMock()
-        type(mock_result_msg).__name__ = "ResultMessage"
-        mock_result_msg.usage = {"input_tokens": 100, "output_tokens": 50}
-        mock_result_msg.total_cost_usd = 0.01
-        mock_result_msg.duration_ms = 1000
-
         async def async_gen(*args, **kwargs):
             yield mock_message
-            yield mock_result_msg
 
         with patch.object(agent, "query", side_effect=async_gen):
             result = await agent.execute(fix_context)
 
-            assert isinstance(result, AgentResult)
+            assert isinstance(result, FixerResult)
             assert result.success is True
 
     @pytest.mark.asyncio
@@ -227,7 +221,7 @@ class TestExecuteMethod:
         with patch.object(agent, "query", side_effect=async_gen):
             # Should not raise TypeError
             result = await agent.execute(fix_context)
-            assert isinstance(result, AgentResult)
+            assert isinstance(result, FixerResult)
 
     @pytest.mark.asyncio
     async def test_execute_extracts_prompt_from_context(
@@ -256,13 +250,13 @@ class TestExecuteMethod:
             assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_execute_returns_raw_output(
+    async def test_execute_tier3_returns_summary_from_raw_text(
         self,
         agent: FixerAgent,
         fix_context: AgentContext,
         sample_agent_output: str,
     ) -> None:
-        """Test execute returns the agent's raw text output (T033)."""
+        """Test tier 3 fallback uses raw text as summary (T033)."""
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_text_block = MagicMock()
@@ -278,7 +272,7 @@ class TestExecuteMethod:
             result = await agent.execute(fix_context)
 
             assert result.success is True
-            assert result.output == sample_agent_output
+            assert result.summary == sample_agent_output
 
     @pytest.mark.asyncio
     async def test_execute_succeeds_with_any_text_output(
@@ -288,8 +282,8 @@ class TestExecuteMethod:
     ) -> None:
         """Test execute succeeds regardless of output format.
 
-        The fixer's job is to apply fixes via tools. Success is determined
-        by whether the agent ran without errors, not by its text output.
+        The fixer's job is to apply fixes via tools. When no structured
+        output is available, tier 3 constructs a synthetic FixerResult.
         """
         mock_message = MagicMock()
         mock_message.role = "assistant"
@@ -306,29 +300,44 @@ class TestExecuteMethod:
             result = await agent.execute(fix_context)
 
             assert result.success is True
-            assert result.output is not None
+            assert result.summary is not None
+
+
+# =============================================================================
+# Three-Tier Output Extraction Tests
+# =============================================================================
+
+
+class TestThreeTierExtraction:
+    """Tests for the three-tier output extraction strategy."""
 
     @pytest.mark.asyncio
-    async def test_execute_includes_usage_statistics(
+    async def test_tier1_sdk_structured_output(
         self,
         agent: FixerAgent,
         fix_context: AgentContext,
-        sample_agent_output: str,
     ) -> None:
-        """Test execute includes usage statistics (T033)."""
+        """Test tier 1: SDK structured output is preferred when available."""
+        structured_data = {
+            "success": True,
+            "summary": "Fixed line length in implementer.py",
+            "files_mentioned": ["src/maverick/agents/implementer.py"],
+            "error_details": None,
+        }
+
+        # AssistantMessage with text
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_text_block = MagicMock()
-        mock_text_block.text = sample_agent_output
+        mock_text_block.text = "some raw text"
         type(mock_text_block).__name__ = "TextBlock"
         mock_message.content = [mock_text_block]
         type(mock_message).__name__ = "AssistantMessage"
 
+        # ResultMessage with structured_output
         mock_result_msg = MagicMock()
         type(mock_result_msg).__name__ = "ResultMessage"
-        mock_result_msg.usage = {"input_tokens": 150, "output_tokens": 75}
-        mock_result_msg.total_cost_usd = 0.02
-        mock_result_msg.duration_ms = 1500
+        mock_result_msg.structured_output = structured_data
 
         async def async_gen(*args, **kwargs):
             yield mock_message
@@ -337,11 +346,161 @@ class TestExecuteMethod:
         with patch.object(agent, "query", side_effect=async_gen):
             result = await agent.execute(fix_context)
 
-            assert isinstance(result.usage, AgentUsage)
-            assert result.usage.input_tokens == 150
-            assert result.usage.output_tokens == 75
-            assert result.usage.total_cost_usd == 0.02
-            assert result.usage.duration_ms == 1500
+            assert isinstance(result, FixerResult)
+            assert result.success is True
+            assert result.summary == "Fixed line length in implementer.py"
+            assert result.files_mentioned == ["src/maverick/agents/implementer.py"]
+
+    @pytest.mark.asyncio
+    async def test_tier2_validate_output_fallback(
+        self,
+        agent: FixerAgent,
+        fix_context: AgentContext,
+    ) -> None:
+        """Test tier 2: validate_output extracts from JSON code block."""
+        json_data = {
+            "success": True,
+            "summary": "Reformatted line 42",
+            "files_mentioned": ["implementer.py"],
+        }
+        text_with_json = f"Here is the result:\n```json\n{json.dumps(json_data)}\n```"
+
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_text_block = MagicMock()
+        mock_text_block.text = text_with_json
+        type(mock_text_block).__name__ = "TextBlock"
+        mock_message.content = [mock_text_block]
+        type(mock_message).__name__ = "AssistantMessage"
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+
+        with patch.object(agent, "query", side_effect=async_gen):
+            result = await agent.execute(fix_context)
+
+            assert isinstance(result, FixerResult)
+            assert result.success is True
+            assert result.summary == "Reformatted line 42"
+            assert result.files_mentioned == ["implementer.py"]
+
+    @pytest.mark.asyncio
+    async def test_tier3_synthetic_from_raw_text(
+        self,
+        agent: FixerAgent,
+        fix_context: AgentContext,
+    ) -> None:
+        """Test tier 3: synthetic FixerResult from raw text."""
+        raw_text = "I fixed the line length issue in implementer.py"
+
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_text_block = MagicMock()
+        mock_text_block.text = raw_text
+        type(mock_text_block).__name__ = "TextBlock"
+        mock_message.content = [mock_text_block]
+        type(mock_message).__name__ = "AssistantMessage"
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+
+        with patch.object(agent, "query", side_effect=async_gen):
+            result = await agent.execute(fix_context)
+
+            assert isinstance(result, FixerResult)
+            assert result.success is True
+            assert result.summary == raw_text
+            assert result.files_mentioned == []
+
+    @pytest.mark.asyncio
+    async def test_tier3_truncates_long_raw_text(
+        self,
+        agent: FixerAgent,
+        fix_context: AgentContext,
+    ) -> None:
+        """Test tier 3 truncates raw text to 200 chars for summary."""
+        long_text = "A" * 500
+
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_text_block = MagicMock()
+        mock_text_block.text = long_text
+        type(mock_text_block).__name__ = "TextBlock"
+        mock_message.content = [mock_text_block]
+        type(mock_message).__name__ = "AssistantMessage"
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+
+        with patch.object(agent, "query", side_effect=async_gen):
+            result = await agent.execute(fix_context)
+
+            assert result.success is True
+            assert len(result.summary) == 200
+
+    @pytest.mark.asyncio
+    async def test_tier3_empty_output_gets_default_summary(
+        self,
+        agent: FixerAgent,
+        fix_context: AgentContext,
+    ) -> None:
+        """Test tier 3 uses default summary when output is empty."""
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = []
+        type(mock_message).__name__ = "AssistantMessage"
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+
+        with patch.object(agent, "query", side_effect=async_gen):
+            result = await agent.execute(fix_context)
+
+            assert result.success is True
+            assert result.summary == "Fix applied (no structured output)"
+
+    @pytest.mark.asyncio
+    async def test_tier1_takes_precedence_over_tier2(
+        self,
+        agent: FixerAgent,
+        fix_context: AgentContext,
+    ) -> None:
+        """Test SDK structured output (tier 1) takes precedence over code block."""
+        # Put a JSON code block in the text (tier 2 candidate)
+        json_data = {
+            "success": True,
+            "summary": "From code block",
+            "files_mentioned": [],
+        }
+        text_with_json = f"```json\n{json.dumps(json_data)}\n```"
+
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_text_block = MagicMock()
+        mock_text_block.text = text_with_json
+        type(mock_text_block).__name__ = "TextBlock"
+        mock_message.content = [mock_text_block]
+        type(mock_message).__name__ = "AssistantMessage"
+
+        # Tier 1 structured output should win
+        structured_data = {
+            "success": True,
+            "summary": "From SDK structured output",
+            "files_mentioned": ["file.py"],
+        }
+        mock_result_msg = MagicMock()
+        type(mock_result_msg).__name__ = "ResultMessage"
+        mock_result_msg.structured_output = structured_data
+
+        async def async_gen(*args, **kwargs):
+            yield mock_message
+            yield mock_result_msg
+
+        with patch.object(agent, "query", side_effect=async_gen):
+            result = await agent.execute(fix_context)
+
+            assert result.summary == "From SDK structured output"
+            assert result.files_mentioned == ["file.py"]
 
 
 # =============================================================================
@@ -365,9 +524,11 @@ class TestErrorHandling:
 
             result = await agent.execute(fix_context)
 
-            # Should return failed result, not raise
+            # Should return failed FixerResult, not raise
+            assert isinstance(result, FixerResult)
             assert result.success is False
-            assert len(result.errors) > 0
+            assert result.error_details is not None
+            assert "Claude API error" in result.error_details
 
     @pytest.mark.asyncio
     async def test_execute_handles_missing_prompt(
@@ -383,9 +544,11 @@ class TestErrorHandling:
 
         result = await agent.execute(context)
 
-        # Should return a failure result
+        # Should return a failure FixerResult
+        assert isinstance(result, FixerResult)
         assert result.success is False
-        assert len(result.errors) > 0
+        assert result.error_details is not None
+        assert "prompt" in result.error_details.lower()
 
     @pytest.mark.asyncio
     async def test_execute_handles_unexpected_exception(
@@ -397,8 +560,10 @@ class TestErrorHandling:
 
             result = await agent.execute(fix_context)
 
+            assert isinstance(result, FixerResult)
             assert result.success is False
-            assert len(result.errors) > 0
+            assert result.error_details is not None
+            assert "Unexpected failure" in result.error_details
 
 
 # =============================================================================
@@ -434,13 +599,13 @@ class TestFixerBehavior:
             await agent.execute(fix_context)
 
     @pytest.mark.asyncio
-    async def test_fixer_output_is_raw_text(
+    async def test_fixer_returns_fixer_result_type(
         self,
         agent: FixerAgent,
         fix_context: AgentContext,
         sample_agent_output: str,
     ) -> None:
-        """Test fixer output is raw agent text, not structured data."""
+        """Test fixer returns FixerResult (typed output contract)."""
         mock_message = MagicMock()
         mock_message.role = "assistant"
         mock_text_block = MagicMock()
@@ -455,5 +620,7 @@ class TestFixerBehavior:
         with patch.object(agent, "query", side_effect=async_gen):
             result = await agent.execute(fix_context)
 
-            # Output should be the raw text, not parsed/transformed
-            assert result.output == sample_agent_output
+            assert isinstance(result, FixerResult)
+            assert result.success is True
+            assert isinstance(result.summary, str)
+            assert isinstance(result.files_mentioned, list)
