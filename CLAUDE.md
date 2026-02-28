@@ -555,6 +555,9 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Markdown+YAML files on disk (`flight-plan.md`, `###-slug.md`) (037-flight-plan-models)
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Rich, Pydantic, pathlib, structlog, tenacity (038-refuel-maverick-method)
 - Markdown+YAML files on disk (`.maverick/work-units/<name>/`), beads via `bd` CLI (038-refuel-maverick-method)
+- Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Rich (console output), RefuelMaverickWorkflow (workflow engine) (039-refuel-flight-plan)
+- N/A (reuses existing `.maverick/work-units/{plan-name}/` convention) (039-refuel-flight-plan)
+
 ## Recent Changes
 - 031-instructions-preset: Verified Claude Code preset + instructions pattern for all interactive agents
 - 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output

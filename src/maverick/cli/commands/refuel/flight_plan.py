@@ -1,4 +1,4 @@
-"""``maverick refuel maverick`` command.
+"""``maverick refuel flight-plan`` command.
 
 Delegates to the ``RefuelMaverickWorkflow`` Python workflow via shared
 helpers in ``_shared``.
@@ -19,18 +19,18 @@ from maverick.cli.commands.refuel._shared import (
 from maverick.cli.context import async_command
 
 
-@refuel.command("maverick")
+@refuel.command("flight-plan")
 @refuel_flight_plan_options
 @click.pass_context
 @async_command
-async def maverick_cmd(
+async def flight_plan_cmd(
     ctx: click.Context,
     flight_plan_path: Path,
     dry_run: bool,
     list_steps: bool,
     session_log: Path | None,
 ) -> None:
-    """Decompose a Maverick Flight Plan into work units and beads.
+    """Decompose a Flight Plan into work units and beads.
 
     FLIGHT-PLAN-PATH is the path to the flight plan Markdown file.
 
@@ -41,11 +41,11 @@ async def maverick_cmd(
 
     Examples:
 
-        maverick refuel maverick .maverick/flight-plans/add-auth.md
+        maverick refuel flight-plan .maverick/flight-plans/add-auth.md
 
-        maverick refuel maverick .maverick/flight-plans/add-auth.md --dry-run
+        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --dry-run
 
-        maverick refuel maverick .maverick/flight-plans/add-auth.md --list-steps
+        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --list-steps
     """
     if list_steps:
         print_steps_and_exit()
