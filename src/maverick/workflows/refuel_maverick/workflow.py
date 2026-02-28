@@ -317,9 +317,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 # Build epic and work definitions
                 epic_definition = {
                     "title": flight_plan.name,
-                    "bead_type": "EPIC",
+                    "bead_type": "epic",
                     "priority": 1,
-                    "category": "FOUNDATION",
+                    "category": "foundation",
                     "description": flight_plan.objective,
                     "phase_names": [],
                     "task_ids": [wu.id for wu in work_units],
@@ -327,9 +327,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 work_definitions = [
                     {
                         "title": wu.task,
-                        "bead_type": "TASK",
+                        "bead_type": "task",
                         "priority": 2,
-                        "category": "USER_STORY",
+                        "category": "user_story",
                         "description": (
                             wu.instructions[:500] if wu.instructions else wu.task
                         ),
