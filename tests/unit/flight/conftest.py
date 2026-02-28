@@ -2,7 +2,41 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+# ---------------------------------------------------------------------------
+# Minimal valid flight plan content (canonical source of truth)
+# Also duplicated in tests/unit/cli/commands/flight_plan/conftest.py
+# ---------------------------------------------------------------------------
+
+VALID_FLIGHT_PLAN_CONTENT = """\
+---
+name: test-plan
+version: "1.0"
+created: 2026-02-28
+---
+
+## Objective
+
+This is the objective text.
+
+## Success Criteria
+
+- [ ] First criterion
+- [ ] Second criterion
+
+## Scope
+
+### In
+
+- Something in scope
+
+### Out
+
+- Something out of scope
+"""
 
 # ---------------------------------------------------------------------------
 # Sample Markdown strings
@@ -166,3 +200,15 @@ def sample_work_unit_md() -> str:
 def sample_work_unit_md_with_parallel() -> str:
     """Return a sample Work Unit with parallel-group and depends-on."""
     return SAMPLE_WORK_UNIT_MD_WITH_PARALLEL
+
+
+@pytest.fixture
+def write_flight_plan(tmp_path: Path):
+    """Return a helper that writes content to a temp file and returns its path."""
+
+    def _write(content: str, filename: str = "plan.md") -> Path:
+        p = tmp_path / filename
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    return _write

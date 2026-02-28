@@ -34,6 +34,7 @@ if _dotenv_loaded:
 
 from maverick import __version__  # noqa: E402
 from maverick.cli.commands.brief import brief  # noqa: E402
+from maverick.cli.commands.flight_plan import flight_plan  # noqa: E402
 from maverick.cli.commands.fly import fly  # noqa: E402
 from maverick.cli.commands.init import init  # noqa: E402
 from maverick.cli.commands.land import land  # noqa: E402
@@ -177,6 +178,7 @@ def cli(
 
 # Register commands
 cli.add_command(brief)
+cli.add_command(flight_plan)
 cli.add_command(fly)
 cli.add_command(init)
 cli.add_command(land)

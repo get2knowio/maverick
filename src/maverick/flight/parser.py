@@ -57,6 +57,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         raise FlightPlanParseError(
             "Document does not start with '---' frontmatter delimiter",
             field="frontmatter",
+            error_kind="missing_opening_delimiter",
         )
 
     # Split off the opening "---"
@@ -68,6 +69,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         raise FlightPlanParseError(
             "Document is missing the closing '---' frontmatter delimiter",
             field="frontmatter",
+            error_kind="missing_closing_delimiter",
         )
 
     # Find the closing delimiter
@@ -86,6 +88,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         raise FlightPlanParseError(
             f"Invalid YAML in frontmatter block: {exc}",
             field="frontmatter",
+            error_kind="invalid_yaml",
         ) from exc
 
     return fm, body
