@@ -16,6 +16,7 @@ from maverick.agents.prompts.common import (
 )
 from maverick.agents.tools import PLANNER_TOOLS
 from maverick.agents.utils import extract_all_text
+from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -83,9 +84,14 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
     Uses Read, Glob, and Grep tools to explore the codebase and produce
     a structured decomposition from a flight plan prompt.
 
+    Uses a three-tier output extraction strategy:
+    1. SDK structured output (``output_format`` enforcement)
+    2. ``validate_output()`` fallback (JSON code-block extraction)
+    3. Raise AgentError (structured output is required)
+
     Type Parameters:
         Context: str — the full prompt text including flight plan content
-        Result: dict[str, Any] — raw structured output (validated by output_schema)
+        Result: dict[str, Any] — structured output matching DecompositionOutput
     """
 
     def __init__(
@@ -103,6 +109,12 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             max_tokens: Optional maximum output tokens.
             temperature: Optional sampling temperature 0.0-1.0.
         """
+        # Lazy import to avoid circular import chain:
+        # agents → workflows.__init__ → workflow → workflows.base
+        from maverick.workflows.refuel_maverick.models import (
+            DecompositionOutput,
+        )
+
         super().__init__(
             name="decomposer",
             instructions=DECOMPOSER_SYSTEM_PROMPT,
@@ -111,6 +123,7 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
+            output_model=DecompositionOutput,
         )
 
     async def execute(self, context: str) -> dict[str, Any]:
@@ -120,13 +133,36 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             context: Full prompt text with flight plan and instructions.
 
         Returns:
-            Dict containing the raw agent output text.
+            Dict matching DecompositionOutput schema.
 
         Raises:
-            AgentError: On SDK errors.
+            AgentError: On SDK errors or missing structured output.
         """
         messages: list[Any] = []
         async for msg in self.query(context):
             messages.append(msg)
 
-        return {"text": extract_all_text(messages)}
+        # Lazy import to avoid circular import chain
+        from maverick.agents.contracts import validate_output
+        from maverick.workflows.refuel_maverick.models import (
+            DecompositionOutput,
+        )
+
+        # Tier 1: SDK structured output (output_format enforcement)
+        structured = self._extract_structured_output(messages)
+        if structured is not None:
+            return structured
+
+        # Tier 2: validate_output fallback (JSON code-block extraction)
+        raw_text = extract_all_text(messages)
+        result = validate_output(
+            raw_text, DecompositionOutput, strict=False
+        )
+        if result is not None:
+            return result.model_dump()
+
+        # Tier 3: No structured output — cannot proceed
+        raise AgentError(
+            message="Decomposer produced no structured output",
+            agent_name=self.name,
+        )
