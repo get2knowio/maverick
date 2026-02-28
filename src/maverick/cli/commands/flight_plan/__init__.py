@@ -14,6 +14,7 @@ from maverick.cli.commands.flight_plan._group import flight_plan
 
 # Import subcommand modules so they register themselves on the group.
 from maverick.cli.commands.flight_plan import create as _create  # noqa: F401
+from maverick.cli.commands.flight_plan import generate as _generate  # noqa: F401
 from maverick.cli.commands.flight_plan import (
     validate_cmd as _validate_cmd,  # noqa: F401
 )

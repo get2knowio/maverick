@@ -43,6 +43,7 @@ from maverick.agents.tools import (
     GENERATOR_TOOLS,
     IMPLEMENTER_TOOLS,
     ISSUE_FIXER_TOOLS,
+    PLANNER_TOOLS,
     REVIEWER_TOOLS,
 )
 from maverick.agents.utils import extract_all_text, extract_text
@@ -89,6 +90,7 @@ __all__: list[str] = [
     "GENERATOR_TOOLS",
     "IMPLEMENTER_TOOLS",
     "ISSUE_FIXER_TOOLS",
+    "PLANNER_TOOLS",
     "REVIEWER_TOOLS",
     # Result types
     "AgentResult",

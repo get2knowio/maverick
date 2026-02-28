@@ -10,6 +10,7 @@ from maverick.agents.tools import (
     GENERATOR_TOOLS,
     IMPLEMENTER_TOOLS,
     ISSUE_FIXER_TOOLS,
+    PLANNER_TOOLS,
     REVIEWER_TOOLS,
 )
 
@@ -40,6 +41,10 @@ class TestToolSetTypes:
     def test_generator_tools_is_frozenset(self) -> None:
         """Test GENERATOR_TOOLS is a frozenset instance."""
         assert isinstance(GENERATOR_TOOLS, frozenset)
+
+    def test_planner_tools_is_frozenset(self) -> None:
+        """Test PLANNER_TOOLS is a frozenset instance."""
+        assert isinstance(PLANNER_TOOLS, frozenset)
 
     def test_frozensets_are_immutable(self) -> None:
         """Test that frozensets cannot be modified at runtime."""
@@ -90,6 +95,12 @@ class TestToolSetValidity:
         """Test GENERATOR_TOOLS (empty set) is valid."""
         # Empty set is always a subset
         assert GENERATOR_TOOLS.issubset(BUILTIN_TOOLS)
+
+    def test_planner_tools_are_valid(self) -> None:
+        """Test all PLANNER_TOOLS exist in BUILTIN_TOOLS."""
+        assert PLANNER_TOOLS.issubset(BUILTIN_TOOLS), (
+            f"Invalid tools in PLANNER_TOOLS: {PLANNER_TOOLS - BUILTIN_TOOLS}"
+        )
 
 
 # =============================================================================
@@ -229,6 +240,28 @@ class TestGeneratorTools:
         assert "Bash" not in GENERATOR_TOOLS
 
 
+class TestPlannerTools:
+    """Tests for PLANNER_TOOLS composition and constraints."""
+
+    def test_planner_tools_exact_composition(self) -> None:
+        """Test PLANNER_TOOLS contains exactly the expected tools."""
+        expected = {"Read", "Glob", "Grep"}
+        assert expected == PLANNER_TOOLS
+
+    def test_planner_tools_matches_reviewer_tools(self) -> None:
+        """Test PLANNER_TOOLS has same tools as REVIEWER_TOOLS."""
+        assert PLANNER_TOOLS == REVIEWER_TOOLS
+
+    def test_planner_tools_is_read_only(self) -> None:
+        """Test PLANNER_TOOLS contains no write tools."""
+        write_tools = {"Write", "Edit", "NotebookEdit"}
+        assert not PLANNER_TOOLS.intersection(write_tools)
+
+    def test_planner_tools_has_no_bash(self) -> None:
+        """Test PLANNER_TOOLS does not include Bash."""
+        assert "Bash" not in PLANNER_TOOLS
+
+
 # =============================================================================
 # Cross-Set Relationship Tests
 # =============================================================================
@@ -252,6 +285,7 @@ class TestToolSetRelationships:
         assert "Bash" not in FIXER_TOOLS
         assert "Bash" not in ISSUE_FIXER_TOOLS
         assert "Bash" not in GENERATOR_TOOLS
+        assert "Bash" not in PLANNER_TOOLS
 
     def test_only_write_tools_contain_edit(self) -> None:
         """Test only tool sets with write permission include Edit."""
@@ -364,6 +398,7 @@ class TestModuleImports:
             "ISSUE_FIXER_TOOLS",
             "GENERATOR_TOOLS",
             "CURATOR_TOOLS",
+            "PLANNER_TOOLS",
         ]
 
         assert hasattr(tools, "__all__")

@@ -14,6 +14,8 @@ Registered Agents:
     simple_fixer: SimpleFixerAgent - Fixes review findings
     issue_fixer: IssueFixerAgent - Fixes GitHub issues
     validation_fixer: FixerAgent - Applies validation fixes
+    decomposer: DecomposerAgent - Decomposes flight plans into work units
+    flight_plan_generator: FlightPlanGeneratorAgent - Generates flight plans from PRDs
 """
 
 from __future__ import annotations
@@ -25,7 +27,9 @@ if TYPE_CHECKING:
 
 # Import agent classes
 from maverick.agents.code_reviewer import CodeReviewerAgent
+from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.fixer import FixerAgent
+from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.issue_fixer import IssueFixerAgent
 from maverick.agents.reviewers import SimpleFixerAgent, UnifiedReviewerAgent
@@ -78,3 +82,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     # Register validation fixer agent (used in validate-and-fix fragment)
     registry.agents.register("validation_fixer", FixerAgent)
+
+    # Register decomposer agent (used in refuel-maverick workflow)
+    registry.agents.register("decomposer", DecomposerAgent)
+
+    # Register flight plan generator agent (used in generate-flight-plan workflow)
+    registry.agents.register("flight_plan_generator", FlightPlanGeneratorAgent)

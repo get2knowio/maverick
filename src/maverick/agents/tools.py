@@ -110,6 +110,7 @@ __all__: list[str] = [
     "ISSUE_FIXER_TOOLS",
     "GENERATOR_TOOLS",
     "CURATOR_TOOLS",
+    "PLANNER_TOOLS",
 ]
 
 # =============================================================================
@@ -153,3 +154,10 @@ GENERATOR_TOOLS: frozenset[str] = frozenset()
 #: The curator receives pre-gathered jj log and diff stats in its prompt.
 #: It produces a structured JSON plan of jj commands — no file access needed.
 CURATOR_TOOLS: frozenset[str] = frozenset()
+
+#: Read-only tools for planning agents (FlightPlanGeneratorAgent, DecomposerAgent).
+#:
+#: Planners research the codebase to produce structured plans. They read and
+#: search but must not modify files. Same tools as REVIEWER_TOOLS but
+#: semantically distinct — planners research, reviewers critique.
+PLANNER_TOOLS: frozenset[str] = frozenset({"Read", "Glob", "Grep"})
