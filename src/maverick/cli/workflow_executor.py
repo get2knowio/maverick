@@ -218,11 +218,17 @@ async def render_workflow_events(
 
         elif isinstance(event, AgentStreamChunk):
             if event.chunk_type == "output":
-                console_obj.print(event.text, end="", highlight=False)
+                console_obj.print(
+                    event.text, end="", highlight=False, markup=False
+                )
             elif event.chunk_type == "thinking":
-                console_obj.print(f"[dim]{event.text}[/]")
+                console_obj.print(
+                    event.text, end="", highlight=False, markup=False
+                )
             elif event.chunk_type == "error":
-                err_console.print(f"[red]{event.text}[/]")
+                console_obj.print(
+                    event.text, end="", highlight=False, markup=False
+                )
 
         elif isinstance(event, StepOutput):
             level_styles = {
