@@ -775,6 +775,24 @@ class TestAcceptanceCriterionTraceRef:
         with pytest.raises(ValidationError):
             AcceptanceCriterion(text="criterion", trace_ref="SC-001-extra")
 
+    def test_valid_trace_ref_comma_separated(self) -> None:
+        """Comma-separated SC refs are valid (agent may reference multiple)."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(
+            text="criterion", trace_ref="SC-002, SC-003"
+        )
+        assert ac.trace_ref == "SC-002, SC-003"
+
+    def test_valid_trace_ref_comma_no_space(self) -> None:
+        """Comma-separated SC refs without space are valid."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(
+            text="criterion", trace_ref="SC-001,SC-002"
+        )
+        assert ac.trace_ref == "SC-001,SC-002"
+
 
 # ===========================================================================
 # SPEC-3 & SPEC-4: CompletionStatus validation tests

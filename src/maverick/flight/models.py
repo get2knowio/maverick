@@ -26,7 +26,7 @@ from maverick.logging import get_logger
 logger = get_logger(__name__)
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-_TRACE_REF_RE = re.compile(r"^SC-\d+$")
+_TRACE_REF_RE = re.compile(r"^SC-\d+(,\s*SC-\d+)*$")
 
 
 # ---------------------------------------------------------------------------
