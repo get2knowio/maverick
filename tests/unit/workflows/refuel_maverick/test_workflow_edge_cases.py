@@ -787,9 +787,7 @@ class TestProtectBoundaryPropagation:
         )
 
         decomp = make_simple_decomposition_output()
-        units = convert_specs_to_work_units(
-            decomp.work_units, flight_plan_name="test"
-        )
+        units = convert_specs_to_work_units(decomp.work_units, flight_plan_name="test")
         for unit in units:
             assert "src/config.py" in unit.file_scope.protect, (
                 f"WorkUnit {unit.id!r} missing protect boundary after conversion"

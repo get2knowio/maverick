@@ -74,13 +74,9 @@ class TestDecompositionOutputValidation:
         spec_a = WorkUnitSpec(**spec_dict)
         spec_b = WorkUnitSpec(**{**spec_dict, "sequence": 2})
         with pytest.raises(ValidationError, match="Duplicate"):
-            DecompositionOutput(
-                work_units=[spec_a, spec_b], rationale="dupes"
-            )
+            DecompositionOutput(work_units=[spec_a, spec_b], rationale="dupes")
 
     def test_valid_decomposition_accepted(self) -> None:
         spec = WorkUnitSpec(**_make_valid_spec())
-        decomp = DecompositionOutput(
-            work_units=[spec], rationale="valid"
-        )
+        decomp = DecompositionOutput(work_units=[spec], rationale="valid")
         assert len(decomp.work_units) == 1
