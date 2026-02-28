@@ -6,6 +6,8 @@ This package provides:
 - File loaders (FlightPlanFile, WorkUnitFile)
 - Dependency resolver (resolve_execution_order)
 - Round-trip serialization
+- Skeleton generator (generate_skeleton)
+- Structural validator (validate_flight_plan_file, ValidationIssue)
 
 Public API::
 
@@ -13,6 +15,7 @@ Public API::
         FlightPlan, WorkUnit, FlightPlanFile, WorkUnitFile,
         resolve_execution_order, serialize_flight_plan, serialize_work_unit,
         FlightPlanNotFoundError, FlightPlanParseError, FlightPlanValidationError,
+        generate_skeleton, validate_flight_plan_file, ValidationIssue,
     )
 """
 
@@ -48,6 +51,8 @@ from maverick.flight.parser import (
 )
 from maverick.flight.resolver import resolve_execution_order
 from maverick.flight.serializer import serialize_flight_plan, serialize_work_unit
+from maverick.flight.template import generate_skeleton
+from maverick.flight.validator import ValidationIssue, validate_flight_plan_file
 
 __all__: list[str] = [
     # Errors
@@ -82,4 +87,9 @@ __all__: list[str] = [
     "parse_flight_plan_sections",
     "parse_frontmatter",
     "parse_work_unit_sections",
+    # Template generator
+    "generate_skeleton",
+    # Validator
+    "ValidationIssue",
+    "validate_flight_plan_file",
 ]

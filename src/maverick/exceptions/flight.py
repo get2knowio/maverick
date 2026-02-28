@@ -26,6 +26,9 @@ class FlightPlanParseError(FlightError):
         message: Human-readable error message.
         path: Path to the file that failed to parse (if applicable).
         field: Specific field or section that caused the parse error.
+        error_kind: Structured error kind for programmatic classification
+            (e.g. ``"missing_opening_delimiter"``).  Defaults to ``None``
+            for backward compatibility.
     """
 
     def __init__(
@@ -34,9 +37,11 @@ class FlightPlanParseError(FlightError):
         *,
         path: Path | None = None,
         field: str | None = None,
+        error_kind: str | None = None,
     ) -> None:
         self.path = path
         self.field = field
+        self.error_kind = error_kind
         super().__init__(message)
 
 
