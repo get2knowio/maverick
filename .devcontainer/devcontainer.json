@@ -15,11 +15,11 @@
     "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
     "ghcr.io/devcontainers-extra/features/starship:1": {},
     "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
-      "include": ["claudeCode","specifyCli"]
+      "install": "claudeCode,specifyCli,beads"
     },
-    "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:1": {},
-    "ghcr.io/get2knowio/devcontainer-features/python-tools:1": {
-      "omit": ["poetry"]
+    "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:2": {},
+    "ghcr.io/get2knowio/devcontainer-features/python-tools:2": {
+      "omit": "poetry"
     }
   },
   "remoteEnv": {
