@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -361,12 +362,18 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
             # Step 7: Wire dependencies
             await self.emit_step_started(WIRE_DEPS)
+            dep_pairs: list[list[str]] = []
+            for wu in work_units:
+                for dep_id in wu.depends_on:
+                    dep_pairs.append([wu.id, dep_id])
+            extracted_deps = json.dumps(dep_pairs) if dep_pairs else ""
+
             try:
                 wire_result = await wire_dependencies(
                     work_definitions=work_definitions,
                     created_map=bead_result.created_map,
                     tasks_content=f"# Flight Plan: {flight_plan.name}\n",
-                    extracted_deps="",
+                    extracted_deps=extracted_deps,
                     dry_run=False,
                 )
             except Exception as exc:

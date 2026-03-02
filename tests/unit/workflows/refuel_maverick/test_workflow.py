@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -256,6 +257,49 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert events[0].workflow_name == WORKFLOW_NAME
         assert isinstance(events[-1], WorkflowCompleted)
         assert events[-1].success is True
+
+    async def test_wire_dependencies_receives_extracted_deps_from_work_units(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        mock_step_executor: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """wire_dependencies is called with extracted_deps built from depends_on."""
+        fp = make_simple_flight_plan(tmp_path)
+        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        bead_result = make_bead_result()
+        wire_result = make_wire_result()
+
+        mock_wire = AsyncMock(return_value=wire_result)
+        with (
+            patch_cwd(tmp_path),
+            patch(
+                f"{_MODULE}.gather_codebase_context",
+                new=AsyncMock(return_value=_EMPTY_CONTEXT),
+            ),
+            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
+            patch(f"{_MODULE}.wire_dependencies", new=mock_wire),
+        ):
+            await collect_events(
+                workflow,
+                {"flight_plan_path": str(fp), "dry_run": False},
+            )
+
+        mock_wire.assert_called_once()
+        call_kwargs = mock_wire.call_args.kwargs
+        extracted = call_kwargs["extracted_deps"]
+        assert extracted, "extracted_deps should not be empty"
+
+        dep_pairs = json.loads(extracted)
+        # The conftest fixture has 3 dependency relationships:
+        # add-registration-endpoint -> add-user-model
+        # add-login-endpoint -> add-user-model
+        # add-auth-middleware -> add-login-endpoint
+        assert len(dep_pairs) == 3
+        assert ["add-registration-endpoint", "add-user-model"] in dep_pairs
+        assert ["add-login-endpoint", "add-user-model"] in dep_pairs
+        assert ["add-auth-middleware", "add-login-endpoint"] in dep_pairs
 
 
 # ---------------------------------------------------------------------------
