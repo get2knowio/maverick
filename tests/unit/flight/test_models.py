@@ -793,6 +793,24 @@ class TestAcceptanceCriterionTraceRef:
         )
         assert ac.trace_ref == "SC-001,SC-002"
 
+    def test_range_notation_expanded(self) -> None:
+        """'SC-1 through SC-3' is normalized to 'SC-1, SC-2, SC-3'."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(
+            text="criterion", trace_ref="SC-1 through SC-3"
+        )
+        assert ac.trace_ref == "SC-1, SC-2, SC-3"
+
+    def test_large_range_notation_expanded(self) -> None:
+        """'SC-1 through SC-14' is normalized to comma-separated refs."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(
+            text="criterion", trace_ref="SC-1 through SC-14"
+        )
+        assert ac.trace_ref == ", ".join(f"SC-{i}" for i in range(1, 15))
+
 
 # ===========================================================================
 # SPEC-3 & SPEC-4: CompletionStatus validation tests

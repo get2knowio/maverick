@@ -27,6 +27,22 @@ logger = get_logger(__name__)
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _TRACE_REF_RE = re.compile(r"^SC-\d+(,\s*SC-\d+)*$")
+_TRACE_REF_RANGE_RE = re.compile(
+    r"^SC-(\d+)\s+through\s+SC-(\d+)$", re.IGNORECASE
+)
+
+
+def _normalize_trace_ref(v: str) -> str:
+    """Normalize AI-generated trace_ref variants to canonical comma-separated form.
+
+    Handles range notation like ``SC-1 through SC-14`` by expanding to
+    ``SC-1, SC-2, ..., SC-14``.
+    """
+    m = _TRACE_REF_RANGE_RE.match(v.strip())
+    if m:
+        start, end = int(m.group(1)), int(m.group(2))
+        return ", ".join(f"SC-{i}" for i in range(start, end + 1))
+    return v
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +247,10 @@ class AcceptanceCriterion(BaseModel):
     @classmethod
     def trace_ref_must_match_format(cls, v: str | None) -> str | None:
         """Validate that trace_ref matches SC-\\d+ format when set."""
-        if v is not None and not _TRACE_REF_RE.match(v):
+        if v is None:
+            return v
+        v = _normalize_trace_ref(v)
+        if not _TRACE_REF_RE.match(v):
             raise ValueError(f"trace_ref must match SC-\\d+ format, got: {v!r}")
         return v
 
