@@ -112,3 +112,32 @@ def get_model_type(model_id: str) -> ModelType | None:
     elif "opus" in model_lower:
         return "opus"
     return None
+
+
+# =============================================================================
+# Workflow Execution Constants
+# =============================================================================
+
+#: Default timeout for shell commands in seconds
+COMMAND_TIMEOUT: float = 30.0
+
+#: Maximum retry attempts for validate steps
+DEFAULT_RETRY_ATTEMPTS: int = 3
+
+#: Base delay in seconds for exponential backoff
+DEFAULT_RETRY_DELAY: float = 1.0
+
+#: Maximum delay cap in seconds for retry backoff
+RETRY_BACKOFF_MAX: float = 60.0
+
+#: Minimum jitter factor for retry delay randomization
+RETRY_JITTER_MIN: float = 0.5
+
+#: Maximum items in step output list/dict before warning
+MAX_STEP_OUTPUT_SIZE: int = 10000
+
+#: Maximum recommended size for entire context
+MAX_CONTEXT_SIZE: int = 50000
+
+#: Default directory for checkpoint persistence
+CHECKPOINT_DIR: str = ".maverick/checkpoints"

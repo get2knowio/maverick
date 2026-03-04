@@ -176,16 +176,12 @@ class FlightPlanGeneratorAgent(MaverickAgent[str, dict[str, Any]]):
 
         # Tier 2: validate_output fallback (JSON code-block extraction)
         raw_text = extract_all_text(messages)
-        result = validate_output(
-            raw_text, FlightPlanOutput, strict=False
-        )
+        result = validate_output(raw_text, FlightPlanOutput, strict=False)
         if result is not None:
             return result.model_dump()
 
         # Tier 3: No structured output — cannot proceed
         raise AgentError(
-            message=(
-                "Flight plan generator produced no structured output"
-            ),
+            message=("Flight plan generator produced no structured output"),
             agent_name=self.name,
         )

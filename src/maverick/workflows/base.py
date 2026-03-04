@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal
 
-from maverick.dsl.events import (
+from maverick.events import (
     CheckpointSaved,
     ProgressEvent,
     RollbackCompleted,
@@ -29,22 +29,22 @@ from maverick.dsl.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.dsl.executor.config import StepConfig
-from maverick.dsl.executor.config import resolve_step_config as _resolve_step_config
-from maverick.dsl.results import StepResult, WorkflowResult
-from maverick.dsl.types import StepType
+from maverick.executor.config import StepConfig
+from maverick.executor.config import resolve_step_config as _resolve_step_config
 from maverick.logging import get_logger
+from maverick.results import StepResult, WorkflowResult
+from maverick.types import StepType
 
 if TYPE_CHECKING:
+    from maverick.checkpoint.store import CheckpointStore
     from maverick.config import MaverickConfig
-    from maverick.dsl.checkpoint.store import CheckpointStore
-    from maverick.dsl.executor.protocol import StepExecutor
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.executor.protocol import StepExecutor
+    from maverick.registry import ComponentRegistry
 
 logger = get_logger(__name__)
 
 # Python workflow rollback callable — no WorkflowContext needed.
-# Do NOT reuse maverick.dsl.types.RollbackAction which requires WorkflowContext.
+# Do NOT reuse maverick.types.RollbackAction which requires WorkflowContext.
 PythonRollbackAction = Callable[[], Awaitable[None]]
 
 
@@ -214,7 +214,7 @@ class PythonWorkflow(ABC):
     ) -> StepConfig:
         """Resolve per-step configuration by merging defaults with overrides.
 
-        Uses the 4-layer resolution from maverick.dsl.executor.config:
+        Uses the 4-layer resolution from maverick.executor.config:
         - inline_config: None (Python workflows have no YAML inline config)
         - project_step_config: from self._config.steps.get(step_name)
         - agent_config: None (resolved separately for agent steps)
@@ -398,7 +398,7 @@ class PythonWorkflow(ABC):
 
         from datetime import UTC, datetime
 
-        from maverick.dsl.checkpoint.data import CheckpointData, compute_inputs_hash
+        from maverick.checkpoint.data import CheckpointData, compute_inputs_hash
 
         checkpoint_id = self._current_step or "checkpoint"
         cp = CheckpointData(

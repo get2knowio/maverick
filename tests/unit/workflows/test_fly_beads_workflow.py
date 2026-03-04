@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.dsl.checkpoint.store import MemoryCheckpointStore
-from maverick.dsl.events import (
+from maverick.checkpoint.store import MemoryCheckpointStore
+from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
@@ -261,8 +261,8 @@ def checkpoint_store() -> MemoryCheckpointStore:
 
 @pytest.fixture
 def mock_step_executor() -> AsyncMock:
-    from maverick.dsl.executor.protocol import StepExecutor
-    from maverick.dsl.executor.result import ExecutorResult
+    from maverick.executor.protocol import StepExecutor
+    from maverick.executor.result import ExecutorResult
 
     executor = AsyncMock(spec=StepExecutor)
     executor.execute.return_value = ExecutorResult(

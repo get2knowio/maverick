@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from maverick.dsl.events import (
+from maverick.events import (
     StepCompleted,
     StepStarted,
     WorkflowCompleted,

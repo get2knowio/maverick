@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
 # Import action functions
 from maverick.library.actions.beads import (

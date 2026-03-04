@@ -6,59 +6,93 @@ Generated: {{ date }}
 """
 from __future__ import annotations
 
-from maverick.dsl import step, workflow
+from typing import Any
+
+from maverick.workflows.base import PythonWorkflow
 
 
-@workflow(name="{{ name }}")
-def {{ name.replace('-', '_') }}_workflow(task_file: str = "tasks.md"):
-    """{{ description if description else 'Complete workflow with validation, review, and PR creation' }}.
+class {{ name.replace('-', '_').title().replace('_', '') }}Workflow(PythonWorkflow):
+    """{{ description if description else 'Complete workflow with validation, review, and PR creation' }}."""
 
-    Args:
-        task_file: Path to task file.
-    """
-    # Setup
-    setup_result = yield step("setup").python(
-        action=setup_workflow,
-        kwargs={"task_file": task_file},
-    )
+    async def _run(self, inputs: dict[str, Any]) -> Any:
+        """Execute workflow steps.
 
-    # Implement
-    impl_result = yield step("implement").agent(
-        agent=get_implementer_agent(),
-    )
+        Args:
+            inputs: Workflow input parameters.
 
-    # Validate
-    val_result = yield step("validate").subworkflow(
-        workflow=validate_and_fix_workflow,
-    )
+        Returns:
+            Final output dict.
+        """
+        task_file = inputs.get("task_file", "tasks.md")
 
-    # Review
-    review_result = yield step("review").agent(
-        agent=get_code_reviewer_agent(),
-    )
+        # Setup
+        await self.emit_step_started("setup")
+        try:
+            setup_result = await setup_workflow(task_file=task_file)
+        except Exception as exc:
+            await self.emit_step_failed("setup", str(exc))
+            raise
+        await self.emit_step_completed("setup", output=setup_result)
 
-    # Create PR
-    pr_result = yield step("create_pr").subworkflow(
-        workflow=create_pr_with_summary_workflow,
-    )
+        # Implement
+        await self.emit_step_started("implement")
+        try:
+            impl_result = await implement_changes(setup_result=setup_result)
+        except Exception as exc:
+            await self.emit_step_failed("implement", str(exc))
+            raise
+        await self.emit_step_completed("implement", output=impl_result)
 
-    return pr_result
+        # Validate
+        await self.emit_step_started("validate")
+        try:
+            val_result = await validate_changes(impl_result=impl_result)
+        except Exception as exc:
+            await self.emit_step_failed("validate", str(exc))
+            raise
+        await self.emit_step_completed("validate", output=val_result)
+
+        # Review
+        await self.emit_step_started("review")
+        try:
+            review_result = await review_changes(val_result=val_result)
+        except Exception as exc:
+            await self.emit_step_failed("review", str(exc))
+            raise
+        await self.emit_step_completed("review", output=review_result)
+
+        # Create PR
+        await self.emit_step_started("create_pr")
+        try:
+            pr_result = await create_pr(review_result=review_result)
+        except Exception as exc:
+            await self.emit_step_failed("create_pr", str(exc))
+            raise
+        await self.emit_step_completed("create_pr", output=pr_result)
+
+        return pr_result
 
 
-def setup_workflow(task_file: str):
+async def setup_workflow(task_file: str) -> dict:
     """Set up workflow."""
     return {"task_file": task_file}
 
 
-def get_implementer_agent():
-    """Get implementer agent."""
-    pass
+async def implement_changes(setup_result: dict) -> dict:
+    """Implement changes."""
+    return {"implemented": True}
 
 
-def get_code_reviewer_agent():
-    """Get code reviewer agent."""
-    pass
+async def validate_changes(impl_result: dict) -> dict:
+    """Validate changes."""
+    return {"valid": True}
 
 
-validate_and_fix_workflow = None
-create_pr_with_summary_workflow = None
+async def review_changes(val_result: dict) -> dict:
+    """Review changes."""
+    return {"reviewed": True}
+
+
+async def create_pr(review_result: dict) -> dict:
+    """Create pull request."""
+    return {"pr_created": True}

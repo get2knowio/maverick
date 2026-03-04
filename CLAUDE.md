@@ -128,9 +128,16 @@ src/maverick/
 ├── main.py              # CLI entry point (Click commands)
 ├── config.py            # Pydantic configuration models
 ├── exceptions.py        # Custom exception hierarchy (MaverickError base)
+├── types.py             # StepType, StepMode, AutonomyLevel enums
+├── constants.py         # Workflow execution constants
+├── events.py            # Workflow progress event dataclasses
+├── results.py           # StepResult, WorkflowResult dataclasses
 ├── agents/              # Agent implementations
 │   ├── base.py          # MaverickAgent abstract base class
 │   └── *.py             # Concrete agents (CodeReviewerAgent, etc.)
+├── executor/            # Step execution (Claude SDK integration)
+├── checkpoint/          # Checkpoint persistence
+├── registry/            # Component registry (actions/agents/generators)
 ├── jj/                  # JjClient — typed jj (Jujutsu) wrapper
 │   ├── client.py        # JjClient (CommandRunner-based, async)
 │   ├── models.py        # Frozen dataclass result types
@@ -159,77 +166,6 @@ src/maverick/
 - **JjClient**: Typed wrapper around `jj` CLI with retries, timeouts, and error hierarchy
 - **WorkspaceManager**: Lifecycle for hidden jj workspaces (`~/.maverick/workspaces/`)
 - **VcsRepository**: Protocol abstracting git vs jj for read operations
-
-## Workflow Architecture: YAML-Based DSL
-
-**As of December 2025**: Maverick uses a unified YAML-based workflow DSL for all workflow authoring. The previous Python decorator DSL has been deprecated and removed.
-
-### WorkflowFile (YAML/JSON Serialization)
-
-**Location**: `maverick.dsl.serialization.schema`
-
-All workflows are defined in YAML/JSON format. This provides:
-
-- **Declarative syntax**: Clear, readable workflow definitions
-- **Discoverability**: Automatic discovery from project, user, and built-in locations
-- **Shareability**: Version-controlled workflow definitions across teams
-- **Validation**: Schema validation and error reporting at load time
-- **Visualization**: Automatic ASCII/Mermaid diagram generation
-- **No Python required**: Non-developers can author and modify workflows
-
-```python
-from maverick.dsl.serialization.schema import WorkflowFile
-
-# Load from YAML
-workflow = WorkflowFile.from_yaml(yaml_content)
-
-# Convert to YAML
-yaml_str = workflow.to_yaml()
-```
-
-**Key methods**: `to_dict()`, `to_yaml()`, `from_dict()`, `from_yaml()`
-
-### Example YAML Workflow
-
-```yaml
-version: "1.0"
-name: hello-world
-description: A simple example workflow
-
-inputs:
-  name:
-    type: string
-    required: true
-
-steps:
-  - name: format_greeting
-    type: python
-    action: format_greeting
-    args:
-      - ${{ inputs.name }}
-
-  - name: uppercase
-    type: python
-    action: str.upper
-    args:
-      - ${{ steps.format_greeting.output }}
-
-outputs:
-  greeting: ${{ steps.format_greeting.output }}
-  uppercase: ${{ steps.uppercase.output }}
-```
-
-### Workflow Discovery Locations
-
-Workflows are discovered in precedence order (higher overrides lower):
-
-1. **Project**: `.maverick/workflows/` - Project-specific customizations
-2. **User**: `~/.config/maverick/workflows/` - User-wide customizations
-3. **Built-in**: Packaged with Maverick - Default implementations
-
-### Migration from Decorator DSL
-
-If you have existing Python decorator workflows, see `docs/migrating-from-decorator-dsl.md` for migration guidance. The decorator DSL was removed in favor of the more maintainable and user-friendly YAML approach.
 
 ## Development Commands
 
@@ -559,7 +495,10 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - N/A (reuses existing `.maverick/work-units/{plan-name}/` convention) (039-refuel-flight-plan)
 - Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Rich (output formatting), Pydantic (models) (040-flight-plan-cli)
 - Markdown+YAML files on disk (`.maverick/flight-plans/`) (040-flight-plan-cli)
+- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK, Click, Rich, Pydantic, GitPython, tenacity, structlog; YAML DSL infrastructure removed and live code migrated to top-level modules (041-remove-yaml-dsl)
+- JSON checkpoint files under `~/.maverick/checkpoints/` (041-remove-yaml-dsl)
 
 ## Recent Changes
+- 041-remove-yaml-dsl: Removed dead YAML DSL infrastructure; migrated live code to maverick.events, maverick.results, maverick.types, maverick.constants, maverick.executor/, maverick.checkpoint/, maverick.registry/
 - 031-instructions-preset: Verified Claude Code preset + instructions pattern for all interactive agents
 - 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output

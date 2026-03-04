@@ -27,9 +27,7 @@ logger = get_logger(__name__)
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _TRACE_REF_RE = re.compile(r"^SC-\d+(,\s*SC-\d+)*$")
-_TRACE_REF_RANGE_RE = re.compile(
-    r"^SC-(\d+)\s+through\s+SC-(\d+)$", re.IGNORECASE
-)
+_TRACE_REF_RANGE_RE = re.compile(r"^SC-(\d+)\s+through\s+SC-(\d+)$", re.IGNORECASE)
 
 
 def _normalize_trace_ref(v: str) -> str:

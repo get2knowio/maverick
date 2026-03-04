@@ -14,8 +14,8 @@ from maverick.agents import (
     ImplementerAgent,
     IssueFixerAgent,
 )
-from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.agents import register_all_agents
+from maverick.registry import ComponentRegistry
 
 
 class TestRegisterAllAgents:

@@ -11,7 +11,7 @@ from typing import Any
 
 from rich.console import Console
 
-from maverick.dsl.events import (
+from maverick.events import (
     CheckpointSaved,
     RollbackCompleted,
     RollbackStarted,

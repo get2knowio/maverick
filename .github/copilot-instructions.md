@@ -138,10 +138,16 @@ src/maverick/
 ├── __init__.py          # Version, public API exports
 ├── main.py              # CLI entry point (Click commands)
 ├── config.py            # Pydantic configuration models
+├── constants.py         # Workflow execution constants
 ├── exceptions.py        # Custom exception hierarchy (MaverickError base)
+├── types.py             # StepType, StepMode, AutonomyLevel enums
+├── events.py            # Workflow progress event dataclasses
+├── results.py           # StepResult, WorkflowResult dataclasses
 ├── agents/              # Agent implementations (HOW to do tasks)
+├── executor/            # Step execution (Claude SDK integration)
+├── checkpoint/          # Checkpoint persistence
+├── registry/            # Component registry (actions/agents/generators)
 ├── workflows/           # Workflow orchestration (WHAT and WHEN)
-├── dsl/                 # Domain-Specific Language for workflows
 ├── tools/               # MCP tool definitions (Git, GitHub, Validation)
 ├── hooks/               # Safety and logging hooks
 ├── tui/                 # Textual application (display-only)
@@ -161,77 +167,34 @@ src/maverick/
 
 ## Workflow Architecture
 
-Maverick uses YAML-based workflows exclusively. The Python decorator DSL (`@workflow`) was deprecated and removed as of December 2025.
+Maverick uses Python-based workflows exclusively. The YAML DSL infrastructure was removed as of early 2026. All workflows are implemented as Python classes inheriting from `PythonWorkflowBase`.
 
-### WorkflowFile (YAML/JSON Serialization)
+### Key Modules
 
-**Location**: `maverick.dsl.serialization.schema`
+| Module | Purpose |
+|--------|---------|
+| `maverick.types` | `StepType`, `StepMode`, `AutonomyLevel` enums |
+| `maverick.events` | Frozen dataclass progress events (`StepStarted`, `StepCompleted`, `AgentStreamChunk`, etc.) |
+| `maverick.results` | `StepResult`, `WorkflowResult`, `BranchResult`, `ParallelResult` dataclasses |
+| `maverick.executor` | `StepExecutor` protocol, `ClaudeStepExecutor` (Claude Agent SDK adapter), config/result types |
+| `maverick.checkpoint` | `CheckpointStore` interface, `FileCheckpointStore`, `MemoryCheckpointStore` |
+| `maverick.registry` | `ComponentRegistry` facade, `ActionRegistry`, `AgentRegistry`, `GeneratorRegistry` |
+| `maverick.constants` | Workflow execution constants |
 
-Workflows are defined in YAML/JSON and executed by `WorkflowFileExecutor`:
-
-- Declarative workflow definitions shared across projects
-- User-editable workflows without Python knowledge
-- Built-in workflow library with multi-location discovery
-- Supports all step types: python, agent, generate, validate, branch, loop, subworkflow, checkpoint
+### Example Usage
 
 ```python
-from maverick.dsl.serialization.schema import WorkflowFile
-from maverick.dsl.serialization.executor import WorkflowFileExecutor
-from maverick.dsl.serialization.registry import ComponentRegistry
-
-# Load from YAML
-workflow = WorkflowFile.from_yaml(yaml_content)
-
-# Execute with registry
-registry = ComponentRegistry()
-executor = WorkflowFileExecutor(registry=registry)
-async for event in executor.execute(workflow, inputs={"branch": "main"}):
-    print(event)
+from maverick.types import StepType, StepMode
+from maverick.events import StepStarted, StepCompleted, AgentStreamChunk
+from maverick.results import StepResult, WorkflowResult
+from maverick.executor import ClaudeStepExecutor, StepExecutorConfig
+from maverick.registry import ComponentRegistry
+from maverick.checkpoint import FileCheckpointStore
 ```
 
-**Key methods**: `to_dict()`, `to_yaml()`, `from_dict()`, `from_yaml()`
+### Workflows
 
-### Example YAML Workflow
-
-```yaml
-version: "1.0"
-name: hello-world
-description: A simple example workflow
-
-inputs:
-  name:
-    type: string
-    required: true
-
-steps:
-  - name: format_greeting
-    type: python
-    action: format_greeting
-    args:
-      - ${{ inputs.name }}
-
-  - name: uppercase
-    type: python
-    action: str.upper
-    args:
-      - ${{ steps.format_greeting.output }}
-
-outputs:
-  greeting: ${{ steps.format_greeting.output }}
-  uppercase: ${{ steps.uppercase.output }}
-```
-
-### Migration from Decorator DSL
-
-If you have existing Python decorator workflows, see `docs/migrating-from-decorator-dsl.md` for migration guidance. The decorator DSL was removed in favor of the more maintainable and user-friendly YAML approach.
-
-### Workflow Discovery Locations
-
-Workflows are discovered from three locations (in override order):
-
-1. **Project**: `.maverick/workflows/` (highest priority)
-2. **User**: `~/.config/maverick/workflows/`
-3. **Built-in**: Packaged with Maverick (lowest priority)
+Workflows are organized as packages under `src/maverick/workflows/<name>/` with a `workflow.py` containing the workflow class. Each workflow yields `ProgressEvent` instances as an async generator for CLI consumption.
 
 ## Core Principles (Non-Negotiable)
 
@@ -241,7 +204,7 @@ All agent interactions and workflows MUST be async.
 
 - Use `asyncio` patterns consistently; no threading for I/O operations
 - Never call `subprocess.run` from an `async def` path—use `CommandRunner` or `asyncio.create_subprocess_exec`
-- DSL `PythonStep` callables MUST be async or offloaded via `asyncio.to_thread`
+- Workflow step callables MUST be async or offloaded via `asyncio.to_thread`
 
 ### 2. Dependency Injection
 
@@ -315,7 +278,7 @@ These rules are required to maintain layer boundaries. If a change would violate
 
 1. **TUI is display-only**: `src/maverick/tui/**` MUST NOT execute subprocesses or make network calls. TUI code delegates to runners/services and only updates reactive state + renders results.
 
-2. **No blocking on the event loop**: Never call `subprocess.run` from `async def`. Use `CommandRunner`. DSL `PythonStep` callables MUST be async or offloaded via `asyncio.to_thread`.
+2. **No blocking on the event loop**: Never call `subprocess.run` from `async def`. Use `CommandRunner`. Workflow step callables MUST be async or offloaded via `asyncio.to_thread`.
 
 3. **Deterministic ops in workflows/runners**: Agents provide judgment only. Workflows own git commits, validation, retries, checkpointing, and error recovery policies.
 
@@ -365,10 +328,10 @@ When splitting a public module, preserve import stability:
 Use these repository-specific patterns to prevent common "god file" failures:
 
 - **CLI**: Keep `src/maverick/main.py` as a thin entrypoint; put each Click command in `src/maverick/cli/commands/<command>.py`; keep shared Click options/error handling in `src/maverick/cli/common.py`
-- **Workflows**: Use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `dsl.py`/`constants.py`, and `workflow.py`
+- **Workflows**: Use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `constants.py`, and `workflow.py`
 - **TUI models**: Split `src/maverick/tui/models.py` into a `src/maverick/tui/models/` package grouped by domain (enums, dialogs, widget state, screen state, theme)
 - **Tools (MCP servers)**: Split into a package with `runner.py` (subprocess), `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules
-- **DSL execution**: Isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small
+- **Executor**: Isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small
 - **Tests**: Split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste
 
 ## Hardening Requirements

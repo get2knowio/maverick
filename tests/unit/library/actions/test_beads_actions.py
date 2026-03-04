@@ -25,8 +25,8 @@ class TestBeadActionRegistration:
 
     def test_create_beads_requires_bd(self) -> None:
         """create_beads is registered with requires=('bd',) via register_all_actions."""
-        from maverick.dsl.serialization.registry import ComponentRegistry
         from maverick.library.actions import register_all_actions
+        from maverick.registry import ComponentRegistry
 
         registry = ComponentRegistry()
         register_all_actions(registry)
@@ -36,8 +36,8 @@ class TestBeadActionRegistration:
 
     def test_wire_dependencies_requires_bd(self) -> None:
         """wire_dependencies is registered with requires=('bd',)."""
-        from maverick.dsl.serialization.registry import ComponentRegistry
         from maverick.library.actions import register_all_actions
+        from maverick.registry import ComponentRegistry
 
         registry = ComponentRegistry()
         register_all_actions(registry)
@@ -47,8 +47,8 @@ class TestBeadActionRegistration:
 
     def test_parse_speckit_has_no_requires(self) -> None:
         """parse_speckit should not require bd."""
-        from maverick.dsl.serialization.registry import ComponentRegistry
         from maverick.library.actions import register_all_actions
+        from maverick.registry import ComponentRegistry
 
         registry = ComponentRegistry()
         register_all_actions(registry)

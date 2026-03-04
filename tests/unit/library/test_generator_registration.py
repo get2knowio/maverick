@@ -13,8 +13,8 @@ from maverick.agents.generators import (
     PRDescriptionGenerator,
     PRTitleGenerator,
 )
-from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.generators import register_all_generators
+from maverick.registry import ComponentRegistry
 
 
 class TestRegisterAllGenerators:

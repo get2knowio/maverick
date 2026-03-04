@@ -8,9 +8,9 @@ Tests the intents.py module including:
 
 from __future__ import annotations
 
-from maverick.dsl.serialization.registry import ComponentRegistry
 from maverick.library.actions import register_all_actions
 from maverick.library.actions.intents import ACTION_INTENTS, get_intent
+from maverick.registry import ComponentRegistry
 
 
 class TestActionIntentCoverage:

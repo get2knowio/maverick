@@ -13,13 +13,13 @@ from tenacity import (
     wait_exponential,
 )
 
-from maverick.dsl.executor.errors import OutputSchemaValidationError
-from maverick.dsl.types import StepType
 from maverick.exceptions import WorkflowError
+from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
 from maverick.flight.serializer import serialize_flight_plan
 from maverick.flight.validator import validate_flight_plan_file
 from maverick.logging import get_logger
+from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.generate_flight_plan.constants import (
     GENERATE,

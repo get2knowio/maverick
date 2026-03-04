@@ -22,7 +22,7 @@ from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
-    from maverick.dsl.executor.config import StepConfig
+    from maverick.executor.config import StepConfig
     from maverick.prompts.config import PromptOverrideConfig
 
 __all__ = [
@@ -316,7 +316,7 @@ class MaverickConfig(BaseSettings):
         """Coerce dict entries to StepConfig via lazy import to avoid circular deps."""
         if not isinstance(v, dict):
             return v
-        from maverick.dsl.executor.config import StepConfig
+        from maverick.executor.config import StepConfig
 
         result = {}
         for key, val in v.items():
@@ -434,7 +434,7 @@ def _ensure_model_rebuilt() -> None:
     if _model_rebuilt:
         return
 
-    from maverick.dsl.executor.config import StepConfig  # noqa: F811
+    from maverick.executor.config import StepConfig  # noqa: F811
     from maverick.prompts.config import PromptOverrideConfig  # noqa: F811
 
     MaverickConfig.model_rebuild(

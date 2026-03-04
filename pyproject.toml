@@ -36,7 +36,6 @@ dependencies = [
     "detect-secrets>=1.4,<2",
     "gitpython>=3.1,<4",
     "jinja2>=3.1.0,<4",
-    "lark>=1.2,<2",
     "pydantic>=2.0,<3",
     "pydantic-settings>=2.0,<3",
     "pygithub>=2.1,<3",

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.dsl.executor.protocol import StepExecutor
-from maverick.dsl.executor.result import ExecutorResult
+from maverick.executor.protocol import StepExecutor
+from maverick.executor.result import ExecutorResult
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
 from maverick.workflows.refuel_maverick.models import (
     AcceptanceCriterionSpec,

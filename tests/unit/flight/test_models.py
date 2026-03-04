@@ -779,36 +779,28 @@ class TestAcceptanceCriterionTraceRef:
         """Comma-separated SC refs are valid (agent may reference multiple)."""
         from maverick.flight.models import AcceptanceCriterion
 
-        ac = AcceptanceCriterion(
-            text="criterion", trace_ref="SC-002, SC-003"
-        )
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC-002, SC-003")
         assert ac.trace_ref == "SC-002, SC-003"
 
     def test_valid_trace_ref_comma_no_space(self) -> None:
         """Comma-separated SC refs without space are valid."""
         from maverick.flight.models import AcceptanceCriterion
 
-        ac = AcceptanceCriterion(
-            text="criterion", trace_ref="SC-001,SC-002"
-        )
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC-001,SC-002")
         assert ac.trace_ref == "SC-001,SC-002"
 
     def test_range_notation_expanded(self) -> None:
         """'SC-1 through SC-3' is normalized to 'SC-1, SC-2, SC-3'."""
         from maverick.flight.models import AcceptanceCriterion
 
-        ac = AcceptanceCriterion(
-            text="criterion", trace_ref="SC-1 through SC-3"
-        )
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC-1 through SC-3")
         assert ac.trace_ref == "SC-1, SC-2, SC-3"
 
     def test_large_range_notation_expanded(self) -> None:
         """'SC-1 through SC-14' is normalized to comma-separated refs."""
         from maverick.flight.models import AcceptanceCriterion
 
-        ac = AcceptanceCriterion(
-            text="criterion", trace_ref="SC-1 through SC-14"
-        )
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC-1 through SC-14")
         assert ac.trace_ref == ", ".join(f"SC-{i}" for i in range(1, 15))
 
 

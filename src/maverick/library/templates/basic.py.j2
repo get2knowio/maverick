@@ -6,47 +6,65 @@ Generated: {{ date }}
 """
 from __future__ import annotations
 
-from maverick.dsl import step, workflow
+from typing import Any
+
+from maverick.workflows.base import PythonWorkflow
 
 
-@workflow(name="{{ name }}")
-def {{ name.replace('-', '_') }}_workflow(example_input: str):
-    """{{ description if description else 'Basic workflow' }}.
+class {{ name.replace('-', '_').title().replace('_', '') }}Workflow(PythonWorkflow):
+    """{{ description if description else 'Basic workflow' }}."""
 
-    Args:
-        example_input: Example input parameter.
-    """
-    # Step 1: Initialize
-    init_result = yield step("init").python(
-        action=example_init_action,
-        kwargs={"input_value": example_input},
-    )
+    async def _run(self, inputs: dict[str, Any]) -> Any:
+        """Execute workflow steps.
 
-    # Step 2: Main processing
-    main_result = yield step("main").python(
-        action=example_main_action,
-        kwargs={"init_result": init_result},
-    )
+        Args:
+            inputs: Workflow input parameters.
 
-    # Step 3: Cleanup
-    cleanup_result = yield step("cleanup").python(
-        action=example_cleanup_action,
-        kwargs={"main_result": main_result},
-    )
+        Returns:
+            Final output dict.
+        """
+        example_input = inputs.get("example_input", "")
 
-    return cleanup_result
+        # Step 1: Initialize
+        await self.emit_step_started("init")
+        try:
+            init_result = await example_init_action(input_value=example_input)
+        except Exception as exc:
+            await self.emit_step_failed("init", str(exc))
+            raise
+        await self.emit_step_completed("init", output=init_result)
+
+        # Step 2: Main processing
+        await self.emit_step_started("main")
+        try:
+            main_result = await example_main_action(init_result=init_result)
+        except Exception as exc:
+            await self.emit_step_failed("main", str(exc))
+            raise
+        await self.emit_step_completed("main", output=main_result)
+
+        # Step 3: Cleanup
+        await self.emit_step_started("cleanup")
+        try:
+            cleanup_result = await example_cleanup_action(main_result=main_result)
+        except Exception as exc:
+            await self.emit_step_failed("cleanup", str(exc))
+            raise
+        await self.emit_step_completed("cleanup", output=cleanup_result)
+
+        return cleanup_result
 
 
-def example_init_action(input_value: str):
+async def example_init_action(input_value: str) -> dict:
     """Initialize workflow."""
     return {"initialized": True, "input": input_value}
 
 
-def example_main_action(init_result: dict):
+async def example_main_action(init_result: dict) -> str:
     """Execute main logic."""
     return f"Processed: {init_result['input']}"
 
 
-def example_cleanup_action(main_result: str):
+async def example_cleanup_action(main_result: str) -> dict:
     """Clean up resources."""
     return {"success": True, "result": main_result}

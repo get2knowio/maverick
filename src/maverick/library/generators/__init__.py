@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
 # Import generator classes
 from maverick.agents.generators import (
@@ -50,7 +50,7 @@ def register_all_generators(registry: ComponentRegistry) -> None:
 
     Example:
         ```python
-        from maverick.dsl.serialization.registry import component_registry
+        from maverick.registry import component_registry
         from maverick.library.generators import register_all_generators
 
         register_all_generators(component_registry)

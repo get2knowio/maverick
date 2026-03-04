@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.dsl.checkpoint.store import MemoryCheckpointStore
-from maverick.dsl.events import (
+from maverick.checkpoint.store import MemoryCheckpointStore
+from maverick.events import (
     StepCompleted,
     StepOutput,
     StepStarted,
@@ -142,7 +142,7 @@ class TestQuickstartConfigResolution:
         self, workflow: _QuickstartWorkflow
     ) -> None:
         """resolve_step_config() returns a StepConfig."""
-        from maverick.dsl.executor.config import StepConfig
+        from maverick.executor.config import StepConfig
 
         config = workflow.resolve_step_config("review")
         assert isinstance(config, StepConfig)
@@ -152,7 +152,7 @@ class TestQuickstartConfigResolution:
         self, mock_config: MagicMock, mock_registry: MagicMock
     ) -> None:
         """Config from maverick.yaml steps dict overrides defaults."""
-        from maverick.dsl.executor.config import StepConfig
+        from maverick.executor.config import StepConfig
 
         override = StepConfig(timeout=999)
         mock_config.steps = {"implement": override}

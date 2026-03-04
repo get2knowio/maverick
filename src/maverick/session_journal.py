@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from maverick.dsl.events import ProgressEvent
+from maverick.events import ProgressEvent
 from maverick.logging import get_logger
 
 __all__ = ["SessionJournal"]
@@ -155,7 +155,7 @@ class SessionJournal:
 
         Events that expose a ``to_dict()`` method are serialized via that
         method.  For any other event type (e.g. ``RollbackError`` from
-        ``maverick.dsl.results``) we fall back to ``{"event": class_name}``.
+        ``maverick.results``) we fall back to ``{"event": class_name}``.
 
         ``AgentStreamChunk`` events are skipped when *include_agent_text*
         is ``False``.
@@ -163,7 +163,7 @@ class SessionJournal:
         Args:
             event: The workflow progress event to record.
         """
-        from maverick.dsl.events import AgentStreamChunk
+        from maverick.events import AgentStreamChunk
 
         if not self._include_agent_text and isinstance(event, AgentStreamChunk):
             return
