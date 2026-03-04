@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from maverick.cli.output import format_error
 from maverick.exceptions import GitError, NotARepositoryError
@@ -27,7 +26,6 @@ __all__ = [
     "count_tasks",
     "format_review_text",
     "format_review_markdown",
-    "execute_dsl_workflow",
 ]
 
 
@@ -381,67 +379,3 @@ def format_review_markdown(result: ReviewResult, pr_number: int) -> str:
             lines.append(f"- Duration: {duration_sec:.2f}s")
 
     return "\n".join(lines)
-
-
-async def execute_dsl_workflow(
-    workflow_name: str,
-    inputs: dict[str, Any],
-    *,
-    workflow_dir: Path | None = None,
-) -> AsyncIterator[Any]:
-    """Execute a DSL workflow from the library.
-
-    This helper loads and executes a YAML workflow definition using the
-    DSL execution engine. It's designed for use in CLI commands that need
-    to run workflows.
-
-    Args:
-        workflow_name: Name of the workflow file (without .yaml extension)
-            Example: "fly", "refuel"
-        inputs: Input parameters for the workflow
-            Example: {"branch_name": "001-foo", "task_file": "specs/001-foo/tasks.md"}
-        workflow_dir: Optional directory containing workflow files.
-            Defaults to src/maverick/library/workflows/
-
-    Yields:
-        DSL progress events (WorkflowStarted, StepStarted, StepCompleted,
-        WorkflowCompleted)
-
-    Example:
-        ```python
-        inputs = {"branch_name": "001-foo", "skip_review": False}
-        async for event in execute_dsl_workflow("fly", inputs):
-            if isinstance(event, StepStarted):
-                click.echo(f"Starting: {event.step_name}")
-            elif isinstance(event, WorkflowCompleted):
-                click.echo(f"Success: {event.result.success}")
-        ```
-    """
-    from pathlib import Path
-
-    from maverick.dsl.serialization.executor.executor import WorkflowFileExecutor
-    from maverick.dsl.serialization.registry import ComponentRegistry
-    from maverick.dsl.serialization.schema import WorkflowFile
-
-    # Default to library workflows
-    if workflow_dir is None:
-        import maverick.library.workflows
-
-        workflow_dir = Path(maverick.library.workflows.__file__).parent
-
-    # Load workflow file
-    workflow_path = workflow_dir / f"{workflow_name}.yaml"
-    if not workflow_path.exists():
-        msg = f"Workflow not found: {workflow_path}"
-        raise FileNotFoundError(msg)
-
-    workflow_yaml = workflow_path.read_text(encoding="utf-8")
-    workflow_file = WorkflowFile.from_yaml(workflow_yaml)
-
-    # Create registry and executor
-    registry = ComponentRegistry()
-    executor = WorkflowFileExecutor(registry=registry)
-
-    # Execute and yield events
-    async for event in executor.execute(workflow_file, inputs=inputs):
-        yield event

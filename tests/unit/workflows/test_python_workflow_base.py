@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.dsl.checkpoint.store import MemoryCheckpointStore
-from maverick.dsl.events import (
+from maverick.checkpoint.store import MemoryCheckpointStore
+from maverick.events import (
     CheckpointSaved,
     RollbackCompleted,
     RollbackStarted,
@@ -26,8 +26,8 @@ from maverick.dsl.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.dsl.results import WorkflowResult
-from maverick.dsl.types import StepType
+from maverick.results import WorkflowResult
+from maverick.types import StepType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,7 +47,7 @@ def _make_workflow(
     to avoid duplicating the ``ConcreteTestWorkflow`` class definition.
     """
     from maverick.config import MaverickConfig, ModelConfig
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
     from tests.unit.workflows.conftest import _make_concrete_workflow_class
 
     ConcreteTestWorkflow = _make_concrete_workflow_class()
@@ -351,7 +351,7 @@ class TestResolveStepConfig:
 
     def test_resolve_step_config_returns_step_config(self) -> None:
         """resolve_step_config() returns a StepConfig instance."""
-        from maverick.dsl.executor.config import StepConfig
+        from maverick.executor.config import StepConfig
 
         wf = _make_workflow()
         cfg = wf.resolve_step_config("some-step")
@@ -359,7 +359,7 @@ class TestResolveStepConfig:
 
     def test_resolve_step_config_uses_project_steps(self) -> None:
         """resolve_step_config() picks up per-step overrides from config.steps."""
-        from maverick.dsl.executor.config import StepConfig
+        from maverick.executor.config import StepConfig
 
         override = StepConfig(model_id="claude-opus-4-6")
         wf = _make_workflow(steps_override={"my-step": override})
@@ -368,7 +368,7 @@ class TestResolveStepConfig:
 
     def test_resolve_step_config_defaults_to_python_step_type(self) -> None:
         """Default step_type for resolve_step_config is PYTHON (deterministic mode)."""
-        from maverick.dsl.types import StepMode
+        from maverick.types import StepMode
 
         wf = _make_workflow()
         cfg = wf.resolve_step_config("any-step")
@@ -534,7 +534,7 @@ class TestCheckpointing:
     async def test_save_checkpoint_noop_without_store(self) -> None:
         """save_checkpoint is a no-op when checkpoint_store is None."""
         from maverick.config import MaverickConfig, ModelConfig
-        from maverick.dsl.serialization.registry import ComponentRegistry
+        from maverick.registry import ComponentRegistry
         from maverick.workflows.base import PythonWorkflow
 
         class _Impl(PythonWorkflow):

@@ -15,8 +15,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from maverick.dsl.executor.errors import OutputSchemaValidationError
 from maverick.exceptions import WorkflowError
+from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.loader import FlightPlanFile
 from maverick.flight.serializer import serialize_work_unit
 from maverick.library.actions.beads import create_beads, wire_dependencies

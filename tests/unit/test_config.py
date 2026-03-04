@@ -460,7 +460,7 @@ class TestMaverickConfigSteps:
         import os
 
         os.chdir(temp_dir)
-        from maverick.dsl.types import AutonomyLevel
+        from maverick.types import AutonomyLevel
 
         yaml_content = """
 steps:

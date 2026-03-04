@@ -8,8 +8,6 @@ import click
 
 from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
-from maverick.dsl.context_builders import register_all_context_builders
-from maverick.dsl.discovery import DiscoveryResult, create_discovery
 from maverick.exceptions import AgentError, GitError, MaverickError
 from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
@@ -17,7 +15,7 @@ from maverick.library.generators import register_all_generators
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
 
 @contextlib.contextmanager
@@ -79,8 +77,7 @@ def create_registered_registry(strict: bool = False) -> ComponentRegistry:
         ComponentRegistry with all built-in components and discovered
         workflows registered.
     """
-    from maverick.dsl.discovery import load_workflows_into_registry
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
     registry = ComponentRegistry(strict=strict)
 
@@ -88,27 +85,5 @@ def create_registered_registry(strict: bool = False) -> ComponentRegistry:
     register_all_actions(registry)
     register_all_agents(registry)
     register_all_generators(registry)
-    register_all_context_builders(registry)
-
-    # Register all discovered workflows and fragments
-    load_workflows_into_registry(registry)
 
     return registry
-
-
-def get_discovery_result(ctx: click.Context) -> DiscoveryResult:
-    """Get or create workflow discovery result.
-
-    Runs discovery on first call and caches result in CLI context.
-
-    Args:
-        ctx: Click context.
-
-    Returns:
-        DiscoveryResult from workflow discovery.
-    """
-    if "discovery_result" not in ctx.obj:
-        discovery = create_discovery()
-        ctx.obj["discovery_result"] = discovery.discover()
-    result: DiscoveryResult = ctx.obj["discovery_result"]
-    return result

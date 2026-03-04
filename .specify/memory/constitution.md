@@ -1,26 +1,22 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.8.0 → 1.9.0
+Version change: 1.9.0 → 1.10.0
 Modified principles: None
-Added sections:
-  - Guardrail #11: Workspace Isolation (cwd threading for hidden workspaces)
-  - Guardrail #12: DSL Expression Type Safety (string coercion at boundaries)
-  - Appendix E: Workspace Isolation Architecture
-  - Appendix B: Added jj (Jujutsu) as canonical library
-  - Technology Stack: Added jj, VcsRepository, WorkspaceManager rows
-Removed sections: None
-Templates requiring updates:
-  - .specify/templates/plan-template.md: ✅ Compatible (Constitution Check section exists)
-  - .specify/templates/spec-template.md: ✅ Compatible (no workspace-specific content)
-  - .specify/templates/tasks-template.md: ✅ Compatible (no workspace-specific content)
-Propagation:
-  - CLAUDE.md: ✅ Updated - added Workspace Isolation and DSL Type Safety sections
-Follow-up TODOs: None
-Source: Workspace isolation debugging session 2026-02-20 - implementer agent was writing to
-user repo (Path.cwd()) instead of hidden workspace because cwd was not threaded through DSL
-steps. Also discovered DSL expressions always resolve to strings, causing 'str' object has
-no attribute 'is_dir' when passed where Path expected.
+Removed sections:
+  - Guardrail #11: Workspace Isolation (was DSL-specific cwd threading — now Appendix E covers Python workflows)
+  - Guardrail #12: DSL Expression Type Safety (was YAML DSL-specific — maverick.dsl package removed)
+  - Appendix A: DSL execution split pattern row (maverick.dsl package removed)
+Updated sections:
+  - Principle I: Removed "DSL PythonStep" reference, generalized to "Python steps"
+  - Guardrail #2: Removed "DSL PythonStep" reference, generalized to "Python steps"
+  - Guardrail #5: Removed "DSL/workflow definition" reference
+  - Appendix C: Updated import from maverick.dsl.events to maverick.events
+  - Appendix E: Reframed for Python workflows (removed YAML DSL specifics)
+  - Compliance Review: Removed Guardrail #11 and #12 references
+Templates requiring updates: None
+Source: Feature 041-remove-yaml-dsl — deleted maverick.dsl package entirely in favour of
+Python-native workflow authoring. YAML DSL content in constitution was dead/misleading.
 -->
 
 # Maverick Constitution
@@ -38,7 +34,7 @@ responsiveness and enabling concurrent operations.
 - Blocking I/O in async contexts is prohibited
 - **Never call `subprocess.run` from an `async def` path**—use `CommandRunner` or
   `asyncio.create_subprocess_exec` with proper timeouts
-- DSL `PythonStep` callables MUST be async, or MUST be offloaded via `asyncio.to_thread`
+- Python step callables MUST be async, or MUST be offloaded via `asyncio.to_thread`
   to avoid freezing the TUI/workflows
 
 **Rationale**: The TUI requires responsive updates during long-running agent operations.
@@ -103,7 +99,7 @@ forward progress over early termination.
 - Continue processing remaining work items even when some fail
 - Aggregate partial results rather than discarding successful work
 - **Resilience features MUST be real, not stubs**: "Retry/fix loops" and "recovery" MUST
-  actually invoke the fixer/retry validation. If the DSL/workflow definition is the right
+  actually invoke the fixer/retry validation. If the workflow definition is the right
   place for retry logic, implement it there rather than simulating it in a Python action.
 
 **Rationale**: Parallel agent execution means partial success is valuable. Users should
@@ -233,8 +229,8 @@ the design before proceeding.
 
 2. **Async-first means no blocking on the event loop**: Never call `subprocess.run` from
    an `async def` path. Prefer `CommandRunner` (`src/maverick/runners/command.py`) for
-   subprocess execution with timeouts. DSL `PythonStep` callables MUST be async or
-   offloaded via `asyncio.to_thread`. (Enforces Principle I)
+   subprocess execution with timeouts. Python step callables MUST be async or offloaded
+   via `asyncio.to_thread`. (Enforces Principle I)
 
 3. **Deterministic ops belong to workflows/runners, not agents**: Agents provide judgment.
    They MUST NOT own deterministic side effects like git commits/pushes or running
@@ -246,8 +242,8 @@ the design before proceeding.
    boundary validation. Keep outputs stable across versions. (Enforces Principle VI)
 
 5. **Resilience features MUST be real, not stubs**: Retry/fix loops MUST actually invoke
-   fixers and re-run validation. If the DSL/workflow definition is the right place for
-   retry logic, implement it there. (Enforces Principle IV)
+   fixers and re-run validation. If the workflow definition is the right place for retry
+   logic, implement it there. (Enforces Principle IV)
 
 6. **One canonical wrapper per external system**: Do not duplicate `git`/`gh`/validation
    wrappers. Prefer `src/maverick/runners/**` for execution and have tools/context
@@ -289,32 +285,6 @@ the design before proceeding.
     - **Never push sample project branches to maverick core** (and vice versa)
     - Verify `git remote -v` before pushing to ensure you're targeting the correct repo
     (Enforces repository isolation. See Appendix D for multi-repo workflow.)
-
-11. **Workspace isolation requires explicit cwd threading**: All DSL steps that operate
-    inside a hidden workspace (`~/.maverick/workspaces/<project>/`) MUST receive an
-    explicit `cwd` parameter pointing to the workspace path. Without it, agents and
-    validators default to `Path.cwd()` (the user's working directory), silently writing
-    files to the wrong location.
-    - Agent steps: pass `cwd` in the `context` dict
-    - Validate steps: pass `cwd` via workflow `inputs` (ValidateStepRecord does not
-      support `kwargs`)
-    - Subworkflow/fragment steps: wire `cwd` through the fragment's `inputs` schema
-    - Review actions: pass `cwd` to `gather_local_review_context()` and
-      `run_review_fix_loop()` so diffs are computed against the workspace, not the
-      user repo
-    (Enforces Principles II and VIII. See Appendix E for architecture.)
-
-12. **DSL expressions resolve to strings — coerce at boundaries**: All `${{ }}`
-    expressions in YAML workflows resolve to JSON-serializable types (primarily strings).
-    Action handlers and boundary code MUST coerce these to native Python types before use:
-    - Paths: `Path(cwd) if cwd else Path.cwd()` — never pass raw strings to APIs
-      expecting `Path`
-    - Integers: `int(value)` — YAML `max_iterations` fields typed as `int` cannot
-      accept `${{ }}` expression strings
-    - Booleans: explicit `bool()` or truthiness checks
-    - Violations cause runtime `AttributeError` or `TypeError` that are hard to trace
-      back to the DSL layer
-    (Enforces Principle VI typed contracts.)
 
 **Rationale**: Abstract principles are necessary but insufficient. Concrete, reviewable
 rules prevent principle drift and make code review objective. Each guardrail traces to
@@ -387,7 +357,6 @@ Use these repository-specific patterns to prevent common "god file" failures:
 | **Workflows** | Use a package-per-workflow (`src/maverick/workflows/<name>/`) and split into `models.py`, `events.py`, `dsl.py`/`constants.py`, and `workflow.py` |
 | **TUI models** | Split `src/maverick/tui/models.py` into a `src/maverick/tui/models/` package grouped by domain (enums, dialogs, widget state, screen state, theme) |
 | **Tools (MCP servers)** | Split into a package with `runner.py` (subprocess), `errors.py`, `responses.py`, `prereqs.py`, `server.py`, and per-resource tool modules |
-| **DSL execution** | Isolate per-step-type execution logic into handler modules; keep the executor/coordinator readable and small |
 | **Tests** | Split by unit-under-test and scenario group; move shared fixtures/factories into a local `conftest.py` (directory-scoped) instead of copy/paste |
 
 ## Technology Stack
@@ -518,10 +487,9 @@ MUST comply with these principles.
 - Module size thresholds (Principle XI) MUST be checked before merging large files
 - Ownership expectations (Principle XII) apply to all contributors including AI agents
 - Branch naming conventions (Guardrail #10, Appendix D) MUST be verified before pushing
-- Workspace cwd threading (Guardrail #11, Appendix E) MUST be verified for all new DSL steps
-- DSL expression type coercion (Guardrail #12) MUST be verified at action boundaries
+- Workspace cwd threading (Appendix E) MUST be verified for all new workflow steps
 
-**Version**: 1.9.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-02-20
+**Version**: 1.10.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-03-03
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -608,7 +576,7 @@ The `StepOutput` event is the generic mechanism for any workflow step to contrib
 informational output to the unified stream:
 
 ```python
-from maverick.dsl.events import StepOutput
+from maverick.events import StepOutput
 
 # In a Python action or workflow step:
 if event_callback:
@@ -725,25 +693,26 @@ After fly completes, `land` curates and pushes commits from the workspace.
 
 ### The CWD Contract
 
-Every DSL step that operates inside the workspace MUST receive the workspace path as its
-working directory. The workspace path flows through the DSL like this:
+Every workflow step that operates inside the workspace MUST receive the workspace path as
+its working directory. The workspace path is returned by `create_workspace` and must be
+threaded explicitly to all subsequent steps:
 
 ```
 create_workspace step
-  └── output.workspace_path (string, e.g. "/home/user/.maverick/workspaces/my-project")
+  └── workspace_path (e.g. "/home/user/.maverick/workspaces/my-project")
         │
         ├── implement (agent step)
-        │     context.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        │     context["cwd"] = workspace_path
         │
-        ├── validate_and_fix (subworkflow/fragment)
-        │     inputs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        ├── validate_and_fix (sub-workflow/fragment)
+        │     inputs["cwd"] = workspace_path
         │     └── (fragment wires cwd to its internal validate + fix_loop steps)
         │
         ├── gather_review_context (python step)
-        │     kwargs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+        │     kwargs["cwd"] = workspace_path
         │
         └── git_commit (python step)
-              kwargs.cwd: ${{ steps.create_workspace.output.workspace_path }}
+              kwargs["cwd"] = workspace_path
 ```
 
 ### Why Explicit CWD Is Required
@@ -756,12 +725,12 @@ create_workspace step
   Without cwd, diffs show nothing because the user repo hasn't changed.
 - **jj actions**: `JjClient(cwd=Path(workspace_path))` operates on the workspace's
   `.jj/` store. The `_make_client` helper accepts `str | Path | None` and coerces with
-  `Path(cwd)` to handle DSL string expressions.
+  `Path(cwd)`.
 
-### Type Coercion at the Boundary
+### Path Coercion at Step Boundaries
 
-DSL `${{ }}` expressions always resolve to strings (JSON-serializable). When a step
-handler receives a workspace path from the DSL, it MUST convert:
+Workspace paths flow as Python `str` or `Path` objects between workflow steps. Step
+handlers MUST coerce to `Path` before use:
 
 ```python
 # In action code or step handler:

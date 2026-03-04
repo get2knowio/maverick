@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from maverick.dsl.events import (
+from maverick.events import (
     AgentStreamChunk,
     CheckpointSaved,
     LoopIterationCompleted,
@@ -32,9 +32,9 @@ from maverick.dsl.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.dsl.results import RollbackError
-from maverick.dsl.types import StepType
+from maverick.results import RollbackError
 from maverick.session_journal import SessionJournal
+from maverick.types import StepType
 
 # =========================================================================
 # _event_to_dict helper tests

@@ -116,9 +116,14 @@ from maverick.exceptions.validation import (
 
 # Workflow-related exceptions
 from maverick.exceptions.workflow import (
+    CheckpointNotFoundError,
+    DuplicateComponentError,
     DuplicateStepNameError,
+    InputMismatchError,
+    ReferenceResolutionError,
     StagesNotFoundError,
     WorkflowError,
+    WorkflowStepError,
 )
 
 __all__ = [
@@ -191,9 +196,14 @@ __all__ = [
     "NotificationToolsError",
     "ValidationToolsError",
     # Workflow
+    "CheckpointNotFoundError",
+    "DuplicateComponentError",
     "DuplicateStepNameError",
+    "InputMismatchError",
+    "ReferenceResolutionError",
     "StagesNotFoundError",
     "WorkflowError",
+    "WorkflowStepError",
     # Flight
     "FlightError",
     "FlightPlanNotFoundError",

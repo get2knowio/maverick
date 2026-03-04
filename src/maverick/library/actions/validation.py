@@ -517,7 +517,7 @@ async def generate_validation_report(
 
     Args:
         initial_result: Initial validation result from validate step
-        fix_loop_result: Result from fix_retry_loop (used by validate_and_fix.yaml)
+        fix_loop_result: Result from fix_retry_loop (used by Python workflow callers)
         max_attempts: Configured max attempts for context
         stages: Stages that were run
         fix_enabled: Whether fix was enabled (for validate.yaml)
@@ -534,9 +534,9 @@ async def generate_validation_report(
 
     Note:
         This function handles multiple input paths:
-        1. validate_and_fix.yaml: Uses fix_loop_result for final status
-        2. validate.yaml with fix=True: Uses fix_result for final status
-        3. validate.yaml with fix=False: Uses initial_result only
+        1. Python workflow with fix loop: Uses fix_loop_result for final status
+        2. Python workflow with fix=True: Uses fix_result for final status
+        3. Python workflow with fix=False: Uses initial_result only
     """
     # Derive stages from input if not explicitly provided
     if stages:

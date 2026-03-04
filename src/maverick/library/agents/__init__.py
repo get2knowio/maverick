@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
 # Import agent classes
 from maverick.agents.code_reviewer import CodeReviewerAgent
@@ -58,7 +58,7 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     Example:
         ```python
-        from maverick.dsl.serialization.registry import component_registry
+        from maverick.registry import component_registry
         from maverick.library.agents import register_all_agents
 
         register_all_agents(component_registry)

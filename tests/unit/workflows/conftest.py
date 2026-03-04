@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from maverick.dsl.checkpoint.store import MemoryCheckpointStore
-from maverick.dsl.executor.protocol import StepExecutor
+from maverick.checkpoint.store import MemoryCheckpointStore
+from maverick.executor.protocol import StepExecutor
 
 
 def _make_concrete_workflow_class() -> type:
@@ -60,7 +60,7 @@ def mock_config() -> MagicMock:
 @pytest.fixture
 def mock_registry() -> MagicMock:
     """Return a MagicMock ComponentRegistry."""
-    from maverick.dsl.serialization.registry import ComponentRegistry
+    from maverick.registry import ComponentRegistry
 
     return MagicMock(spec=ComponentRegistry)
 

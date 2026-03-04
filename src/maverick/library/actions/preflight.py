@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from maverick.config import MaverickConfig, load_config
-from maverick.dsl.events import OutputLevel, StepOutput
+from maverick.events import OutputLevel, StepOutput
 from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
 from maverick.runners.preflight import AnthropicAPIValidator

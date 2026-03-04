@@ -155,9 +155,7 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
 
         # Tier 2: validate_output fallback (JSON code-block extraction)
         raw_text = extract_all_text(messages)
-        result = validate_output(
-            raw_text, DecompositionOutput, strict=False
-        )
+        result = validate_output(raw_text, DecompositionOutput, strict=False)
         if result is not None:
             return result.model_dump()
 

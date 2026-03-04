@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from maverick.dsl.events import (
+from maverick.events import (
     StepCompleted,
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.dsl.executor.result import ExecutorResult
 from maverick.exceptions import WorkflowError
+from maverick.executor.result import ExecutorResult
 from maverick.workflows.generate_flight_plan.constants import (
     GENERATE,
     READ_PRD,

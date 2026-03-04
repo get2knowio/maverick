@@ -1,11 +1,9 @@
 """Built-in workflow library.
 
-This module provides access to Maverick's built-in workflows, fragments,
+This module provides access to Maverick's built-in workflows
 and scaffolding templates.
 
 Submodules:
-- workflows: Built-in workflow YAML definitions
-- fragments: Reusable workflow fragments
 - templates: Jinja2 scaffolding templates
 - agents: Agent registration functions
 - generators: Generator registration functions
@@ -14,17 +12,6 @@ Submodules:
 from __future__ import annotations
 
 from maverick.library.agents import register_all_agents
-from maverick.library.builtins import (
-    BUILTIN_FRAGMENTS,
-    BUILTIN_WORKFLOWS,
-    COMMIT_AND_PUSH_FRAGMENT_INFO,
-    CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO,
-    FLY_BEADS_WORKFLOW_INFO,
-    REFUEL_SPECKIT_WORKFLOW_INFO,
-    VALIDATE_AND_FIX_FRAGMENT_INFO,
-    BuiltinFragmentInfo,
-    BuiltinWorkflowInfo,
-)
 from maverick.library.generators import register_all_generators
 from maverick.library.scaffold import (
     InvalidNameError,
@@ -50,19 +37,6 @@ __all__ = [
     "TemplateInfo",
     "ScaffoldRequest",
     "ScaffoldResult",
-    # Models - Builtin
-    "BuiltinWorkflowInfo",
-    "BuiltinFragmentInfo",
-    # Constants
-    "BUILTIN_WORKFLOWS",
-    "BUILTIN_FRAGMENTS",
-    # Workflow info constants
-    "FLY_BEADS_WORKFLOW_INFO",
-    "REFUEL_SPECKIT_WORKFLOW_INFO",
-    # Fragment info constants
-    "VALIDATE_AND_FIX_FRAGMENT_INFO",
-    "COMMIT_AND_PUSH_FRAGMENT_INFO",
-    "CREATE_PR_WITH_SUMMARY_FRAGMENT_INFO",
     # Exceptions
     "ScaffoldError",
     "InvalidNameError",

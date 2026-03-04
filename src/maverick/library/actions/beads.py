@@ -766,7 +766,7 @@ async def enrich_bead_descriptions(
     Returns:
         List of enriched work definition dicts (same structure, updated descriptions).
     """
-    from maverick.dsl.events import StepOutput
+    from maverick.events import StepOutput
 
     spec_path = Path(spec_dir)
 
