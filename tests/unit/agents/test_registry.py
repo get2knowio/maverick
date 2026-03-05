@@ -69,6 +69,17 @@ class MockAgent(MaverickAgent):
             ),
         )
 
+    def build_prompt(self, context: AgentContext) -> str:
+        """Build mock prompt.
+
+        Args:
+            context: Agent context.
+
+        Returns:
+            Mock prompt string.
+        """
+        return "mock prompt"
+
 
 class AnotherMockAgent(MaverickAgent):
     """Another mock agent for testing multiple registrations."""
@@ -105,6 +116,17 @@ class AnotherMockAgent(MaverickAgent):
                 duration_ms=0,
             ),
         )
+
+    def build_prompt(self, context: AgentContext) -> str:
+        """Build another mock prompt.
+
+        Args:
+            context: Agent context.
+
+        Returns:
+            Another mock prompt string.
+        """
+        return "another mock prompt"
 
 
 # =============================================================================
@@ -269,6 +291,17 @@ def test_register_decorator_works_for_class_level_registration() -> None:
                 ),
             )
 
+        def build_prompt(self, context: AgentContext) -> str:
+            """Build decorated prompt.
+
+            Args:
+                context: Agent context.
+
+            Returns:
+                Decorated prompt string.
+            """
+            return "decorated prompt"
+
     # Verify the decorator registered the class
     assert "decorated_agent" in test_registry.list_agents()
     agent_class = test_registry.get("decorated_agent")
@@ -422,6 +455,17 @@ def test_decorator_defaults_to_global_registry() -> None:
                     duration_ms=0,
                 ),
             )
+
+        def build_prompt(self, context: AgentContext) -> str:
+            """Build global decorated prompt.
+
+            Args:
+                context: Agent context.
+
+            Returns:
+                Global decorated prompt string.
+            """
+            return "global decorated prompt"
 
     # Verify it was registered in the global registry
     assert unique_name in global_registry.list_agents()

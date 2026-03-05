@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import tool
+try:
+    from claude_agent_sdk import tool
+except ImportError:
+    # claude_agent_sdk removed in ACP migration (T051)
+    from maverick.tools._sdk_stubs import tool
 
 from maverick.exceptions import GitHubAuthError, GitHubCLINotFoundError, GitHubError
 from maverick.logging import get_logger

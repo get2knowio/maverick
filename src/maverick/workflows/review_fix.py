@@ -89,6 +89,8 @@ async def review_and_fix(
     """
     from maverick.agents.reviewers.simple_fixer import SimpleFixerAgent
     from maverick.agents.reviewers.unified_reviewer import UnifiedReviewerAgent
+    from maverick.executor import create_default_executor
+    from maverick.models.review_models import GroupedReviewResult
 
     cwd = Path(cwd) if cwd else Path.cwd()
 
@@ -100,111 +102,131 @@ async def review_and_fix(
     if context:
         review_context.update(context)
 
-    # Step 1: Run unified review
-    logger.info("starting_unified_review", feature_name=feature_name)
+    # Set up ACP executor with default provider
+    executor = create_default_executor()
 
-    reviewer = UnifiedReviewerAgent(feature_name=feature_name, model=model)
-    review_result = await reviewer.execute(review_context)
+    try:
+        # Step 1: Run unified review
+        logger.info("starting_unified_review", feature_name=feature_name)
 
-    if review_result.total_count == 0:
-        logger.info("no_findings_from_review")
-        return ReviewFixResult(
-            total_findings=0,
-            fixed_count=0,
-            blocked_count=0,
-            deferred_count=0,
-            iterations=0,
+        reviewer = UnifiedReviewerAgent(feature_name=feature_name, model=model)
+        review_exec_result = await executor.execute(
+            step_name="unified_review",
+            agent_name=reviewer.name,
+            prompt=review_context,
+            cwd=cwd,
+            output_schema=GroupedReviewResult,
         )
+        review_result = review_exec_result.output
+        if not isinstance(review_result, GroupedReviewResult):
+            review_result = GroupedReviewResult(groups=[])
 
-    logger.info(
-        "review_complete",
-        total_findings=review_result.total_count,
-        groups=len(review_result.groups),
-    )
-
-    # Step 2: Initialize tracker
-    tracker = FindingTracker(review_result)
-
-    # Step 3: Fix loop
-    fixer = SimpleFixerAgent(model=model)
-    iteration = 0
-
-    while not tracker.is_complete() and iteration < max_iterations:
-        iteration += 1
-
-        # Get actionable findings with their groups
-        actionable_groups = tracker.get_actionable_with_groups()
-        actionable_findings = tracker.get_actionable_findings()
-
-        if not actionable_findings:
-            logger.info("no_actionable_findings_remaining")
-            break
+        if review_result.total_count == 0:
+            logger.info("no_findings_from_review")
+            return ReviewFixResult(
+                total_findings=0,
+                fixed_count=0,
+                blocked_count=0,
+                deferred_count=0,
+                iterations=0,
+            )
 
         logger.info(
-            "starting_fix_iteration",
-            iteration=iteration,
-            actionable_count=len(actionable_findings),
+            "review_complete",
+            total_findings=review_result.total_count,
+            groups=len(review_result.groups),
         )
 
-        # Check for deleted files and auto-block
-        actionable_findings = await _filter_deleted_files(
-            actionable_findings, tracker, cwd
-        )
+        # Step 2: Initialize tracker
+        tracker = FindingTracker(review_result)
 
-        if not actionable_findings:
-            logger.info("all_findings_for_deleted_files")
-            break
+        # Step 3: Fix loop
+        fixer = SimpleFixerAgent(model=model)
+        iteration = 0
 
-        # Rebuild groups after filtering
-        actionable_groups = tracker.get_actionable_with_groups()
+        while not tracker.is_complete() and iteration < max_iterations:
+            iteration += 1
 
-        # Run fixer
-        outcomes = await fixer.execute(
-            {
-                "findings": actionable_findings,
-                "groups": actionable_groups,
-                "iteration": iteration,
-                "cwd": cwd,
-            }
-        )
+            # Get actionable findings with their groups
+            actionable_groups = tracker.get_actionable_with_groups()
+            actionable_findings = tracker.get_actionable_findings()
 
-        # Record outcomes
-        tracker.record_outcomes(outcomes)
+            if not actionable_findings:
+                logger.info("no_actionable_findings_remaining")
+                break
 
-        summary = tracker.get_summary()
-        logger.info(
-            "fix_iteration_complete",
-            iteration=iteration,
-            fixed=summary["fixed"],
-            blocked=summary["blocked"],
-            deferred=summary["deferred"],
-        )
-
-    # Step 4: Create issues for unresolved
-    issues_created: list[str] = []
-
-    if create_issues:
-        unresolved = tracker.get_unresolved()
-        if unresolved:
             logger.info(
-                "creating_issues_for_unresolved",
-                count=len(unresolved),
-            )
-            issues_created = await _create_issues_for_unresolved(
-                unresolved, feature_name, cwd
+                "starting_fix_iteration",
+                iteration=iteration,
+                actionable_count=len(actionable_findings),
             )
 
-    # Build final result
-    summary = tracker.get_summary()
+            # Check for deleted files and auto-block
+            actionable_findings = await _filter_deleted_files(
+                actionable_findings, tracker, cwd
+            )
 
-    return ReviewFixResult(
-        total_findings=summary["total"],
-        fixed_count=summary["fixed"],
-        blocked_count=summary["blocked"],
-        deferred_count=summary["deferred"],
-        issues_created=issues_created,
-        iterations=iteration,
-    )
+            if not actionable_findings:
+                logger.info("all_findings_for_deleted_files")
+                break
+
+            # Rebuild groups after filtering
+            actionable_groups = tracker.get_actionable_with_groups()
+
+            # Run fixer via ACP executor; parse outcomes from raw text output
+            fix_exec_result = await executor.execute(
+                step_name=f"fix_iteration_{iteration}",
+                agent_name=fixer.name,
+                prompt={
+                    "findings": actionable_findings,
+                    "groups": actionable_groups,
+                    "iteration": iteration,
+                    "cwd": cwd,
+                },
+                cwd=cwd,
+            )
+            raw_output = str(fix_exec_result.output) if fix_exec_result.output else ""
+            outcomes = fixer.parse_outcomes(raw_output, actionable_findings)
+
+            # Record outcomes
+            tracker.record_outcomes(outcomes)
+
+            summary = tracker.get_summary()
+            logger.info(
+                "fix_iteration_complete",
+                iteration=iteration,
+                fixed=summary["fixed"],
+                blocked=summary["blocked"],
+                deferred=summary["deferred"],
+            )
+
+        # Step 4: Create issues for unresolved
+        issues_created: list[str] = []
+
+        if create_issues:
+            unresolved = tracker.get_unresolved()
+            if unresolved:
+                logger.info(
+                    "creating_issues_for_unresolved",
+                    count=len(unresolved),
+                )
+                issues_created = await _create_issues_for_unresolved(
+                    unresolved, feature_name, cwd
+                )
+
+        # Build final result
+        summary = tracker.get_summary()
+
+        return ReviewFixResult(
+            total_findings=summary["total"],
+            fixed_count=summary["fixed"],
+            blocked_count=summary["blocked"],
+            deferred_count=summary["deferred"],
+            issues_created=issues_created,
+            iterations=iteration,
+        )
+    finally:
+        await executor.cleanup()
 
 
 async def _filter_deleted_files(

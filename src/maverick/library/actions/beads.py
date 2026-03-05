@@ -791,55 +791,65 @@ async def enrich_bead_descriptions(
         except Exception as e:
             logger.warning("failed_to_read_plan", path=str(plan_file), error=str(e))
 
-    # Import generator lazily to avoid circular imports
+    # Import generator and executor lazily to avoid circular imports
     from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
+    from maverick.executor import create_default_executor
 
     enricher = BeadEnricherGenerator()
     enriched: list[dict[str, Any]] = []
 
-    for i, defn in enumerate(work_definitions):
-        title = defn.get("title", "")
-        category = defn.get("category", "USER_STORY")
+    executor = create_default_executor()
+    try:
+        for i, defn in enumerate(work_definitions):
+            title = defn.get("title", "")
+            category = defn.get("category", "USER_STORY")
 
-        if event_callback:
-            import contextlib
+            if event_callback:
+                import contextlib
 
-            with contextlib.suppress(Exception):
-                total = len(work_definitions)
-                await event_callback(
-                    StepOutput(
-                        step_name="enrich_beads",
-                        message=f"Enriching bead {i + 1}/{total}: {title}",
-                        level="info",
-                        source="bead_enricher",
+                with contextlib.suppress(Exception):
+                    total = len(work_definitions)
+                    await event_callback(
+                        StepOutput(
+                            step_name="enrich_beads",
+                            message=f"Enriching bead {i + 1}/{total}: {title}",
+                            level="info",
+                            source="bead_enricher",
+                        )
                     )
+
+            context = {
+                "title": title,
+                "category": category,
+                "tasks": defn.get("tasks", ""),
+                "checkpoints": defn.get("checkpoints", ""),
+                "spec_content": spec_content,
+                "plan_content": plan_content,
+                "dependency_context": dependency_section,
+            }
+
+            try:
+                result = await executor.execute(
+                    step_name=f"enrich_bead_{i}",
+                    agent_name=enricher.name,
+                    prompt=context,
                 )
-
-        context = {
-            "title": title,
-            "category": category,
-            "tasks": defn.get("tasks", ""),
-            "checkpoints": defn.get("checkpoints", ""),
-            "spec_content": spec_content,
-            "plan_content": plan_content,
-            "dependency_context": dependency_section,
-        }
-
-        try:
-            enriched_desc = await enricher.generate(context)
-            if enriched_desc:
-                updated = dict(defn)
-                updated["description"] = enriched_desc
-                enriched.append(updated)
-                logger.debug("bead_enriched", title=title, category=category)
-            else:
+                enriched_desc = str(result.output) if result.output else ""
+                if enriched_desc:
+                    updated = dict(defn)
+                    updated["description"] = enriched_desc
+                    enriched.append(updated)
+                    logger.debug("bead_enriched", title=title, category=category)
+                else:
+                    enriched.append(dict(defn))
+            except Exception as e:
+                logger.warning(
+                    "bead_enrichment_failed",
+                    title=title,
+                    error=str(e),
+                )
                 enriched.append(dict(defn))
-        except Exception as e:
-            logger.warning(
-                "bead_enrichment_failed",
-                title=title,
-                error=str(e),
-            )
-            enriched.append(dict(defn))
+    finally:
+        await executor.cleanup()
 
     return enriched

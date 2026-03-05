@@ -19,6 +19,10 @@ from maverick.agents.issue_fixer import IssueFixerAgent
 class TestGenerator(GeneratorAgent):
     """Test implementation of GeneratorAgent."""
 
+    def build_prompt(self, context: dict) -> str:
+        """Build prompt from context."""
+        return "test"
+
     async def generate(self, context: dict) -> str:
         """Simple test implementation."""
         return "test"

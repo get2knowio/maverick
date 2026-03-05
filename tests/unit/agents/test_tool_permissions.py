@@ -193,6 +193,10 @@ class TestUnauthorizedToolRejection:
                 """Execute method (required by ABC)."""
                 pass
 
+            def build_prompt(self, context) -> str:
+                """Build prompt (required by ABC)."""
+                return ""
+
         # Attempting to instantiate should raise InvalidToolError
         with pytest.raises(InvalidToolError) as exc_info:
             TestAgentWithUnknownTool()
@@ -220,6 +224,10 @@ class TestUnauthorizedToolRejection:
                 """Execute method (required by ABC)."""
                 pass
 
+            def build_prompt(self, context) -> str:
+                """Build prompt (required by ABC)."""
+                return ""
+
         # This should not raise because Bash IS a builtin tool
         # The test is about not USING Bash, not that it's invalid
         agent = TestImplementerWithBash()
@@ -244,6 +252,10 @@ class TestUnauthorizedToolRejection:
                 """Execute method (required by ABC)."""
                 pass
 
+            def build_prompt(self, context) -> str:
+                """Build prompt (required by ABC)."""
+                return ""
+
         # This should not raise - Write is a valid builtin tool
         # The constraint is about agent DESIGN, not tool validity
         agent = TestReviewerWithWrite()
@@ -266,6 +278,10 @@ class TestUnauthorizedToolRejection:
             async def execute(self, context):
                 """Execute method (required by ABC)."""
                 pass
+
+            def build_prompt(self, context) -> str:
+                """Build prompt (required by ABC)."""
+                return ""
 
         with pytest.raises(InvalidToolError) as exc_info:
             TestAgentWithCustomTool()
@@ -291,6 +307,10 @@ class TestUnauthorizedToolRejection:
             async def execute(self, context):
                 """Execute method (required by ABC)."""
                 pass
+
+            def build_prompt(self, context) -> str:
+                """Build prompt (required by ABC)."""
+                return ""
 
         with pytest.raises(InvalidToolError) as exc_info:
             TestAgentWithMCPTool()

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
-import pytest
-
 from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
 
 
@@ -25,161 +21,108 @@ class TestBeadEnricherConstruction:
         assert enricher.model == "claude-opus-4-5-20250929"
 
 
-class TestBeadEnricherGenerate:
-    """Tests for BeadEnricherGenerator.generate()."""
+class TestBeadEnricherPromptBuilding:
+    """Tests for BeadEnricherGenerator.build_prompt() method."""
 
-    @pytest.mark.asyncio
-    async def test_empty_context_returns_empty_string(self) -> None:
+    def test_empty_context_produces_minimal_prompt(self) -> None:
+        """Empty context produces a prompt with default values (no crash)."""
         enricher = BeadEnricherGenerator()
 
-        result = await enricher.generate({})
+        prompt = enricher.build_prompt({})
 
-        assert result == ""
+        # Should still produce a prompt without crashing
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
 
-    @pytest.mark.asyncio
-    async def test_empty_context_with_usage(self) -> None:
+    def test_prompt_includes_title(self) -> None:
+        """Title is included in the prompt."""
         enricher = BeadEnricherGenerator()
 
-        result, usage = await enricher.generate(  # type: ignore[misc]
-            {}, return_usage=True
+        prompt = enricher.build_prompt({"title": "Implement greeting CLI"})
+
+        assert "Implement greeting CLI" in prompt
+
+    def test_prompt_includes_category(self) -> None:
+        """Category is included in the prompt."""
+        enricher = BeadEnricherGenerator()
+
+        prompt = enricher.build_prompt(
+            {
+                "title": "Add user auth",
+                "category": "USER_STORY",
+                "tasks": "- Implement login",
+            }
         )
 
-        assert result == ""
-        assert usage.input_tokens == 0
-        assert usage.output_tokens == 0
-
-    @pytest.mark.asyncio
-    async def test_generates_enriched_description(self) -> None:
-        enricher = BeadEnricherGenerator()
-
-        mock_response = (
-            "## Objective\nImplement the greeting CLI.\n\n"
-            "## Acceptance Criteria\n- [ ] greet command exists\n"
-        )
-        with patch.object(
-            enricher,
-            "_query",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            result = await enricher.generate(
-                {
-                    "title": "Implement greeting CLI",
-                    "category": "USER_STORY",
-                    "tasks": "- Add click command",
-                    "checkpoints": "- greet command exists",
-                }
-            )
-
-        assert "Objective" in result
-        assert "Acceptance Criteria" in result
-
-    @pytest.mark.asyncio
-    async def test_generates_with_usage(self) -> None:
-        from maverick.agents.result import AgentUsage
-
-        enricher = BeadEnricherGenerator()
-
-        mock_response = "## Objective\nSetup project."
-        mock_usage = AgentUsage(
-            input_tokens=100, output_tokens=50, total_cost_usd=None, duration_ms=0
-        )
-
-        with patch.object(
-            enricher,
-            "_query_with_usage",
-            new_callable=AsyncMock,
-            return_value=(mock_response, mock_usage),
-        ):
-            result, usage = await enricher.generate(  # type: ignore[misc]
-                {
-                    "title": "Setup project",
-                    "category": "FOUNDATION",
-                    "tasks": "- Initialize repo",
-                },
-                return_usage=True,
-            )
-
-        assert result == mock_response
-        assert usage.input_tokens == 100
-        assert usage.output_tokens == 50
-
-    @pytest.mark.asyncio
-    async def test_prompt_includes_title_and_category(self) -> None:
-        enricher = BeadEnricherGenerator()
-
-        with patch.object(
-            enricher,
-            "_query",
-            new_callable=AsyncMock,
-            return_value="enriched",
-        ) as mock_query:
-            await enricher.generate(
-                {
-                    "title": "Add user auth",
-                    "category": "USER_STORY",
-                    "tasks": "- Implement login",
-                }
-            )
-
-        prompt = mock_query.call_args[0][0]
-        assert "Add user auth" in prompt
         assert "USER_STORY" in prompt
+
+    def test_prompt_includes_tasks(self) -> None:
+        """Task descriptions are included in the prompt."""
+        enricher = BeadEnricherGenerator()
+
+        prompt = enricher.build_prompt(
+            {
+                "title": "Add user auth",
+                "tasks": "- Implement login",
+            }
+        )
+
         assert "Implement login" in prompt
 
-    @pytest.mark.asyncio
-    async def test_prompt_includes_spec_and_plan(self) -> None:
+    def test_prompt_includes_spec_and_plan(self) -> None:
+        """Spec and plan content appear in the prompt when provided."""
         enricher = BeadEnricherGenerator()
 
-        with patch.object(
-            enricher,
-            "_query",
-            new_callable=AsyncMock,
-            return_value="enriched",
-        ) as mock_query:
-            await enricher.generate(
-                {
-                    "title": "Test bead",
-                    "tasks": "- something",
-                    "spec_content": "The spec content here",
-                    "plan_content": "The plan content here",
-                }
-            )
+        prompt = enricher.build_prompt(
+            {
+                "title": "Test bead",
+                "tasks": "- something",
+                "spec_content": "The spec content here",
+                "plan_content": "The plan content here",
+            }
+        )
 
-        prompt = mock_query.call_args[0][0]
         assert "The spec content here" in prompt
         assert "The plan content here" in prompt
 
-    @pytest.mark.asyncio
-    async def test_handles_only_title(self) -> None:
-        """Title alone should be enough to trigger generation."""
+    def test_prompt_includes_checkpoints(self) -> None:
+        """Checkpoints are included in the prompt when provided."""
         enricher = BeadEnricherGenerator()
 
-        with patch.object(
-            enricher,
-            "_query",
-            new_callable=AsyncMock,
-            return_value="enriched",
-        ):
-            result = await enricher.generate({"title": "Just a title"})
+        prompt = enricher.build_prompt(
+            {
+                "title": "Implement greeting CLI",
+                "category": "USER_STORY",
+                "tasks": "- Add click command",
+                "checkpoints": "- greet command exists",
+            }
+        )
 
-        assert result == "enriched"
+        assert "greet command exists" in prompt
 
-    @pytest.mark.asyncio
-    async def test_handles_only_checkpoints(self) -> None:
-        """Checkpoints alone should trigger generation."""
+    def test_prompt_omits_empty_optional_fields(self) -> None:
+        """Empty optional fields do not appear as empty sections in the prompt."""
         enricher = BeadEnricherGenerator()
 
-        with patch.object(
-            enricher,
-            "_query",
-            new_callable=AsyncMock,
-            return_value="enriched",
-        ):
-            result = await enricher.generate(
-                {
-                    "checkpoints": "- tests pass",
-                }
-            )
+        prompt = enricher.build_prompt(
+            {
+                "title": "Minimal bead",
+            }
+        )
 
-        assert result == "enriched"
+        # spec_content and plan_content should not appear since they are empty
+        assert "Spec Excerpt" not in prompt
+        assert "Plan Excerpt" not in prompt
+
+    def test_prompt_includes_dependency_context(self) -> None:
+        """Dependency context appears in the prompt when provided."""
+        enricher = BeadEnricherGenerator()
+
+        prompt = enricher.build_prompt(
+            {
+                "title": "Some bead",
+                "dependency_context": "US1 provides the auth module",
+            }
+        )
+
+        assert "US1 provides the auth module" in prompt

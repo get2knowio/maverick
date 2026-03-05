@@ -107,12 +107,19 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
         extracted_deps: str = ""
         if parse_result.dependency_section:
             try:
+                from maverick.executor import create_default_executor
+
                 extractor = DependencyExtractor()
-                dep_text = await extractor.generate(
-                    {"dependency_section": parse_result.dependency_section},
-                )
-                # generate() returns str when return_usage=False (default)
-                extracted_deps = str(dep_text)
+                dep_executor = create_default_executor()
+                try:
+                    dep_result = await dep_executor.execute(
+                        step_name="extract_deps",
+                        agent_name=extractor.name,
+                        prompt={"dependency_section": parse_result.dependency_section},
+                    )
+                    extracted_deps = str(dep_result.output) if dep_result.output else ""
+                finally:
+                    await dep_executor.cleanup()
             except Exception as exc:
                 logger.warning("dep_extraction_failed", error=str(exc))
                 extracted_deps = ""

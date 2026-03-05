@@ -13,8 +13,6 @@ from maverick.agents.generators.base import (
     MAX_SNIPPET_SIZE,
     GeneratorAgent,
 )
-from maverick.agents.result import AgentUsage
-from maverick.exceptions import GeneratorError
 from maverick.logging import get_logger
 
 # =============================================================================
@@ -110,64 +108,26 @@ class CodeAnalyzer(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate code analysis based on requested analysis type.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Analysis context containing:
                 - code (str): The code snippet to analyze (required)
                 - analysis_type (str): Type of analysis - "explain",
-                  "review", or "summarize" (optional, defaults to
-                  "explain")
+                  "review", or "summarize" (optional, defaults to "explain")
                 - language (str): Programming language hint (optional)
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Generated analysis text, or (analysis, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If code is missing, empty, or generation fails.
+            Complete prompt text ready for the ACP agent.
         """
-        # Extract and validate code
         code = context.get("code", "").strip()
-        if not code:
-            raise GeneratorError(
-                message="Code snippet is required and cannot be empty",
-                generator_name=self._name,
-                input_context={"code": code},
-            )
-
-        # Get analysis type and default to "explain" for invalid types
         analysis_type = context.get("analysis_type", "explain").lower()
         if analysis_type not in ("explain", "review", "summarize"):
-            logger.debug(
-                "Invalid analysis_type '%s', defaulting to 'explain'",
-                analysis_type,
-            )
             analysis_type = "explain"
-
-        # Get optional language hint
         language = context.get("language", "")
-
-        # Truncate code if it exceeds limit
         code = self._truncate_input(code, MAX_SNIPPET_SIZE, "code")
-
-        # Build prompt based on analysis type
-        prompt = self._build_prompt(code, analysis_type, language)
-
-        # Get analysis-specific system prompt without mutating instance state
-        analysis_system_prompt = self._get_system_prompt(analysis_type)
-
-        # Call the base class _query method with the system prompt override
-        if return_usage:
-            return await self._query_with_usage(
-                prompt, system_prompt=analysis_system_prompt
-            )
-        return await self._query(prompt, system_prompt=analysis_system_prompt)
+        return self._build_prompt(code, analysis_type, language)
 
     def _get_system_prompt(self, analysis_type: str) -> str:
         """Get the appropriate system prompt for the analysis type.

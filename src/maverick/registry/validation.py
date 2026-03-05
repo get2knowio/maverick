@@ -149,26 +149,16 @@ def validate_agent_class(cls: Any, component_name: str) -> None:
             f"{', '.join(base.__name__ for base in cls.__bases__)}"
         )
 
-    # Check that it implements execute method (not just inherited abstract one)
-    # MaverickAgent has execute as abstract, so we need to check if the subclass
-    # overrides it. We do this by checking if 'execute' is in the class __dict__
-    # (not inherited) and is callable.
-    if "execute" not in cls.__dict__:
-        # execute is not overridden in this class
-        # Check if it's abstract (from MaverickAgent)
-        execute_method = getattr(cls, "execute", None)
-        if execute_method and getattr(execute_method, "__isabstractmethod__", False):
-            raise TypeError(
-                f"Agent class '{component_name}' must implement the "
-                f"abstract 'execute' method. Class {cls.__name__} inherits from "
-                f"MaverickAgent but does not override execute()."
-            )
-        elif not execute_method:
-            methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
-            raise TypeError(
-                f"Agent class '{component_name}' must define an 'execute' method. "
-                f"Available methods: {methods}"
-            )
+    # Check that it implements build_prompt (the ACP pattern)
+    build_prompt_method = getattr(cls, "build_prompt", None)
+    if not build_prompt_method or getattr(
+        build_prompt_method, "__isabstractmethod__", False
+    ):
+        methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
+        raise TypeError(
+            f"Agent class '{component_name}' must implement the "
+            f"'build_prompt' method. Available methods: {methods}"
+        )
 
 
 def validate_generator_class(cls: Any, component_name: str) -> None:
@@ -201,23 +191,16 @@ def validate_generator_class(cls: Any, component_name: str) -> None:
             f"{', '.join(base.__name__ for base in cls.__bases__)}"
         )
 
-    # Check that it implements generate method
-    if "generate" not in cls.__dict__:
-        # generate is not overridden in this class
-        # Check if it's abstract (from GeneratorAgent)
-        generate_method = getattr(cls, "generate", None)
-        if generate_method and getattr(generate_method, "__isabstractmethod__", False):
-            raise TypeError(
-                f"Generator class '{component_name}' must implement the "
-                f"abstract 'generate' method. Class {cls.__name__} inherits from "
-                f"GeneratorAgent but does not override generate()."
-            )
-        elif not generate_method:
-            methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
-            raise TypeError(
-                f"Generator class '{component_name}' must define a 'generate' "
-                f"method. Available methods: {methods}"
-            )
+    # Check that it implements build_prompt method (ACP-native interface)
+    build_prompt_method = getattr(cls, "build_prompt", None)
+    if not build_prompt_method or getattr(
+        build_prompt_method, "__isabstractmethod__", False
+    ):
+        methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
+        raise TypeError(
+            f"Generator class '{component_name}' must implement the "
+            f"'build_prompt' method. Available methods: {methods}"
+        )
 
 
 def is_async_callable(func: Callable[..., Any]) -> bool:

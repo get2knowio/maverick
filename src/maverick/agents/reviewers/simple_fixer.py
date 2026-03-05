@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -184,7 +183,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
 
         # output_model is intentionally NOT set here: the agent uses a wrapper
         # model (_FixOutcomesWrapper) that doesn't match the actual return type
-        # (list[FixOutcome]), and the validate_output fallback in _parse_outcomes
+        # (list[FixOutcome]), and the validate_output fallback in parse_outcomes
         # handles extraction and per-item graceful degradation.
         super().__init__(
             name="simple-fixer",
@@ -195,64 +194,22 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
             temperature=temperature,
         )
 
-    async def execute(self, context: dict[str, Any]) -> list[FixOutcome]:
-        """Execute fix for provided findings.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
+
+        Delegates to the internal _build_prompt method using findings and
+        groups extracted from the context dict.
 
         Args:
-            context: Fix context containing:
-                - findings: List of Finding objects to fix
-                - groups: Optional list of FindingGroup for parallelization hints
-                - iteration: Current iteration number (1-indexed)
-                - cwd: Working directory
+            context: Fix context containing findings, groups, and iteration.
 
         Returns:
-            List of FixOutcome for each input finding.
-
-        Raises:
-            AgentError: On execution failure.
+            Complete prompt text ready for the ACP agent.
         """
-        from maverick.agents.utils import extract_all_text, extract_streaming_text
-
         findings: list[Finding] = context.get("findings", [])
         groups: list[FindingGroup] | None = context.get("groups")
         iteration: int = context.get("iteration", 1)
-        cwd = context.get("cwd") or Path.cwd()
-
-        if not findings:
-            logger.info("no_findings_to_fix")
-            return []
-
-        # Build prompt
-        prompt = self._build_prompt(findings, groups, iteration)
-
-        # Execute agent
-        messages = []
-        async for msg in self.query(prompt, cwd=cwd):
-            messages.append(msg)
-            # Stream text to TUI if callback is set
-            if self.stream_callback:
-                text = extract_streaming_text(msg)
-                if text:
-                    await self.stream_callback(text)
-
-        text = extract_all_text(messages)
-
-        # Parse outcomes
-        outcomes = self._parse_outcomes(text, findings)
-
-        # Fill in missing with auto-defer
-        outcomes = self._fill_missing(outcomes, findings)
-
-        logger.info(
-            "fix_iteration_complete",
-            iteration=iteration,
-            total=len(findings),
-            fixed=sum(1 for o in outcomes if o.outcome == "fixed"),
-            blocked=sum(1 for o in outcomes if o.outcome == "blocked"),
-            deferred=sum(1 for o in outcomes if o.outcome == "deferred"),
-        )
-
-        return outcomes
+        return self._build_prompt(findings, groups, iteration)
 
     def _build_prompt(
         self,
@@ -322,7 +279,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         lines.append("")
         return lines
 
-    def _parse_outcomes(
+    def parse_outcomes(
         self,
         text: str,
         findings: list[Finding],
@@ -427,33 +384,3 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
                 )
 
         return outcomes + missing
-
-
-async def fix_findings(
-    findings: list[Finding],
-    groups: list[FindingGroup] | None = None,
-    iteration: int = 1,
-    cwd: Path | str | None = None,
-    model: str | None = None,
-) -> list[FixOutcome]:
-    """Convenience function to fix findings.
-
-    Args:
-        findings: List of findings to fix.
-        groups: Optional groupings for parallelization hints.
-        iteration: Current iteration number.
-        cwd: Working directory.
-        model: Optional model override.
-
-    Returns:
-        List of fix outcomes.
-    """
-    agent = SimpleFixerAgent(model=model)
-    return await agent.execute(
-        {
-            "findings": findings,
-            "groups": groups,
-            "iteration": iteration,
-            "cwd": cwd,
-        }
-    )

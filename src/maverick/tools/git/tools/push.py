@@ -8,7 +8,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import tool
+try:
+    from claude_agent_sdk import tool
+except ImportError:
+    # claude_agent_sdk removed in ACP migration (T051)
+    from maverick.tools._sdk_stubs import tool
 
 from maverick.exceptions import GitError, NotARepositoryError, PushRejectedError
 from maverick.git import AsyncGitRepository

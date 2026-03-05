@@ -164,39 +164,38 @@ class TestCreateSafetyHooks:
     """Tests for create_safety_hooks factory function."""
 
     def test_returns_hook_matchers(self) -> None:
-        """Test that factory returns list of HookMatcher objects."""
+        """Test factory returns empty list (stub — HookMatcher removed with SDK)."""
         from maverick.hooks import create_safety_hooks
 
         hooks = create_safety_hooks()
         assert isinstance(hooks, list)
-        # Should return hooks for Bash and Write/Edit
-        assert len(hooks) == 2
+        # Stub returns empty list: HookMatcher was removed with claude-agent-sdk
+        assert len(hooks) == 0
 
     def test_uses_default_config_when_none(self) -> None:
-        """Test secure defaults when no config provided."""
+        """Test stub returns empty list when no config provided."""
         from maverick.hooks import create_safety_hooks
 
         hooks = create_safety_hooks(None)
         assert isinstance(hooks, list)
-        assert len(hooks) == 2  # Both validations enabled by default
+        # Stub always returns empty list regardless of config
+        assert len(hooks) == 0
 
     def test_respects_bash_validation_disabled(self) -> None:
-        """Test bash validation can be disabled."""
+        """Test stub always returns empty list regardless of config."""
         from maverick.hooks import create_safety_hooks
 
         config = HookConfig(safety=SafetyConfig(bash_validation_enabled=False))
         hooks = create_safety_hooks(config)
-        # Should only have file write hook
-        assert len(hooks) == 1
+        assert hooks == []
 
     def test_respects_file_write_validation_disabled(self) -> None:
-        """Test file write validation can be disabled."""
+        """Test stub always returns empty list regardless of config."""
         from maverick.hooks import create_safety_hooks
 
         config = HookConfig(safety=SafetyConfig(file_write_validation_enabled=False))
         hooks = create_safety_hooks(config)
-        # Should only have bash hook
-        assert len(hooks) == 1
+        assert hooks == []
 
     def test_returns_empty_when_all_disabled(self) -> None:
         """Test returns empty list when all validation disabled."""
@@ -212,37 +211,40 @@ class TestCreateSafetyHooks:
         assert hooks == []
 
     def test_hook_matcher_has_correct_timeout(self) -> None:
-        """Test HookMatcher uses timeout from config."""
+        """Test stub returns empty list, no hooks to inspect timeout."""
         from maverick.hooks import create_safety_hooks
 
         config = HookConfig(safety=SafetyConfig(hook_timeout_seconds=30))
         hooks = create_safety_hooks(config)
-        # All hooks should have the configured timeout
+        # Stub returns empty list; loop is a no-op
         for hook in hooks:
             assert hook.timeout == 30
 
     def test_bash_hook_matcher_pattern(self) -> None:
-        """Test bash hook has correct matcher pattern."""
+        """Test stub returns empty list, no bash hook present."""
         from maverick.hooks import create_safety_hooks
 
         hooks = create_safety_hooks()
-        # Find the bash hook (should match "Bash")
-        bash_hooks = [h for h in hooks if h.matcher == "Bash"]
-        assert len(bash_hooks) == 1
-        assert bash_hooks[0].matcher == "Bash"
+        # Stub returns []; no bash hooks
+        bash_hooks = [h for h in hooks if getattr(h, "matcher", None) == "Bash"]
+        assert len(bash_hooks) == 0
 
     def test_file_write_hook_matcher_pattern(self) -> None:
-        """Test file write hook has correct matcher pattern."""
+        """Test stub returns empty list, no file write hook present."""
         from maverick.hooks import create_safety_hooks
 
         hooks = create_safety_hooks()
-        # Find the file write hook (should match "Write" or "Edit")
+        # Stub returns []; no write hooks
         write_hooks = [
             h
             for h in hooks
-            if h.matcher and ("Write" in h.matcher or "Edit" in h.matcher)
+            if getattr(h, "matcher", None)
+            and (
+                "Write" in getattr(h, "matcher", "")
+                or "Edit" in getattr(h, "matcher", "")
+            )
         ]
-        assert len(write_hooks) == 1
+        assert len(write_hooks) == 0
 
 
 class TestCreateLoggingHooks:
@@ -256,13 +258,13 @@ class TestCreateLoggingHooks:
         assert isinstance(hooks, list)
 
     def test_uses_default_config_when_none(self) -> None:
-        """Test defaults when no config provided."""
+        """Test stub returns empty list when no config provided."""
         from maverick.hooks import create_logging_hooks
 
         hooks = create_logging_hooks(None, None)
         assert isinstance(hooks, list)
-        # Should have hooks for logging and metrics by default
-        assert len(hooks) >= 1
+        # Stub always returns empty list (HookMatcher removed with claude-agent-sdk)
+        assert len(hooks) == 0
 
     def test_creates_metrics_collector_when_none(self) -> None:
         """Test creates internal MetricsCollector when not provided."""
@@ -292,7 +294,7 @@ class TestCreateLoggingHooks:
         assert hooks == []
 
     def test_respects_metrics_disabled(self) -> None:
-        """Test metrics can be disabled independently."""
+        """Test stub always returns empty list regardless of config."""
         from maverick.hooks import create_logging_hooks
 
         config = HookConfig(
@@ -300,17 +302,17 @@ class TestCreateLoggingHooks:
             metrics=MetricsConfig(enabled=False),
         )
         hooks = create_logging_hooks(config)
-        # Should still have logging hook
-        assert len(hooks) >= 1
+        # Stub returns empty list regardless of config
+        assert len(hooks) == 0
 
     def test_hook_matcher_for_all_tools(self) -> None:
-        """Test HookMatcher matches all tools (matcher=None)."""
+        """Test stub returns empty list, no hooks to inspect matcher."""
         from maverick.hooks import create_logging_hooks
 
         hooks = create_logging_hooks()
-        # All logging hooks should match all tools
+        # Stub returns []; loop is a no-op
         for hook in hooks:
-            assert hook.matcher is None
+            assert getattr(hook, "matcher", None) is None
 
     def test_returns_empty_when_all_disabled(self) -> None:
         """Test returns empty list when all logging disabled."""

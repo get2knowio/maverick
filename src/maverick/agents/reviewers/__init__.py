@@ -19,11 +19,10 @@ Usage:
 
 from __future__ import annotations
 
-from maverick.agents.reviewers.simple_fixer import SimpleFixerAgent, fix_findings
+from maverick.agents.reviewers.simple_fixer import SimpleFixerAgent
 from maverick.agents.reviewers.unified_reviewer import UnifiedReviewerAgent
 
 __all__ = [
     "UnifiedReviewerAgent",
     "SimpleFixerAgent",
-    "fix_findings",
 ]

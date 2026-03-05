@@ -497,6 +497,7 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Markdown+YAML files on disk (`.maverick/flight-plans/`) (040-flight-plan-cli)
 - Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK, Click, Rich, Pydantic, GitPython, tenacity, structlog; YAML DSL infrastructure removed and live code migrated to top-level modules (041-remove-yaml-dsl)
 - JSON checkpoint files under `~/.maverick/checkpoints/` (041-remove-yaml-dsl)
+- Python 3.10+ (with `from __future__ import annotations`) + `agent-client-protocol` v0.8.1+ (new), Click, Rich, Pydantic, structlog, tenacity, GitPython (042-acp-integration)
 
 ## Recent Changes
 - 041-remove-yaml-dsl: Removed dead YAML DSL infrastructure; migrated live code to maverick.events, maverick.results, maverick.types, maverick.constants, maverick.executor/, maverick.checkpoint/, maverick.registry/

@@ -9,13 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from maverick.agents.base import MaverickAgent
-from maverick.agents.code_reviewer.constants import MAX_TOKENS_PER_CHUNK
 from maverick.agents.code_reviewer.diff_chunking import (
     chunk_files,
     estimate_tokens,
@@ -24,13 +21,11 @@ from maverick.agents.code_reviewer.diff_chunking import (
 from maverick.agents.code_reviewer.parsing import parse_findings
 from maverick.agents.code_reviewer.prompts import SYSTEM_PROMPT
 from maverick.agents.tools import REVIEWER_TOOLS
-from maverick.agents.utils import extract_all_text, extract_streaming_text
 from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
-    from maverick.agents.result import AgentUsage
-    from maverick.models.review import ReviewContext, ReviewResult, UsageStats
+    from maverick.models.review import ReviewContext, ReviewResult
 
 # Try to import review models (handle gracefully if not ready yet)
 try:
@@ -103,318 +98,30 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
             temperature=temperature,
         )
 
-    async def execute(self, context: ReviewContext) -> ReviewResult:
-        """Execute code review on the specified branch (FR-004).
+    def build_prompt(self, context: ReviewContext) -> str:
+        """Construct the prompt string from context (FR-017).
 
-        This method orchestrates the code review process:
-        1. Retrieves diff between feature branch and base branch
-        2. Reads CLAUDE.md for convention checking (if exists)
-        3. Filters to specific files if requested
-        4. Truncates if diff exceeds size limits
-        5. Performs review and extracts structured findings
-        6. Returns ReviewResult with findings and metadata
+        Builds a review prompt directed at the given branch and base_branch.
+        The ACP executor will provide the agent access to git tools so it can
+        fetch the diff and conventions at runtime.
 
         Args:
             context: ReviewContext with branch, base_branch, file_list, and cwd.
 
         Returns:
-            ReviewResult with structured findings and metadata.
-
-        Raises:
-            AgentError: If git operations fail, merge conflicts exist,
-                or other unrecoverable errors occur.
-
-        Behavior:
-            - FR-008: Retrieves diff between branches
-            - FR-009: Reads CLAUDE.md for convention checking (if exists)
-            - FR-014: Filters to file_list if provided
-            - FR-015: Proceeds without conventions if CLAUDE.md missing
-            - FR-017: Truncates if diff > 2000 lines or 50 files
-            - FR-018: Raises AgentError for git failures
-            - FR-019: Returns empty result if no changes
-            - FR-020: Silently excludes binary files
-            - FR-021: Auto-chunks if approaching token limits
+            Complete prompt text ready for the ACP agent.
         """
-        # Import here to avoid circular dependency
-        from maverick.models.review import ReviewResult, ReviewSeverity
-
-        # Track timing and timestamp for metadata (T044)
-        start_time = time.time()
-        start_timestamp = datetime.now(UTC).isoformat()
-
-        try:
-            # Use the provided ReviewContext directly
-            review_context = context
-
-            # 1. Check for merge conflicts (T022)
-            has_conflicts = await self._check_merge_conflicts(review_context)
-            if has_conflicts:
-                raise AgentError(
-                    "Cannot review: merge conflicts exist. "
-                    "Resolve conflicts before review.",
-                    agent_name=self.name,
-                    error_code="MERGE_CONFLICTS",
-                )
-
-            # 2. Get diff stats and 3. Read conventions in parallel (T022)
-            diff_stats, conventions = await asyncio.gather(
-                self._get_diff_stats(review_context),
-                self._read_conventions(review_context),
-            )
-
-            # 4. Handle empty diff case (T024)
-            if not diff_stats["files"]:
-                duration_ms = int((time.time() - start_time) * 1000)
-                metadata = {
-                    "branch": review_context.branch,
-                    "base_branch": review_context.base_branch,
-                    "duration_ms": duration_ms,
-                    "binary_files_excluded": len(diff_stats["binary_files"]),
-                    "timestamp": start_timestamp,
-                }
-                if review_context.file_list:
-                    metadata["files_requested"] = len(review_context.file_list)
-                return ReviewResult(
-                    success=True,
-                    findings=[],
-                    files_reviewed=0,
-                    summary="No changes to review",
-                    metadata=metadata,
-                )
-
-            # 5. Apply file list filter if provided (FR-014, T026)
-            files_to_review = diff_stats["files"]
-            if review_context.file_list:
-                # Validate file existence: only include files that exist in diff
-                valid_files = set(diff_stats["files"])
-                requested_files = set(review_context.file_list)
-
-                # Filter to files that exist in both the diff and the request
-                files_to_review = [
-                    f for f in diff_stats["files"] if f in requested_files
-                ]
-
-                # Log skipped files (files requested but not in diff)
-                skipped_files = requested_files - valid_files
-                if skipped_files:
-                    logger.debug(
-                        f"Skipped {len(skipped_files)} files not found in diff: "
-                        f"{', '.join(sorted(skipped_files))}"
-                    )
-
-                if not files_to_review:
-                    duration_ms = int((time.time() - start_time) * 1000)
-                    metadata = {
-                        "branch": review_context.branch,
-                        "base_branch": review_context.base_branch,
-                        "duration_ms": duration_ms,
-                        "binary_files_excluded": len(diff_stats["binary_files"]),
-                        "timestamp": start_timestamp,
-                    }
-                    if review_context.file_list:
-                        metadata["files_requested"] = len(review_context.file_list)
-                    return ReviewResult(
-                        success=True,
-                        findings=[],
-                        files_reviewed=0,
-                        summary="No matching files to review",
-                        metadata=metadata,
-                    )
-
-            # 6. Apply truncation if needed (FR-017, T038, T040)
-            truncated = False
-            truncation_notice = ""
-
-            # Use helper to determine if truncation is needed
-            files_to_review, truncation_notice = truncate_files(
-                files_to_review, diff_stats
-            )
-            if truncation_notice:
-                truncated = True
-                logger.warning(f"Diff truncation: {truncation_notice}")
-
-            # 7. Get diff content for the files
-            diff_content = await self._get_diff_content(review_context, files_to_review)
-
-            # 8. Check if chunking is needed (FR-021, T043)
-            estimated_tokens = estimate_tokens(diff_content)
-            chunks_used = False
-            response_text = ""  # Initialize before branching
-
-            if estimated_tokens > MAX_TOKENS_PER_CHUNK:
-                # Need to chunk the review
-                chunks_used = True
-                file_chunks = chunk_files(files_to_review, diff_content)
-                logger.info(
-                    f"Review chunking: splitting {len(files_to_review)} files "
-                    f"into {len(file_chunks)} chunks "
-                    f"({estimated_tokens} estimated tokens)"
-                )
-
-                # Review each chunk separately and merge findings
-                all_findings = []
-                for chunk_idx, file_chunk in enumerate(file_chunks):
-                    logger.debug(f"Reviewing chunk {chunk_idx + 1}/{len(file_chunks)}")
-
-                    # Get diff for this chunk
-                    chunk_diff = await self._get_diff_content(
-                        review_context, file_chunk
-                    )
-
-                    # Build prompt for this chunk
-                    chunk_prompt = self._build_review_prompt(chunk_diff, conventions)
-
-                    # Review the chunk
-                    chunk_messages: list[Any] = []
-                    async for msg in self.query(chunk_prompt, cwd=review_context.cwd):
-                        chunk_messages.append(msg)
-                        # Stream text to TUI if callback is set
-                        if self.stream_callback:
-                            text = extract_streaming_text(msg)
-                            if text:
-                                await self.stream_callback(text)
-
-                    # Parse findings from chunk
-                    chunk_response = extract_all_text(chunk_messages)
-                    chunk_findings = parse_findings(chunk_response)
-                    all_findings.extend(chunk_findings)
-
-                findings = all_findings
-                # messages not used for chunked review (no single usage to track)
-                messages: list[Any] = []
-            else:
-                # Single review without chunking
-                # 9. Build the review prompt
-                prompt = self._build_review_prompt(diff_content, conventions)
-
-                # 10. Call Claude using self.query() method (T022)
-                messages = []
-                async for msg in self.query(prompt, cwd=review_context.cwd):
-                    messages.append(msg)
-                    # Stream text to TUI if callback is set
-                    if self.stream_callback:
-                        text = extract_streaming_text(msg)
-                        if text:
-                            await self.stream_callback(text)
-
-                # 11. Collect and join the response text (T022)
-                response_text = extract_all_text(messages)
-
-                # 12. Parse findings from response (T022)
-                findings = parse_findings(response_text)
-
-            # 12. Build summary with severity counts (T022)
-            severity_counts = {
-                ReviewSeverity.CRITICAL: 0,
-                ReviewSeverity.MAJOR: 0,
-                ReviewSeverity.MINOR: 0,
-                ReviewSeverity.SUGGESTION: 0,
-            }
-            for finding in findings:
-                severity_counts[finding.severity] += 1
-
-            # Build human-readable summary
-            total_issues = len(findings)
-            if total_issues == 0:
-                summary = f"Reviewed {len(files_to_review)} files, no issues found"
-            else:
-                parts = [f"Reviewed {len(files_to_review)} files"]
-                issue_word = "issues" if total_issues != 1 else "issue"
-                parts.append(f"found {total_issues} {issue_word}")
-
-                # Add severity breakdown
-                severity_parts = []
-                if severity_counts[ReviewSeverity.CRITICAL] > 0:
-                    severity_parts.append(
-                        f"{severity_counts[ReviewSeverity.CRITICAL]} critical"
-                    )
-                if severity_counts[ReviewSeverity.MAJOR] > 0:
-                    severity_parts.append(
-                        f"{severity_counts[ReviewSeverity.MAJOR]} major"
-                    )
-                if severity_counts[ReviewSeverity.MINOR] > 0:
-                    severity_parts.append(
-                        f"{severity_counts[ReviewSeverity.MINOR]} minor"
-                    )
-                if severity_counts[ReviewSeverity.SUGGESTION] > 0:
-                    count = severity_counts[ReviewSeverity.SUGGESTION]
-                    word = "suggestions" if count != 1 else "suggestion"
-                    severity_parts.append(f"{count} {word}")
-
-                if severity_parts:
-                    parts.append(f"({', '.join(severity_parts)})")
-
-                summary = ", ".join(parts)
-
-            # Calculate duration
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            # T044: Build comprehensive metadata
-            metadata = {
-                "branch": review_context.branch,
-                "base_branch": review_context.base_branch,
-                "duration_ms": duration_ms,
-                "binary_files_excluded": len(diff_stats["binary_files"]),
-                "timestamp": start_timestamp,
-            }
-
-            # Add files_requested count if file_list was provided
-            if review_context.file_list:
-                metadata["files_requested"] = len(review_context.file_list)
-
-            # T040: Add truncation notice to metadata if truncated
-            if truncation_notice:
-                metadata["truncation_notice"] = truncation_notice
-
-            # T043: Add chunking information to metadata
-            metadata["chunks_used"] = len(file_chunks) if chunks_used else 0
-            if chunks_used:
-                metadata["chunking_reason"] = "diff_size_exceeds_token_limit"
-
-            # T045: Extract usage stats from messages and convert to UsageStats
-            # For chunked reviews, messages is empty (no single usage to track)
-            agent_usage = self._extract_usage(messages)
-            usage_stats = (
-                self._convert_to_usage_stats(agent_usage, duration_ms)
-                if agent_usage
-                else None
-            )
-
-            # Get response_text for output (may be empty for chunked reviews)
-            output_text = response_text if not chunks_used else ""
-
-            # 13. Build and return ReviewResult (T022)
-            return ReviewResult(
-                success=True,
-                findings=findings,
-                files_reviewed=len(files_to_review),
-                summary=summary,
-                truncated=truncated,
-                output=output_text,
-                metadata=metadata,
-                usage=usage_stats,
-            )
-
-        except AgentError:
-            # Re-raise AgentError instances as-is (T023)
-            raise
-        except TimeoutError as e:
-            # Handle timeout errors (T023)
-            raise AgentError(
-                "Code review operation timed out",
-                agent_name=self.name,
-                error_code="TIMEOUT",
-            ) from e
-        except Exception as e:
-            # Wrap other exceptions with appropriate context (T023)
-            error_msg = str(e)
-            error_code = "GIT_ERROR" if "git" in error_msg.lower() else None
-
-            raise AgentError(
-                f"Code review failed: {error_msg}",
-                agent_name=self.name,
-                error_code=error_code,
-            ) from e
+        file_filter = (
+            f"\nFocus only on these files: {', '.join(context.file_list)}"
+            if context.file_list
+            else ""
+        )
+        return (
+            f"Review code changes between branch '{context.branch}' "
+            f"and base branch '{context.base_branch}'.{file_filter} "
+            f"Check CLAUDE.md for project conventions if it exists. "
+            f"Return structured findings."
+        )
 
     async def _get_diff_stats(self, context: ReviewContext) -> dict[str, Any]:
         """Get diff statistics without full content (FR-008).
@@ -739,32 +446,6 @@ class CodeReviewerAgent(MaverickAgent["ReviewContext", "ReviewResult"]):
         )
 
         return "\n".join(prompt_parts)
-
-    def _convert_to_usage_stats(
-        self,
-        agent_usage: AgentUsage,
-        duration_ms: int,
-    ) -> UsageStats:
-        """Convert AgentUsage to UsageStats model (T045).
-
-        This method bridges the gap between the base MaverickAgent's AgentUsage
-        dataclass and the ReviewResult's UsageStats Pydantic model.
-
-        Args:
-            agent_usage: AgentUsage instance from _extract_usage().
-            duration_ms: Execution duration in milliseconds.
-
-        Returns:
-            UsageStats instance compatible with ReviewResult.
-        """
-        from maverick.models.review import UsageStats
-
-        return UsageStats(
-            input_tokens=agent_usage.input_tokens,
-            output_tokens=agent_usage.output_tokens,
-            total_cost=agent_usage.total_cost_usd,
-            duration_ms=duration_ms,
-        )
 
     # Wrapper methods for backward compatibility with tests
     def _estimate_tokens(self, content: str) -> int:

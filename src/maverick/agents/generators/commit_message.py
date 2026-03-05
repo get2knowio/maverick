@@ -13,8 +13,6 @@ from maverick.agents.generators.base import (
     MAX_DIFF_SIZE,
     GeneratorAgent,
 )
-from maverick.agents.result import AgentUsage
-from maverick.exceptions import GeneratorError
 from maverick.logging import get_logger
 
 # =============================================================================
@@ -110,61 +108,23 @@ class CommitMessageGenerator(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate a conventional commit message from context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Input context containing:
                 - diff (str): Git diff showing changes (required)
                 - file_stats (dict): File statistics with additions/deletions (optional)
                 - scope_hint (str): Suggested scope for commit message (optional)
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Conventional commit message in format: type(scope): description,
-            or (message, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If diff is empty or generation fails.
+            Complete prompt text ready for the ACP agent.
         """
-        logger.debug(
-            "CommitMessageGenerator.generate called with context keys: %s",
-            list(context.keys()),
-        )
-
-        # Validate required fields
         diff = context.get("diff", "")
-        if not diff or not diff.strip():
-            raise GeneratorError(
-                message="Diff cannot be empty",
-                generator_name=self._name,
-                input_context={"diff_length": len(diff)},
-            )
-
-        # Extract optional fields
         file_stats = context.get("file_stats", {})
         scope_hint = context.get("scope_hint")
-
-        # Truncate diff if needed (per FR-017)
         truncated_diff = self._truncate_input(diff, MAX_DIFF_SIZE, "diff")
-
-        # Build prompt
-        prompt = self._build_prompt(truncated_diff, file_stats, scope_hint)
-
-        # Query Claude
-        logger.debug("Generating commit message")
-        if return_usage:
-            result, usage = await self._query_with_usage(prompt)
-            logger.debug("Generated commit message: %s", result)
-            return result, usage
-        else:
-            result = await self._query(prompt)
-            logger.debug("Generated commit message: %s", result)
-            return result
+        return self._build_prompt(truncated_diff, file_stats, scope_hint)
 
     def _build_prompt(
         self,

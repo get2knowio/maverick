@@ -327,10 +327,15 @@ async def execute_python_workflow(
             console.print(f"[dim]Session log: {run_config.session_log_path}[/]")
             console.print()
 
-        # Create agent step executor (R-005: CLI must provide a ClaudeStepExecutor).
-        from maverick.executor.claude import ClaudeStepExecutor
+        # Create agent step executor using ACP-based executor.
+        from maverick.executor.acp import AcpStepExecutor
+        from maverick.executor.provider_registry import AgentProviderRegistry
 
-        step_executor = ClaudeStepExecutor(registry=registry)
+        provider_registry = AgentProviderRegistry.from_config(config.agent_providers)
+        step_executor = AcpStepExecutor(
+            provider_registry=provider_registry,
+            agent_registry=registry,
+        )
 
         # Instantiate the workflow.
         workflow = wf_cls(
@@ -349,6 +354,13 @@ async def execute_python_workflow(
                 workflow_name=workflow_name,
             )
         finally:
+            # Clean up ACP agent subprocesses (FR-019).
+            if hasattr(step_executor, "cleanup"):
+                try:
+                    await step_executor.cleanup()
+                except Exception as exc:
+                    logger.warning("step_executor_cleanup_failed", error=str(exc))
+
             if journal is not None:
                 try:
                     wf_result = workflow.result

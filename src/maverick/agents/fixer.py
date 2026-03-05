@@ -11,18 +11,12 @@ from typing import Any
 
 from maverick.agents.base import MaverickAgent
 from maverick.agents.context import AgentContext
-from maverick.agents.contracts import validate_output
 from maverick.agents.prompts.common import (
     TOOL_USAGE_EDIT,
     TOOL_USAGE_READ,
     TOOL_USAGE_WRITE,
 )
 from maverick.agents.tools import FIXER_TOOLS
-from maverick.agents.utils import (
-    extract_all_text,
-    extract_streaming_text,
-)
-from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 from maverick.models.fixer import FixerResult
 
@@ -151,90 +145,13 @@ class FixerAgent(MaverickAgent[AgentContext, FixerResult]):
             output_model=FixerResult,
         )
 
-    async def execute(self, context: AgentContext) -> FixerResult:
-        """Apply a targeted fix based on the provided context.
-
-        The agent uses its tools (Read, Write, Edit) to apply fixes.
-        Success is determined by whether the agent completed without errors;
-        the caller re-runs validation afterward to verify the fix worked.
-
-        Uses a three-tier output extraction strategy:
-        1. SDK structured output (``output_format`` enforcement)
-        2. ``validate_output()`` fallback (JSON code-block extraction)
-        3. Synthetic ``FixerResult`` from raw text
+    def build_prompt(self, context: AgentContext) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
-            context: Runtime context containing:
-                - prompt: Description of the fix to apply (from context.extra)
-                - cwd: Working directory for file operations
-                - config: Optional agent configuration
+            context: Runtime context containing prompt in context.extra["prompt"].
 
         Returns:
-            FixerResult with:
-                - success: Whether the fix attempt succeeded
-                - summary: Human-readable description of what was done
-                - files_mentioned: Best-effort list of modified files
-                - error_details: Error description when success is False
-
-        Raises:
-            AgentError: Wrapped SDK errors (no automatic retries).
+            Complete prompt text ready for the ACP agent.
         """
-        try:
-            # Extract prompt from context.extra
-            prompt = context.extra.get("prompt")
-            if not prompt:
-                logger.error("No prompt provided in context.extra")
-                return FixerResult(
-                    success=False,
-                    summary="No prompt provided",
-                    error_details="No prompt provided in context.extra",
-                )
-
-            logger.info("Applying fix with FixerAgent")
-
-            # Execute via Claude SDK with streaming
-            messages = []
-            async for msg in self.query(prompt, cwd=context.cwd):
-                messages.append(msg)
-                # Stream text to TUI if callback is set
-                if self.stream_callback:
-                    text = extract_streaming_text(msg)
-                    if text:
-                        await self.stream_callback(text)
-
-            # --- Three-tier output extraction ---
-
-            # Tier 1: SDK structured output (output_format enforcement)
-            structured = self._extract_structured_output(messages)
-            if structured is not None:
-                return FixerResult.model_validate(structured)
-
-            # Tier 2: validate_output fallback (JSON code-block extraction)
-            raw_text = extract_all_text(messages)
-            result = validate_output(raw_text, FixerResult, strict=False)
-            if result is not None:
-                return result
-
-            # Tier 3: Synthetic FixerResult from raw text
-            return FixerResult(
-                success=True,
-                summary=(
-                    raw_text[:200] if raw_text else "Fix applied (no structured output)"
-                ),
-                files_mentioned=[],
-            )
-
-        except AgentError as e:
-            logger.error("Agent error during fix: %s", e)
-            return FixerResult(
-                success=False,
-                summary="Agent error during fix",
-                error_details=str(e),
-            )
-        except Exception as e:
-            logger.exception("Fix execution failed: %s", e)
-            return FixerResult(
-                success=False,
-                summary="Fix execution failed",
-                error_details=str(e),
-            )
+        return str(context.extra.get("prompt", ""))

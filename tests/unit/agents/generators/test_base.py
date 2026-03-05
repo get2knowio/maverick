@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -13,7 +13,6 @@ from maverick.agents.generators.base import (
     MAX_SNIPPET_SIZE,
     GeneratorAgent,
 )
-from maverick.exceptions import GeneratorError
 
 
 class ConcreteGenerator(GeneratorAgent):
@@ -27,10 +26,9 @@ class ConcreteGenerator(GeneratorAgent):
     ) -> None:
         super().__init__(name=name, system_prompt=system_prompt, model=model)
 
-    async def generate(self, context: dict[str, Any]) -> str:
-        """Simple implementation that calls _query with context."""
-        prompt = f"Generate for: {context.get('input', 'default')}"
-        return await self._query(prompt)
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Simple implementation that returns a prompt from context."""
+        return f"Generate for: {context.get('input', 'default')}"
 
 
 class TestGeneratorAgentConstruction:
@@ -140,162 +138,6 @@ class TestTruncateInput:
         assert result == content
 
 
-class TestQuery:
-    """Tests for _query helper method."""
-
-    @pytest.mark.asyncio
-    async def test_query_returns_text_from_response(self) -> None:
-        """Test that _query extracts text from Claude response."""
-        generator = ConcreteGenerator()
-
-        # Create mock message with TextBlock
-        mock_text_block = MagicMock()
-        mock_text_block.text = "Generated output"
-        type(mock_text_block).__name__ = "TextBlock"
-
-        mock_message = MagicMock()
-        mock_message.content = [mock_text_block]
-        type(mock_message).__name__ = "AssistantMessage"
-
-        async def mock_query_iter(*args: Any, **kwargs: Any) -> Any:
-            yield mock_message
-
-        with patch(
-            "maverick.agents.generators.base.query",
-            return_value=mock_query_iter(),
-        ):
-            result = await generator._query("Test prompt")
-
-        assert result == "Generated output"
-
-    @pytest.mark.asyncio
-    async def test_query_handles_multiple_text_blocks(self) -> None:
-        """Test that _query concatenates multiple text blocks."""
-        generator = ConcreteGenerator()
-
-        # Create mock message with multiple TextBlocks
-        mock_block1 = MagicMock()
-        mock_block1.text = "First part"
-        type(mock_block1).__name__ = "TextBlock"
-
-        mock_block2 = MagicMock()
-        mock_block2.text = "Second part"
-        type(mock_block2).__name__ = "TextBlock"
-
-        mock_message = MagicMock()
-        mock_message.content = [mock_block1, mock_block2]
-        type(mock_message).__name__ = "AssistantMessage"
-
-        async def mock_query_iter(*args: Any, **kwargs: Any) -> Any:
-            yield mock_message
-
-        with patch(
-            "maverick.agents.generators.base.query",
-            return_value=mock_query_iter(),
-        ):
-            result = await generator._query("Test prompt")
-
-        assert "First part" in result
-        assert "Second part" in result
-
-    @pytest.mark.asyncio
-    async def test_query_handles_multiple_messages(self) -> None:
-        """Test that _query concatenates text from multiple messages."""
-        generator = ConcreteGenerator()
-
-        # Mock messages
-        mock_msg1 = MagicMock()
-        mock_msg1.content = [MagicMock(text="Part 1")]
-        mock_msg1.content[0].__class__.__name__ = "TextBlock"
-        type(mock_msg1).__name__ = "AssistantMessage"
-
-        mock_msg2 = MagicMock()
-        mock_msg2.content = [MagicMock(text="Part 2")]
-        mock_msg2.content[0].__class__.__name__ = "TextBlock"
-        type(mock_msg2).__name__ = "AssistantMessage"
-
-        async def mock_iter(*args: Any, **kwargs: Any) -> Any:
-            yield mock_msg1
-            yield mock_msg2
-
-        with patch(
-            "maverick.agents.generators.base.query",
-            side_effect=mock_iter,
-        ):
-            result = await generator._query("prompt")
-
-        assert result == "Part 1\nPart 2"
-
-    @pytest.mark.asyncio
-    async def test_query_wraps_expected_errors_in_generator_error(self) -> None:
-        """Test that expected SDK errors are wrapped in GeneratorError."""
-        generator = ConcreteGenerator()
-
-        async def mock_query_error(*args: Any, **kwargs: Any) -> Any:
-            raise RuntimeError("SDK connection error")
-            yield  # Make this a generator
-
-        with patch(
-            "maverick.agents.generators.base.query",
-            return_value=mock_query_error(),
-        ):
-            with pytest.raises(GeneratorError) as exc_info:
-                await generator._query("Test prompt")
-
-            assert "SDK connection error" in exc_info.value.message
-            assert exc_info.value.generator_name == "test-generator"
-
-    @pytest.mark.asyncio
-    async def test_query_wraps_unexpected_errors_in_generator_error(self) -> None:
-        """Test unexpected errors are wrapped in GeneratorError."""
-        generator = ConcreteGenerator()
-
-        class UnexpectedError(Exception):
-            pass
-
-        async def mock_query_error(*args: Any, **kwargs: Any) -> Any:
-            raise UnexpectedError("Something unexpected")
-            yield  # Make this a generator
-
-        with patch(
-            "maverick.agents.generators.base.query",
-            return_value=mock_query_error(),
-        ):
-            with pytest.raises(GeneratorError) as exc_info:
-                await generator._query("Test prompt")
-
-            assert "Something unexpected" in exc_info.value.message
-            assert exc_info.value.generator_name == "test-generator"
-
-    @pytest.mark.asyncio
-    async def test_query_logs_debug_info(self) -> None:
-        """Test that _query logs debug information for inputs/outputs."""
-        generator = ConcreteGenerator()
-
-        mock_text_block = MagicMock()
-        mock_text_block.text = "Output"
-        type(mock_text_block).__name__ = "TextBlock"
-
-        mock_message = MagicMock()
-        mock_message.content = [mock_text_block]
-        type(mock_message).__name__ = "AssistantMessage"
-
-        async def mock_query_iter(*args: Any, **kwargs: Any) -> Any:
-            yield mock_message
-
-        with (
-            patch(
-                "maverick.agents.generators.base.query",
-                return_value=mock_query_iter(),
-            ),
-            patch("maverick.agents.generators.base.logger") as mock_logger,
-        ):
-            await generator._query("Test prompt")
-
-            # Should log prompt and output at DEBUG level
-            assert mock_logger.debug.call_count >= 1
-
-
 class TestConstants:
     """Tests for module constants."""
 
@@ -310,49 +152,3 @@ class TestConstants:
     def test_default_model(self) -> None:
         """Test DEFAULT_MODEL is set correctly."""
         assert DEFAULT_MODEL == "claude-sonnet-4-5-20250929"
-
-
-class TestBuildOptionsContract:
-    """Tests verifying GeneratorAgent._build_options() negative contracts (FR-005)."""
-
-    def test_build_options_matches_generator_contract(self) -> None:
-        """Test GeneratorAgent._build_options() matches generator contract.
-
-        Verifies: raw string prompt (not preset dict), single-shot, no tools (FR-005).
-        """
-        mock_options_class = MagicMock()
-
-        with patch(
-            "maverick.agents.generators.base.ClaudeAgentOptions", mock_options_class
-        ):
-            ConcreteGenerator(
-                name="test-generator",
-                system_prompt="You are a text generator.",
-            )
-
-        call_kwargs = mock_options_class.call_args.kwargs
-        # system_prompt must be a raw string, not a preset dict
-        assert isinstance(call_kwargs["system_prompt"], str)
-        assert not isinstance(call_kwargs["system_prompt"], dict)
-        # max_turns must be 1 (single-shot)
-        assert call_kwargs["max_turns"] == 1
-        # allowed_tools must be empty (no tools for generators)
-        assert call_kwargs["allowed_tools"] == []
-
-    def test_build_options_does_not_include_setting_sources(self) -> None:
-        """Test GeneratorAgent does NOT include setting_sources in options.
-
-        Negative test for FR-005: generators do not load project/user config.
-        """
-        mock_options_class = MagicMock()
-
-        with patch(
-            "maverick.agents.generators.base.ClaudeAgentOptions", mock_options_class
-        ):
-            ConcreteGenerator(
-                name="test-generator",
-                system_prompt="You are a text generator.",
-            )
-
-        call_kwargs = mock_options_class.call_args.kwargs
-        assert "setting_sources" not in call_kwargs

@@ -13,8 +13,6 @@ from maverick.agents.generators.base import (
     MAX_SNIPPET_SIZE,
     GeneratorAgent,
 )
-from maverick.agents.result import AgentUsage
-from maverick.exceptions import GeneratorError
 from maverick.logging import get_logger
 
 # =============================================================================
@@ -112,50 +110,23 @@ class ErrorExplainer(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate error explanation from error context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Must contain 'error_output' (str).
                     May contain 'source_context' (str), 'error_type' (ErrorType).
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Structured explanation with fix suggestions,
-            or (explanation, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If error_output is missing/empty or API call fails.
+            Complete prompt text ready for the ACP agent.
         """
-        # Validate required fields
-        error_output = context.get("error_output")
-        if not error_output or (
-            isinstance(error_output, str) and not error_output.strip()
-        ):
-            raise GeneratorError(
-                message="error_output is required and must be non-empty",
-                generator_name=self._name,
-                input_context={"error_output": error_output},
-            )
-
-        # Extract optional fields
+        error_output = context.get("error_output", "")
         source_context = context.get("source_context", "")
         error_type = context.get("error_type")
 
-        # Validate error_type at runtime
         if error_type and error_type not in VALID_ERROR_TYPES:
-            logger.warning(
-                "Invalid error_type '%s', ignoring. Valid types: %s",
-                error_type,
-                ", ".join(VALID_ERROR_TYPES),
-            )
             error_type = None
 
-        # Truncate source_context if needed (error_output is never truncated)
         if source_context:
             source_context = self._truncate_input(
                 source_context,
@@ -163,13 +134,7 @@ class ErrorExplainer(GeneratorAgent):
                 "source_context",
             )
 
-        # Build prompt
-        prompt = self._build_prompt(error_output, source_context, error_type)
-
-        # Query Claude for explanation
-        if return_usage:
-            return await self._query_with_usage(prompt)
-        return await self._query(prompt)
+        return self._build_prompt(error_output, source_context, error_type)
 
     def _build_prompt(
         self,

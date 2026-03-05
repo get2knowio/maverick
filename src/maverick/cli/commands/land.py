@@ -449,17 +449,26 @@ async def _agent_curate(
 
     try:
         from maverick.agents.curator import CuratorAgent
+        from maverick.executor import create_default_executor
 
         agent = CuratorAgent()
-        raw_output = await agent.generate(
-            {
-                "commits": curation_ctx["commits"],
-                "log_summary": curation_ctx["log_summary"],
-            }
-        )
-        # generate returns str when return_usage=False
-        assert isinstance(raw_output, str)
+        _executor = create_default_executor()
+        try:
+            _result = await _executor.execute(
+                step_name="curate",
+                agent_name=agent.name,
+                prompt={
+                    "commits": curation_ctx["commits"],
+                    "log_summary": curation_ctx["log_summary"],
+                },
+                cwd=cwd,
+            )
+            raw_output = str(_result.output) if _result.output else ""
+        finally:
+            await _executor.cleanup()
         plan = agent.parse_plan(raw_output)
+    except SystemExit:
+        raise
     except Exception as e:
         err_console.print(
             format_error(

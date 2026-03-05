@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from claude_agent_sdk import create_sdk_mcp_server
-from claude_agent_sdk.types import McpSdkServerConfig
+try:
+    from claude_agent_sdk import create_sdk_mcp_server
+    from claude_agent_sdk.types import McpSdkServerConfig
+except ImportError:
+    # claude_agent_sdk removed in ACP migration (T051)
+    from maverick.tools._sdk_stubs import McpSdkServerConfig, create_sdk_mcp_server
 
 from maverick.logging import get_logger
 from maverick.tools.github.tools.diffs import github_get_pr_diff

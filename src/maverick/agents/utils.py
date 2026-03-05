@@ -1,187 +1,19 @@
 """Utility functions for agents.
 
 This module provides shared utilities for agent implementations:
-- Text extraction from Claude SDK message objects
-- Usage extraction from Claude SDK messages
+- Tool call display formatting
 - Git file change detection
-
-Avoiding direct imports of SDK types to maintain loose coupling.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from maverick.logging import get_logger
 from maverick.models.implementation import ChangeType, FileChange
 
-if TYPE_CHECKING:
-    from maverick.agents.result import AgentUsage
-
 logger = get_logger(__name__)
-
-
-def get_zero_usage() -> AgentUsage:
-    """Create an AgentUsage instance with all zeros.
-
-    Provides a DRY way to create zero-initialized usage statistics
-    for error cases and early returns.
-
-    Returns:
-        AgentUsage with all fields set to zero/None.
-    """
-    from maverick.agents.result import AgentUsage
-
-    return AgentUsage(
-        input_tokens=0,
-        output_tokens=0,
-        total_cost_usd=None,
-        duration_ms=0,
-    )
-
-
-def extract_usage(messages: list[Any]) -> AgentUsage:
-    """Extract usage statistics from SDK messages (FR-014).
-
-    Searches for a ResultMessage in the message list and extracts
-    token usage and timing information.
-
-    Args:
-        messages: List of messages from Claude SDK response.
-
-    Returns:
-        AgentUsage with token counts, cost, and timing.
-        Returns zero usage if no ResultMessage found.
-    """
-    from maverick.agents.result import AgentUsage
-
-    # Find ResultMessage for usage stats
-    result_msg = None
-    for msg in messages:
-        if type(msg).__name__ == "ResultMessage":
-            result_msg = msg
-            break
-
-    if result_msg is None:
-        # No result message, return zeros
-        return get_zero_usage()
-
-    # Extract usage from ResultMessage
-    usage = getattr(result_msg, "usage", None) or {}
-    return AgentUsage(
-        input_tokens=usage.get("input_tokens", 0),
-        output_tokens=usage.get("output_tokens", 0),
-        total_cost_usd=getattr(result_msg, "total_cost_usd", None),
-        duration_ms=getattr(result_msg, "duration_ms", 0),
-    )
-
-
-def extract_text(message: Any) -> str:
-    """Extract text content from an AssistantMessage.
-
-    Extracts plain text from an AssistantMessage object by iterating through
-    its content blocks and concatenating text from TextBlock objects.
-
-    Args:
-        message: AssistantMessage object from Claude SDK
-
-    Returns:
-        Plain text content from all text blocks, concatenated with newlines.
-        Returns empty string if message has no text content.
-    """
-    if message is None or not hasattr(message, "content"):
-        return ""
-
-    text_parts = []
-    for block in message.content:
-        # Check if this is a TextBlock by type name to avoid SDK imports
-        if type(block).__name__ == "TextBlock" and hasattr(block, "text"):
-            text_parts.append(block.text)
-
-    return "\n".join(text_parts)
-
-
-def extract_streaming_text(message: Any) -> str:
-    """Extract text for streaming display, including partial tokens and tool activity.
-
-    This function handles both:
-    - StreamEvent messages (token-by-token streaming via include_partial_messages=True)
-    - AssistantMessage (complete messages with TextBlock and ToolUseBlock)
-
-    Args:
-        message: Message object from Claude SDK (StreamEvent, AssistantMessage, etc.)
-
-    Returns:
-        Formatted text suitable for streaming display. Includes:
-        - Token deltas from StreamEvent (character-by-character)
-        - Text content from TextBlock
-        - Tool activity from ToolUseBlock (e.g., "> Reading src/file.py")
-        - Empty string if no displayable content
-    """
-    if message is None:
-        return ""
-
-    msg_type = type(message).__name__
-
-    # Handle StreamEvent (partial messages from include_partial_messages=True)
-    # This provides true token-by-token streaming like a chat interface
-    # SDK types.py shows: StreamEvent.event is dict[str, Any]
-    if msg_type == "StreamEvent":
-        event = getattr(message, "event", None)
-        if not isinstance(event, dict):
-            return ""
-
-        event_type = event.get("type", "")
-
-        # content_block_delta contains the streaming token
-        if event_type == "content_block_delta":
-            delta = event.get("delta")
-            if not isinstance(delta, dict):
-                return ""
-            return str(delta.get("text", ""))
-
-        # content_block_start may contain initial text for text blocks
-        if event_type == "content_block_start":
-            content_block = event.get("content_block")
-            if not isinstance(content_block, dict):
-                return ""
-            # Only extract text from text blocks, not tool_use blocks
-            if content_block.get("type") == "text":
-                return str(content_block.get("text", ""))
-
-        # Other stream events (message_start, message_stop, etc.) don't have text
-        return ""
-
-    # Handle AssistantMessage with content blocks (complete messages)
-    # NOTE: With include_partial_messages=True, text content is already streamed
-    # via StreamEvent deltas above. We only extract ToolUseBlock content here
-    # to avoid duplicate text output. TextBlock content is intentionally skipped.
-    if not hasattr(message, "content"):
-        return ""
-
-    text_parts = []
-    for block in message.content:
-        block_type = type(block).__name__
-
-        # Skip TextBlock - text was already streamed via StreamEvent deltas
-        # Including it here would cause duplicate output
-
-        # ToolUseBlock - format tool activity for display
-        if block_type == "ToolUseBlock":
-            tool_name = getattr(block, "name", "unknown")
-            tool_input = getattr(block, "input", {})
-
-            # Format based on tool type with emoji prefixes for visual scanning
-            tool_text = _format_tool_call(tool_name, tool_input)
-            if tool_text:
-                text_parts.append(tool_text)
-
-        # Skip ToolResultBlock - tool outputs (file contents, glob results, etc.)
-        # are processed internally by the agent and don't need to be displayed.
-        # Showing them creates noise with raw file contents and error messages.
-
-    return "\n".join(text_parts)
 
 
 def _shorten_path(path: str, max_length: int = 50) -> str:
@@ -299,34 +131,6 @@ def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
 
     # Generic fallback for other tools
     return f"{_TOOL_PREFIX} {tool_name}\n"
-
-
-def extract_all_text(messages: list[Any]) -> str:
-    """Extract text from all AssistantMessage objects in a list.
-
-    Filters the message list to only AssistantMessage objects and extracts
-    their text content, concatenating all text with double newlines.
-
-    Args:
-        messages: List of Message objects (may include UserMessage,
-                 AssistantMessage, etc.)
-
-    Returns:
-        Combined text content from all AssistantMessage objects, separated
-        by double newlines. Returns empty string if no AssistantMessages
-        with text content are found.
-    """
-    text_parts = []
-    for msg in messages:
-        if msg is None:
-            continue
-        # Only extract from AssistantMessage types
-        if type(msg).__name__ == "AssistantMessage":
-            text = extract_text(msg)
-            if text:
-                text_parts.append(text)
-
-    return "\n\n".join(text_parts)
 
 
 async def detect_file_changes(cwd: Path) -> list[FileChange]:

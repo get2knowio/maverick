@@ -31,7 +31,6 @@ dependencies = [
     "aiolimiter>=1.2,<2",
     "anyio>=4.0,<5",
     "atomicwrites>=1.4,<2",
-    "claude-agent-sdk>=0.1.0",
     "click>=8.1.0,<9",
     "detect-secrets>=1.4,<2",
     "gitpython>=3.1,<4",
@@ -46,6 +45,7 @@ dependencies = [
     "rich>=13.0,<14",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
+    "agent-client-protocol>=0.8.1",
 ]
 
 [project.scripts]
@@ -118,6 +118,36 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = "unidiff.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "claude_agent_sdk.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Legacy tool modules using @tool decorator from claude_agent_sdk (removed in T051).
+# The decorator is typed via _sdk_stubs but Any-typed SDK import causes
+# untyped-decorator warnings on the decorated functions. Disable for these modules.
+module = [
+    "maverick.tools.notification",
+    "maverick.tools.validation",
+    "maverick.tools.git.tools.branch",
+    "maverick.tools.git.tools.commit",
+    "maverick.tools.git.tools.diff",
+    "maverick.tools.git.tools.push",
+    "maverick.tools.github.tools.diffs",
+    "maverick.tools.github.tools.issues",
+    "maverick.tools.github.tools.prs",
+]
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+# maverick.init.detector uses a top-level try/except ImportError to fall back
+# to _sdk_stubs when claude_agent_sdk is absent. While the SDK remains installed
+# in the dev environment, mypy analyses both branches and raises [assignment] /
+# [misc] on the stub fallbacks. These are harmless because the fallback branch
+# only executes when the SDK is uninstalled (ACP migration T051).
+module = "maverick.init.detector"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

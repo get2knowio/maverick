@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.generators.base import DEFAULT_MODEL, GeneratorAgent
-from maverick.agents.result import AgentUsage
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -92,12 +91,8 @@ class BeadEnricherGenerator(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Enrich a bead description with acceptance criteria and context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Input context containing:
@@ -108,14 +103,9 @@ class BeadEnricherGenerator(GeneratorAgent):
                 - spec_content (str, optional): Spec file excerpt.
                 - plan_content (str, optional): Plan file excerpt.
                 - dependency_context (str, optional): What predecessor beads provide.
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Enriched markdown description,
-            or (description, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If generation fails.
+            Complete prompt text ready for the ACP agent.
         """
         title = context.get("title", "")
         category = context.get("category", "USER_STORY")
@@ -125,25 +115,11 @@ class BeadEnricherGenerator(GeneratorAgent):
         plan_content = context.get("plan_content", "")
         dependency_context = context.get("dependency_context", "")
 
-        # If we have nothing to work with, return a minimal description
-        if not title and not tasks and not checkpoints:
-            logger.debug("empty_bead_context")
-            empty_result = ""
-            if return_usage:
-                return empty_result, AgentUsage(
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost_usd=None,
-                    duration_ms=0,
-                )
-            return empty_result
-
         # Truncate large inputs
         max_spec = 10240  # 10KB
         spec_content = self._truncate_input(spec_content, max_spec, "spec_content")
         plan_content = self._truncate_input(plan_content, max_spec, "plan_content")
 
-        # Build prompt
         parts = [
             "Enrich the following bead definition into a self-contained work item.\n",
             f"**Title**: {title}",
@@ -161,18 +137,4 @@ class BeadEnricherGenerator(GeneratorAgent):
         if dependency_context:
             parts.append(f"\n**Dependency Context**:\n{dependency_context}")
 
-        prompt = "\n".join(parts)
-
-        logger.debug(
-            "enriching_bead",
-            title=title,
-            category=category,
-            prompt_length=len(prompt),
-        )
-
-        if return_usage:
-            result, usage = await self._query_with_usage(prompt)
-            return result.strip(), usage
-
-        result = await self._query(prompt)
-        return result.strip()
+        return "\n".join(parts)

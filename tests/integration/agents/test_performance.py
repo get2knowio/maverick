@@ -21,13 +21,10 @@ class TestModuleImports:
             BUILTIN_TOOLS,
             DEFAULT_MODEL,
             AgentContext,
-            AgentMessage,
             AgentRegistry,
             AgentResult,
             AgentUsage,
             MaverickAgent,
-            extract_all_text,
-            extract_text,
             register,
             registry,
         )
@@ -40,9 +37,6 @@ class TestModuleImports:
         assert AgentRegistry is not None
         assert registry is not None
         assert register is not None
-        assert extract_text is not None
-        assert extract_all_text is not None
-        assert AgentMessage is not None
         assert BUILTIN_TOOLS is not None
         assert DEFAULT_MODEL is not None
 
@@ -164,6 +158,9 @@ class TestRegistryIntegration:
                     ),
                 )
 
+            def build_prompt(self, context: AgentContext) -> str:
+                return "integration test prompt"
+
         # Register the agent
         test_registry.register("integration_test", IntegrationTestAgent)
 
@@ -212,6 +209,9 @@ class TestRegistryIntegration:
                     ),
                 )
 
+            def build_prompt(self, context: AgentContext) -> str:
+                return "decorated integration prompt"
+
         # Verify registration
         assert "decorated_integration" in test_registry.list_agents()
         agent = test_registry.create("decorated_integration")
@@ -231,6 +231,9 @@ class TestErrorHandlingIntegration:
 
             async def execute(self, context):
                 pass
+
+            def build_prompt(self, context) -> str:
+                return ""
 
         with pytest.raises(InvalidToolError) as exc_info:
             TestBadToolAgent(
@@ -284,6 +287,9 @@ class TestErrorHandlingIntegration:
                     usage=AgentUsage(0, 0, None, 0),
                 )
 
+            def build_prompt(self, context: AgentContext) -> str:
+                return ""
+
         test_registry.register("duplicate_name", DuplicateTestAgent)
 
         with pytest.raises(DuplicateAgentError) as exc_info:
@@ -328,54 +334,3 @@ class TestContextIntegration:
         assert context.branch == "main"
         assert isinstance(context.config, MaverickConfig)
         assert context.extra == {}
-
-
-class TestUtilitiesIntegration:
-    """Test utility functions work with mock SDK types."""
-
-    def test_extract_text_with_mock_messages(self) -> None:
-        """Test extract_text works with mock message objects."""
-        from unittest.mock import MagicMock
-
-        from maverick.agents import extract_text
-
-        # Create mock TextBlock
-        text_block = MagicMock()
-        text_block.text = "Hello, world!"
-        type(text_block).__name__ = "TextBlock"
-
-        # Create mock AssistantMessage
-        message = MagicMock()
-        message.content = [text_block]
-        type(message).__name__ = "AssistantMessage"
-
-        result = extract_text(message)
-
-        assert result == "Hello, world!"
-
-    def test_extract_all_text_filters_non_assistant_messages(self) -> None:
-        """Test extract_all_text filters non-AssistantMessage types."""
-        from unittest.mock import MagicMock
-
-        from maverick.agents import extract_all_text
-
-        # Create assistant message
-        text_block = MagicMock()
-        text_block.text = "Assistant response"
-        type(text_block).__name__ = "TextBlock"
-
-        assistant_msg = MagicMock()
-        assistant_msg.content = [text_block]
-        type(assistant_msg).__name__ = "AssistantMessage"
-
-        # Create user message
-        user_msg = MagicMock()
-        user_msg.content = "User input"
-        type(user_msg).__name__ = "UserMessage"
-
-        messages = [user_msg, assistant_msg]
-
-        result = extract_all_text(messages)
-
-        # Should only include assistant message text
-        assert result == "Assistant response"
