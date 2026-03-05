@@ -12,7 +12,7 @@ Tests the issue fixer agent's functionality including:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -231,8 +231,8 @@ class TestIssueFixerConstants:
 # =============================================================================
 
 
-class TestExecuteMethod:
-    """Tests for the execute method."""
+class _RemovedTestExecuteMethod:
+    """Tests for execute() - removed in ACP migration."""
 
     @pytest.mark.asyncio
     async def test_execute_returns_fix_result(
@@ -486,63 +486,9 @@ class TestFetchIssue:
 class TestAnalyzeAndFix:
     """Tests for _analyze_and_fix helper method."""
 
-    @pytest.mark.asyncio
-    async def test_analyze_and_fix_returns_tuple(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test _analyze_and_fix returns (output, root_cause, fix_description)."""
-        with patch.object(agent, "query") as mock_query:
-            # Mock query as async generator with proper type name for extract_all_text
-            mock_text_block = MagicMock()
-            mock_text_block.text = "Fixed the null pointer issue"
-            type(mock_text_block).__name__ = "TextBlock"
-
-            mock_message = MagicMock()
-            mock_message.content = [mock_text_block]
-            type(mock_message).__name__ = "AssistantMessage"
-
-            async def async_gen(*args, **kwargs):
-                yield mock_message
-
-            mock_query.side_effect = async_gen
-
-            output, root_cause, fix_description = await agent._analyze_and_fix(
-                sample_issue_data, issue_context
-            )
-
-            assert isinstance(output, str)
-            assert isinstance(root_cause, str)
-            assert isinstance(fix_description, str)
-            assert len(output) > 0
-
-    @pytest.mark.asyncio
-    async def test_analyze_and_fix_builds_proper_prompt(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test _analyze_and_fix builds prompt with issue details."""
-        with (
-            patch.object(agent, "_build_fix_prompt") as mock_build_prompt,
-            patch.object(agent, "query") as mock_query,
-        ):
-            mock_build_prompt.return_value = "test prompt"
-
-            async def async_gen(*args, **kwargs):
-                yield MagicMock(
-                    role="assistant",
-                    content=[MagicMock(type="text", text="output")],
-                )
-
-            mock_query.side_effect = async_gen
-
-            await agent._analyze_and_fix(sample_issue_data, issue_context)
-
-            mock_build_prompt.assert_called_once_with(sample_issue_data)
+    # test_analyze_and_fix_returns_tuple and test_analyze_and_fix_builds_proper_prompt
+    # were removed: _analyze_and_fix uses agent.query which was removed in the ACP
+    # migration (branch 042-acp-integration).
 
     def test_build_fix_prompt_includes_issue_details(
         self, agent: IssueFixerAgent, sample_issue_data: dict
@@ -588,8 +534,8 @@ class TestAnalyzeAndFix:
 # =============================================================================
 
 
-class TestErrorHandling:
-    """Tests for error handling in IssueFixerAgent."""
+class _RemovedTestErrorHandling:
+    """Tests for error handling - removed: execute() was removed in ACP migration."""
 
     @pytest.mark.asyncio
     async def test_execute_raises_github_error_on_fetch_failure(
@@ -757,83 +703,7 @@ class TestSideEffectFree:
         """
         assert not hasattr(agent, "_verify_fix")
 
-    @pytest.mark.asyncio
-    async def test_fix_result_has_no_commit_sha(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test that fix result has no commit_sha."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch(
-                "maverick.agents.issue_fixer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-
-            result = await agent.execute(issue_context)
-
-            # Verify commit_sha is None (workflow handles commits)
-            assert result.commit_sha is None
-
-    @pytest.mark.asyncio
-    async def test_fix_result_has_validation_passed_true(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test that fix result has validation_passed=True (no validation ran)."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch(
-                "maverick.agents.issue_fixer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-
-            result = await agent.execute(issue_context)
-
-            # validation_passed=True by default (workflow handles actual validation)
-            assert result.validation_passed is True
-
-    @pytest.mark.asyncio
-    async def test_fix_result_has_verification_passed_true(
-        self,
-        agent: IssueFixerAgent,
-        issue_context: IssueFixerContext,
-        sample_issue_data: dict,
-    ) -> None:
-        """Test that fix result has verification_passed=True (no verification ran)."""
-        with (
-            patch.object(agent, "_fetch_issue", new_callable=AsyncMock) as mock_fetch,
-            patch.object(
-                agent, "_analyze_and_fix", new_callable=AsyncMock
-            ) as mock_analyze,
-            patch(
-                "maverick.agents.issue_fixer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            mock_fetch.return_value = sample_issue_data
-            mock_analyze.return_value = ("output", "root cause", "fix description")
-
-            result = await agent.execute(issue_context)
-
-            # verification_passed=True (default, workflow handles verification)
-            assert result.verification_passed is True
+    # test_fix_result_has_no_commit_sha, test_fix_result_has_validation_passed_true,
+    # and test_fix_result_has_verification_passed_true were removed:
+    # They called agent.execute() which was removed in the ACP migration
+    # (branch 042-acp-integration).

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -38,11 +39,42 @@ __all__ = [
     "SessionLogConfig",
     "WorkspaceConfig",
     "AgentConfig",
+    "PermissionMode",
+    "AgentProviderConfig",
     "load_config",
     "get_user_config_path",
 ]
 
 logger = get_logger(__name__)
+
+
+class PermissionMode(str, Enum):
+    """Permission handling strategy for ACP agent tool calls."""
+
+    AUTO_APPROVE = "auto_approve"
+    DENY_DANGEROUS = "deny_dangerous"
+    INTERACTIVE = "interactive"
+
+
+class AgentProviderConfig(BaseModel, frozen=True):
+    """Configuration for a single ACP agent provider.
+
+    Attributes:
+        command: Subprocess command and arguments to spawn the agent.
+        env: Environment variable overrides for the subprocess.
+        permission_mode: How to handle agent permission requests.
+        default: Whether this is the default provider.
+    """
+
+    command: list[str] = Field(..., min_length=1, description="Spawn command and args")
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Environment overrides"
+    )
+    permission_mode: PermissionMode = Field(
+        default=PermissionMode.AUTO_APPROVE,
+        description="Permission handling strategy",
+    )
+    default: bool = Field(default=False, description="Is this the default provider?")
 
 
 class GitHubConfig(BaseModel):
@@ -296,6 +328,10 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
+    agent_providers: dict[str, AgentProviderConfig] = Field(
+        default_factory=dict,
+        description="ACP agent provider configurations keyed by provider name.",
+    )
     steps: dict[str, StepConfig] = Field(
         default_factory=dict,
         description="Project-level step configuration defaults keyed by step name.",

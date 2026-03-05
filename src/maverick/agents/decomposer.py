@@ -15,8 +15,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.agents.utils import extract_all_text
-from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -126,41 +124,15 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             output_model=DecompositionOutput,
         )
 
-    async def execute(self, context: str) -> dict[str, Any]:
-        """Decompose a flight plan into work units.
+    def build_prompt(self, context: str) -> str:
+        """Construct the prompt string from context (FR-017).
+
+        For DecomposerAgent, the context IS the prompt text.
 
         Args:
             context: Full prompt text with flight plan and instructions.
 
         Returns:
-            Dict matching DecompositionOutput schema.
-
-        Raises:
-            AgentError: On SDK errors or missing structured output.
+            Complete prompt text ready for the ACP agent.
         """
-        messages: list[Any] = []
-        async for msg in self.query(context):
-            messages.append(msg)
-
-        # Lazy import to avoid circular import chain
-        from maverick.agents.contracts import validate_output
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutput,
-        )
-
-        # Tier 1: SDK structured output (output_format enforcement)
-        structured = self._extract_structured_output(messages)
-        if structured is not None:
-            return structured
-
-        # Tier 2: validate_output fallback (JSON code-block extraction)
-        raw_text = extract_all_text(messages)
-        result = validate_output(raw_text, DecompositionOutput, strict=False)
-        if result is not None:
-            return result.model_dump()
-
-        # Tier 3: No structured output — cannot proceed
-        raise AgentError(
-            message="Decomposer produced no structured output",
-            agent_name=self.name,
-        )
+        return context

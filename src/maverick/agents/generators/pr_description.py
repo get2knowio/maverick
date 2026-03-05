@@ -16,8 +16,6 @@ from maverick.agents.generators.base import (
     DEFAULT_PR_SECTIONS,
     GeneratorAgent,
 )
-from maverick.agents.result import AgentUsage
-from maverick.exceptions import GeneratorError
 from maverick.logging import get_logger
 
 # =============================================================================
@@ -132,12 +130,8 @@ class PRDescriptionGenerator(GeneratorAgent):
             no explanations. Just the raw markdown starting with ## Summary.
         """).strip()
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate PR description from context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Input context containing:
@@ -145,57 +139,11 @@ class PRDescriptionGenerator(GeneratorAgent):
                 - task_summary (str): Summary of the task/feature (REQUIRED, non-empty)
                 - diff_stats (dict): File change statistics (OPTIONAL)
                 - validation_results (dict): Test/lint results (OPTIONAL)
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            Markdown PR description with configured sections,
-            or (description, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If commits or task_summary is missing/empty,
-                or generation fails.
+            Complete prompt text ready for the ACP agent.
         """
-        logger.debug(
-            "Generator '%s' generating PR description from context with %d keys",
-            self.name,
-            len(context),
-        )
-
-        # Validate required fields (FR-015)
-        commits = context.get("commits")
-        if not commits or not isinstance(commits, list) or len(commits) == 0:
-            raise GeneratorError(
-                message="commits must be a non-empty list",
-                generator_name=self.name,
-                input_context={"commits": commits},
-            )
-
-        if not all(isinstance(c, str) for c in commits):
-            raise GeneratorError(
-                message="All commits must be strings",
-                generator_name=self.name,
-                input_context=context,
-            )
-
-        task_summary = context.get("task_summary")
-        if (
-            not task_summary
-            or not isinstance(task_summary, str)
-            or not task_summary.strip()
-        ):
-            raise GeneratorError(
-                "task_summary must be a non-empty string",
-                generator_name=self.name,
-                input_context={"task_summary": task_summary},
-            )
-
-        # Build prompt from context
-        prompt = self._build_prompt(context)
-
-        # Execute query and return result
-        if return_usage:
-            return await self._query_with_usage(prompt)
-        return await self._query(prompt)
+        return self._build_prompt(context)
 
     def _build_prompt(self, context: dict[str, Any]) -> str:
         """Build prompt from context.

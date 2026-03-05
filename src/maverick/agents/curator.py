@@ -13,7 +13,6 @@ import json
 from typing import Any
 
 from maverick.agents.generators.base import GeneratorAgent
-from maverick.agents.result import AgentUsage
 from maverick.agents.tools import CURATOR_TOOLS
 from maverick.logging import get_logger
 
@@ -88,27 +87,19 @@ class CuratorAgent(GeneratorAgent):
             temperature=0.0,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate a curation plan from commit context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from commit context (FR-017).
 
         Args:
             context: Dict with:
                 - commits: list of {change_id, description, stats}
                 - log_summary: Full jj log --stat output
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            JSON string of the curation plan, or (json_str, usage).
+            Complete prompt text ready for the agent.
         """
         commits = context.get("commits", [])
         log_summary = context.get("log_summary", "")
-
-        if not commits:
-            return ("[]", AgentUsage(0, 0, None, 0)) if return_usage else "[]"
 
         # Build prompt with all commit data
         parts = [
@@ -122,11 +113,7 @@ class CuratorAgent(GeneratorAgent):
                 f"```\n{commit.get('stats', '(no stats)')}\n```\n"
             )
 
-        prompt = "\n".join(parts)
-
-        if return_usage:
-            return await self._query_with_usage(prompt)
-        return await self._query(prompt)
+        return "\n".join(parts)
 
     def parse_plan(self, raw_output: str) -> list[dict[str, Any]]:
         """Parse the agent's raw JSON output into a plan list.

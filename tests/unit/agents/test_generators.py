@@ -8,12 +8,9 @@ Tests the generator agent base class functionality including:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from maverick.agents.generators.base import GeneratorAgent
-from maverick.exceptions import GeneratorError
 
 # =============================================================================
 # Test Implementation of GeneratorAgent
@@ -29,9 +26,9 @@ class ConcreteGenerator(GeneratorAgent):
             system_prompt="You generate test content.",
         )
 
-    async def generate(self, context: dict) -> str:
-        """Simple test implementation."""
-        return await self._query(f"Generate: {context.get('input', '')}")
+    def build_prompt(self, context: dict) -> str:
+        """Build prompt from context."""
+        return f"Generate: {context.get('input', '')}"
 
 
 # =============================================================================
@@ -64,8 +61,7 @@ class TestGeneratorAgentInitialization:
         Generators are text-only and should not have access to any tools.
         All context is provided in prompts.
         """
-        # Access the _options to check allowed_tools
-        assert generator._options.allowed_tools == []
+        assert generator.allowed_tools == []
 
     def test_allowed_tools_uses_centralized_constants(
         self, generator: ConcreteGenerator
@@ -80,7 +76,7 @@ class TestGeneratorAgentInitialization:
 
         # Generator's allowed_tools should match the centralized constant (empty)
         expected_tools = set(CENTRALIZED_TOOLS)
-        actual_tools = set(generator._options.allowed_tools)
+        actual_tools = set(generator.allowed_tools)
 
         assert actual_tools == expected_tools, (
             f"GeneratorAgent must use centralized GENERATOR_TOOLS. "
@@ -100,6 +96,9 @@ class TestGeneratorAgentInitialization:
                 def __init__(self):
                     super().__init__(name="", system_prompt="test")
 
+                def build_prompt(self, context: dict) -> str:
+                    return "test"
+
                 async def generate(self, context: dict) -> str:
                     return "test"
 
@@ -113,6 +112,9 @@ class TestGeneratorAgentInitialization:
                 def __init__(self):
                     super().__init__(name="test", system_prompt="")
 
+                def build_prompt(self, context: dict) -> str:
+                    return "test"
+
                 async def generate(self, context: dict) -> str:
                     return "test"
 
@@ -120,53 +122,27 @@ class TestGeneratorAgentInitialization:
 
 
 # =============================================================================
-# Query Method Tests
+# Build Prompt Tests
 # =============================================================================
 
 
 class TestQueryMethod:
-    """Tests for the _query method."""
+    """Tests for the build_prompt method (ACP-compatible interface)."""
 
-    @pytest.mark.asyncio
-    async def test_query_returns_string(self, generator: ConcreteGenerator) -> None:
-        """Test _query returns a string response."""
-        with patch("maverick.agents.generators.base.query") as mock_query:
-            # Mock SDK query as async generator
-            mock_message = MagicMock()
-            type(mock_message).__name__ = "AssistantMessage"
+    def test_build_prompt_returns_string(self, generator: ConcreteGenerator) -> None:
+        """Test build_prompt returns a string."""
+        result = generator.build_prompt({"input": "hello"})
 
-            mock_text_block = MagicMock()
-            type(mock_text_block).__name__ = "TextBlock"
-            mock_text_block.text = "Generated content"
-            mock_message.content = [mock_text_block]
+        assert isinstance(result, str)
+        assert "hello" in result
 
-            async def async_gen(*args, **kwargs):
-                yield mock_message
-
-            mock_query.side_effect = async_gen
-
-            result = await generator._query("Test prompt")
-
-            assert isinstance(result, str)
-            assert result == "Generated content"
-
-    @pytest.mark.asyncio
-    async def test_query_raises_generator_error_on_failure(
+    def test_build_prompt_with_empty_context(
         self, generator: ConcreteGenerator
     ) -> None:
-        """Test _query raises GeneratorError on SDK failure."""
-        with patch("maverick.agents.generators.base.query") as mock_query:
+        """Test build_prompt handles empty context gracefully."""
+        result = generator.build_prompt({})
 
-            async def failing_gen(*args, **kwargs):
-                raise ValueError("API error")
-                # This makes the async generator never yield
-                # The exception will be raised before any yield
-                yield  # pragma: no cover
-
-            mock_query.side_effect = failing_gen
-
-            with pytest.raises(GeneratorError, match="Query failed"):
-                await generator._query("Test prompt")
+        assert isinstance(result, str)
 
 
 # =============================================================================
@@ -177,8 +153,8 @@ class TestQueryMethod:
 class TestAbstractInterface:
     """Tests for abstract interface requirements."""
 
-    def test_must_implement_generate(self) -> None:
-        """Test subclass must implement generate method."""
+    def test_must_implement_build_prompt(self) -> None:
+        """Test subclass must implement build_prompt method."""
 
         class IncompleteGenerator(GeneratorAgent):
             def __init__(self):

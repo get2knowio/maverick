@@ -460,8 +460,7 @@ async def check_anthropic_api_accessible(
     start = time.monotonic()
 
     try:
-        # Import claude_agent_sdk here to avoid import errors if not installed
-        from claude_agent_sdk import ClaudeAgentOptions, query
+        from claude_agent_sdk import ClaudeAgentOptions, query  # noqa: PLC0415
 
         options = ClaudeAgentOptions(
             system_prompt="Respond with exactly 'OK'.",
@@ -495,6 +494,17 @@ async def check_anthropic_api_accessible(
             status=PreflightStatus.FAIL,
             message="API request timed out",
             remediation="Check network connectivity and try again",
+            duration_ms=duration_ms,
+        )
+
+    except ImportError:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return PrerequisiteCheck(
+            name="anthropic_api_accessible",
+            display_name="Anthropic API",
+            status=PreflightStatus.FAIL,
+            message="claude-agent-sdk is not installed",
+            remediation="Install agent-client-protocol and configure ACP integration",
             duration_ms=duration_ms,
         )
 

@@ -10,8 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.generators.base import DEFAULT_MODEL, GeneratorAgent
-from maverick.agents.result import AgentUsage
-from maverick.exceptions import GeneratorError
 from maverick.logging import get_logger
 
 # =============================================================================
@@ -104,12 +102,8 @@ class PRTitleGenerator(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Generate PR title from context.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Input context containing:
@@ -117,56 +111,11 @@ class PRTitleGenerator(GeneratorAgent):
                 - branch_name (str): Branch name (OPTIONAL)
                 - task_summary (str): Task summary (OPTIONAL)
                 - diff_overview (str): Brief change overview (OPTIONAL)
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            PR title in conventional commit format,
-            or (title, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If commits is missing/empty or generation fails.
+            Complete prompt text ready for the ACP agent.
         """
-        logger.debug(
-            "Generator '%s' generating PR title from context with %d keys",
-            self.name,
-            len(context),
-        )
-
-        # Validate required field
-        commits = context.get("commits")
-        if not commits or not isinstance(commits, list) or len(commits) == 0:
-            raise GeneratorError(
-                message="commits must be a non-empty list",
-                generator_name=self.name,
-                input_context={"commits": commits},
-            )
-
-        if not all(isinstance(c, str) for c in commits):
-            raise GeneratorError(
-                message="All commits must be strings",
-                generator_name=self.name,
-                input_context=context,
-            )
-
-        # Build prompt from context
-        prompt = self._build_prompt(context)
-
-        # Execute query and get result with usage if requested
-        if return_usage:
-            result, usage = await self._query_with_usage(prompt)
-        else:
-            result = await self._query(prompt)
-
-        # Ensure result is not too long
-        if len(result) > 72:
-            logger.warning(
-                "Generated PR title exceeds 72 characters (%d), truncating", len(result)
-            )
-            result = result[:69] + "..."
-
-        if return_usage:
-            return result, usage
-        return result
+        return self._build_prompt(context)
 
     def _build_prompt(self, context: dict[str, Any]) -> str:
         """Build prompt from context.

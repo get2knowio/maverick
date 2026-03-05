@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.generators.base import DEFAULT_MODEL, GeneratorAgent
-from maverick.agents.result import AgentUsage
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -81,54 +80,19 @@ class DependencyExtractor(GeneratorAgent):
             model=model,
         )
 
-    async def generate(
-        self,
-        context: dict[str, Any],
-        return_usage: bool = False,
-    ) -> str | tuple[str, AgentUsage]:
-        """Extract dependency pairs from a dependency section.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
 
         Args:
             context: Input context containing:
                 - dependency_section (str): Text from the dependencies section.
-            return_usage: If True, return (text, usage) tuple.
 
         Returns:
-            JSON string of dependency pairs, e.g. '[["US3","US1"]]',
-            or (json_string, usage) if return_usage is True.
-
-        Raises:
-            GeneratorError: If generation fails.
+            Complete prompt text ready for the ACP agent.
         """
         dependency_section = context.get("dependency_section", "")
-
-        # If section is empty, return empty array without calling LLM
-        if not dependency_section or not dependency_section.strip():
-            logger.debug("empty_dependency_section")
-            empty_result = "[]"
-            if return_usage:
-                return empty_result, AgentUsage(
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost_usd=None,
-                    duration_ms=0,
-                )
-            return empty_result
-
-        prompt = (
+        return (
             "Extract inter-story dependency pairs from this text:\n\n"
             f"{dependency_section}\n\n"
             "Output ONLY the JSON array of [dependent, dependency] pairs."
         )
-
-        logger.debug(
-            "extracting_dependencies",
-            section_length=len(dependency_section),
-        )
-
-        if return_usage:
-            result, usage = await self._query_with_usage(prompt)
-            return result.strip(), usage
-
-        result = await self._query(prompt)
-        return result.strip()

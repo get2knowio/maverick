@@ -6,7 +6,6 @@ with minimal, targeted code changes.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
@@ -19,12 +18,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_WRITE,
 )
 from maverick.agents.tools import ISSUE_FIXER_TOOLS
-from maverick.agents.utils import (
-    detect_file_changes,
-    extract_all_text,
-    extract_streaming_text,
-)
-from maverick.exceptions import GitHubError
 from maverick.logging import get_logger
 from maverick.models.issue_fix import FixResult, IssueFixerContext
 
@@ -166,76 +159,25 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
             temperature=temperature,
         )
 
-    async def execute(self, context: IssueFixerContext) -> FixResult:
-        """Fix a GitHub issue.
+    def build_prompt(self, context: IssueFixerContext) -> str:
+        """Construct the prompt string from context (FR-017).
+
+        Uses pre-fetched issue data when available; otherwise builds a
+        prompt from the issue number directing the agent to fetch details.
 
         Args:
             context: Execution context with issue source and options.
 
         Returns:
-            FixResult with fix details and verification status.
-
-        Raises:
-            GitHubError: If issue cannot be fetched (after retries).
-            AgentError: On unrecoverable execution errors.
+            Complete prompt text ready for the ACP agent.
         """
-        start_time = time.monotonic()
-
-        try:
-            # Fetch issue details
-            issue_data = await self._fetch_issue(context)
-
-            issue_number = issue_data["number"]
-            issue_title = issue_data.get("title", "")
-            issue_url = issue_data.get("url", "")
-
-            logger.info("Fixing issue #%d: %s", issue_number, issue_title)
-
-            # Analyze and fix the issue
-            fix_output, root_cause, fix_description = await self._analyze_and_fix(
-                issue_data, context
-            )
-
-            # Detect file changes (informational - used for result reporting)
-            files_changed = await detect_file_changes(context.cwd)
-
-            # Validation, verification, and commits are handled by the workflow layer
-            # Agent returns file changes and fix analysis; orchestration runs
-            # validation/commits
-            verification_passed = True  # Workflow handles verification
-            validation_passed = True  # Workflow handles validation
-            commit_sha = None  # Workflow handles commits
-
-            duration_ms = int((time.monotonic() - start_time) * 1000)
-
-            return FixResult(
-                success=verification_passed and validation_passed,
-                issue_number=issue_number,
-                issue_title=issue_title,
-                issue_url=issue_url,
-                root_cause=root_cause,
-                fix_description=fix_description,
-                files_changed=files_changed,
-                commit_sha=commit_sha,
-                verification_passed=verification_passed,
-                validation_passed=validation_passed,
-                output=fix_output,
-                metadata={
-                    "duration_ms": duration_ms,
-                    "dry_run": context.dry_run,
-                },
-            )
-
-        except GitHubError:
-            raise
-        except Exception as e:
-            logger.exception("Issue fix failed: %s", e)
-            return FixResult(
-                success=False,
-                issue_number=context.effective_issue_number,
-                issue_title="",
-                errors=[str(e)],
-            )
+        if context.issue_data:
+            return self._build_fix_prompt(context.issue_data)
+        return (
+            f"Fix GitHub issue #{context.effective_issue_number}. "
+            f"Fetch the issue details, identify the root cause, and implement "
+            f"a minimal fix following the minimal fix approach."
+        )
 
     async def _fetch_issue(self, context: IssueFixerContext) -> dict[str, Any]:
         """Fetch issue details from GitHub or use pre-fetched data.
@@ -255,40 +197,6 @@ class IssueFixerAgent(MaverickAgent[IssueFixerContext, FixResult]):
         from maverick.utils.github import fetch_issue
 
         return await fetch_issue(context.issue_number or 0, context.cwd)
-
-    async def _analyze_and_fix(
-        self,
-        issue_data: dict[str, Any],
-        context: IssueFixerContext,
-    ) -> tuple[str, str, str]:
-        """Analyze the issue and implement a fix.
-
-        Args:
-            issue_data: Issue details from GitHub.
-            context: Execution context.
-
-        Returns:
-            Tuple of (raw_output, root_cause, fix_description).
-        """
-        prompt = self._build_fix_prompt(issue_data)
-
-        messages = []
-        async for msg in self.query(prompt, cwd=context.cwd):
-            messages.append(msg)
-            # Stream text to TUI if callback is set
-            if self.stream_callback:
-                text = extract_streaming_text(msg)
-                if text:
-                    await self.stream_callback(text)
-
-        output = extract_all_text(messages)
-
-        # Extract root cause and fix description from output
-        # (simplified - full parsing in enhancement phase)
-        root_cause = "Identified from issue analysis"
-        fix_description = "Fix implemented based on issue requirements"
-
-        return output, root_cause, fix_description
 
     def _build_fix_prompt(self, issue_data: dict[str, Any]) -> str:
         """Build the prompt for fixing an issue."""

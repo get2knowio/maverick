@@ -277,43 +277,35 @@ async def _invoke_fixer_agent(
     """
     try:
         # Import here to avoid circular imports
-        from maverick.agents.context import AgentContext
         from maverick.agents.fixer import FixerAgent
-        from maverick.config import MaverickConfig
+        from maverick.executor import create_default_executor
 
-        # Create agent instance
-        agent = FixerAgent()
+        # Build context for prompt construction
+        agent_context = {"prompt": fix_prompt}
 
-        # Set stream callback if provided (for CLI/TUI output streaming)
-        if stream_callback is not None:
-            agent.stream_callback = stream_callback
+        # Set up ACP executor with default provider
+        executor = create_default_executor()
 
-        # Build context with the fix prompt
-        context = AgentContext.from_cwd(
-            cwd=cwd,
-            config=MaverickConfig(),
-            extra={"prompt": fix_prompt},
-        )
-
-        # Execute the agent
-        result = await agent.execute(context)
-
-        if result.success:
+        try:
+            # Build prompt via agent, then execute via ACP
+            agent = FixerAgent()
+            result = await executor.execute(
+                step_name="fixer_agent",
+                agent_name=agent.name,
+                prompt=agent_context,
+                cwd=cwd,
+            )
             return {
                 "success": True,
-                "changes_made": result.summary or "Fix applied",
+                "changes_made": str(result.output) if result.output else "Fix applied",
             }
-        else:
-            return {
-                "success": False,
-                "error": result.error_details or "Fix failed",
-            }
+        finally:
+            await executor.cleanup()
 
     except ImportError as e:
         logger.debug("Failed to import agent modules: %s", e)
         return {"success": False, "error": f"Import error: {e}"}
     except ValueError as e:
-        # AgentContext.from_cwd raises ValueError for invalid directories
         logger.debug("Invalid context configuration: %s", e)
         return {"success": False, "error": f"Context error: {e}"}
     except Exception as e:

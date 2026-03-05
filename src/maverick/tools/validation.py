@@ -19,8 +19,16 @@ import time
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
-from claude_agent_sdk.types import McpSdkServerConfig
+try:
+    from claude_agent_sdk import create_sdk_mcp_server, tool
+    from claude_agent_sdk.types import McpSdkServerConfig
+except ImportError:
+    # claude_agent_sdk removed in ACP migration (T051)
+    from maverick.tools._sdk_stubs import (
+        McpSdkServerConfig,
+        create_sdk_mcp_server,
+        tool,
+    )
 
 from maverick.config import ValidationConfig
 from maverick.exceptions import ValidationToolsError
@@ -477,7 +485,7 @@ def create_validation_tools_server(
 
     # Store tool references on server for testing
     # Type ignore because we're adding to the dict for test purposes
-    server["_tools"] = {  # type: ignore[typeddict-unknown-key]
+    server["_tools"] = {
         "run_validation": run_validation,
         "parse_validation_output": parse_validation_output,
     }

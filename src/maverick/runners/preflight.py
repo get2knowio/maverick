@@ -390,7 +390,7 @@ class AnthropicAPIValidator:
 
         # Step 3: Send minimal API request to validate access
         try:
-            from claude_agent_sdk import ClaudeAgentOptions, query
+            from claude_agent_sdk import ClaudeAgentOptions, query  # noqa: PLC0415
 
             options = ClaudeAgentOptions(
                 system_prompt="Respond with exactly 'OK'.",

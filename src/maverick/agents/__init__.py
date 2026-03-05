@@ -10,9 +10,6 @@ Public API:
     AgentRegistry: Registry for agent discovery and instantiation
     registry: Module-level registry singleton
     register: Decorator for registering agent classes
-    extract_text: Extract text from a single message
-    extract_all_text: Extract text from multiple messages
-    AgentMessage: Type alias for SDK Message type
     BUILTIN_TOOLS: Set of built-in tools available to agents
     DEFAULT_MODEL: Default Claude model for agents
     REVIEWER_TOOLS: Read-only tools for code analysis agents
@@ -30,8 +27,6 @@ Submodules:
 
 from __future__ import annotations
 
-from typing import Any
-
 # Import public API components
 from maverick.agents.base import BUILTIN_TOOLS, DEFAULT_MODEL, MaverickAgent
 from maverick.agents.context import AgentContext
@@ -46,7 +41,6 @@ from maverick.agents.tools import (
     PLANNER_TOOLS,
     REVIEWER_TOOLS,
 )
-from maverick.agents.utils import extract_all_text, extract_text
 
 # Conditional import for concrete agent implementations
 try:
@@ -74,11 +68,6 @@ try:
 except ImportError:
     CuratorAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
-# Type alias for SDK Message type (T032)
-# At runtime, this is Any since SDK may not be installed.
-# For type checking, this would be claude_agent_sdk.Message
-AgentMessage = Any
-
 __all__: list[str] = [
     # Base class and constants
     "BUILTIN_TOOLS",
@@ -101,11 +90,6 @@ __all__: list[str] = [
     "AgentRegistry",
     "register",
     "registry",
-    # Utilities
-    "extract_all_text",
-    "extract_text",
-    # Type alias
-    "AgentMessage",
     # Submodules
     "generators",
 ]

@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from maverick.agents.base import StreamCallback
+    from collections.abc import Callable, Coroutine
+
+    StreamCallback = Callable[[str], Coroutine[None, None, None]] | None
 
 from maverick.git import AsyncGitRepository
 from maverick.library.actions.types import (
@@ -955,11 +957,24 @@ async def _run_dual_review(
             "cwd": pr_context.get("cwd"),
         }
 
-        # Run unified reviewer (spawns subagents internally)
+        # Run unified reviewer via ACP executor
+        from maverick.executor import create_default_executor
+        from maverick.models.review_models import GroupedReviewResult
+
         reviewer = UnifiedReviewerAgent()
-        if stream_callback:
-            reviewer.stream_callback = stream_callback
-        result = await reviewer.execute(review_context)
+        _executor = create_default_executor()
+        try:
+            _exec_result = await _executor.execute(
+                step_name="unified_review",
+                agent_name=reviewer.name,
+                prompt=review_context,
+                output_schema=GroupedReviewResult,
+            )
+            result = _exec_result.output
+            if not isinstance(result, GroupedReviewResult):
+                result = GroupedReviewResult(groups=[])
+        finally:
+            await _executor.cleanup()
 
         # Check for critical/major issues
         has_critical = any(f.severity == "critical" for f in result.all_findings)
@@ -1045,16 +1060,24 @@ async def _run_review_fixer(
         # Get working directory
         cwd = pr_context.get("cwd") or Path.cwd()
 
-        # Run simple fixer (spawns subagents internally for parallel fixes)
+        # Run simple fixer via ACP executor; parse outcomes from raw text output
+        from maverick.executor import create_default_executor
+
         fixer = SimpleFixerAgent()
-        if stream_callback:
-            fixer.stream_callback = stream_callback
-        outcomes = await fixer.execute(
-            {
-                "findings": all_findings,
-                "cwd": cwd,
-            }
-        )
+        _executor = create_default_executor()
+        try:
+            _fix_result = await _executor.execute(
+                step_name="review_fixer",
+                agent_name=fixer.name,
+                prompt={
+                    "findings": all_findings,
+                    "cwd": cwd,
+                },
+            )
+            raw_output = str(_fix_result.output) if _fix_result.output else ""
+            outcomes = fixer.parse_outcomes(raw_output, all_findings)
+        finally:
+            await _executor.cleanup()
 
         # Convert outcomes to dict for legacy callers
         return {

@@ -16,8 +16,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.agents.utils import extract_all_text
-from maverick.exceptions import AgentError
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -143,45 +141,15 @@ class FlightPlanGeneratorAgent(MaverickAgent[str, dict[str, Any]]):
             output_model=FlightPlanOutput,
         )
 
-    async def execute(self, context: str) -> dict[str, Any]:
-        """Generate a flight plan from the provided PRD prompt.
+    def build_prompt(self, context: str) -> str:
+        """Construct the prompt string from context (FR-017).
 
-        The prompt includes the raw PRD content, the flight plan name,
-        and format specifications.
+        For FlightPlanGeneratorAgent, the context IS the prompt text.
 
         Args:
             context: Full prompt text with PRD and instructions.
 
         Returns:
-            Dict matching FlightPlanOutput schema. The caller
-            (ClaudeStepExecutor) handles output_schema validation.
-
-        Raises:
-            AgentError: On SDK errors or missing structured output.
+            Complete prompt text ready for the ACP agent.
         """
-        messages: list[Any] = []
-        async for msg in self.query(context):
-            messages.append(msg)
-
-        # Lazy import to avoid circular import chain
-        from maverick.agents.contracts import validate_output
-        from maverick.workflows.generate_flight_plan.models import (
-            FlightPlanOutput,
-        )
-
-        # Tier 1: SDK structured output (output_format enforcement)
-        structured = self._extract_structured_output(messages)
-        if structured is not None:
-            return structured
-
-        # Tier 2: validate_output fallback (JSON code-block extraction)
-        raw_text = extract_all_text(messages)
-        result = validate_output(raw_text, FlightPlanOutput, strict=False)
-        if result is not None:
-            return result.model_dump()
-
-        # Tier 3: No structured output — cannot proceed
-        raise AgentError(
-            message=("Flight plan generator produced no structured output"),
-            agent_name=self.name,
-        )
+        return context

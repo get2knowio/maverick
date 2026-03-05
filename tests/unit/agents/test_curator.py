@@ -8,8 +8,6 @@ Tests the curator agent including:
 
 from __future__ import annotations
 
-import pytest
-
 from maverick.agents.curator import SYSTEM_PROMPT, CuratorAgent
 from maverick.agents.tools import CURATOR_TOOLS
 
@@ -33,7 +31,7 @@ class TestCuratorInit:
         assert frozenset() == CURATOR_TOOLS
         agent = CuratorAgent()
         # Generator-based agent — tools come via base class
-        assert agent._options.allowed_tools == []
+        assert agent.allowed_tools == []
 
     def test_system_prompt_constant(self) -> None:
         """SYSTEM_PROMPT module constant matches agent's prompt."""
@@ -136,22 +134,26 @@ class TestCuratorParsePlan:
 
 
 class TestCuratorGenerate:
-    """Tests for CuratorAgent.generate()."""
+    """Tests for CuratorAgent.build_prompt()."""
 
-    @pytest.mark.asyncio
-    async def test_generate_empty_commits(self) -> None:
-        """Returns empty array when no commits provided."""
+    def test_build_prompt_empty_commits(self) -> None:
+        """build_prompt with no commits produces a prompt mentioning 0 total."""
         agent = CuratorAgent()
-        result = await agent.generate({"commits": [], "log_summary": ""})
-        assert result == "[]"
+        result = agent.build_prompt({"commits": [], "log_summary": ""})
+        assert isinstance(result, str)
+        assert "0 total" in result
 
-    @pytest.mark.asyncio
-    async def test_generate_empty_commits_with_usage(self) -> None:
-        """Returns empty array with zero usage when no commits."""
+    def test_build_prompt_with_commits(self) -> None:
+        """build_prompt includes commit details in the prompt."""
         agent = CuratorAgent()
-        text, usage = await agent.generate(
-            {"commits": [], "log_summary": ""},
-            return_usage=True,
-        )
-        assert text == "[]"
-        assert usage.total_tokens == 0
+        commits = [
+            {
+                "change_id": "abc123",
+                "description": "feat: add feature",
+                "stats": "1 file changed",
+            }
+        ]
+        result = agent.build_prompt({"commits": commits, "log_summary": "abc123 feat"})
+        assert isinstance(result, str)
+        assert "abc123" in result
+        assert "feat: add feature" in result

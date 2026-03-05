@@ -23,7 +23,23 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+try:
+    from claude_agent_sdk import ClaudeAgentOptions
+    from claude_agent_sdk import query as _sdk_query
+
+    def query(prompt: str, options: Any) -> Any:
+        return _sdk_query(prompt=prompt, options=options)
+
+except ImportError:  # pragma: no cover — SDK removed in T051
+    from maverick.tools._sdk_stubs import ClaudeAgentOptions
+
+    async def query(prompt: str, options: Any) -> Any:  # type: ignore[misc]
+        raise NotImplementedError(
+            "claude_agent_sdk is not installed. "
+            "Claude-based project detection requires the SDK (T052)."
+        )
+        yield  # make this an async generator to match SDK's query() signature
+
 
 from maverick.constants import CLAUDE_HAIKU_LATEST
 from maverick.exceptions.init import DetectionError

@@ -383,68 +383,20 @@ class TestBuildTaskPrompt:
         assert "TDD" in prompt or "test" in prompt.lower()
 
 
-# NOTE: Tests for _detect_file_changes, _run_validation, and _create_commit
-# have been moved to tests/unit/agents/test_utils.py as these are now
-# shared utility functions in maverick.agents.utils (issue #147)
+# NOTE: Tests for _detect_file_changes, _run_validation, _create_commit,
+# _get_parallel_batch, _execute_parallel_batch, and execute() have been
+# removed as these methods are no longer present on ImplementerAgent after
+# the SDK removal (Phase 6, T044-T055). The agent now only exposes
+# build_prompt() as its primary interface, with execution handled by ACP.
 
 
-class TestGetParallelBatch:
-    """Tests for _get_parallel_batch helper method."""
-
-    def test_get_parallel_batch_returns_empty_for_sequential_task(
-        self, agent: ImplementerAgent, sample_task: Task
-    ) -> None:
-        """Test returns empty list when first task is not parallel."""
-        tasks = [sample_task]
-        batch = agent._get_parallel_batch(tasks)
-        assert batch == []
-
-    def test_get_parallel_batch_returns_parallel_tasks(
-        self, agent: ImplementerAgent
-    ) -> None:
-        """Test returns consecutive parallel tasks."""
-        tasks = [
-            Task(id="T001", description="Test 1", parallel=True),
-            Task(id="T002", description="Test 2", parallel=True),
-            Task(id="T003", description="Test 3", parallel=True),
-        ]
-        batch = agent._get_parallel_batch(tasks)
-        assert len(batch) == 3
-        assert all(t.parallel for t in batch)
-
-    def test_get_parallel_batch_stops_at_non_parallel(
-        self, agent: ImplementerAgent
-    ) -> None:
-        """Test stops collecting at first non-parallel task."""
-        tasks = [
-            Task(id="T001", description="Test 1", parallel=True),
-            Task(id="T002", description="Test 2", parallel=True),
-            Task(id="T003", description="Test 3", parallel=False),
-            Task(id="T004", description="Test 4", parallel=True),
-        ]
-        batch = agent._get_parallel_batch(tasks)
-        assert len(batch) == 2
-        assert batch[0].id == "T001"
-        assert batch[1].id == "T002"
-
-    def test_get_parallel_batch_excludes_tasks_with_dependencies(
-        self, agent: ImplementerAgent
-    ) -> None:
-        """Test excludes parallel tasks that have dependencies."""
-        tasks = [
-            Task(id="T001", description="Test 1", parallel=True, dependencies=["T000"]),
-        ]
-        batch = agent._get_parallel_batch(tasks)
-        assert batch == []
-
-    def test_get_parallel_batch_empty_list(self, agent: ImplementerAgent) -> None:
-        """Test handles empty task list."""
-        batch = agent._get_parallel_batch([])
-        assert batch == []
+# =============================================================================
+# Phase-Level Execution Tests
+# =============================================================================
 
 
-class TestExecuteParallelBatch:
-    """Tests for _execute_parallel_batch helper method."""
+class _RemovedTestExecuteParallelBatch:  # noqa: F841
+    """Tests for _execute_parallel_batch - REMOVED (methods no longer exist)."""
 
     @pytest.mark.asyncio
     async def test_execute_parallel_batch_runs_concurrently(
@@ -544,8 +496,8 @@ class TestExecuteParallelBatch:
 # =============================================================================
 
 
-class TestExecuteMethod:
-    """Tests for the execute method."""
+class _RemovedTestExecuteMethod:  # noqa: F841
+    """Tests for execute() - REMOVED (no longer exists on ImplementerAgent)."""
 
     @pytest.mark.asyncio
     async def test_execute_returns_implementation_result(
@@ -698,8 +650,8 @@ class TestExecuteMethod:
 # =============================================================================
 
 
-class TestErrorHandling:
-    """Tests for error handling in ImplementerAgent."""
+class _RemovedTestErrorHandling:  # noqa: F841
+    """Tests for error handling - REMOVED (execute() no longer exists)."""
 
     @pytest.mark.asyncio
     async def test_handles_task_parse_error(
@@ -864,8 +816,8 @@ class TestErrorHandling:
 # =============================================================================
 
 
-class TestImplementationResult:
-    """Tests for ImplementationResult construction."""
+class _RemovedTestImplementationResult:  # noqa: F841
+    """Tests for ImplementationResult - REMOVED (execute() no longer exists)."""
 
     @pytest.mark.asyncio
     async def test_result_includes_metadata(
@@ -1023,73 +975,23 @@ class TestPhaseLevelExecution:
                 cwd=tmp_path,
             )
 
-    @pytest.mark.asyncio
-    async def test_execute_routes_to_phase_mode(
+    def test_build_prompt_routes_to_phase_mode(
         self, agent: ImplementerAgent, phase_context: ImplementerContext
     ) -> None:
-        """Test execute routes to phase mode when phase_name is set."""
-        with patch.object(
-            agent, "_execute_phase_mode", new_callable=AsyncMock
-        ) as mock_phase:
-            mock_phase.return_value = ImplementationResult(
-                success=True,
-                tasks_completed=3,
-                tasks_failed=0,
-                tasks_skipped=0,
-            )
+        """Test build_prompt uses phase prompt when phase_name is set."""
+        prompt = agent.build_prompt(phase_context)
 
-            await agent.execute(phase_context)
+        # Phase mode prompt should reference the phase name
+        assert "Phase 1: Setup" in prompt
 
-            mock_phase.assert_called_once_with(phase_context)
-
-    @pytest.mark.asyncio
-    async def test_execute_routes_to_task_mode_without_phase(
+    def test_build_prompt_routes_to_task_mode_without_phase(
         self, agent: ImplementerAgent, task_file_context: ImplementerContext
     ) -> None:
-        """Test execute routes to task mode when phase_name is not set."""
-        with patch.object(
-            agent, "_execute_task_mode", new_callable=AsyncMock
-        ) as mock_task:
-            mock_task.return_value = ImplementationResult(
-                success=True,
-                tasks_completed=3,
-                tasks_failed=0,
-                tasks_skipped=0,
-            )
+        """Test build_prompt uses task prompt when phase_name is not set."""
+        prompt = agent.build_prompt(task_file_context)
 
-            await agent.execute(task_file_context)
-
-            mock_task.assert_called_once_with(task_file_context)
-
-    @pytest.mark.asyncio
-    async def test_phase_execution_sends_prompt_and_returns_result(
-        self, agent: ImplementerAgent, phase_context: ImplementerContext
-    ) -> None:
-        """Test phase execution sends prompt to Claude and returns result."""
-        mock_message = MagicMock()
-        mock_message.role = "assistant"
-        mock_message.content = [MagicMock(type="text", text="Phase completed")]
-
-        async def async_gen(*args, **kwargs):
-            yield mock_message
-
-        with (
-            patch.object(agent, "query", side_effect=async_gen) as mock_query,
-            patch(
-                "maverick.agents.implementer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            result = await agent.execute(phase_context)
-
-            # Verify prompt was sent with phase-specific arguments
-            mock_query.assert_called_once()
-            prompt = mock_query.call_args[0][0]
-            assert "Phase 1: Setup" in prompt
-            assert result.metadata.get("phase") == "Phase 1: Setup"
-            assert result.metadata.get("execution_mode") == "phase"
-            assert result.success is True
+        # Task mode prompt should not have phase-specific heading
+        assert "## Phase Execution:" not in prompt
 
     def test_build_phase_prompt_contains_phase_name(
         self, agent: ImplementerAgent, phase_context: ImplementerContext
@@ -1169,81 +1071,6 @@ class TestSideEffectFree:
         """
         assert not hasattr(agent, "_create_commit")
 
-    @pytest.mark.asyncio
-    async def test_task_result_has_empty_validation(
-        self, agent: ImplementerAgent, single_task_context: ImplementerContext
-    ) -> None:
-        """Test that task results have empty validation lists."""
-        mock_message = MagicMock()
-        mock_message.role = "assistant"
-        mock_message.content = [MagicMock(type="text", text="Done")]
-
-        async def async_gen(*args, **kwargs):
-            yield mock_message
-
-        with (
-            patch.object(agent, "query", side_effect=async_gen),
-            patch(
-                "maverick.agents.implementer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            result = await agent.execute(single_task_context)
-
-            # Verify task results have empty validation
-            assert len(result.task_results) > 0
-            for task_result in result.task_results:
-                assert task_result.validation == []
-
-    @pytest.mark.asyncio
-    async def test_task_result_has_no_commit_sha(
-        self, agent: ImplementerAgent, single_task_context: ImplementerContext
-    ) -> None:
-        """Test that task results have no commit_sha."""
-        mock_message = MagicMock()
-        mock_message.role = "assistant"
-        mock_message.content = [MagicMock(type="text", text="Done")]
-
-        async def async_gen(*args, **kwargs):
-            yield mock_message
-
-        with (
-            patch.object(agent, "query", side_effect=async_gen),
-            patch(
-                "maverick.agents.implementer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            result = await agent.execute(single_task_context)
-
-            # Verify task results have no commit_sha
-            assert len(result.task_results) > 0
-            for task_result in result.task_results:
-                assert task_result.commit_sha is None
-
-    @pytest.mark.asyncio
-    async def test_implementation_result_has_empty_commits_list(
-        self, agent: ImplementerAgent, single_task_context: ImplementerContext
-    ) -> None:
-        """Test that implementation result has empty commits list."""
-        mock_message = MagicMock()
-        mock_message.role = "assistant"
-        mock_message.content = [MagicMock(type="text", text="Done")]
-
-        async def async_gen(*args, **kwargs):
-            yield mock_message
-
-        with (
-            patch.object(agent, "query", side_effect=async_gen),
-            patch(
-                "maverick.agents.implementer.detect_file_changes",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            result = await agent.execute(single_task_context)
-
-            # Verify commits list is empty (no commits created by agent)
-            assert result.commits == []
+    # NOTE: test_task_result_has_empty_validation, test_task_result_has_no_commit_sha,
+    # and test_implementation_result_has_empty_commits_list were removed because they
+    # relied on agent.execute() and agent.query which no longer exist (ACP migration).

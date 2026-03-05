@@ -11,7 +11,7 @@ Imports ``StepMode`` and ``AutonomyLevel`` from ``maverick.types``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -70,8 +70,8 @@ class StepConfig(BaseModel):
     Attributes:
         mode: Execution strategy (deterministic vs. agent).
         autonomy: Agent independence level for human-in-the-loop control.
-        provider: AI provider identifier. Currently only ``"claude"`` is
-            supported.
+        provider: AI provider identifier. Defaults to the configured default
+            provider.
         model_id: Model identifier override (e.g. ``"claude-opus-4-6"``).
             None means inherit from the workflow or global config.
         temperature: Sampling temperature override, clamped to [0.0, 1.0].
@@ -91,7 +91,7 @@ class StepConfig(BaseModel):
 
     mode: StepMode | None = None
     autonomy: AutonomyLevel | None = None
-    provider: Literal["claude"] | None = None
+    provider: str | None = None
     model_id: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)
     max_tokens: int | None = Field(default=None, gt=0, le=200000)
@@ -266,7 +266,8 @@ def resolve_step_config(
 
     Mode is inferred from ``step_type`` when not explicitly set by any layer.
     Autonomy defaults to ``AutonomyLevel.OPERATOR`` when not set.
-    Provider defaults to ``"claude"`` when not set.
+    Provider is ``None`` when not set, allowing the executor to resolve via
+    the registry's default provider.
 
     Args:
         inline_config: Raw YAML config dict from step record.
@@ -347,13 +348,11 @@ def resolve_step_config(
         global_model.max_tokens,
     )
 
-    # --- Step 3: Resolve provider (default "claude") ---
+    # --- Step 3: Resolve provider (None → executor resolves via registry default) ---
     provider = _first_non_none(
         parsed_inline.provider if parsed_inline else None,
         project_step_config.provider if project_step_config else None,
     )
-    if provider is None:
-        provider = "claude"
 
     # --- Step 4: Resolve mode via infer_step_mode ---
     explicit_mode = _first_non_none(

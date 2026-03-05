@@ -1,34 +1,22 @@
 """MaverickAgent abstract base class.
 
 This module defines the MaverickAgent ABC that all concrete agents must inherit from.
-It wraps Claude Agent SDK interactions and provides a standardized interface for
-agent creation and execution.
+It provides a standardized interface for agent creation via ACP-based execution.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable, Coroutine
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
 from maverick.constants import DEFAULT_MODEL
 
-if TYPE_CHECKING:
-    from claude_agent_sdk import Message
-
-    from maverick.agents.result import AgentUsage
-
-# Type alias for stream callbacks that receive text chunks
-StreamCallback = Callable[[str], Coroutine[Any, Any, None]]
-
 __all__ = [
     "MaverickAgent",
     "BUILTIN_TOOLS",
     "DEFAULT_MODEL",
-    "StreamCallback",
 ]
 
 # =============================================================================
@@ -63,18 +51,6 @@ BUILTIN_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-#: Permission mode type for Claude SDK
-PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
-
-#: Default permission mode for Claude SDK
-DEFAULT_PERMISSION_MODE: PermissionMode = "acceptEdits"
-
-#: Circuit breaker: maximum calls to the same tool before triggering
-MAX_SAME_TOOL_CALLS: int = 15
-
-#: Circuit breaker: maximum total messages before triggering
-MAX_TOTAL_MESSAGES: int = 100
-
 
 # =============================================================================
 # Abstract Base Class
@@ -84,12 +60,13 @@ MAX_TOTAL_MESSAGES: int = 100
 class MaverickAgent(ABC, Generic[TContext, TResult]):
     """Abstract base class for all Maverick agents (FR-001).
 
-    This class wraps Claude Agent SDK interactions and provides a standardized
-    interface for agent creation. Concrete agents inherit from this class and
-    implement the execute() method.
+    This class provides a standardized interface for agent creation.
+    Concrete agents inherit from this class and implement the
+    build_prompt() method to construct prompts for ACP-based execution.
 
-    This is a generic class parameterized by context and result types to ensure
-    type safety and prevent Liskov Substitution Principle (LSP) violations.
+    For ACP-based execution (FR-017), agents implement build_prompt(context) -> str
+    to construct the prompt text; the ACP executor handles all interaction with the
+    agent subprocess.
 
     Agents know HOW to do tasks. Workflows know WHEN to do them.
 
@@ -115,14 +92,8 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
                     allowed_tools=[],
                 )
 
-            async def execute(self, context: AgentContext) -> AgentResult:
-                messages = []
-                async for msg in self.query("Hello!", cwd=context.cwd):
-                    messages.append(msg)
-                return AgentResult.success_result(
-                    output=extract_all_text(messages),
-                    usage=self._extract_usage(messages),
-                )
+            def build_prompt(self, context: AgentContext) -> str:
+                return f"Greet the user: {context.extra.get('name', 'World')}"
         ```
     """
 
@@ -149,10 +120,10 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             allowed_tools: Tools the agent may use (validated at construction).
             model: Optional Claude model ID.
             mcp_servers: Optional MCP server configurations.
-            max_tokens: Optional maximum output tokens (SDK default used if None).
-            temperature: Optional sampling temperature 0.0-1.0 (SDK default).
-            output_model: Optional Pydantic model class for SDK structured
-                output enforcement.  When set, the SDK constrains the
+            max_tokens: Optional maximum output tokens (default used if None).
+            temperature: Optional sampling temperature 0.0-1.0 (default).
+            output_model: Optional Pydantic model class for structured
+                output enforcement. When set, the executor constrains the
                 agent's final output to conform to the model's JSON schema.
 
         Raises:
@@ -165,7 +136,6 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         self._mcp_servers = mcp_servers or {}
         self._max_tokens = max_tokens
         self._temperature = temperature
-        self._stream_callback: StreamCallback | None = None
         self._output_model = output_model
         self._output_format: dict[str, Any] | None = (
             {
@@ -204,16 +174,6 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         """MCP server configurations."""
         return self._mcp_servers.copy()
 
-    @property
-    def stream_callback(self) -> StreamCallback | None:
-        """Optional callback for streaming text chunks to the TUI."""
-        return self._stream_callback
-
-    @stream_callback.setter
-    def stream_callback(self, callback: StreamCallback | None) -> None:
-        """Set the stream callback for real-time output streaming."""
-        self._stream_callback = callback
-
     def _validate_tools(
         self,
         allowed_tools: list[str],
@@ -249,346 +209,18 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             ]
             raise InvalidToolError(tool, available)
 
-    def _build_options(self, cwd: str | Path | None = None) -> Any:
-        """Build ClaudeAgentOptions for SDK client (FR-003).
-
-        Args:
-            cwd: Optional working directory override.
-
-        Returns:
-            ClaudeAgentOptions configured for this agent.
-        """
-        from claude_agent_sdk import ClaudeAgentOptions
-
-        # Build extra_args for API parameters (max_tokens, temperature)
-        # SDK requires string values in extra_args
-        extra_args: dict[str, str | None] = {}
-        if self._max_tokens is not None:
-            extra_args["max_tokens"] = str(self._max_tokens)
-        if self._temperature is not None:
-            extra_args["temperature"] = str(self._temperature)
-
-        options_kwargs: dict[str, Any] = {
-            "allowed_tools": self._allowed_tools,
-            "system_prompt": {
-                "type": "preset",
-                "preset": "claude_code",
-                "append": self._instructions,
-            },
-            "setting_sources": ["project", "user"],
-            "model": self._model,
-            "permission_mode": DEFAULT_PERMISSION_MODE,
-            "mcp_servers": self._mcp_servers,
-            "cwd": str(cwd) if cwd else None,
-            "extra_args": extra_args,
-            "include_partial_messages": True,  # Enable token-by-token streaming
-        }
-        if self._output_format is not None:
-            options_kwargs["output_format"] = self._output_format
-
-        return ClaudeAgentOptions(**options_kwargs)
-
-    def _wrap_sdk_error(self, error: Exception) -> Exception:
-        """Map Claude SDK errors to Maverick error hierarchy (FR-007).
-
-        Args:
-            error: The SDK error to wrap.
-
-        Returns:
-            Wrapped Maverick exception with actionable context.
-        """
-        from maverick.exceptions import (
-            AgentError,
-            CLINotFoundError,
-            MalformedResponseError,
-            MaverickTimeoutError,
-            NetworkError,
-            ProcessError,
-        )
-
-        error_type = type(error).__name__
-
-        if error_type == "CLINotFoundError":
-            return CLINotFoundError(
-                cli_path=getattr(error, "cli_path", None),
-            )
-        elif error_type == "ProcessError":
-            # Classify the process error with better context.
-            # The SDK hardcodes stderr to "Check stderr output for details"
-            # so we add heuristic classification based on exit code.
-            raw_msg = str(error)
-            exit_code = getattr(error, "exit_code", None)
-            stderr = getattr(error, "stderr", None)
-
-            # Negative exit codes indicate the process was killed by a signal
-            if exit_code is not None and exit_code < 0:
-                import signal as signal_module
-
-                sig_num = -exit_code
-                try:
-                    sig_name = signal_module.Signals(sig_num).name
-                except ValueError:
-                    sig_name = f"signal {sig_num}"
-                raw_msg = (
-                    f"Claude CLI process was killed by {sig_name} "
-                    f"(exit code: {exit_code}). "
-                    f"This typically indicates a timeout, resource limit, "
-                    f"or external termination. "
-                    f"Original: {raw_msg}"
-                )
-            # Exit code 1 with no useful stderr often means capacity
-            # exhaustion or a transient API failure.
-            elif exit_code == 1 and (
-                not stderr or stderr == "Check stderr output for details"
-            ):
-                raw_msg = (
-                    f"Claude CLI process exited with code 1. "
-                    f"This commonly indicates API capacity exhaustion, "
-                    f"a rate-limit, or a transient network error. "
-                    f"Original: {raw_msg}"
-                )
-
-            return ProcessError(
-                message=raw_msg,
-                exit_code=exit_code,
-                stderr=stderr,
-            )
-        elif error_type == "TimeoutError":
-            return MaverickTimeoutError(
-                message=str(error),
-                timeout_seconds=getattr(error, "timeout_seconds", None),
-            )
-        elif error_type == "CLIConnectionError":
-            return NetworkError(
-                message=str(error),
-            )
-        elif error_type == "CLIJSONDecodeError":
-            return MalformedResponseError(
-                message=str(error),
-                raw_response=getattr(error, "raw", None),
-            )
-        else:
-            # Generic SDK error
-            return AgentError(
-                message=str(error),
-                agent_name=self._name,
-            )
-
-    def _extract_usage(self, messages: list[Message]) -> AgentUsage:
-        """Extract usage statistics from messages (FR-014).
-
-        Args:
-            messages: List of messages from Claude response.
-
-        Returns:
-            AgentUsage with token counts and timing.
-        """
-        from maverick.agents.utils import extract_usage
-
-        return extract_usage(messages)
-
-    def _extract_structured_output(
-        self,
-        messages: list[Message],
-    ) -> dict[str, Any] | None:
-        """Extract structured output from SDK ResultMessage.
-
-        Searches messages (in reverse) for a ``ResultMessage`` with
-        ``structured_output`` populated.  Returns the raw dict for the
-        caller to validate via ``model_validate()``.
-
-        Args:
-            messages: List of SDK messages from query() or client interaction.
-
-        Returns:
-            Parsed dict from structured_output, or None if not found.
-        """
-        for msg in reversed(messages):
-            if (
-                type(msg).__name__ == "ResultMessage"
-                and getattr(msg, "structured_output", None) is not None
-            ):
-                return msg.structured_output  # type: ignore[union-attr,no-any-return]
-        return None
-
     @abstractmethod
-    async def execute(self, context: TContext) -> TResult:
-        """Execute the agent task (FR-004).
+    def build_prompt(self, context: TContext) -> str:
+        """Construct the prompt string from a typed context (FR-017).
 
-        Subclasses must implement this method to define the agent's behavior.
+        This method is the ACP-compatible interface. Agents implement
+        this to construct prompt text; the ACP executor handles all interaction
+        with the agent subprocess.
 
         Args:
-            context: Runtime context (type varies by agent specialization).
+            context: Domain-specific context (ImplementerContext, ReviewContext, etc.)
 
         Returns:
-            Structured result (type varies by agent specialization).
-
-        Raises:
-            AgentError: Wrapped SDK errors (no automatic retries per FR-007).
+            Complete prompt text ready for the ACP agent.
         """
         ...
-
-    def _extract_tool_calls(self, message: Message) -> list[str]:
-        """Extract tool names from a message.
-
-        Args:
-            message: Message from Claude SDK.
-
-        Returns:
-            List of tool names used in this message.
-        """
-        tool_names: list[str] = []
-
-        # Check for content attribute (AssistantMessage)
-        if hasattr(message, "content") and message.content:
-            for block in message.content:
-                if type(block).__name__ == "ToolUseBlock":
-                    tool_name = getattr(block, "name", None)
-                    if tool_name:
-                        tool_names.append(tool_name)
-
-        return tool_names
-
-    def _check_circuit_breaker(
-        self,
-        tool_call_counts: dict[str, int],
-        message_count: int,
-    ) -> None:
-        """Check if circuit breaker should trigger.
-
-        Args:
-            tool_call_counts: Map of tool name to call count.
-            message_count: Total number of messages processed.
-
-        Raises:
-            CircuitBreakerError: If any threshold is exceeded.
-        """
-        from maverick.exceptions import CircuitBreakerError
-
-        # Check for repeated tool calls
-        for tool_name, count in tool_call_counts.items():
-            if count >= MAX_SAME_TOOL_CALLS:
-                raise CircuitBreakerError(
-                    tool_name=tool_name,
-                    call_count=count,
-                    max_calls=MAX_SAME_TOOL_CALLS,
-                    agent_name=self._name,
-                )
-
-        # Check for total message count (safety valve)
-        if message_count >= MAX_TOTAL_MESSAGES:
-            # Find the most called tool for the error message
-            most_called = max(
-                tool_call_counts.items(), key=lambda x: x[1], default=("unknown", 0)
-            )
-            raise CircuitBreakerError(
-                tool_name=most_called[0],
-                call_count=most_called[1],
-                max_calls=MAX_TOTAL_MESSAGES,
-                agent_name=self._name,
-            )
-
-    async def query(
-        self,
-        prompt: str,
-        cwd: str | Path | None = None,
-    ) -> AsyncIterator[Message]:
-        """Stream messages from Claude for a single query (FR-005).
-
-        This helper method handles the SDK client lifecycle and streams
-        messages back to the caller. On mid-stream failure, it yields
-        partial content before raising StreamingError.
-
-        Includes circuit breaker protection to detect and stop infinite loops
-        where an agent repeatedly calls the same tool.
-
-        Args:
-            prompt: The prompt to send to Claude.
-            cwd: Optional working directory override.
-
-        Yields:
-            Message objects as they stream from Claude.
-
-        Raises:
-            StreamingError: On mid-stream failure (after yielding partial content).
-            CircuitBreakerError: When agent gets stuck in infinite tool call loop.
-            AgentError: On other SDK errors.
-        """
-        from claude_agent_sdk import ClaudeSDKClient
-
-        from maverick.exceptions import CircuitBreakerError, StreamingError
-
-        options = self._build_options(cwd)
-        partial_messages: list[Message] = []
-
-        # Circuit breaker state
-        tool_call_counts: dict[str, int] = {}
-        message_count = 0
-
-        import asyncio
-
-        # Suppress SDK transport cleanup noise.  When an agent is
-        # terminated (e.g. by the circuit breaker), the SDK's internal
-        # read task receives SIGTERM and raises ProcessError.  Since
-        # nobody retrieves that exception, asyncio's default handler
-        # logs "Task exception was never retrieved" to stderr.  We
-        # install a temporary handler that silences this specific case.
-        loop = asyncio.get_running_loop()
-        _prev_handler = loop.get_exception_handler()
-
-        def _suppress_sdk_process_error(
-            loop_ref: asyncio.AbstractEventLoop,
-            ctx: dict[str, object],
-        ) -> None:
-            exc = ctx.get("exception")
-            if exc is not None and type(exc).__name__ == "ProcessError":
-                return  # Expected during forced agent shutdown
-            if _prev_handler is not None:
-                _prev_handler(loop_ref, ctx)
-            else:
-                loop_ref.default_exception_handler(ctx)
-
-        loop.set_exception_handler(_suppress_sdk_process_error)
-        try:
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(prompt)
-                async for message in client.receive_response():
-                    partial_messages.append(message)
-
-                    # Only count non-streaming messages for the circuit
-                    # breaker.  With include_partial_messages=True the SDK
-                    # emits a StreamEvent for every token, so counting all
-                    # messages would trip the breaker after a few seconds
-                    # of normal streaming output.
-                    msg_type = type(message).__name__
-                    if msg_type != "StreamEvent":
-                        message_count += 1
-
-                    # Track tool calls for circuit breaker
-                    tool_names = self._extract_tool_calls(message)
-                    for tool_name in tool_names:
-                        tool_call_counts[tool_name] = (
-                            tool_call_counts.get(tool_name, 0) + 1
-                        )
-
-                    # Check circuit breaker (may raise CircuitBreakerError)
-                    self._check_circuit_breaker(tool_call_counts, message_count)
-
-                    yield message
-        except CircuitBreakerError:
-            # Re-raise circuit breaker errors directly
-            raise
-        except Exception as e:
-            # If we have partial messages, wrap in StreamingError
-            if partial_messages:
-                raise StreamingError(
-                    message=f"Streaming interrupted: {e}",
-                    partial_messages=partial_messages,
-                ) from e
-            # Otherwise, wrap the SDK error
-            raise self._wrap_sdk_error(e) from e
-        finally:
-            # Yield to event loop so SDK transport cleanup tasks are
-            # processed before restoring the original exception handler.
-            await asyncio.sleep(0)
-            loop.set_exception_handler(_prev_handler)

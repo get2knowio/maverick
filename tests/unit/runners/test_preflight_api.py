@@ -8,12 +8,35 @@ by maverick fly and maverick refuel workflows for preflight checks.
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from unittest.mock import patch
 
 import pytest
 
 from maverick.constants import CLAUDE_HAIKU_LATEST
 from maverick.runners.preflight import AnthropicAPIValidator
+from maverick.tools._sdk_stubs import ClaudeAgentOptions as _ClaudeAgentOptionsStub
+
+
+def _make_sdk_module(query_fn: object) -> ModuleType:
+    """Create a fake claude_agent_sdk module for sys.modules injection.
+
+    The AnthropicAPIValidator does ``from claude_agent_sdk import
+    ClaudeAgentOptions, query`` inside a try block at runtime.  Since the real
+    SDK is not installed we inject a lightweight fake module so that the
+    ``with patch("claude_agent_sdk.query", ...)`` pattern works correctly.
+
+    Args:
+        query_fn: The callable to use as the ``query`` attribute.
+
+    Returns:
+        A synthetic module object with ``ClaudeAgentOptions`` and ``query``.
+    """
+    mod = ModuleType("claude_agent_sdk")
+    mod.ClaudeAgentOptions = _ClaudeAgentOptionsStub  # type: ignore[attr-defined]
+    mod.query = query_fn  # type: ignore[attr-defined]
+    return mod
 
 
 class TestAnthropicAPIValidator:
@@ -80,13 +103,11 @@ class TestAnthropicAPIValidator:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
         # Mock the query function to return an async iterator
-        async def mock_query(*args, **kwargs):
+        async def mock_query(*args: object, **kwargs: object) -> object:
             yield "mock response"
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=mock_query,
-        ):
+        sdk_mod = _make_sdk_module(mock_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(validate_access=True, timeout=5.0)
             result = await validator.validate()
 
@@ -102,16 +123,14 @@ class TestAnthropicAPIValidator:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
         # Mock query that never completes
-        async def mock_slow_query(*args, **kwargs):
+        async def mock_slow_query(*args: object, **kwargs: object) -> object:
             import asyncio
 
             await asyncio.sleep(10)  # Sleep longer than timeout
             yield "never reached"
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=mock_slow_query,
-        ):
+        sdk_mod = _make_sdk_module(mock_slow_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(
                 validate_access=True,
                 timeout=0.1,  # Very short timeout
@@ -131,10 +150,11 @@ class TestAnthropicAPIValidator:
         """Test validation fails with clear message on 401 error."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-invalid-key")
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=Exception("401 Unauthorized"),
-        ):
+        def failing_query(*args: object, **kwargs: object) -> object:
+            raise Exception("401 Unauthorized")
+
+        sdk_mod = _make_sdk_module(failing_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(validate_access=True)
             result = await validator.validate()
 
@@ -151,10 +171,11 @@ class TestAnthropicAPIValidator:
         """Test validation fails with clear message on 403 error."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=Exception("403 Permission denied for model"),
-        ):
+        def failing_query(*args: object, **kwargs: object) -> object:
+            raise Exception("403 Permission denied for model")
+
+        sdk_mod = _make_sdk_module(failing_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(validate_access=True)
             result = await validator.validate()
 
@@ -171,10 +192,11 @@ class TestAnthropicAPIValidator:
         """Test validation fails with clear message on 429 rate limit error."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=Exception("429 Rate limit exceeded"),
-        ):
+        def failing_query(*args: object, **kwargs: object) -> object:
+            raise Exception("429 Rate limit exceeded")
+
+        sdk_mod = _make_sdk_module(failing_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(validate_access=True)
             result = await validator.validate()
 
@@ -191,32 +213,14 @@ class TestAnthropicAPIValidator:
         """Test validation fails gracefully when SDK is not installed."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
-        # Temporarily remove the module from sys.modules and make import fail
-        import sys
+        # Ensure claude_agent_sdk is NOT in sys.modules so the local import
+        # inside AnthropicAPIValidator.validate() raises ImportError.
+        with patch.dict(sys.modules, {"claude_agent_sdk": None}):  # type: ignore[dict-item]
+            validator = AnthropicAPIValidator(validate_access=True)
+            result = await validator.validate()
 
-        # Save the original module if it exists
-        orig_module = sys.modules.get("claude_agent_sdk")
-
-        try:
-            # Remove the module so import fails
-            if "claude_agent_sdk" in sys.modules:
-                del sys.modules["claude_agent_sdk"]
-
-            # Mock the import to raise ImportError
-            with patch.dict(sys.modules, {"claude_agent_sdk": None}):
-                with patch(
-                    "builtins.__import__",
-                    side_effect=ImportError("No module named 'claude_agent_sdk'"),
-                ):
-                    validator = AnthropicAPIValidator(validate_access=True)
-                    result = await validator.validate()
-
-            assert result.success is False
-            assert "not installed" in result.errors[0]
-        finally:
-            # Restore original module
-            if orig_module is not None:
-                sys.modules["claude_agent_sdk"] = orig_module
+        assert result.success is False
+        assert "not installed" in result.errors[0]
 
     @pytest.mark.asyncio
     async def test_validate_generic_error(
@@ -226,10 +230,11 @@ class TestAnthropicAPIValidator:
         """Test validation handles generic errors gracefully."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 
-        with patch(
-            "claude_agent_sdk.query",
-            side_effect=Exception("Some unexpected error"),
-        ):
+        def failing_query(*args: object, **kwargs: object) -> object:
+            raise Exception("Some unexpected error")
+
+        sdk_mod = _make_sdk_module(failing_query)
+        with patch.dict(sys.modules, {"claude_agent_sdk": sdk_mod}):
             validator = AnthropicAPIValidator(validate_access=True)
             result = await validator.validate()
 

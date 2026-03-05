@@ -245,10 +245,12 @@ class TestStepConfig:
         config = StepConfig(provider="claude")
         assert config.provider == "claude"
 
-    def test_provider_invalid_rejected(self) -> None:
-        """provider='openai' is rejected (only 'claude' allowed)."""
-        with pytest.raises(Exception):
-            StepConfig(provider="openai")
+    def test_provider_accepts_any_string(self) -> None:
+        """provider accepts any string (multi-provider support via ACP)."""
+        config = StepConfig(provider="openai")
+        assert config.provider == "openai"
+        config2 = StepConfig(provider="gemini")
+        assert config2.provider == "gemini"
 
     # --- Cross-field: deterministic mode rejects agent-only fields ---
 
@@ -552,8 +554,8 @@ class TestResolveStepConfig:
         assert result.model_id == "global-model"  # inherited from global
         assert result.max_tokens == 8000  # inherited from global
 
-    def test_provider_defaults_to_claude(self) -> None:
-        """Provider defaults to 'claude' when not set."""
+    def test_provider_defaults_to_none(self) -> None:
+        """Provider defaults to None when not set; executor resolves via registry."""
         result = resolve_step_config(
             inline_config=None,
             project_step_config=None,
@@ -562,7 +564,7 @@ class TestResolveStepConfig:
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.provider == "claude"
+        assert result.provider is None
 
     def test_mode_inference_integration(self) -> None:
         """Mode is inferred from step type when not explicitly set."""

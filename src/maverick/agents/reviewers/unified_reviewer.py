@@ -7,7 +7,6 @@ then consolidates findings into a prioritized, grouped list.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
@@ -232,74 +231,19 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResult]):
         )
         self._feature_name = feature_name
 
-    async def execute(self, context: dict[str, Any]) -> GroupedReviewResult:
-        """Execute comprehensive code review.
+    def build_prompt(self, context: dict[str, Any]) -> str:
+        """Construct the prompt string from context (FR-017).
+
+        Delegates to the internal _build_review_prompt method.
 
         Args:
-            context: Review context containing:
-                - cwd: Working directory (repo root)
-                - pr_metadata: Optional PR information
-                - changed_files: Optional list of changed files
-                - diff: Optional diff content
-                - feature_name: Optional feature name for spec lookup
+            context: Review context containing cwd, pr_metadata, changed_files,
+                diff, and feature_name.
 
         Returns:
-            ReviewResult with grouped findings.
-
-        Raises:
-            AgentError: On review failure.
+            Complete prompt text ready for the ACP agent.
         """
-        from maverick.agents.utils import extract_all_text, extract_streaming_text
-
-        # Build the review prompt
-        prompt = self._build_review_prompt(context)
-
-        # Get working directory
-        cwd = context.get("cwd") or Path.cwd()
-
-        # Execute the agent
-        messages = []
-        async for msg in self.query(prompt, cwd=cwd):
-            messages.append(msg)
-            # Stream text to TUI if callback is set
-            if self.stream_callback:
-                text = extract_streaming_text(msg)
-                if text:
-                    await self.stream_callback(text)
-
-        # --- Structured output path (SDK output_format) ---
-        structured = self._extract_structured_output(messages)
-        if structured is not None:
-            try:
-                result = GroupedReviewResult.model_validate(structured)
-            except Exception as e:
-                logger.warning(
-                    "structured_output_validation_failed",
-                    error=str(e),
-                )
-                # Fall through to text extraction path below
-            else:
-                logger.info(
-                    "review_complete",
-                    total_findings=result.total_count,
-                    groups=len(result.groups),
-                    source="structured_output",
-                )
-                return result
-
-        # --- Text extraction fallback (validate_output) ---
-        text = extract_all_text(messages)
-
-        result = self._parse_review_output(text)
-
-        logger.info(
-            "review_complete",
-            total_findings=result.total_count,
-            groups=len(result.groups),
-            source="text_extraction",
-        )
-
-        return result
+        return self._build_review_prompt(context)
 
     def _build_review_prompt(self, context: dict[str, Any]) -> str:
         """Build the review prompt from context.
