@@ -33,11 +33,12 @@ try:
 except ImportError:  # pragma: no cover — SDK removed in T051
     from maverick.tools._sdk_stubs import ClaudeAgentOptions
 
-    async def query(prompt: str, options: Any) -> Any:
+    async def query(prompt: str, options: Any) -> Any:  # type: ignore[misc]
         raise NotImplementedError(
             "claude_agent_sdk is not installed. "
             "Claude-based project detection requires the SDK (T052)."
         )
+        yield  # make this an async generator to match SDK's query() signature
 
 
 from maverick.constants import CLAUDE_HAIKU_LATEST
