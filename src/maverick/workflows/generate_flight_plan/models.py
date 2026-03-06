@@ -32,6 +32,14 @@ class FlightPlanOutput(BaseModel):
     )
     notes: str = Field(default="", description="Additional notes")
 
+    @field_validator("notes", mode="before")
+    @classmethod
+    def coerce_notes_list(cls, v: str | list[str]) -> str:
+        """Accept a list of strings and join them into a single string."""
+        if isinstance(v, list):
+            return "\n".join(v)
+        return v
+
     @field_validator("name")
     @classmethod
     def name_must_not_be_empty(cls, v: str) -> str:

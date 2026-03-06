@@ -99,11 +99,11 @@ class TestFromConfigEmpty:
         _, cfg = registry.default()
         assert cfg.default is True
 
-    def test_synthesized_provider_command_contains_claude_code(self) -> None:
+    def test_synthesized_provider_command_contains_acp_bridge(self) -> None:
         registry = AgentProviderRegistry.from_config({})
         _, cfg = registry.default()
-        # Command should reference @anthropic-ai/claude-code
-        assert any("claude-code" in part for part in cfg.command)
+        # Command should reference the ACP bridge binary
+        assert any("claude-agent-acp" in part for part in cfg.command)
 
 
 # ---------------------------------------------------------------------------

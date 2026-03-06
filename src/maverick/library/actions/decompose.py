@@ -225,6 +225,18 @@ def build_decomposition_prompt(
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
             "- instructions field should contain detailed implementation guidance",
+            "",
+            "## CRITICAL: Output Format",
+            "You MUST output your result as a single JSON object in a ```json"
+            " fenced code block. Do NOT write any files. The JSON must match"
+            " this schema exactly:",
+            '{"work_units": [{"id": "kebab-id", "sequence": 1,'
+            ' "parallel_group": null, "depends_on": [],'
+            ' "task": "description", "acceptance_criteria":'
+            ' [{"text": "criterion", "trace_ref": "SC-001"}],'
+            ' "file_scope": {"create": [], "modify": [], "protect": []},'
+            ' "instructions": "...", "verification": ["cmd1"]}],'
+            ' "rationale": "explanation"}',
         ]
     )
 

@@ -16,6 +16,7 @@ from tenacity import (
 )
 
 from maverick.exceptions import WorkflowError
+from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.loader import FlightPlanFile
 from maverick.flight.serializer import serialize_work_unit
@@ -196,6 +197,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         prompt=prompt,
                         output_schema=DecompositionOutput,
                         event_callback=_event_cb,
+                        config=StepConfig(timeout=600),
                     )
 
                     if executor_result.output is None:

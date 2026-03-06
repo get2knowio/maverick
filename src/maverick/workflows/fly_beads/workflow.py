@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import WorkflowError
+from maverick.executor.config import StepConfig
 from maverick.library.actions.beads import (
     check_epic_done,
     create_beads_from_failures,
@@ -228,6 +229,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                                 "cwd": cwd_str,
                             },
                             cwd=workspace_path,
+                            config=StepConfig(timeout=600),
                         )
                     except Exception as exc:
                         logger.warning(

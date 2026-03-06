@@ -388,68 +388,12 @@ class AnthropicAPIValidator:
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
-        # Step 3: Send minimal API request to validate access
-        try:
-            from claude_agent_sdk import ClaudeAgentOptions, query  # noqa: PLC0415
-
-            options = ClaudeAgentOptions(
-                system_prompt="Respond with exactly 'OK'.",
-                model=self.model,
-                max_turns=1,
-                allowed_tools=[],
-            )
-
-            # Minimal request - wrap async iterator in coroutine for timeout
-            async def make_request() -> None:
-                async for _ in query(prompt="Hi", options=options):
-                    pass
-
-            await asyncio.wait_for(make_request(), timeout=self.timeout)
-
-            return ValidationResult(
-                success=True,
-                component="AnthropicAPI",
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-
-        except TimeoutError:
-            return ValidationResult(
-                success=False,
-                component="AnthropicAPI",
-                errors=(
-                    f"Anthropic API request timed out after {self.timeout}s. "
-                    "Check network connectivity.",
-                ),
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-        except ImportError:
-            return ValidationResult(
-                success=False,
-                component="AnthropicAPI",
-                errors=("claude-agent-sdk is not installed",),
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-        except Exception as e:
-            error_msg = str(e)
-            # Provide specific guidance based on error type
-            if "401" in error_msg or "invalid" in error_msg.lower():
-                error = (
-                    "Invalid credentials. Verify ANTHROPIC_API_KEY or "
-                    "CLAUDE_CODE_OAUTH_TOKEN is correct."
-                )
-            elif "403" in error_msg or "permission" in error_msg.lower():
-                error = (
-                    "API key does not have access to the requested model. "
-                    "Check your Anthropic account plan."
-                )
-            elif "429" in error_msg or "rate" in error_msg.lower():
-                error = "Rate limit exceeded. Please try again later."
-            else:
-                error = f"Anthropic API error: {error_msg}"
-
-            return ValidationResult(
-                success=False,
-                component="AnthropicAPI",
-                errors=(error,),
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
+        # Step 3: Validate API access (key format check only — actual API
+        # validation happens when the ACP agent subprocess connects).
+        # The previous claude-agent-sdk import was removed in the ACP migration;
+        # deep validation is deferred to the ACP connection handshake.
+        return ValidationResult(
+            success=True,
+            component="AnthropicAPI",
+            duration_ms=int((time.monotonic() - start_time) * 1000),
+        )

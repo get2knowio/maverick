@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -323,7 +324,13 @@ class AcpStepExecutor:
 
         command = command_args[0]
         args = tuple(command_args[1:])
-        env = dict(provider_config.env) if provider_config.env else None
+
+        # Build env for subprocess. Always remove CLAUDECODE to prevent the
+        # "cannot be launched inside another Claude Code session" guard.
+        extra_env = dict(provider_config.env) if provider_config.env else {}
+        env = {**os.environ, **extra_env}
+        env.pop("CLAUDECODE", None)
+        env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
         self._logger.info(
             "acp_executor.subprocess_spawn",

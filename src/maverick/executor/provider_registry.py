@@ -11,10 +11,10 @@ __all__ = ["AgentProviderRegistry"]
 logger = get_logger(__name__)
 
 #: Default Claude Code provider command (zero-config fallback)
+#: Uses the Zed ACP bridge (@zed-industries/claude-agent-acp) which wraps
+#: Claude Code's Agent SDK and exposes it as an ACP agent over stdio.
 _DEFAULT_CLAUDE_COMMAND: list[str] = [
-    "npx",
-    "@anthropic-ai/claude-code@latest",
-    "--acp",
+    "claude-agent-acp",
 ]
 
 #: Name used for the synthesized default Claude Code provider
