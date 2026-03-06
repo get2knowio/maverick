@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cli-tools": {
+      "command": "/Users/paul/GitHub/climax/.venv/bin/climax",
+      "args": [
+        "run",
+        "obsidian",
+        "claude"
+      ]
+    }
+  }
+}
