@@ -57,7 +57,7 @@ logger = get_logger(__name__)
 #: ACP client info — sent during connection initialization
 _CLIENT_INFO = Implementation(
     name="maverick",
-    version=importlib.metadata.version("maverick"),
+    version=importlib.metadata.version("maverick-cli"),
 )
 
 

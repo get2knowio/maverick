@@ -26,6 +26,12 @@ if TYPE_CHECKING:
     from maverick.registry import ComponentRegistry
 
 # Import agent classes
+from maverick.agents.briefing import (
+    ContrarianAgent,
+    NavigatorAgent,
+    ReconAgent,
+    StructuralistAgent,
+)
 from maverick.agents.code_reviewer import CodeReviewerAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.fixer import FixerAgent
@@ -88,3 +94,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     # Register flight plan generator agent (used in generate-flight-plan workflow)
     registry.agents.register("flight_plan_generator", FlightPlanGeneratorAgent)
+
+    # Register briefing room agents (used in refuel-maverick briefing step)
+    registry.agents.register("navigator", NavigatorAgent)
+    registry.agents.register("structuralist", StructuralistAgent)
+    registry.agents.register("recon", ReconAgent)
+    registry.agents.register("contrarian", ContrarianAgent)

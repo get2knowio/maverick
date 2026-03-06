@@ -29,15 +29,16 @@ async def flight_plan_cmd(
     dry_run: bool,
     list_steps: bool,
     session_log: Path | None,
+    skip_briefing: bool,
 ) -> None:
     """Decompose a Flight Plan into work units and beads.
 
     FLIGHT-PLAN-PATH is the path to the flight plan Markdown file.
 
     The workflow parses the flight plan, gathers codebase context for
-    in-scope files, decomposes into ordered work units via an AI agent,
-    writes work unit files, and creates beads for execution by
-    ``maverick fly``.
+    in-scope files, runs a briefing room analysis (unless --skip-briefing),
+    decomposes into ordered work units via an AI agent, writes work unit
+    files, and creates beads for execution by ``maverick fly``.
 
     Examples:
 
@@ -45,9 +46,11 @@ async def flight_plan_cmd(
 
         maverick refuel flight-plan .maverick/flight-plans/add-auth.md --dry-run
 
-        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --list-steps
+        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --skip-briefing
     """
     if list_steps:
         print_steps_and_exit()
 
-    await run_refuel_workflow(ctx, flight_plan_path, dry_run, session_log)
+    await run_refuel_workflow(
+        ctx, flight_plan_path, dry_run, session_log, skip_briefing=skip_briefing
+    )

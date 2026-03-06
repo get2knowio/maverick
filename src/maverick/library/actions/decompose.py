@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
+    from maverick.briefing.models import BriefingDocument
     from maverick.flight.models import WorkUnit
     from maverick.workflows.refuel_maverick.models import WorkUnitSpec
 
@@ -194,15 +195,62 @@ def _format_codebase_context(context: CodebaseContext) -> str:
     return result
 
 
+def _format_briefing_section(briefing: BriefingDocument) -> str:
+    """Format a BriefingDocument as a prompt section.
+
+    Args:
+        briefing: Synthesized briefing document.
+
+    Returns:
+        Markdown-formatted briefing analysis section.
+    """
+    parts: list[str] = []
+    parts.append("## Briefing Room Analysis")
+    parts.append("")
+
+    if briefing.key_decisions:
+        parts.append("### Key Architecture Decisions")
+        parts.append("")
+        for decision in briefing.key_decisions:
+            parts.append(f"- {decision}")
+        parts.append("")
+
+    if briefing.structuralist.entities:
+        parts.append("### Data Model")
+        parts.append("")
+        for entity in briefing.structuralist.entities:
+            fields_str = ", ".join(entity.fields) if entity.fields else "none"
+            parts.append(f"- **{entity.name}** (`{entity.module_path}`): {fields_str}")
+        parts.append("")
+
+    if briefing.key_risks:
+        parts.append("### Key Risks")
+        parts.append("")
+        for risk in briefing.key_risks:
+            parts.append(f"- {risk}")
+        parts.append("")
+
+    if briefing.open_questions:
+        parts.append("### Open Questions")
+        parts.append("")
+        for question in briefing.open_questions:
+            parts.append(f"- {question}")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def build_decomposition_prompt(
     flight_plan_content: str,
     context: CodebaseContext,
+    briefing: BriefingDocument | None = None,
 ) -> str:
     """Build the decomposition agent prompt.
 
     Args:
         flight_plan_content: Raw flight plan markdown content.
         context: Gathered codebase context.
+        briefing: Optional synthesized briefing document from the briefing room.
 
     Returns:
         Formatted prompt string for the decomposition agent.
@@ -240,13 +288,19 @@ def build_decomposition_prompt(
         ]
     )
 
-    return (
+    prompt = (
         "You are a software decomposition expert. Given a flight plan and"
         " codebase context, produce an ordered set of small, focused work units."
         f"\n\n## Flight Plan\n\n{flight_plan_content}"
         f"\n\n## Codebase Context\n\n{codebase_section}"
-        f"\n\n## Instructions\n{instructions}"
     )
+
+    if briefing is not None:
+        prompt += f"\n\n{_format_briefing_section(briefing)}"
+
+    prompt += f"\n\n## Instructions\n{instructions}"
+
+    return prompt
 
 
 def convert_specs_to_work_units(

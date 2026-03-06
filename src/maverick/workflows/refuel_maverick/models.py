@@ -127,6 +127,7 @@ class RefuelMaverickResult:
     errors: tuple[str, ...]
     coverage_warnings: tuple[str, ...]
     dry_run: bool
+    briefing_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain dictionary for WorkflowResult.final_output."""
@@ -139,4 +140,5 @@ class RefuelMaverickResult:
             "errors": list(self.errors),
             "coverage_warnings": list(self.coverage_warnings),
             "dry_run": self.dry_run,
+            "briefing_path": self.briefing_path,
         }

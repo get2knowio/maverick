@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,14 @@ from tenacity import (
     wait_exponential,
 )
 
+from maverick.briefing.models import (
+    ContrarianBrief,
+    NavigatorBrief,
+    ReconBrief,
+    StructuralistBrief,
+)
+from maverick.briefing.serializer import serialize_briefing
+from maverick.briefing.synthesis import synthesize_briefing
 from maverick.exceptions import WorkflowError
 from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
@@ -30,6 +37,11 @@ from maverick.library.actions.decompose import (
 from maverick.logging import get_logger
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_maverick.constants import (
+    BRIEFING,
+    BRIEFING_CONTRARIAN,
+    BRIEFING_NAVIGATOR,
+    BRIEFING_RECON,
+    BRIEFING_STRUCTURALIST,
     CREATE_BEADS,
     DECOMPOSE,
     GATHER_CONTEXT,
@@ -96,6 +108,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         if not flight_plan_path_str:
             raise WorkflowError("'flight_plan_path' input is required")
         dry_run: bool = bool(inputs.get("dry_run", False))
+        skip_briefing: bool = bool(inputs.get("skip_briefing", False))
 
         flight_plan_path = Path(flight_plan_path_str)
 
@@ -159,18 +172,145 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
 
         # ------------------------------------------------------------------
+        # Step 2.5: Read raw flight plan content (used by briefing + decompose)
+        # ------------------------------------------------------------------
+        try:
+            raw_content = await asyncio.to_thread(flight_plan_path.read_text, "utf-8")
+        except Exception as exc:
+            raise WorkflowError(f"Cannot read flight plan: {exc}") from exc
+
+        # ------------------------------------------------------------------
+        # Step 2b: Briefing Room (optional)
+        # ------------------------------------------------------------------
+        briefing_doc = None
+        briefing_path_str: str | None = None
+
+        if not skip_briefing:
+            from maverick.agents.briefing.prompts import (
+                build_briefing_prompt,
+                build_contrarian_prompt,
+            )
+
+            await self.emit_step_started(BRIEFING)
+
+            if self._step_executor is None:
+                raise WorkflowError("step_executor is required for the briefing step")
+
+            briefing_prompt = build_briefing_prompt(raw_content, codebase_context)
+
+            # Create event callback to forward streaming events
+            async def _briefing_event_cb(event: Any) -> None:
+                await self._event_queue.put(event)
+
+            try:
+                # Parallel: Navigator + Structuralist + Recon
+                nav_result, struct_result, recon_result = await asyncio.gather(
+                    self._step_executor.execute(
+                        step_name=BRIEFING_NAVIGATOR,
+                        agent_name="navigator",
+                        prompt=briefing_prompt,
+                        output_schema=NavigatorBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                    self._step_executor.execute(
+                        step_name=BRIEFING_STRUCTURALIST,
+                        agent_name="structuralist",
+                        prompt=briefing_prompt,
+                        output_schema=StructuralistBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                    self._step_executor.execute(
+                        step_name=BRIEFING_RECON,
+                        agent_name="recon",
+                        prompt=briefing_prompt,
+                        output_schema=ReconBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                )
+
+                if (
+                    not nav_result.output
+                    or not struct_result.output
+                    or not recon_result.output
+                ):
+                    raise WorkflowError(
+                        "One or more briefing agents returned no output"
+                    )
+
+                # Sequential: Contrarian reviews all 3
+                contrarian_prompt = build_contrarian_prompt(
+                    raw_content,
+                    nav_result.output,
+                    struct_result.output,
+                    recon_result.output,
+                )
+                contrarian_result = await self._step_executor.execute(
+                    step_name=BRIEFING_CONTRARIAN,
+                    agent_name="contrarian",
+                    prompt=contrarian_prompt,
+                    output_schema=ContrarianBrief,
+                    event_callback=_briefing_event_cb,
+                    config=StepConfig(timeout=300),
+                )
+
+                if not contrarian_result.output:
+                    raise WorkflowError("Contrarian agent returned no output")
+
+                # Synthesize (deterministic)
+                briefing_doc = synthesize_briefing(
+                    flight_plan.name,
+                    nav_result.output,
+                    struct_result.output,
+                    recon_result.output,
+                    contrarian_result.output,
+                )
+
+                # Write to disk (colocated with work units)
+                wu_dir = (
+                    Path.cwd() / ".maverick" / "work-units" / flight_plan.name
+                )
+                await asyncio.to_thread(
+                    wu_dir.mkdir, parents=True, exist_ok=True
+                )
+                briefing_path = wu_dir / "briefing.md"
+                await asyncio.to_thread(
+                    briefing_path.write_text,
+                    serialize_briefing(briefing_doc),
+                    "utf-8",
+                )
+                briefing_path_str = str(briefing_path)
+
+            except Exception as exc:
+                await self.emit_step_failed(BRIEFING, str(exc))
+                raise
+
+            await self.emit_output(
+                BRIEFING,
+                f"Briefing complete: {len(briefing_doc.key_decisions)} decisions, "
+                f"{len(briefing_doc.key_risks)} risks, "
+                f"{len(briefing_doc.open_questions)} open questions",
+            )
+            await self.emit_step_completed(
+                BRIEFING,
+                output={
+                    "key_decisions": list(briefing_doc.key_decisions),
+                    "key_risks": list(briefing_doc.key_risks),
+                    "open_questions": list(briefing_doc.open_questions),
+                    "briefing_path": briefing_path_str,
+                },
+            )
+
+        # ------------------------------------------------------------------
         # Step 3: Decompose via agent (with retry)
         # ------------------------------------------------------------------
         await self.emit_step_started(DECOMPOSE)
 
-        # Read the raw flight plan content for the prompt
-        try:
-            raw_content = await asyncio.to_thread(flight_plan_path.read_text, "utf-8")
-        except Exception as exc:
-            await self.emit_step_failed(DECOMPOSE, str(exc))
-            raise
-
-        prompt = build_decomposition_prompt(raw_content, codebase_context)
+        prompt = build_decomposition_prompt(
+            raw_content, codebase_context, briefing=briefing_doc
+        )
 
         decomposition: DecompositionOutput | None = None
 
@@ -279,10 +419,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         written = 0
         try:
-            # Clear existing directory
-            if work_units_dir.exists():
-                await asyncio.to_thread(shutil.rmtree, work_units_dir)
+            # Clear existing work unit files (preserve briefing.md)
             await asyncio.to_thread(work_units_dir.mkdir, parents=True, exist_ok=True)
+            for existing in work_units_dir.glob("[0-9][0-9][0-9]-*.md"):
+                existing.unlink()
 
             # Write work unit files using {sequence:03d}-{id}.md naming
             for wu in work_units:
@@ -400,5 +540,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             errors=bead_result.errors if bead_result else (),
             coverage_warnings=tuple(coverage_warnings),
             dry_run=dry_run,
+            briefing_path=briefing_path_str,
         )
         return result.to_dict()

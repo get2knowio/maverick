@@ -1,8 +1,7 @@
 """Shared helpers for ``maverick refuel`` subcommands.
 
 Extracts the common Click options, step listing, and workflow execution
-logic used by both ``flight-plan`` and ``maverick`` subcommands to
-eliminate duplication.
+logic used by the ``flight-plan`` subcommand.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from maverick.cli.workflow_executor import (
 )
 from maverick.workflows.refuel_maverick import RefuelMaverickWorkflow
 from maverick.workflows.refuel_maverick.constants import (
+    BRIEFING,
     CREATE_BEADS,
     DECOMPOSE,
     GATHER_CONTEXT,
@@ -37,12 +37,19 @@ if TYPE_CHECKING:
 REFUEL_STEPS: list[str] = [
     PARSE_FLIGHT_PLAN,
     GATHER_CONTEXT,
+    BRIEFING,
     DECOMPOSE,
     VALIDATE,
     WRITE_WORK_UNITS,
     CREATE_BEADS,
     WIRE_DEPS,
 ]
+
+# Steps that use agents (for display purposes).
+_AGENT_STEPS: dict[str, str] = {
+    BRIEFING: "agent (parallel)",
+    DECOMPOSE: "agent",
+}
 
 
 def print_steps_and_exit() -> None:
@@ -58,7 +65,7 @@ def print_steps_and_exit() -> None:
     console.print()
     console.print("[bold]Steps:[/]")
     for i, step_name in enumerate(REFUEL_STEPS, 1):
-        step_type = "agent" if step_name == DECOMPOSE else "python"
+        step_type = _AGENT_STEPS.get(step_name, "python")
         console.print(f"  {i}. {step_name} [dim]({step_type})[/]")
     console.print()
     raise SystemExit(ExitCode.SUCCESS)
@@ -69,6 +76,7 @@ async def run_refuel_workflow(
     flight_plan_path: Path,
     dry_run: bool,
     session_log: Path | None,
+    skip_briefing: bool = False,
 ) -> None:
     """Execute the RefuelMaverickWorkflow with the given parameters.
 
@@ -77,6 +85,7 @@ async def run_refuel_workflow(
         flight_plan_path: Path to the flight plan Markdown file.
         dry_run: If True, write work unit files but skip bead creation.
         session_log: Optional path for session journal output.
+        skip_briefing: If True, skip the briefing room step.
     """
     await execute_python_workflow(
         ctx,
@@ -85,6 +94,7 @@ async def run_refuel_workflow(
             inputs={
                 "flight_plan_path": str(flight_plan_path),
                 "dry_run": dry_run,
+                "skip_briefing": skip_briefing,
             },
             session_log_path=session_log,
         ),
@@ -125,5 +135,11 @@ def refuel_flight_plan_options(fn: Callable[..., object]) -> Callable[..., objec
         type=click.Path(path_type=Path),
         default=None,
         help="Write session journal (JSONL) to this file path.",
+    )(fn)
+    fn = click.option(
+        "--skip-briefing",
+        is_flag=True,
+        default=False,
+        help="Skip the briefing room step (parallel agent analysis).",
     )(fn)
     return fn

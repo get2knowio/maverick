@@ -89,7 +89,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         # StepStarted events for all 7 steps
@@ -128,7 +128,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             _events, workflow_result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         assert workflow_result is not None
@@ -169,7 +169,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         mock_step_executor.execute.assert_called_once()
@@ -203,7 +203,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         work_units_dir = tmp_path / ".maverick" / "work-units" / "add-user-auth"
@@ -250,7 +250,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         assert isinstance(events[0], WorkflowStarted)
@@ -283,7 +283,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         mock_wire.assert_called_once()
@@ -332,7 +332,7 @@ class TestDryRunMode:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": True},
+                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
         mock_create.assert_not_called()
@@ -360,7 +360,7 @@ class TestDryRunMode:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": True},
+                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
         work_units_dir = tmp_path / ".maverick" / "work-units" / "add-user-auth"
@@ -390,7 +390,7 @@ class TestDryRunMode:
         ):
             _events, workflow_result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": True},
+                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
         assert workflow_result is not None
@@ -424,7 +424,7 @@ class TestDryRunMode:
         ):
             events, _ = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": True},
+                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
         completed_names = {e.step_name for e in events if isinstance(e, StepCompleted)}
@@ -455,7 +455,7 @@ class TestDryRunMode:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": True},
+                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
         assert result is not None
@@ -529,7 +529,7 @@ class TestErrorHandling:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
                 ignore_exception=True,
             )
 

@@ -203,7 +203,7 @@ class TestErrorHandling:
 
         events, result = await collect_events(
             workflow,
-            {"flight_plan_path": str(fp)},
+            {"flight_plan_path": str(fp), "skip_briefing": True},
             ignore_exception=True,
         )
 
@@ -307,7 +307,8 @@ class TestErrorHandling:
             patch(f"{_MODULE}.create_beads") as mock_create,
         ):
             with pytest.raises(WorkflowError, match="[Cc]ircular|[Dd]ependency|cycle"):
-                async for _ in workflow.execute({"flight_plan_path": str(fp)}):
+                inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
+                async for _ in workflow.execute(inputs):
                     pass
 
             # create_beads should NOT have been called (error in validate step)
@@ -326,8 +327,10 @@ class TestErrorHandling:
         # Create pre-existing files in the output directory
         work_units_dir = tmp_path / ".maverick" / "work-units" / "test-plan"
         work_units_dir.mkdir(parents=True)
-        (work_units_dir / "old-file.md").write_text("old content", encoding="utf-8")
-        (work_units_dir / "another-old.md").write_text("another old", encoding="utf-8")
+        (work_units_dir / "001-old-unit.md").write_text("old content", encoding="utf-8")
+        (work_units_dir / "002-another-old.md").write_text(
+            "another old", encoding="utf-8"
+        )
 
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
 
@@ -352,13 +355,13 @@ class TestErrorHandling:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        # Old files should be gone
+        # Old work unit files should be gone
         files = list(work_units_dir.iterdir())
-        assert not any(f.name == "old-file.md" for f in files)
-        assert not any(f.name == "another-old.md" for f in files)
+        assert not any(f.name == "001-old-unit.md" for f in files)
+        assert not any(f.name == "002-another-old.md" for f in files)
 
     async def test_empty_in_scope_produces_empty_codebase_context(
         self,
@@ -434,7 +437,7 @@ Test objective.
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         # Should succeed without error
@@ -469,7 +472,7 @@ Test objective.
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp)},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
                 ignore_exception=True,
             )
 
@@ -504,7 +507,7 @@ Test objective.
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
                 ignore_exception=True,
             )
 
@@ -560,7 +563,8 @@ Test objective.
             patch(f"{_MODULE}.create_beads") as mock_create,
         ):
             with pytest.raises(WorkflowError):
-                async for _ in workflow.execute({"flight_plan_path": str(fp)}):
+                inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
+                async for _ in workflow.execute(inputs):
                     pass
             mock_create.assert_not_called()
 
@@ -613,7 +617,7 @@ class TestParallelGroups:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         # 4 work units written
@@ -692,7 +696,7 @@ class TestParallelGroups:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         # Parallel group count is in StepResult output, not StepCompleted event.
@@ -745,7 +749,7 @@ class TestParallelGroups:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False},
+                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
         work_units_dir = tmp_path / ".maverick" / "work-units" / "test-plan"
