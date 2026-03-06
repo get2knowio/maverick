@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "maverick"
+name = "maverick-cli"
 version = "0.1.0"
 description = "AI-powered development workflow orchestration"
 readme = "README.md"
@@ -49,6 +49,7 @@ dependencies = [
 ]
 
 [project.scripts]
+maverick-cli = "maverick.main:cli"
 maverick = "maverick.main:cli"
 
 [dependency-groups]
@@ -71,7 +72,7 @@ dev = [
     "types-pyyaml>=6.0.12.20250915",
 ]
 
-[tool.hatchling.build.targets.wheel]
+[tool.hatch.build.targets.wheel]
 packages = ["src/maverick"]
 
 [tool.ruff]
