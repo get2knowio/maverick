@@ -14,6 +14,7 @@ from tenacity import (
 )
 
 from maverick.exceptions import WorkflowError
+from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
 from maverick.flight.serializer import serialize_flight_plan
@@ -73,7 +74,12 @@ Generate a Maverick flight plan from the following PRD.
 
 ## Output Requirements
 
-Produce a JSON object with these exact fields:
+Explore the codebase to understand the project structure and reference actual
+files and modules in your scope and constraints.
+
+IMPORTANT: Return the JSON object directly in your response text as a fenced
+```json ... ``` code block. Do NOT write it to a file. The JSON must have these
+exact fields:
 - "name": "{name}" (use this exact name)
 - "version": "1"
 - "objective": A clear, measurable objective paragraph
@@ -84,9 +90,6 @@ Produce a JSON object with these exact fields:
 - "context": Background context for implementers
 - "constraints": A list of technical constraints
 - "notes": Any additional notes
-
-Explore the codebase to understand the project structure and reference actual
-files and modules in your scope and constraints.
 
 Every success criterion must be independently verifiable. Use measurable
 language.
@@ -216,6 +219,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                         prompt=prompt,
                         output_schema=FlightPlanOutput,
                         event_callback=_event_cb,
+                        config=StepConfig(timeout=600),
                     )
 
                     if executor_result.output is None:

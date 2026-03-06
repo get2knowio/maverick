@@ -277,7 +277,6 @@ async def _invoke_fixer_agent(
     """
     try:
         # Import here to avoid circular imports
-        from maverick.agents.fixer import FixerAgent
         from maverick.executor import create_default_executor
 
         # Build context for prompt construction
@@ -288,10 +287,10 @@ async def _invoke_fixer_agent(
 
         try:
             # Build prompt via agent, then execute via ACP
-            agent = FixerAgent()
+            # Registry name is "validation_fixer" (see library/agents/__init__.py)
             result = await executor.execute(
                 step_name="fixer_agent",
-                agent_name=agent.name,
+                agent_name="validation_fixer",
                 prompt=agent_context,
                 cwd=cwd,
             )

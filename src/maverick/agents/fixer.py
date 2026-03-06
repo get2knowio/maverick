@@ -145,13 +145,16 @@ class FixerAgent(MaverickAgent[AgentContext, FixerResult]):
             output_model=FixerResult,
         )
 
-    def build_prompt(self, context: AgentContext) -> str:
+    def build_prompt(self, context: AgentContext | dict[str, Any]) -> str:
         """Construct the prompt string from context (FR-017).
 
         Args:
-            context: Runtime context containing prompt in context.extra["prompt"].
+            context: Runtime context — either an AgentContext with
+                extra["prompt"] or a plain dict with a "prompt" key.
 
         Returns:
             Complete prompt text ready for the ACP agent.
         """
+        if isinstance(context, dict):
+            return str(context.get("prompt", ""))
         return str(context.extra.get("prompt", ""))
