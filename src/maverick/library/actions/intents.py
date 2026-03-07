@@ -76,14 +76,8 @@ ACTION_INTENTS: dict[str, str] = {
         "Retrieve a single GitHub issue by number with full details."
     ),
     # Review (unprefixed)
-    "gather_pr_context": (
-        "Collect context needed for code review from PR diff and changed files."
-    ),
     "gather_local_review_context": (
         "Collect local review context from working directory diff and changed files."
-    ),
-    "combine_review_results": (
-        "Merge results from multiple parallel code reviewers into a unified report."
     ),
     "analyze_review_findings": (
         "Analyze combined review findings and build "
@@ -97,12 +91,6 @@ ACTION_INTENTS: dict[str, str] = {
         "Generate a summary report of the review-fix process with outcomes and metrics."
     ),
     # Review (prefixed aliases)
-    "review.gather_pr_context": (
-        "Collect context needed for code review from PR diff and changed files."
-    ),
-    "review.combine_review_results": (
-        "Merge results from multiple parallel code reviewers into a unified report."
-    ),
     "review.analyze_review_findings": (
         "Analyze combined review findings and build "
         "an issue registry with deduplication."

@@ -12,7 +12,6 @@ from maverick.cli.commands.refuel._group import refuel
 
 # Import subcommand modules to register commands on the group.
 from maverick.cli.commands.refuel import speckit as _speckit  # noqa: F401
-from maverick.cli.commands.refuel import maverick_cmd as _maverick_cmd  # noqa: F401
 from maverick.cli.commands.refuel import flight_plan as _flight_plan  # noqa: F401
 
 # isort: on

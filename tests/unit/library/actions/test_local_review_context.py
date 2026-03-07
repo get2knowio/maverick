@@ -86,8 +86,8 @@ class TestGatherLocalReviewContext:
         assert result.diff == ""
 
     @pytest.mark.asyncio
-    async def test_pr_metadata_is_empty(self) -> None:
-        """Local context should have no PR metadata."""
+    async def test_review_metadata_is_minimal(self) -> None:
+        """Local context should have minimal review metadata (no PR info)."""
         mock_repo = _make_mock_repo()
 
         with patch(
@@ -96,9 +96,8 @@ class TestGatherLocalReviewContext:
         ):
             result = await gather_local_review_context()
 
-        assert result.pr_metadata.number is None
-        assert result.pr_metadata.title is None
-        assert result.pr_metadata.base_branch == "main"
+        assert result.review_metadata.title is None
+        assert result.review_metadata.base_branch == "main"
 
     @pytest.mark.asyncio
     async def test_exclude_patterns_applied(self) -> None:

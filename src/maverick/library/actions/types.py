@@ -278,25 +278,19 @@ class ValidationReportResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PRMetadata:
-    """Pull request metadata."""
+class ReviewMetadata:
+    """Metadata about the changes being reviewed."""
 
-    number: int | None
-    title: str | None
-    description: str | None
-    author: str | None
-    labels: tuple[str, ...]
     base_branch: str
+    title: str | None = None
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
-            "number": self.number,
+            "base_branch": self.base_branch,
             "title": self.title,
             "description": self.description,
-            "author": self.author,
-            "labels": list(self.labels),
-            "base_branch": self.base_branch,
         }
 
 
@@ -304,7 +298,7 @@ class PRMetadata:
 class ReviewContextResult:
     """Gathered context for code review."""
 
-    pr_metadata: PRMetadata
+    review_metadata: ReviewMetadata
     changed_files: tuple[str, ...]
     diff: str
     commits: tuple[str, ...]
@@ -314,29 +308,12 @@ class ReviewContextResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
-            "pr_metadata": self.pr_metadata.to_dict(),
+            "review_metadata": self.review_metadata.to_dict(),
             "changed_files": list(self.changed_files),
             "diff": self.diff,
             "commits": list(self.commits),
             "spec_files": self.spec_files,
             "error": self.error,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class CombinedReviewResult:
-    """Combined review results from all sources."""
-
-    review_report: str
-    issues: tuple[dict[str, Any], ...]
-    recommendation: str  # "approve", "request_changes", "comment"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "review_report": self.review_report,
-            "issues": list(self.issues),
-            "recommendation": self.recommendation,
         }
 
 
@@ -562,6 +539,7 @@ class SelectNextBeadResult:
         priority: Priority of the selected bead.
         epic_id: Parent epic ID of the selected bead.
         done: Whether the epic has no more ready beads.
+        flight_plan_name: Name of the originating flight plan (from epic state).
     """
 
     found: bool
@@ -571,6 +549,7 @@ class SelectNextBeadResult:
     priority: int
     epic_id: str
     done: bool
+    flight_plan_name: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -582,6 +561,7 @@ class SelectNextBeadResult:
             "priority": self.priority,
             "epic_id": self.epic_id,
             "done": self.done,
+            "flight_plan_name": self.flight_plan_name,
         }
 
 

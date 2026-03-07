@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
-import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -18,16 +17,14 @@ if TYPE_CHECKING:
 from maverick.git import AsyncGitRepository
 from maverick.library.actions.types import (
     AnalyzedFindingsResult,
-    CombinedReviewResult,
     IssueGroup,
-    PRMetadata,
     ReviewAndFixReport,
     ReviewContextResult,
     ReviewFixLoopResult,
     ReviewIssue,
+    ReviewMetadata,
 )
 from maverick.logging import get_logger
-from maverick.runners.command import CommandRunner
 
 logger = get_logger(__name__)
 
@@ -116,221 +113,6 @@ def _filter_diff(diff: str, exclude_patterns: tuple[str, ...]) -> str:
     return "".join(filtered_sections)
 
 
-async def _detect_pr_for_branch(
-    runner: CommandRunner,
-    branch: str,
-) -> int | None:
-    """Detect the PR number for a given branch.
-
-    Args:
-        runner: CommandRunner for executing gh CLI
-        branch: Branch name to find PR for
-
-    Returns:
-        PR number if found, None otherwise
-    """
-    pr_list_result = await runner.run(
-        [
-            "gh",
-            "pr",
-            "list",
-            "--head",
-            branch,
-            "--json",
-            "number",
-            "--limit",
-            "1",
-        ],
-    )
-    if pr_list_result.success:
-        pr_list = json.loads(pr_list_result.stdout)
-        if pr_list:
-            return int(pr_list[0]["number"])
-        logger.warning(f"No PR found for branch '{branch}', proceeding with local diff")
-    else:
-        logger.warning(
-            f"Failed to list PRs: {pr_list_result.stderr}, proceeding with local diff"
-        )
-    return None
-
-
-async def _fetch_pr_metadata(
-    runner: CommandRunner,
-    pr_number: int,
-    base_branch: str,
-) -> PRMetadata:
-    """Fetch PR metadata from GitHub.
-
-    Args:
-        runner: CommandRunner for executing gh CLI
-        pr_number: PR number to fetch
-        base_branch: Base branch for the PR
-
-    Returns:
-        PRMetadata with fetched data, or minimal metadata on failure
-    """
-    pr_view_result = await runner.run(
-        [
-            "gh",
-            "pr",
-            "view",
-            str(pr_number),
-            "--json",
-            "number,title,body,author,labels",
-        ],
-    )
-    if pr_view_result.success:
-        pr_data = json.loads(pr_view_result.stdout)
-        return PRMetadata(
-            number=pr_data["number"],
-            title=pr_data.get("title"),
-            description=pr_data.get("body"),
-            author=pr_data.get("author", {}).get("login"),
-            labels=tuple(label["name"] for label in pr_data.get("labels", [])),
-            base_branch=base_branch,
-        )
-    return PRMetadata(
-        number=pr_number,
-        title=None,
-        description=None,
-        author=None,
-        labels=(),
-        base_branch=base_branch,
-    )
-
-
-async def _get_diff_and_changed_files(
-    repo: AsyncGitRepository,
-    base_branch: str,
-    exclude_patterns: tuple[str, ...],
-) -> tuple[str, tuple[str, ...]]:
-    """Get diff and changed files, applying exclusion filters.
-
-    Args:
-        repo: Git repository
-        base_branch: Base branch for comparison
-        exclude_patterns: Patterns to exclude from diff/files
-
-    Returns:
-        Tuple of (filtered_diff, filtered_changed_files)
-    """
-    # Get diff against base branch using three-dot syntax (base...HEAD)
-    raw_diff = await repo.diff(base=f"{base_branch}...HEAD")
-
-    # Get changed files using three-dot syntax
-    changed_files_list = await repo.get_changed_files(ref=f"{base_branch}...HEAD")
-    raw_changed_files = tuple(changed_files_list)
-
-    # Apply exclusion filters to scope the review
-    if exclude_patterns:
-        changed_files = _filter_changed_files(raw_changed_files, exclude_patterns)
-        diff = _filter_diff(raw_diff, exclude_patterns)
-        excluded_count = len(raw_changed_files) - len(changed_files)
-        if excluded_count > 0:
-            logger.info(
-                "Excluded %d files from review scope",
-                excluded_count,
-                patterns=exclude_patterns,
-            )
-    else:
-        changed_files = raw_changed_files
-        diff = raw_diff
-
-    return diff, changed_files
-
-
-async def gather_pr_context(
-    pr_number: int | None,
-    base_branch: str,
-    include_spec_files: bool = False,
-    spec_dir: str | None = None,
-    exclude_patterns: tuple[str, ...] | list[str] | None = None,
-) -> ReviewContextResult:
-    """Gather PR context for code review.
-
-    Args:
-        pr_number: PR number (optional, auto-detect if None)
-        base_branch: Base branch for comparison
-        include_spec_files: Whether to include spec files in context
-        spec_dir: Directory containing spec files (auto-detect if None)
-        exclude_patterns: Glob patterns for files to exclude from review scope.
-            Defaults to DEFAULT_EXCLUDE_PATTERNS (specs/**, .specify/**, etc.)
-            Pass empty tuple to include all files.
-
-    Returns:
-        ReviewContextResult with PR metadata, diff, and optionally spec files
-    """
-    # Apply default exclusions if not specified
-    if exclude_patterns is None:
-        exclude_patterns = DEFAULT_EXCLUDE_PATTERNS
-    elif isinstance(exclude_patterns, list):
-        exclude_patterns = tuple(exclude_patterns)
-
-    try:
-        repo = AsyncGitRepository()
-        runner = CommandRunner(timeout=60.0)
-
-        # Auto-detect PR number if not provided
-        current_branch = None
-        if pr_number is None:
-            current_branch = await repo.current_branch()
-            pr_number = await _detect_pr_for_branch(runner, current_branch)
-
-        # Fetch PR metadata
-        if pr_number is not None:
-            pr_metadata = await _fetch_pr_metadata(runner, pr_number, base_branch)
-        else:
-            pr_metadata = PRMetadata(
-                number=None,
-                title=None,
-                description=None,
-                author=None,
-                labels=(),
-                base_branch=base_branch,
-            )
-
-        # Get diff and changed files with exclusion filtering
-        diff, changed_files = await _get_diff_and_changed_files(
-            repo, base_branch, exclude_patterns
-        )
-
-        # Get commit messages since base branch
-        commit_messages = await repo.commit_messages_since(ref=base_branch)
-        commits = tuple(commit_messages)
-
-        # Gather spec files if requested
-        spec_files: dict[str, str] = {}
-        if include_spec_files:
-            spec_files = await _gather_spec_files(spec_dir, current_branch)
-
-        return ReviewContextResult(
-            pr_metadata=pr_metadata,
-            changed_files=changed_files,
-            diff=diff,
-            commits=commits,
-            spec_files=spec_files,
-            error=None,
-        )
-
-    except Exception as e:
-        logger.debug(f"Failed to gather PR context: {e}")
-        return ReviewContextResult(
-            pr_metadata=PRMetadata(
-                number=pr_number,
-                title=None,
-                description=None,
-                author=None,
-                labels=(),
-                base_branch=base_branch,
-            ),
-            changed_files=(),
-            diff="",
-            commits=(),
-            spec_files={},
-            error=str(e),
-        )
-
-
 async def gather_local_review_context(
     base_branch: str = "main",
     include_spec_files: bool = False,
@@ -340,10 +122,9 @@ async def gather_local_review_context(
 ) -> ReviewContextResult:
     """Gather local review context including uncommitted changes.
 
-    Unlike ``gather_pr_context``, this function does not depend on the ``gh``
-    CLI.  It combines uncommitted changes (staged + unstaged) with committed
+    Combines uncommitted changes (staged + unstaged) with committed
     branch changes to produce a single review context suitable for pre-commit
-    review workflows.
+    review workflows. Does not depend on the ``gh`` CLI.
 
     Args:
         base_branch: Base branch for comparison (default: "main").
@@ -405,14 +186,7 @@ async def gather_local_review_context(
             spec_files = await _gather_spec_files(spec_dir, current_branch)
 
         return ReviewContextResult(
-            pr_metadata=PRMetadata(
-                number=None,
-                title=None,
-                description=None,
-                author=None,
-                labels=(),
-                base_branch=base_branch,
-            ),
+            review_metadata=ReviewMetadata(base_branch=base_branch),
             changed_files=changed_files,
             diff=diff,
             commits=commits,
@@ -423,14 +197,7 @@ async def gather_local_review_context(
     except Exception as e:
         logger.debug(f"Failed to gather local review context: {e}")
         return ReviewContextResult(
-            pr_metadata=PRMetadata(
-                number=None,
-                title=None,
-                description=None,
-                author=None,
-                labels=(),
-                base_branch=base_branch,
-            ),
+            review_metadata=ReviewMetadata(base_branch=base_branch),
             changed_files=(),
             diff="",
             commits=(),
@@ -486,99 +253,6 @@ async def _gather_spec_files(
                 logger.warning(f"Failed to read spec file {file_path}: {e}")
 
     return spec_files
-
-
-async def combine_review_results(
-    spec_review: dict[str, Any] | None,
-    technical_review: dict[str, Any] | None,
-    pr_metadata: dict[str, Any],
-) -> CombinedReviewResult:
-    """Combine review results from spec and technical reviewers.
-
-    Args:
-        spec_review: Spec compliance review output
-        technical_review: Technical quality review output
-        pr_metadata: PR metadata
-
-    Returns:
-        CombinedReviewResult with unified report
-    """
-    # Extract findings from both sources
-    spec_findings = ""
-    spec_assessment = "UNKNOWN"
-    if spec_review:
-        spec_findings = spec_review.get("findings", "")
-        spec_assessment = spec_review.get("assessment", "UNKNOWN")
-
-    technical_findings = ""
-    technical_quality = "UNKNOWN"
-    has_critical = False
-    if technical_review:
-        technical_findings = technical_review.get("findings", "")
-        technical_quality = technical_review.get("quality", "UNKNOWN")
-        has_critical = technical_review.get("has_critical", False)
-
-    # Generate unified report
-    report_lines = []
-    report_lines.append("# Code Review Report")
-    report_lines.append("")
-
-    if pr_metadata.get("number"):
-        report_lines.append(f"**PR:** #{pr_metadata['number']}")
-    if pr_metadata.get("title"):
-        report_lines.append(f"**Title:** {pr_metadata['title']}")
-    if pr_metadata.get("author"):
-        report_lines.append(f"**Author:** {pr_metadata['author']}")
-    report_lines.append("")
-
-    # Summary section
-    report_lines.append("## Summary")
-    report_lines.append("")
-    report_lines.append(f"- **Spec Compliance:** {spec_assessment}")
-    report_lines.append(f"- **Technical Quality:** {technical_quality}")
-    report_lines.append("")
-
-    # Spec Review section
-    report_lines.append("## Spec Compliance Review")
-    report_lines.append("")
-    if spec_findings:
-        report_lines.append(spec_findings)
-    else:
-        report_lines.append("_No spec compliance review available._")
-    report_lines.append("")
-
-    # Technical Review section
-    report_lines.append("## Technical Quality Review")
-    report_lines.append("")
-    if technical_findings:
-        report_lines.append(technical_findings)
-    else:
-        report_lines.append("_No technical review available._")
-    report_lines.append("")
-
-    # Determine recommendation
-    if (
-        has_critical
-        or spec_assessment == "NON-COMPLIANT"
-        or technical_quality == "POOR"
-    ):
-        recommendation = "request_changes"
-    elif spec_assessment == "PARTIAL" or technical_quality == "NEEDS_WORK":
-        recommendation = "comment"
-    elif spec_assessment == "COMPLIANT" and technical_quality in ("GOOD", "EXCELLENT"):
-        recommendation = "approve"
-    else:
-        recommendation = "comment"
-
-    report_lines.append("## Recommendation")
-    report_lines.append("")
-    report_lines.append(f"**{recommendation.replace('_', ' ').title()}**")
-
-    return CombinedReviewResult(
-        review_report="\n".join(report_lines),
-        issues=(),  # No structured issues, findings are in the report
-        recommendation=recommendation,
-    )
 
 
 # =============================================================================
@@ -793,13 +467,14 @@ def _generate_group_id(file_path: str | None, issues: list[ReviewIssue]) -> str:
 
 
 async def run_review_fix_loop(
-    pr_context: dict[str, Any],
+    review_input: dict[str, Any],
     base_branch: str,
     max_attempts: int,
     skip_if_approved: bool = True,
     generate_report: bool = False,
     stream_callback: StreamCallback | None = None,
     cwd: str | None = None,
+    briefing_context: str | None = None,
 ) -> ReviewFixLoopResult | ReviewAndFixReport:
     """Execute review-fix loop with dual-agent review and single fixer.
 
@@ -814,7 +489,9 @@ async def run_review_fix_loop(
     spawning subagents to fix issues affecting different files in parallel.
 
     Args:
-        pr_context: PR context from gather_pr_context (dict with pr_metadata, etc.)
+        review_input: Review context dict (from ``gather_local_review_context``)
+            containing review_metadata,
+            changed_files, diff, etc.
         base_branch: Base branch for comparison
         max_attempts: Maximum review-fix cycles (0 disables fixes)
         skip_if_approved: Skip fix loop if review recommends approve
@@ -822,20 +499,27 @@ async def run_review_fix_loop(
             ``ReviewAndFixReport`` instead of the raw ``ReviewFixLoopResult``.
         stream_callback: Optional callback for streaming agent output text.
         cwd: Working directory for review/fix operations (defaults to current
-            directory). When provided, overrides any cwd in pr_context.
+            directory). When provided, overrides any cwd in review_input.
+        briefing_context: Optional serialized BriefingDocument content. When
+            provided, reviewers receive architecture decisions, data model
+            contracts, and risk analysis to verify implementation against.
 
     Returns:
         When *generate_report* is True: ``ReviewAndFixReport`` with the final
         summary.  Otherwise: ``ReviewFixLoopResult`` with raw review and fix
         outcomes.
     """
-    # Convert pr_context if it's a ReviewContextResult
-    if hasattr(pr_context, "to_dict"):
-        pr_context = pr_context.to_dict()
+    # Convert review_input if it's a ReviewContextResult
+    if hasattr(review_input, "to_dict"):
+        review_input = review_input.to_dict()
 
-    # Inject explicit cwd into pr_context so reviewers/fixers use it
+    # Inject explicit cwd so reviewers/fixers use it
     if cwd:
-        pr_context["cwd"] = cwd
+        review_input["cwd"] = cwd
+
+    # Inject briefing context for architecture/risk-aware review
+    if briefing_context:
+        review_input["briefing_context"] = briefing_context
 
     async def _maybe_report(
         result: ReviewFixLoopResult,
@@ -849,7 +533,9 @@ async def run_review_fix_loop(
 
     if max_attempts <= 0:
         # Just run review once, no fixing
-        review_result = await _run_dual_review(pr_context, base_branch, stream_callback)
+        review_result = await _run_dual_review(
+            review_input, base_branch, stream_callback
+        )
         return await _maybe_report(
             ReviewFixLoopResult(
                 success=True,
@@ -870,7 +556,9 @@ async def run_review_fix_loop(
         logger.info("Review-fix cycle %d/%d", attempt_num, max_attempts)
 
         # Step 1: Run dual review (spec + technical in parallel)
-        review_result = await _run_dual_review(pr_context, base_branch, stream_callback)
+        review_result = await _run_dual_review(
+            review_input, base_branch, stream_callback
+        )
         current_recommendation = review_result.get("recommendation", "request_changes")
 
         # Step 2: Check if we're done (approved on first attempt = skip fixes)
@@ -911,7 +599,7 @@ async def run_review_fix_loop(
         # Don't fix on the last attempt - just report what's remaining
         if attempt_num < max_attempts:
             logger.info("Running review fixer agent")
-            await _run_review_fixer(review_result, pr_context, stream_callback)
+            await _run_review_fixer(review_result, review_input, stream_callback)
 
     # Max attempts exhausted
     return await _maybe_report(
@@ -928,14 +616,15 @@ async def run_review_fix_loop(
 
 
 async def _run_dual_review(
-    pr_context: dict[str, Any],
+    review_input: dict[str, Any],
     base_branch: str,
     stream_callback: StreamCallback | None = None,
 ) -> dict[str, Any]:
     """Run unified reviewer (spawns parallel expert subagents).
 
     Args:
-        pr_context: PR context dict
+        review_input: Review context dict with review_metadata, changed_files,
+            diff, cwd, and optional briefing_context.
         base_branch: Base branch for comparison
         stream_callback: Optional callback for streaming agent output text.
 
@@ -945,17 +634,24 @@ async def _run_dual_review(
     try:
         from maverick.agents.reviewers import UnifiedReviewerAgent
 
-        # Build context dict for reviewer
-        pr_metadata = pr_context.get("pr_metadata", {})
-        if hasattr(pr_metadata, "to_dict"):
-            pr_metadata = pr_metadata.to_dict()
+        # Build context dict for reviewer — accept both old and new key names
+        review_meta = review_input.get(
+            "review_metadata", review_input.get("pr_metadata", {})
+        )
+        if hasattr(review_meta, "to_dict"):
+            review_meta = review_meta.to_dict()
 
-        review_context = {
-            "pr_metadata": pr_metadata,
-            "changed_files": list(pr_context.get("changed_files", [])),
-            "diff": pr_context.get("diff", ""),
-            "cwd": pr_context.get("cwd"),
+        review_context: dict[str, Any] = {
+            "review_metadata": review_meta,
+            "changed_files": list(review_input.get("changed_files", [])),
+            "diff": review_input.get("diff", ""),
+            "cwd": review_input.get("cwd"),
         }
+
+        # Thread briefing context for architecture-aware review
+        briefing = review_input.get("briefing_context")
+        if briefing:
+            review_context["briefing_context"] = briefing
 
         # Run unified reviewer via ACP executor
         from maverick.executor import create_default_executor
@@ -1026,7 +722,7 @@ async def _run_dual_review(
 
 async def _run_review_fixer(
     review_result: dict[str, Any],
-    pr_context: dict[str, Any],
+    review_input: dict[str, Any],
     stream_callback: StreamCallback | None = None,
 ) -> dict[str, Any]:
     """Run the review fixer agent to address issues.
@@ -1036,7 +732,7 @@ async def _run_review_fixer(
 
     Args:
         review_result: Combined review result with report and recommendation
-        pr_context: PR context dict
+        review_input: Review context dict
         stream_callback: Optional callback for streaming agent output text.
 
     Returns:
@@ -1058,7 +754,7 @@ async def _run_review_fixer(
             return {"success": True, "outcomes": [], "message": "No findings to fix"}
 
         # Get working directory
-        cwd = pr_context.get("cwd") or Path.cwd()
+        cwd = review_input.get("cwd") or Path.cwd()
 
         # Run simple fixer via ACP executor; parse outcomes from raw text output
         from maverick.executor import create_default_executor
@@ -1103,8 +799,7 @@ async def _run_review_fixer(
 async def _run_review_check(base_branch: str) -> dict[str, Any]:
     """Re-run the review to check if issues are resolved.
 
-    This performs a lightweight review check by gathering PR context
-    and re-running the unified reviewer.
+    Gathers local review context and re-runs the unified reviewer.
 
     Args:
         base_branch: Base branch for comparison
@@ -1113,27 +808,24 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
         Review result dict with recommendation
     """
     try:
-        # Gather fresh PR context
-        context_result = await gather_pr_context(
-            pr_number=None,  # Auto-detect from current branch
+        context_result = await gather_local_review_context(
             base_branch=base_branch,
             include_spec_files=True,
         )
 
         if context_result.error:
-            logger.warning("Failed to gather PR context: %s", context_result.error)
+            logger.warning("Failed to gather review context: %s", context_result.error)
             return {"recommendation": "request_changes"}
 
-        # Re-use _run_dual_review which now uses UnifiedReviewerAgent
-        pr_context = {
-            "pr_metadata": context_result.pr_metadata.to_dict(),
+        review_input = {
+            "review_metadata": context_result.review_metadata.to_dict(),
             "changed_files": list(context_result.changed_files),
             "diff": context_result.diff,
             "commits": list(context_result.commits),
             "spec_files": context_result.spec_files,
         }
 
-        return await _run_dual_review(pr_context, base_branch)
+        return await _run_dual_review(review_input, base_branch)
 
     except Exception as e:
         logger.warning("Re-review failed: %s, assuming issues remain", e)
