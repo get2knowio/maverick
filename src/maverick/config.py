@@ -66,7 +66,13 @@ class AgentProviderConfig(BaseModel, frozen=True):
         default: Whether this is the default provider.
     """
 
-    command: list[str] = Field(..., min_length=1, description="Spawn command and args")
+    command: list[str] | None = Field(
+        default=None,
+        description=(
+            "Spawn command and args. Optional for built-in providers "
+            "(claude, copilot) — resolved automatically by the registry."
+        ),
+    )
     env: dict[str, str] = Field(
         default_factory=dict, description="Environment overrides"
     )

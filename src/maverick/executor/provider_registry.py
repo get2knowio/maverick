@@ -10,15 +10,30 @@ __all__ = ["AgentProviderRegistry"]
 
 logger = get_logger(__name__)
 
-#: Default Claude Code provider command (zero-config fallback)
+#: Default Claude provider command (zero-config fallback).
 #: Uses the Zed ACP bridge (@zed-industries/claude-agent-acp) which wraps
 #: Claude Code's Agent SDK and exposes it as an ACP agent over stdio.
 _DEFAULT_CLAUDE_COMMAND: list[str] = [
     "claude-agent-acp",
 ]
 
-#: Name used for the synthesized default Claude Code provider
+#: Default GitHub Copilot provider command.
+#: Uses the Copilot CLI's built-in ACP server mode (stdio transport).
+#: See https://docs.github.com/en/copilot/reference/acp-server
+_DEFAULT_COPILOT_COMMAND: list[str] = [
+    "copilot",
+    "--acp",
+    "--stdio",
+]
+
+#: Name used for the synthesized default provider
 _DEFAULT_PROVIDER_NAME: str = "claude"
+
+#: Known built-in providers with their default commands.
+_BUILTIN_PROVIDERS: dict[str, list[str]] = {
+    "claude": _DEFAULT_CLAUDE_COMMAND,
+    "copilot": _DEFAULT_COPILOT_COMMAND,
+}
 
 
 class AgentProviderRegistry:
@@ -61,7 +76,12 @@ class AgentProviderRegistry:
     def from_config(
         cls, providers: dict[str, AgentProviderConfig]
     ) -> AgentProviderRegistry:
-        """Create registry, synthesizing default Claude Code provider when empty.
+        """Create registry with built-in provider resolution.
+
+        When no providers are configured, synthesizes a default Claude provider.
+        When a provider name matches a built-in (``claude``, ``copilot``) and
+        no ``command`` is specified, the built-in command is filled in
+        automatically.
 
         Args:
             providers: Named provider configurations from maverick.yaml.
@@ -70,10 +90,11 @@ class AgentProviderRegistry:
             Validated AgentProviderRegistry.
 
         Raises:
-            ConfigError: If multiple providers have default=True.
+            ConfigError: If multiple providers have default=True, or if a
+                provider has no command and is not a known built-in.
         """
         if not providers:
-            # Zero-config: synthesize default Claude Code provider
+            # Zero-config: synthesize default Claude provider
             default_provider = AgentProviderConfig(
                 command=_DEFAULT_CLAUDE_COMMAND,
                 permission_mode=PermissionMode.AUTO_APPROVE,
@@ -86,7 +107,32 @@ class AgentProviderRegistry:
             )
             return cls({_DEFAULT_PROVIDER_NAME: default_provider})
 
-        return cls(providers)
+        # Resolve built-in commands for providers without explicit commands
+        resolved: dict[str, AgentProviderConfig] = {}
+        for name, cfg in providers.items():
+            if cfg.command is None:
+                builtin_cmd = _BUILTIN_PROVIDERS.get(name)
+                if builtin_cmd is None:
+                    raise ConfigError(
+                        message=(
+                            f"Agent provider '{name}' has no command and is not "
+                            f"a built-in provider. Built-in providers: "
+                            f"{list(_BUILTIN_PROVIDERS.keys())}. "
+                            f"Provide an explicit 'command' list."
+                        ),
+                        field="agent_providers",
+                        value=name,
+                    )
+                logger.debug(
+                    "agent_provider_registry.resolved_builtin",
+                    provider=name,
+                    command=builtin_cmd,
+                )
+                resolved[name] = cfg.model_copy(update={"command": builtin_cmd})
+            else:
+                resolved[name] = cfg
+
+        return cls(resolved)
 
     def get(self, name: str) -> AgentProviderConfig:
         """Look up a provider by name.
