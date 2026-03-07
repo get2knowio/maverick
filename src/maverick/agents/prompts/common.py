@@ -128,8 +128,8 @@ Follow them strictly regardless of the target project's language or stack.
 - Test error states and concurrency for async components, not just happy paths.
 
 ### Type Safety
-- Complete type hints on all public functions and classes.
-- Use typed data structures (dataclasses, typed models) over untyped dicts.
+- Complete type annotations on all public functions and classes.
+- Use typed data structures over untyped containers (e.g., maps, dicts).
 - Action outputs must use typed contracts — no ad-hoc untyped blobs.
 
 ### Code Style

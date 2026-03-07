@@ -1,7 +1,7 @@
 """Unified Code Reviewer Agent.
 
 This agent performs comprehensive code review by spawning parallel subagents
-for different areas of expertise (Python best practices, spec compliance),
+for different areas of expertise (language best practices, spec compliance),
 then consolidates findings into a prioritized, grouped list.
 """
 
@@ -88,24 +88,26 @@ You have access to: **Read, Glob, Grep, Task**
 
 Spawn two parallel subagents to review the code:
 
-1. **Python Expert** - Reviews for:
-   - Idiomatic Python and clean code principles
-   - Proper type hints and async patterns
-   - Pydantic usage and data validation
+1. **$project_type_name Expert** - Reviews for:
+   - Idiomatic code and clean code principles for the project's language/stack
+   - Proper use of the language's type system
    - Canonical library usage per project standards (see Project Conventions below)
    - Error handling and edge cases
-   - Hardening: timeouts on external calls, retry logic via tenacity, specific
-     exception handling (no bare `except Exception`)
+   - Hardening: timeouts on external calls, retry logic, specific exception
+     handling (no overly broad catch-all patterns)
 
 2. **Requirements Expert** - Reviews against the task/bead description and
    project standards:
    - Does the implementation satisfy the stated objective and acceptance criteria?
    - Are there missing edge cases or incomplete handling?
    - Are tests adequate — do they cover the public API, error states, and
-     async behavior?
-   - Does the code follow the canonical library standards (e.g., structlog for
-     logging, tenacity for retries, Pydantic for models)?
-   - Are typed contracts used (dataclasses/Pydantic) instead of ad-hoc dicts?
+     concurrency behavior?
+   - Does the code follow the canonical library standards documented in
+     the project conventions (see below)?
+   - Are typed contracts used instead of ad-hoc untyped structures?
+   - When a **Briefing Expectations** section is present: verify the implementation
+     conforms to architecture decisions, data model contracts, and identified risks.
+     Flag deviations from consensus points or unaddressed high-severity risks.
 
 {FRAMEWORK_CONVENTIONS}
 
@@ -182,7 +184,7 @@ If no issues are found, return: `{{"groups": []}}`
 class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResult]):
     """Agent for comprehensive code review with parallel expertise.
 
-    This agent reviews code from multiple perspectives (Python best practices,
+    This agent reviews code from multiple perspectives (language best practices,
     spec compliance) and consolidates findings into grouped, prioritized output.
 
     The agent is instructed to spawn subagents for different review perspectives,
@@ -286,14 +288,28 @@ class UnifiedReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResult]):
             parts.append(diff)
             parts.append("```")
 
-        # Add PR metadata if provided
-        pr_metadata = context.get("pr_metadata")
-        if pr_metadata:
-            parts.append("\n## PR Information")
-            if pr_metadata.get("title"):
-                parts.append(f"Title: {pr_metadata['title']}")
-            if pr_metadata.get("body"):
-                parts.append(f"Description: {pr_metadata['body'][:1000]}")
+        # Add review metadata if provided (branch info, title, description)
+        review_meta = context.get("review_metadata", context.get("pr_metadata"))
+        if review_meta:
+            parts.append("\n## Review Context")
+            if review_meta.get("title"):
+                parts.append(f"Title: {review_meta['title']}")
+            if review_meta.get("description"):
+                parts.append(f"Description: {review_meta['description'][:1000]}")
+
+        # Add briefing expectations if provided
+        briefing_context = context.get("briefing_context")
+        if briefing_context:
+            parts.append("\n## Briefing Expectations")
+            parts.append(
+                "The following briefing document was produced during planning. "
+                "Verify the implementation against these architecture decisions, "
+                "data model contracts, identified risks, and consensus points."
+            )
+            # Truncate very large briefings
+            if len(briefing_context) > 20000:
+                briefing_context = briefing_context[:20000] + "\n... (truncated)"
+            parts.append(briefing_context)
 
         return "\n".join(parts)
 

@@ -40,9 +40,10 @@ You have access to: **Read, Glob, Grep**
 
 ## Principles
 
-- Examine existing models to match conventions (Pydantic vs dataclass, naming).
+- Examine existing models to match conventions (naming, modeling patterns).
 - Identify validation rules and constraints for each entity.
-- Use fields as "name: type" strings (e.g., "email: str", "created_at: datetime").
+- Use fields as "name: type" strings (e.g., "email: str", "created_at: datetime")
+  matching the project's type annotation style.
 - Define interfaces at natural boundaries between components.
 
 ## Constraints
