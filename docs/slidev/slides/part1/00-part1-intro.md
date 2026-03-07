@@ -71,8 +71,8 @@ These ten libraries form the backbone of Maverick:
 6. GitPython for git operations
 7. PyGithub for GitHub API integration
 8. Tenacity for retry logic
-9. Lark for parsing the DSL expressions
-10. Claude Agent SDK for AI agent development
+9. Lark for structured parsing patterns in Maverick
+10. Agent Client Protocol (ACP) for AI agent execution
 
 Every Maverick module uses these patterns consistently.
 -->
