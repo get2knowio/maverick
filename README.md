@@ -67,10 +67,10 @@ uv tool install git+https://github.com/get2knowio/maverick.git
 maverick plan generate my-feature --from-prd specs/my-feature/spec.md
 
 # 2. Validate the generated plan
-maverick plan validate .maverick/flight-plans/my-feature.md
+maverick plan validate my-feature
 
 # 3. Decompose into work units and create beads
-maverick refuel plan .maverick/flight-plans/my-feature.md
+maverick refuel my-feature
 
 # 4. Implement beads (in isolated workspace)
 maverick fly --epic <epic-id> --max-beads 5
@@ -78,8 +78,8 @@ maverick fly --epic <epic-id> --max-beads 5
 # 5. Curate history and push
 maverick land
 
-# Alternative: create beads directly from a SpecKit specification
-maverick refuel speckit .specify/specs/my-feature/
+# Alternative: create beads from a SpecKit specification
+maverick refuel --from speckit 001-my-feature
 
 # Other commands
 maverick fly --skip-review --max-beads 5
@@ -101,7 +101,7 @@ The full pipeline takes a product requirements document and turns it into
 shipped code:
 
 ```
-PRD ──▶ plan generate ──▶ plan validate ──▶ refuel plan ──▶ fly ──▶ land
+PRD ──▶ plan generate ──▶ plan validate ──▶ refuel ──▶ fly ──▶ land
             │                                                   │                 │       │
             ├── Pre-Flight Briefing Room                        ├── Briefing      │       ├── Curate
             │   (scopist, codebase analyst,                     │   Room           │       │   commits
@@ -134,30 +134,22 @@ maverick plan generate my-feature --from-prd specs/my-feature/spec.md
 Validates a generated flight plan for structural correctness.
 
 ```bash
-maverick plan validate .maverick/flight-plans/my-feature.md
+maverick plan validate my-feature
 ```
 
-### `maverick refuel plan` — Decompose into Beads
+### `maverick refuel` — Decompose into Beads
 
-Decomposes a flight plan into work units and creates beads. Also runs a
-briefing room to inform the decomposition.
+Decomposes a flight plan into work units and creates beads. All artifacts
+are stored in `.maverick/plans/<name>/`. Also runs a briefing room to
+inform the decomposition.
 
-```bash
-maverick refuel plan .maverick/flight-plans/my-feature.md
-maverick refuel plan .maverick/flight-plans/my-feature.md --dry-run
-```
-
-### `maverick refuel speckit` — Beads from SpecKit
-
-Creates beads from a SpecKit specification directory containing `tasks.md`:
-
-1. **Parse** — Extract phases and tasks from `tasks.md`
-2. **Create** — Generate epic and work beads via `bd`
-3. **Enrich** — Add acceptance criteria and context to bead descriptions
-4. **Wire** — Set up dependencies between beads
+Use `--from speckit` to load from a SpecKit specification instead.
 
 ```bash
-maverick refuel speckit .specify/specs/my-feature/
+maverick refuel my-feature
+maverick refuel my-feature --dry-run
+maverick refuel my-feature --skip-briefing
+maverick refuel --from speckit 001-my-feature
 ```
 
 ### `maverick fly` — Bead-Driven Development

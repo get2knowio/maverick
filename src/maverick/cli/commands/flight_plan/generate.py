@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from maverick.cli.commands.flight_plan._group import (
-    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PLANS_DIR,
     KEBAB_CASE_RE,
     flight_plan,
 )
@@ -34,9 +34,9 @@ from maverick.cli.context import ExitCode, async_command
 )
 @click.option(
     "--output-dir",
-    default=DEFAULT_OUTPUT_DIR,
+    default=DEFAULT_PLANS_DIR,
     show_default=True,
-    help="Output directory for the flight plan file.",
+    help="Base plans directory.",
 )
 @click.option(
     "--skip-briefing",
@@ -73,6 +73,8 @@ async def generate(
         maverick plan generate my-feature --from-prd spec.md
 
         cat spec.md | maverick plan generate my-feature --from-prd -
+
+    Output: .maverick/plans/{name}/flight-plan.md
     """
     from maverick.cli.workflow_executor import (
         PythonWorkflowRunConfig,
@@ -112,17 +114,18 @@ async def generate(
         console.print("[red]Error:[/red] PRD content is empty.")
         raise SystemExit(ExitCode.FAILURE)
 
-    output_path = Path(output_dir)
+    plans_path = Path(output_dir)
 
     # Guard: --output-dir must not point to an existing regular file.
-    if output_path.exists() and not output_path.is_dir():
+    if plans_path.exists() and not plans_path.is_dir():
         console.print(
             f"[red]Error:[/red] '[bold]{output_dir}[/bold]' exists but"
             " is not a directory.",
         )
         raise SystemExit(ExitCode.FAILURE)
 
-    target_file = output_path / f"{name}.md"
+    plan_dir = plans_path / name
+    target_file = plan_dir / "flight-plan.md"
 
     # Overwrite guard: refuse if file already exists.
     if target_file.exists():

@@ -198,18 +198,20 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
                 continue
 
-            # Resolve briefing context from flight plan (if available)
+            # Resolve briefing context from flight plan (if available).
+            # Check refuel-briefing first, then fall back to preflight briefing.
             briefing_context: str | None = None
             fp_name = select_result.flight_plan_name
             if fp_name:
-                briefing_path = (
-                    Path.cwd() / ".maverick" / "work-units" / fp_name / "briefing.md"
-                )
-                if briefing_path.is_file():
-                    import contextlib
+                plan_dir = Path.cwd() / ".maverick" / "plans" / fp_name
+                for candidate in ("refuel-briefing.md", "briefing.md"):
+                    briefing_path = plan_dir / candidate
+                    if briefing_path.is_file():
+                        import contextlib
 
-                    with contextlib.suppress(Exception):
-                        briefing_context = briefing_path.read_text(encoding="utf-8")
+                        with contextlib.suppress(Exception):
+                            briefing_context = briefing_path.read_text(encoding="utf-8")
+                        break
 
             logger.info(
                 "fly_beads_processing_bead",

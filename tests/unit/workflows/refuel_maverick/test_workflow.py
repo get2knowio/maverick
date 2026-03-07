@@ -135,7 +135,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert workflow_result.success is True
         final = workflow_result.final_output
         assert final["work_units_written"] == 4
-        assert ".maverick/work-units/add-user-auth" in final["work_units_dir"]
+        assert ".maverick/plans/add-user-auth" in final["work_units_dir"]
         assert final["epic"] == {"bd_id": "epic-1", "title": "add-user-auth"}
         assert len(final["work_beads"]) == 4
         assert final["dry_run"] is False
@@ -184,7 +184,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """Work unit files use {seq:03d}-{id}.md naming inside .maverick/work-units/."""
+        """Work unit files use {seq:03d}-{id}.md naming inside .maverick/plans/."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
         bead_result = make_bead_result()
@@ -206,7 +206,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        work_units_dir = tmp_path / ".maverick" / "work-units" / "add-user-auth"
+        work_units_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
         assert work_units_dir.exists(), f"Expected {work_units_dir} to exist"
         files = sorted(work_units_dir.glob("[0-9][0-9][0-9]-*.md"))
         assert len(files) == 4
@@ -363,7 +363,7 @@ class TestDryRunMode:
                 {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
             )
 
-        work_units_dir = tmp_path / ".maverick" / "work-units" / "add-user-auth"
+        work_units_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
         assert work_units_dir.exists(), f"Expected {work_units_dir} to exist"
         files = list(work_units_dir.glob("[0-9][0-9][0-9]-*.md"))
         assert len(files) == 4
@@ -494,7 +494,9 @@ class TestErrorHandling:
     ) -> None:
         """A non-existent flight plan path results in a failed parse_flight_plan step."""  # noqa: E501
         workflow = make_workflow(mock_config, mock_registry)
-        missing_path = tmp_path / ".maverick" / "flight-plans" / "does-not-exist.md"
+        missing_path = (
+            tmp_path / ".maverick" / "plans" / "does-not-exist" / "flight-plan.md"
+        )
 
         events, result = await collect_events(
             workflow,

@@ -74,7 +74,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     2. gather_context - Read in-scope files from codebase
     3. decompose - Agent decomposes flight plan into work units (via StepExecutor)
     4. validate - Validate dependency graph (acyclic), unique IDs, SC coverage
-    5. write_work_units - Write work unit files to .maverick/work-units/<name>/
+    5. write_work_units - Write work unit files to .maverick/plans/<name>/
     6. create_beads - Create epic + task beads via BeadClient (skipped on dry_run)
     7. wire_deps - Wire bead dependencies from depends_on fields (skipped on dry_run)
 
@@ -139,11 +139,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         try:
             # Resolve cwd for in-scope file paths. Convention: flight plans live in
-            # .maverick/flight-plans/<name>.md, so parent.parent yields the repo root.
+            # .maverick/plans/<name>/flight-plan.md, so we need to go up 4 levels
+            # (flight-plan.md → <name> → plans → .maverick → repo root).
             # If the flight plan is at the filesystem root (parent.name is empty),
             # fall back to None (which gather_codebase_context resolves to Path.cwd()).
-            fp_parent = flight_plan_path.parent
-            cwd = fp_parent.parent if fp_parent.name else None
+            plan_dir = flight_plan_path.parent
+            cwd = plan_dir.parent.parent.parent if plan_dir.name else None
             codebase_context = await gather_codebase_context(
                 in_scope=flight_plan.scope.in_scope,
                 cwd=cwd,
@@ -268,10 +269,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     contrarian_result.output,
                 )
 
-                # Write to disk (colocated with work units)
-                wu_dir = Path.cwd() / ".maverick" / "work-units" / flight_plan.name
-                await asyncio.to_thread(wu_dir.mkdir, parents=True, exist_ok=True)
-                briefing_path = wu_dir / "briefing.md"
+                # Write to disk (colocated with flight plan and work units)
+                plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
+                await asyncio.to_thread(plan_dir.mkdir, parents=True, exist_ok=True)
+                briefing_path = plan_dir / "refuel-briefing.md"
                 await asyncio.to_thread(
                     briefing_path.write_text,
                     serialize_briefing(briefing_doc),
@@ -404,8 +405,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         await self.emit_step_started(WRITE_WORK_UNITS)
 
-        # Determine output directory
-        work_units_dir = Path.cwd() / ".maverick" / "work-units" / flight_plan.name
+        # Determine output directory (colocated with flight plan)
+        work_units_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
 
         # Convert specs to WorkUnit models
         work_units = convert_specs_to_work_units(

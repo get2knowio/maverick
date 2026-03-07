@@ -60,9 +60,9 @@ Add user authentication to the application.
 ### Boundaries
 - src/config.py (protect - read only)
 """
-    flight_plans_dir = tmp_path / ".maverick" / "flight-plans"
+    flight_plans_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
     flight_plans_dir.mkdir(parents=True)
-    fp = flight_plans_dir / "add-user-auth.md"
+    fp = flight_plans_dir / "flight-plan.md"
     fp.write_text(content, encoding="utf-8")
     return fp
 

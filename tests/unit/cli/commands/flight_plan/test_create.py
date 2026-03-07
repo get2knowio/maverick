@@ -40,11 +40,17 @@ class TestFlightPlanCreateHappyPath:
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """Command creates a .md file in the default .maverick/flight-plans/ dir."""
+        """Command creates a .md file in the default .maverick/plans/ dir."""
         result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
-        expected_file = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
+        expected_file = (
+            flight_plan_env
+            / ".maverick"
+            / "plans"
+            / "my-feature"
+            / "flight-plan.md"
+        )
         assert expected_file.exists(), f"Expected file not found: {expected_file}"
 
     def test_created_file_contains_name_in_frontmatter(
@@ -57,7 +63,13 @@ class TestFlightPlanCreateHappyPath:
 
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
-        file_path = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
+        file_path = (
+            flight_plan_env
+            / ".maverick"
+            / "plans"
+            / "my-feature"
+            / "flight-plan.md"
+        )
         content = file_path.read_text()
         parts = content.split("---", 2)
         fm = yaml.safe_load(parts[1])
@@ -71,7 +83,13 @@ class TestFlightPlanCreateHappyPath:
         """The created file contains all required Markdown sections."""
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
-        file_path = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
+        file_path = (
+            flight_plan_env
+            / ".maverick"
+            / "plans"
+            / "my-feature"
+            / "flight-plan.md"
+        )
         content = file_path.read_text()
         assert "## Objective" in content
         assert "## Success Criteria" in content
@@ -108,7 +126,7 @@ class TestFlightPlanCreateHappyPath:
         )
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
-        expected_file = custom_dir / "my-feature.md"
+        expected_file = custom_dir / "my-feature" / "flight-plan.md"
         assert expected_file.exists(), f"Expected file not found: {expected_file}"
 
     def test_custom_output_dir_file_content(
@@ -125,7 +143,7 @@ class TestFlightPlanCreateHappyPath:
             ["plan", "create", "api-setup", "--output-dir", str(custom_dir)],
         )
 
-        file_path = custom_dir / "api-setup.md"
+        file_path = custom_dir / "api-setup" / "flight-plan.md"
         content = file_path.read_text()
         parts = content.split("---", 2)
         fm = yaml.safe_load(parts[1])
@@ -141,7 +159,7 @@ class TestFlightPlanCreateDirectoryCreation:
         flight_plan_env: Path,
     ) -> None:
         """Default output directory is created if it doesn't exist."""
-        default_dir = flight_plan_env / ".maverick" / "flight-plans"
+        default_dir = flight_plan_env / ".maverick" / "plans"
         assert not default_dir.exists(), "Directory should not exist before command"
 
         result = cli_runner.invoke(cli, ["plan", "create", "my-plan"])
@@ -165,7 +183,7 @@ class TestFlightPlanCreateDirectoryCreation:
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
         assert nested_dir.exists()
-        assert (nested_dir / "my-plan.md").exists()
+        assert (nested_dir / "my-plan" / "flight-plan.md").exists()
 
     def test_existing_output_dir_is_ok(
         self,
@@ -194,9 +212,9 @@ class TestFlightPlanCreateOverwriteGuard:
     ) -> None:
         """Command refuses with exit code 1 if the target file already exists."""
         # Create the file first
-        output_dir = flight_plan_env / ".maverick" / "flight-plans"
+        output_dir = flight_plan_env / ".maverick" / "plans" / "my-feature"
         output_dir.mkdir(parents=True)
-        existing_file = output_dir / "my-feature.md"
+        existing_file = output_dir / "flight-plan.md"
         existing_file.write_text("existing content")
 
         result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
@@ -209,9 +227,9 @@ class TestFlightPlanCreateOverwriteGuard:
         flight_plan_env: Path,
     ) -> None:
         """Error message is shown when file already exists."""
-        output_dir = flight_plan_env / ".maverick" / "flight-plans"
+        output_dir = flight_plan_env / ".maverick" / "plans" / "my-feature"
         output_dir.mkdir(parents=True)
-        existing_file = output_dir / "my-feature.md"
+        existing_file = output_dir / "flight-plan.md"
         existing_file.write_text("existing content")
 
         result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
@@ -226,9 +244,9 @@ class TestFlightPlanCreateOverwriteGuard:
         flight_plan_env: Path,
     ) -> None:
         """Existing file content is not modified when overwrite is refused."""
-        output_dir = flight_plan_env / ".maverick" / "flight-plans"
+        output_dir = flight_plan_env / ".maverick" / "plans" / "my-feature"
         output_dir.mkdir(parents=True)
-        existing_file = output_dir / "my-feature.md"
+        existing_file = output_dir / "flight-plan.md"
         original_content = "original content that must not change"
         existing_file.write_text(original_content)
 
@@ -244,7 +262,8 @@ class TestFlightPlanCreateOverwriteGuard:
         """Overwrite guard also applies when --output-dir is specified."""
         custom_dir = flight_plan_env / "plans"
         custom_dir.mkdir(parents=True)
-        existing_file = custom_dir / "my-plan.md"
+        existing_file = custom_dir / "my-plan" / "flight-plan.md"
+        (custom_dir / "my-plan").mkdir(parents=True)
         existing_file.write_text("existing")
 
         result = cli_runner.invoke(
@@ -350,9 +369,9 @@ class TestFlightPlanCreateNameValidation:
         """An invalid name does not create any file."""
         cli_runner.invoke(cli, ["plan", "create", "Bad Name!"])
 
-        default_dir = flight_plan_env / ".maverick" / "flight-plans"
+        default_dir = flight_plan_env / ".maverick" / "plans"
         if default_dir.exists():
-            files = list(default_dir.glob("*.md"))
+            files = list(default_dir.glob("*/flight-plan.md"))
             assert len(files) == 0, "No files should be created for invalid names"
 
 

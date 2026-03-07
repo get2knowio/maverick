@@ -1,4 +1,4 @@
-"""Unit tests for ``maverick refuel speckit`` CLI command."""
+"""Unit tests for ``maverick refuel --from speckit`` CLI command."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from maverick.main import cli
 
 # Patch target for the Python workflow execution
-_PATCH_EXECUTE = "maverick.cli.commands.refuel.speckit.execute_python_workflow"
+_PATCH_EXECUTE = "maverick.cli.workflow_executor.execute_python_workflow"
 
 
 class TestRefuelGroupRegistered:
@@ -34,27 +34,13 @@ class TestRefuelGroupRegistered:
         result = cli_runner.invoke(cli, ["refuel", "--help"])
         assert result.exit_code == 0
         assert "speckit" in result.output
-
-    def test_refuel_speckit_help(
-        self,
-        cli_runner: CliRunner,
-        temp_dir: Path,
-        clean_env: None,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        os.chdir(temp_dir)
-        monkeypatch.setattr(Path, "home", lambda: temp_dir)
-        result = cli_runner.invoke(cli, ["refuel", "speckit", "--help"])
-        assert result.exit_code == 0
-        assert "SPEC" in result.output
-        assert "--dry-run" in result.output
-        assert "--list-steps" in result.output
+        assert "--from" in result.output
 
 
 class TestRefuelSpeckitCommand:
-    """Tests for 'maverick refuel speckit' command."""
+    """Tests for 'maverick refuel --from speckit' command."""
 
-    def test_missing_spec_arg(
+    def test_missing_name_arg(
         self,
         cli_runner: CliRunner,
         temp_dir: Path,
@@ -65,7 +51,7 @@ class TestRefuelSpeckitCommand:
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
         result = cli_runner.invoke(
             cli,
-            ["refuel", "speckit"],
+            ["refuel", "--from", "speckit"],
         )
         assert result.exit_code != 0
 
@@ -83,13 +69,11 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", "001-test"],
+            ["refuel", "--from", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
-        # First positional arg is the click context
         call_args = mock_execute.call_args
-        # Second positional arg is PythonWorkflowRunConfig
         run_config = call_args[0][1]
         from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
 
@@ -109,7 +93,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", "001-test", "--dry-run"],
+            ["refuel", "--from", "speckit", "001-test", "--dry-run"],
         )
 
         mock_execute.assert_called_once()
@@ -130,7 +114,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", "001-test"],
+            ["refuel", "--from", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
@@ -151,7 +135,7 @@ class TestRefuelSpeckitCommand:
 
         cli_runner.invoke(
             cli,
-            ["refuel", "speckit", "001-test"],
+            ["refuel", "--from", "speckit", "001-test"],
         )
 
         mock_execute.assert_called_once()
@@ -171,10 +155,8 @@ class TestRefuelSpeckitCommand:
 
         result = cli_runner.invoke(
             cli,
-            ["refuel", "speckit", "001-test", "--list-steps"],
+            ["refuel", "--from", "speckit", "001-test", "--list-steps"],
         )
 
-        # Should exit cleanly (SystemExit(0))
         assert result.exit_code == 0
-        # Should show at least one step name
         assert "parse_spec" in result.output or "checkout" in result.output

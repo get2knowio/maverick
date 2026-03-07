@@ -151,9 +151,9 @@ class TestFlightPlanGenerateOverwriteGuard:
         flight_plan_env: Path,
     ) -> None:
         """Command refuses with exit code 1 if the target file already exists."""
-        output_dir = flight_plan_env / ".maverick" / "flight-plans"
+        output_dir = flight_plan_env / ".maverick" / "plans" / "my-plan"
         output_dir.mkdir(parents=True)
-        existing_file = output_dir / "my-plan.md"
+        existing_file = output_dir / "flight-plan.md"
         existing_file.write_text("existing content")
 
         result = cli_runner.invoke(
@@ -170,9 +170,9 @@ class TestFlightPlanGenerateOverwriteGuard:
         flight_plan_env: Path,
     ) -> None:
         """Existing file content is not modified when overwrite is refused."""
-        output_dir = flight_plan_env / ".maverick" / "flight-plans"
+        output_dir = flight_plan_env / ".maverick" / "plans" / "my-plan"
         output_dir.mkdir(parents=True)
-        existing_file = output_dir / "my-plan.md"
+        existing_file = output_dir / "flight-plan.md"
         original = "original content that must not change"
         existing_file.write_text(original)
 

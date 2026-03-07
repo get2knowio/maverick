@@ -279,7 +279,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
             },
         )
 
-        target = tmp_path / "test-plan.md"
+        target = tmp_path / "test-plan" / "flight-plan.md"
         assert target.exists()
         content = target.read_text()
         assert "## Objective" in content
@@ -308,7 +308,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
 
         assert workflow.result is not None
         assert workflow.result.success
-        assert "test-plan.md" in str(workflow.result.final_output)
+        assert "flight-plan.md" in str(workflow.result.final_output)
 
 
 class TestGenerateFlightPlanWorkflowErrors:

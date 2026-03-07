@@ -63,9 +63,9 @@ Test objective.
 ### Boundaries
 - src/config.py (protect)
 """
-    fp_dir = tmp_path / ".maverick" / "flight-plans"
+    fp_dir = tmp_path / ".maverick" / "plans" / name
     fp_dir.mkdir(parents=True, exist_ok=True)
-    fp = fp_dir / f"{name}.md"
+    fp = fp_dir / "flight-plan.md"
     fp.write_text(content, encoding="utf-8")
     return fp
 
@@ -324,9 +324,9 @@ class TestErrorHandling:
         """Pre-existing work unit files in output dir are cleared before new write."""
         fp = _make_flight_plan_file(tmp_path)
 
-        # Create pre-existing files in the output directory
-        work_units_dir = tmp_path / ".maverick" / "work-units" / "test-plan"
-        work_units_dir.mkdir(parents=True)
+        # Create pre-existing files in the output directory (same as plan dir)
+        work_units_dir = tmp_path / ".maverick" / "plans" / "test-plan"
+        work_units_dir.mkdir(parents=True, exist_ok=True)
         (work_units_dir / "001-old-unit.md").write_text("old content", encoding="utf-8")
         (work_units_dir / "002-another-old.md").write_text(
             "another old", encoding="utf-8"
@@ -393,9 +393,9 @@ Test objective.
 
 ### Boundaries
 """
-        fp_dir = tmp_path / ".maverick" / "flight-plans"
+        fp_dir = tmp_path / ".maverick" / "plans" / "empty-scope-plan"
         fp_dir.mkdir(parents=True, exist_ok=True)
-        fp = fp_dir / "empty-scope-plan.md"
+        fp = fp_dir / "flight-plan.md"
         fp.write_text(content, encoding="utf-8")
 
         # Decomp output for this plan — covers SC-001
@@ -752,7 +752,7 @@ class TestParallelGroups:
                 {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        work_units_dir = tmp_path / ".maverick" / "work-units" / "test-plan"
+        work_units_dir = tmp_path / ".maverick" / "plans" / "test-plan"
         assert work_units_dir.exists()
         files = sorted(work_units_dir.glob("[0-9][0-9][0-9]-*.md"))
         assert len(files) == 4

@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from maverick.cli.commands.flight_plan._group import (
-    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PLANS_DIR,
     KEBAB_CASE_RE,
     flight_plan,
 )
@@ -24,11 +24,12 @@ from maverick.cli.context import ExitCode
 @click.argument("name", metavar="NAME")
 @click.option(
     "--output-dir",
-    default=DEFAULT_OUTPUT_DIR,
+    "plans_dir",
+    default=DEFAULT_PLANS_DIR,
     show_default=True,
-    help="Output directory for the flight plan file.",
+    help="Base plans directory.",
 )
-def create(name: str, output_dir: str) -> None:
+def create(name: str, plans_dir: str) -> None:
     """Create a new flight plan from a template.
 
     NAME must be a kebab-case identifier: lowercase letters, digits, and
@@ -38,7 +39,7 @@ def create(name: str, output_dir: str) -> None:
 
         maverick plan create my-feature
 
-        maverick plan create api-gateway --output-dir plans/
+        maverick plan create api-gateway --output-dir .maverick/plans
     """
     from maverick.flight.template import generate_skeleton
 
@@ -51,27 +52,18 @@ def create(name: str, output_dir: str) -> None:
         )
         raise SystemExit(ExitCode.FAILURE)
 
-    output_path = Path(output_dir)
+    plans_path = Path(plans_dir)
 
     # Guard: --output-dir must not point to an existing regular file.
-    if output_path.exists() and not output_path.is_dir():
+    if plans_path.exists() and not plans_path.is_dir():
         console.print(
-            f"[red]Error:[/red] '[bold]{output_dir}[/bold]' exists but"
+            f"[red]Error:[/red] '[bold]{plans_dir}[/bold]' exists but"
             " is not a directory.",
         )
         raise SystemExit(ExitCode.FAILURE)
 
-    # Auto-create output directory (and parents) if it doesn't exist.
-    try:
-        output_path.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
-        console.print(
-            f"[red]Error:[/red] Permission denied creating directory "
-            f"'[bold]{output_dir}[/bold]'.",
-        )
-        raise SystemExit(ExitCode.FAILURE) from None
-
-    target_file = output_path / f"{name}.md"
+    plan_dir = plans_path / name
+    target_file = plan_dir / "flight-plan.md"
 
     # Overwrite guard: refuse if file already exists.
     if target_file.exists():
@@ -81,6 +73,16 @@ def create(name: str, output_dir: str) -> None:
             "Delete the file or choose a different name to proceed.",
         )
         raise SystemExit(ExitCode.FAILURE)
+
+    # Auto-create plan directory (and parents) if it doesn't exist.
+    try:
+        plan_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        console.print(
+            f"[red]Error:[/red] Permission denied creating directory "
+            f"'[bold]{plan_dir}[/bold]'.",
+        )
+        raise SystemExit(ExitCode.FAILURE) from None
 
     # Generate and write the skeleton.
     skeleton = generate_skeleton(name, date.today())

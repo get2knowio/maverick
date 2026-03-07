@@ -190,11 +190,12 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         name: str = inputs.get("name", "")
         if not name:
             raise WorkflowError("'name' input is required")
-        output_dir: str = inputs.get("output_dir", ".maverick/flight-plans")
+        output_dir: str = inputs.get("output_dir", ".maverick/plans")
         skip_briefing: bool = inputs.get("skip_briefing", False)
 
         output_path = Path(output_dir)
-        target_file = output_path / f"{name}.md"
+        plan_dir = output_path / name
+        target_file = plan_dir / "flight-plan.md"
         today = date.today()
 
         # ------------------------------------------------------------------
@@ -401,9 +402,14 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         await self.emit_step_started(WRITE_FLIGHT_PLAN)
         try:
-            output_path.mkdir(parents=True, exist_ok=True)
+            plan_dir.mkdir(parents=True, exist_ok=True)
             content = serialize_flight_plan(flight_plan)
             target_file.write_text(content, encoding="utf-8")
+
+            # Persist briefing alongside the flight plan
+            if briefing_generated and briefing_content:
+                briefing_file = plan_dir / "briefing.md"
+                briefing_file.write_text(briefing_content, encoding="utf-8")
         except Exception as exc:
             await self.emit_step_failed(WRITE_FLIGHT_PLAN, str(exc))
             raise

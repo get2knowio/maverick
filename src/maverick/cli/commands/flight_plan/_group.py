@@ -14,7 +14,7 @@ import click
 # lowercase letters, digits, and hyphens, ending with a letter or digit.
 KEBAB_CASE_RE = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
 
-DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
+DEFAULT_PLANS_DIR = ".maverick/plans"
 
 
 @click.group("plan", invoke_without_command=True)

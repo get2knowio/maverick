@@ -118,7 +118,7 @@ class TestFlightPlanCreateHelp:
         result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         # Default should mention the standard path
-        assert ".maverick/flight-plans" in result.output
+        assert ".maverick/plans" in result.output
 
     def test_create_help_shows_usage_line(self, cli_runner: CliRunner) -> None:
         """``create --help`` shows a Usage line with NAME."""
@@ -129,27 +129,33 @@ class TestFlightPlanCreateHelp:
 
 
 class TestFlightPlanValidateHelp:
-    """``maverick plan validate --help`` shows FILE_PATH argument."""
+    """``maverick plan validate --help`` shows NAME argument."""
 
     def test_validate_help_exits_zero(self, cli_runner: CliRunner) -> None:
         """``maverick plan validate --help`` exits with code 0."""
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
 
-    def test_validate_help_shows_file_path_argument(
+    def test_validate_help_shows_name_argument(
         self, cli_runner: CliRunner
     ) -> None:
-        """``validate --help`` shows the FILE_PATH positional argument."""
+        """``validate --help`` shows the NAME positional argument."""
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
-        assert "FILE_PATH" in result.output
+        assert "NAME" in result.output
 
     def test_validate_help_shows_usage_line(self, cli_runner: CliRunner) -> None:
-        """``validate --help`` shows a Usage line with FILE_PATH."""
+        """``validate --help`` shows a Usage line with NAME."""
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
         assert "Usage:" in result.output
-        assert "FILE_PATH" in result.output
+        assert "NAME" in result.output
+
+    def test_validate_help_shows_plans_dir_option(self, cli_runner: CliRunner) -> None:
+        """``validate --help`` shows the ``--plans-dir`` option."""
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
+        assert result.exit_code == 0
+        assert "--plans-dir" in result.output
 
     def test_validate_help_shows_description(self, cli_runner: CliRunner) -> None:
         """``validate --help`` shows a description of what the command does."""

@@ -114,13 +114,13 @@ class TestGenerateFlightPlanResult:
     def test_to_dict(self) -> None:
         """to_dict() returns all fields."""
         result = GenerateFlightPlanResult(
-            flight_plan_path=".maverick/flight-plans/my-plan.md",
+            flight_plan_path=".maverick/plans/my-plan/flight-plan.md",
             name="my-plan",
             success_criteria_count=5,
             validation_passed=True,
         )
         d = result.to_dict()
-        assert d["flight_plan_path"] == ".maverick/flight-plans/my-plan.md"
+        assert d["flight_plan_path"] == ".maverick/plans/my-plan/flight-plan.md"
         assert d["name"] == "my-plan"
         assert d["success_criteria_count"] == 5
         assert d["validation_passed"] is True

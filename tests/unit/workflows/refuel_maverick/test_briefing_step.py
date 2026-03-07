@@ -194,7 +194,7 @@ class TestBriefingStep:
     async def test_briefing_writes_artifact(
         self, tmp_path: Path, mock_config: MagicMock, mock_registry: MagicMock
     ) -> None:
-        """Briefing step writes briefing.md artifact to disk."""
+        """Briefing step writes refuel-briefing.md artifact to disk."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
         workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
@@ -219,8 +219,8 @@ class TestBriefingStep:
                 },
             )
 
-        briefing_dir = tmp_path / ".maverick" / "work-units" / "add-user-auth"
-        briefing_path = briefing_dir / "briefing.md"
+        briefing_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
+        briefing_path = briefing_dir / "refuel-briefing.md"
         assert briefing_path.exists()
         content = briefing_path.read_text()
         assert "flight-plan: add-user-auth" in content
@@ -257,7 +257,7 @@ class TestBriefingStep:
 
         assert result is not None
         assert result.final_output["briefing_path"] is not None
-        assert "briefing.md" in result.final_output["briefing_path"]
+        assert "refuel-briefing.md" in result.final_output["briefing_path"]
 
     @pytest.mark.asyncio
     async def test_briefing_path_none_when_skipped(
