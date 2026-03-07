@@ -471,17 +471,7 @@ async def execute_python_workflow(
             err_console.print(format_error("Workflow produced no result"))
             raise SystemExit(ExitCode.FAILURE)
 
-        console.print()
-        completed_steps = sum(1 for s in result.step_results if s.success)
-        total_steps = len(result.step_results)
-        console.print(f"Steps: [green]{completed_steps}[/]/{total_steps} completed")
-
         if result.success:
-            if result.final_output is not None:
-                output_str = str(result.final_output)
-                if len(output_str) > 200:
-                    output_str = output_str[:197] + "..."
-                console.print(f"Final output: {output_str}")
             raise SystemExit(ExitCode.SUCCESS)
         else:
             failed_step = result.failed_step

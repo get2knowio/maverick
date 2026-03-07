@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -219,31 +220,47 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
             try:
                 # Parallel: Navigator + Structuralist + Recon
-                nav_result, struct_result, recon_result = await asyncio.gather(
-                    self._step_executor.execute(
-                        step_name=BRIEFING_NAVIGATOR,
-                        agent_name="navigator",
+                async def _run_briefing_agent(
+                    label: str,
+                    step_name: str,
+                    agent_name: str,
+                    output_schema: type[Any],
+                ) -> Any:
+                    await self.emit_output(
+                        BRIEFING, f"\u23f3 {label}...", level="info",
+                    )
+                    t0 = time.monotonic()
+                    result = await self._step_executor.execute(
+                        step_name=step_name,
+                        agent_name=agent_name,
                         prompt=briefing_prompt,
-                        output_schema=NavigatorBrief,
+                        output_schema=output_schema,
                         event_callback=_briefing_event_cb,
                         config=StepConfig(timeout=300),
-                    ),
-                    self._step_executor.execute(
-                        step_name=BRIEFING_STRUCTURALIST,
-                        agent_name="structuralist",
-                        prompt=briefing_prompt,
-                        output_schema=StructuralistBrief,
-                        event_callback=_briefing_event_cb,
-                        config=StepConfig(timeout=300),
-                    ),
-                    self._step_executor.execute(
-                        step_name=BRIEFING_RECON,
-                        agent_name="recon",
-                        prompt=briefing_prompt,
-                        output_schema=ReconBrief,
-                        event_callback=_briefing_event_cb,
-                        config=StepConfig(timeout=300),
-                    ),
+                    )
+                    elapsed = time.monotonic() - t0
+                    await self.emit_output(
+                        BRIEFING,
+                        f"\u2713 {label} ({elapsed:.1f}s)",
+                        level="success",
+                    )
+                    return result
+
+                nav_result, struct_result, recon_result = (
+                    await asyncio.gather(
+                        _run_briefing_agent(
+                            "Navigator", BRIEFING_NAVIGATOR,
+                            "navigator", NavigatorBrief,
+                        ),
+                        _run_briefing_agent(
+                            "Structuralist", BRIEFING_STRUCTURALIST,
+                            "structuralist", StructuralistBrief,
+                        ),
+                        _run_briefing_agent(
+                            "Recon", BRIEFING_RECON,
+                            "recon", ReconBrief,
+                        ),
+                    )
                 )
 
                 if (
@@ -255,18 +272,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         "One or more briefing agents returned no output"
                     )
 
-                # Surface agent summaries for the user
-                for label, result in [
-                    ("Navigator", nav_result),
-                    ("Structuralist", struct_result),
-                    ("Recon", recon_result),
-                ]:
-                    summary = getattr(result.output, "summary", None)
-                    if summary:
-                        await self.emit_output(
-                            BRIEFING, f"{label}: {summary}", level="info"
-                        )
-
                 # Sequential: Contrarian reviews all 3
                 contrarian_prompt = build_contrarian_prompt(
                     raw_content,
@@ -274,6 +279,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     struct_result.output,
                     recon_result.output,
                 )
+                await self.emit_output(
+                    BRIEFING, "\u23f3 Contrarian...", level="info",
+                )
+                t0 = time.monotonic()
                 contrarian_result = await self._step_executor.execute(
                     step_name=BRIEFING_CONTRARIAN,
                     agent_name="contrarian",
@@ -282,17 +291,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     event_callback=_briefing_event_cb,
                     config=StepConfig(timeout=300),
                 )
+                elapsed = time.monotonic() - t0
+                await self.emit_output(
+                    BRIEFING,
+                    f"\u2713 Contrarian ({elapsed:.1f}s)",
+                    level="success",
+                )
 
                 if not contrarian_result.output:
                     raise WorkflowError("Contrarian agent returned no output")
-
-                contrarian_summary = getattr(
-                    contrarian_result.output, "summary", None
-                )
-                if contrarian_summary:
-                    await self.emit_output(
-                        BRIEFING, f"Contrarian: {contrarian_summary}", level="info"
-                    )
 
                 # Synthesize (deterministic)
                 briefing_doc = synthesize_briefing(

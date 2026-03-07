@@ -12,10 +12,6 @@ maverick.git.AsyncGitRepository (async).
 
 from __future__ import annotations
 
-from maverick.logging import get_logger
-
-logger = get_logger(__name__)
-
 __all__: list[str] = []
 
 # GitHub utilities
@@ -36,7 +32,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("GitHub utilities not yet available")
+    pass
 
 # Validation utilities
 try:
@@ -58,7 +54,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Validation utilities not yet available")
+    pass
 
 # Task parser utilities
 try:
@@ -80,7 +76,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Task parser utilities not yet available")
+    pass
 
 # Context builder utilities
 try:
@@ -112,7 +108,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Context builder utilities not yet available")
+    pass
 
 # Security utilities
 try:
@@ -125,7 +121,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Security utilities not yet available")
+    pass
 
 # GitHub client (PyGithub-based)
 try:
@@ -143,7 +139,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("GitHub client utilities not yet available")
+    pass
 
 # Atomic file write utilities
 try:
@@ -159,7 +155,7 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Atomic write utilities not yet available")
+    pass
 
 # Async utilities (anyio-based)
 try:
@@ -177,4 +173,4 @@ try:
         ]
     )
 except ImportError:
-    logger.debug("Async utilities not yet available")
+    pass
