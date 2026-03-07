@@ -174,10 +174,48 @@ async def run_preflight_checks(
 
         logger.info("Checking ACP provider health...")
         registry = AgentProviderRegistry.from_config(config.agent_providers)
+
+        # Collect all model IDs per provider from maverick.yaml.
+        # For the default provider: global model + all per-agent overrides.
+        # For all providers: their own default_model.
+        default_provider_name: str | None = None
+        for name, pcfg in registry.items():
+            if pcfg.default:
+                default_provider_name = name
+                break
+        # Fall back to first provider if none marked default
+        if default_provider_name is None and registry.items():
+            default_provider_name = next(iter(registry.items()))[0]
+
+        provider_models: dict[str, set[str]] = {}
+        for name, pcfg in registry.items():
+            models_set: set[str] = set()
+            if pcfg.default_model:
+                models_set.add(pcfg.default_model)
+            provider_models[name] = models_set
+
+        # Global model.model_id → default provider
+        if default_provider_name and config.model.model_id:
+            provider_models.setdefault(default_provider_name, set()).add(
+                config.model.model_id,
+            )
+
+        # Per-agent model_id overrides → default provider
+        # (agents don't specify which provider they use)
+        if default_provider_name:
+            for agent_cfg in config.agents.values():
+                if agent_cfg.model_id:
+                    provider_models.setdefault(
+                        default_provider_name, set(),
+                    ).add(agent_cfg.model_id)
+
         health_checks = [
             AcpProviderHealthCheck(
                 provider_name=name,
                 provider_config=provider_cfg,
+                models_to_validate=frozenset(
+                    provider_models.get(name, set()),
+                ),
             )
             for name, provider_cfg in registry.items()
         ]

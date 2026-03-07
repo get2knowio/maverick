@@ -9,6 +9,7 @@ import pytest
 from maverick.library.actions.decompose import (
     CodebaseContext,
     FileContent,
+    _extract_path_from_scope_item,
     build_decomposition_prompt,
     convert_specs_to_work_units,
     gather_codebase_context,
@@ -46,6 +47,43 @@ def make_work_unit_spec(
         instructions="Do the thing",
         verification=["make test"],
     )
+
+
+# ---------------------------------------------------------------------------
+# _extract_path_from_scope_item tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPathFromScopeItem:
+    """Tests for _extract_path_from_scope_item()."""
+
+    def test_bare_path_unchanged(self) -> None:
+        assert _extract_path_from_scope_item("src/greet/cli.py") == "src/greet/cli.py"
+
+    def test_backtick_path_with_description(self) -> None:
+        raw = "`src/greet/languages.py` — Language dataclass and LANGUAGES list"
+        assert _extract_path_from_scope_item(raw) == "src/greet/languages.py"
+
+    def test_backtick_path_alone(self) -> None:
+        assert _extract_path_from_scope_item("`src/main.py`") == "src/main.py"
+
+    def test_path_like_with_dash_separator(self) -> None:
+        raw = "src/greet/cli.py - CLI entry point"
+        assert _extract_path_from_scope_item(raw) == "src/greet/cli.py"
+
+    def test_directory_path(self) -> None:
+        assert _extract_path_from_scope_item("src/greet/") == "src/greet/"
+
+    def test_backtick_directory_with_description(self) -> None:
+        raw = "`tests/` — All test files"
+        assert _extract_path_from_scope_item(raw) == "tests/"
+
+    def test_plain_text_returned_as_is(self) -> None:
+        raw = "No changes to database layer"
+        assert _extract_path_from_scope_item(raw) == "No changes to database layer"
+
+    def test_whitespace_stripped(self) -> None:
+        assert _extract_path_from_scope_item("  src/foo.py  ") == "src/foo.py"
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +213,19 @@ class TestGatherCodebaseContext:
         )
 
         assert ctx.total_size == 8  # 3 + 5
+
+    async def test_descriptive_scope_items_resolved(self, tmp_path: Path) -> None:
+        """Scope items with backtick-wrapped paths and descriptions are resolved."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "cli.py").write_text("cli = True", encoding="utf-8")
+
+        ctx = await gather_codebase_context(
+            in_scope=("`src/cli.py` — CLI entry point with argument parsing",),
+            cwd=tmp_path,
+        )
+
+        assert len(ctx.files) == 1
+        assert ctx.files[0].content == "cli = True"
 
     async def test_nested_directory_expanded_recursively(self, tmp_path: Path) -> None:
         """Nested directories are expanded recursively."""

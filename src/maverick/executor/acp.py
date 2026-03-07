@@ -15,6 +15,7 @@ FR-023: Log subprocess spawn at INFO level.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib.metadata
 import json
 import os
@@ -294,6 +295,8 @@ class AcpStepExecutor:
 
         Safe to call multiple times. Logs at INFO level for each connection
         closed (FR-023). Errors during cleanup are logged but not raised.
+        Each connection gets a 2-second grace period before the subprocess
+        is force-killed.
         """
         for provider_name, cached in list(self._connections.items()):
             self._logger.info(
@@ -301,13 +304,25 @@ class AcpStepExecutor:
                 provider=provider_name,
             )
             try:
-                await cached.ctx.__aexit__(None, None, None)
+                await asyncio.wait_for(
+                    cached.ctx.__aexit__(None, None, None),
+                    timeout=2.0,
+                )
+            except (TimeoutError, asyncio.CancelledError):
+                self._logger.debug(
+                    "acp_executor.cleanup_timeout_kill",
+                    provider=provider_name,
+                )
+                with contextlib.suppress(OSError, ProcessLookupError):
+                    cached.proc.kill()
             except Exception as exc:
                 self._logger.debug(
                     "acp_executor.cleanup_ctx_error",
                     provider=provider_name,
                     error=str(exc),
                 )
+                with contextlib.suppress(OSError, ProcessLookupError):
+                    cached.proc.kill()
         self._connections.clear()
 
     async def _get_or_create_connection(
@@ -576,8 +591,20 @@ class AcpStepExecutor:
             session_id = session.session_id
 
             # Thread model selection into the ACP session (Phase 3)
-            resolved_model = effective_config.model_id or provider_config.default_model
+            resolved_model = (
+                effective_config.model_id or provider_config.default_model
+            )
             if resolved_model:
+                # Validate against available models from the session
+                available_ids = _get_available_model_ids(session)
+                if available_ids and resolved_model not in available_ids:
+                    available_list = ", ".join(sorted(available_ids))
+                    raise AgentError(
+                        f"Model '{resolved_model}' is not available for "
+                        f"provider '{current_cached[0].provider_name}'. "
+                        f"Available models: {available_list}",
+                        agent_name=agent_name,
+                    )
                 try:
                     await conn.set_session_model(
                         model_id=resolved_model,
@@ -704,6 +731,40 @@ class AcpStepExecutor:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_available_model_ids(session: Any) -> set[str]:
+    """Extract available model IDs from a NewSessionResponse.
+
+    Checks both ``session.models.available_models`` and
+    ``session.config_options`` (config_id="model") since providers
+    may advertise models in either or both locations.
+
+    Args:
+        session: ACP NewSessionResponse.
+
+    Returns:
+        Set of model ID strings, or empty set if unavailable.
+    """
+    ids: set[str] = set()
+    # Source 1: models.available_models (unstable but common)
+    models = getattr(session, "models", None)
+    if models:
+        for m in getattr(models, "available_models", []):
+            model_id = getattr(m, "model_id", None)
+            if model_id:
+                ids.add(model_id)
+    # Source 2: config_options with id="model"
+    config_options = getattr(session, "config_options", None)
+    if config_options:
+        for opt in config_options:
+            root = getattr(opt, "root", opt)
+            if getattr(root, "id", None) == "model":
+                for o in getattr(root, "options", []):
+                    val = getattr(o, "value", None)
+                    if val:
+                        ids.add(val)
+    return ids
 
 
 def _find_most_called_tool(client: MaverickAcpClient) -> str:

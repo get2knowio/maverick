@@ -138,6 +138,18 @@ class TestInitializeFailure:
         assert "auth failed" in result.errors[0]
 
 
+def _mock_session(
+    models: object = None,
+    config_options: object = None,
+) -> MagicMock:
+    """Create a mock session with optional models/config_options."""
+    session = MagicMock()
+    session.session_id = "sess-health"
+    session.models = models
+    session.config_options = config_options
+    return session
+
+
 class TestSuccess:
     """Full success path → ValidationResult(success=True)."""
 
@@ -150,6 +162,8 @@ class TestSuccess:
 
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=_mock_session())
+        mock_conn.cancel = AsyncMock(return_value=None)
         mock_proc = MagicMock()
 
         mock_ctx = MagicMock()
@@ -212,3 +226,236 @@ class TestDefaultModel:
     def test_config_without_default_model(self) -> None:
         config = _make_config()
         assert config.default_model is None
+
+
+class TestModelValidation:
+    """Preflight model validation via new_session()."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_unavailable_model(self) -> None:
+        """Preflight fails when a configured model is not available."""
+        model_obj = MagicMock(model_id="sonnet")
+        models = MagicMock(available_models=[model_obj])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"nonexistent"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+        mock_proc = MagicMock()
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, mock_proc),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert "nonexistent" in result.errors[0]
+        assert "sonnet" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_error_lists_available_models(self) -> None:
+        """Error message includes all available model IDs."""
+        m1 = MagicMock(model_id="haiku")
+        m2 = MagicMock(model_id="opus")
+        m3 = MagicMock(model_id="sonnet")
+        models = MagicMock(available_models=[m1, m2, m3])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"gpt-5"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert "haiku" in result.errors[0]
+        assert "opus" in result.errors[0]
+        assert "sonnet" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_multiple_invalid_models_all_reported(self) -> None:
+        """Each invalid model produces a separate error."""
+        model_obj = MagicMock(model_id="sonnet")
+        models = MagicMock(available_models=[model_obj])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"bad-one", "bad-two"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert len(result.errors) == 2
+        error_text = " ".join(result.errors)
+        assert "bad-one" in error_text
+        assert "bad-two" in error_text
+
+    @pytest.mark.asyncio
+    async def test_passes_when_model_matches(self) -> None:
+        """Preflight passes when all models are in available list."""
+        model_obj = MagicMock(model_id="sonnet")
+        models = MagicMock(available_models=[model_obj])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"sonnet"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_models_to_validate(self) -> None:
+        """No models to validate → skip session, pass."""
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            # models_to_validate defaults to empty frozenset
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_proc = MagicMock()
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, mock_proc),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is True
+        # Should not have called new_session since no models to validate
+        mock_conn.new_session.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_models_advertised(self) -> None:
+        """No models advertised by provider → skip validation, pass."""
+        session = _mock_session()  # models=None, config_options=None
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"any-model"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_session_failure_not_fatal(self) -> None:
+        """new_session() failure doesn't fail the health check."""
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"sonnet"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(
+            side_effect=Exception("session failed"),
+        )
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        # Session failure is non-fatal — health check still passes
+        assert result.success is True

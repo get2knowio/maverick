@@ -23,16 +23,21 @@ logger = get_logger(__name__)
 class AcpProviderHealthCheck:
     """Spawns an ACP provider, runs the initialize handshake, and tears down.
 
-    Validates binary presence, auth, and protocol compatibility in one shot.
+    Validates binary presence, auth, protocol compatibility, and model
+    availability in one shot.
 
     Attributes:
         provider_name: Logical name for this provider (e.g. "claude").
         provider_config: Provider configuration with command and env.
+        models_to_validate: Model IDs from maverick.yaml to check against
+            this provider's available models. Collected from provider
+            default_model, global model.model_id, and per-agent overrides.
         timeout: Maximum seconds for the entire health check.
     """
 
     provider_name: str
     provider_config: AgentProviderConfig
+    models_to_validate: frozenset[str] = frozenset()
     timeout: float = 15.0
 
     async def validate(self) -> ValidationResult:
@@ -154,6 +159,36 @@ class AcpProviderHealthCheck:
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
+        # Step 3: Create session and validate configured models
+        errors: list[str] = []
+        if self.models_to_validate:
+            try:
+                session = await conn.new_session(
+                    cwd=os.getcwd(), mcp_servers=[],
+                )
+                from maverick.executor.acp import _get_available_model_ids
+
+                available = _get_available_model_ids(session)
+                if available:
+                    for model_id in sorted(self.models_to_validate):
+                        if model_id not in available:
+                            available_list = ", ".join(sorted(available))
+                            errors.append(
+                                f"Model '{model_id}' is not available "
+                                f"for provider '{self.provider_name}'. "
+                                f"Available models: {available_list}"
+                            )
+                # Cancel the session — we don't need it
+                with contextlib.suppress(Exception):
+                    await conn.cancel(session_id=session.session_id)
+            except Exception as exc:
+                logger.debug(
+                    "provider_health.session_check_error",
+                    provider=self.provider_name,
+                    error=str(exc),
+                )
+                # Session failure is not fatal for basic health
+
         # Teardown — health check only, we don't keep the connection
         try:
             await ctx.__aexit__(None, None, None)
@@ -162,6 +197,14 @@ class AcpProviderHealthCheck:
                 "provider_health.teardown_error",
                 provider=self.provider_name,
                 error=str(exc),
+            )
+
+        if errors:
+            return ValidationResult(
+                success=False,
+                component=component,
+                errors=tuple(errors),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
         return ValidationResult(

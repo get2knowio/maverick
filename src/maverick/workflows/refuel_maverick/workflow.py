@@ -241,6 +241,18 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         "One or more briefing agents returned no output"
                     )
 
+                # Surface agent summaries for the user
+                for label, result in [
+                    ("Navigator", nav_result),
+                    ("Structuralist", struct_result),
+                    ("Recon", recon_result),
+                ]:
+                    summary = getattr(result.output, "summary", None)
+                    if summary:
+                        await self.emit_output(
+                            BRIEFING, f"{label}: {summary}", level="info"
+                        )
+
                 # Sequential: Contrarian reviews all 3
                 contrarian_prompt = build_contrarian_prompt(
                     raw_content,
@@ -259,6 +271,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
                 if not contrarian_result.output:
                     raise WorkflowError("Contrarian agent returned no output")
+
+                contrarian_summary = getattr(
+                    contrarian_result.output, "summary", None
+                )
+                if contrarian_summary:
+                    await self.emit_output(
+                        BRIEFING, f"Contrarian: {contrarian_summary}", level="info"
+                    )
 
                 # Synthesize (deterministic)
                 briefing_doc = synthesize_briefing(
@@ -357,6 +377,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             DECOMPOSE,
             f"Decomposed into {len(decomposition.work_units)} work units",
         )
+        if decomposition.rationale:
+            # Show first sentence of rationale as a brief summary
+            first_sentence = decomposition.rationale.split(". ")[0].rstrip(".")
+            await self.emit_output(
+                DECOMPOSE, f"Rationale: {first_sentence}", level="info"
+            )
         await self.emit_step_completed(
             DECOMPOSE,
             output={

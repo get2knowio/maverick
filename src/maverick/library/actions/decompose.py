@@ -6,6 +6,7 @@ Actions for gathering codebase context and building decomposition prompts.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,6 +66,43 @@ def _read_file_sync(file_path: Path) -> tuple[str, str | None]:
         return "", f"Cannot read {file_path}: {e}"
 
 
+_BACKTICK_PATH_RE = re.compile(r"^`([^`]+)`")
+_PATH_LIKE_RE = re.compile(r"^(\S+\.\w+|\S+/)")
+
+
+def _extract_path_from_scope_item(raw: str) -> str:
+    """Extract a bare file/directory path from a possibly descriptive scope item.
+
+    AI agents sometimes produce scope items like:
+        ``\u0060src/greet/cli.py\u0060 — CLI entry point with argument parsing``
+    instead of bare paths. This function extracts the path portion.
+
+    Extraction rules (first match wins):
+    1. Leading backtick-wrapped segment: ``\u0060path\u0060 ...`` → ``path``
+    2. Leading path-like token (contains ``/`` or ``.ext``): ``path — desc`` → ``path``
+    3. Fallback: return the original string stripped.
+
+    Args:
+        raw: Raw scope item string from the flight plan.
+
+    Returns:
+        Extracted path string.
+    """
+    stripped = raw.strip()
+
+    # Rule 1: backtick-wrapped leading path
+    m = _BACKTICK_PATH_RE.match(stripped)
+    if m:
+        return m.group(1).strip()
+
+    # Rule 2: leading path-like token before a separator
+    m = _PATH_LIKE_RE.match(stripped)
+    if m:
+        return m.group(1).strip()
+
+    return stripped
+
+
 def _expand_path(path_str: str, cwd: Path) -> list[Path]:
     """Expand a path string to a list of file paths.
 
@@ -79,7 +117,11 @@ def _expand_path(path_str: str, cwd: Path) -> list[Path]:
     Returns:
         List of resolved file paths.
     """
-    p = (cwd / path_str) if not Path(path_str).is_absolute() else Path(path_str)
+    # Extract bare path from descriptive scope items (e.g. "`src/foo.py` — description")
+    cleaned = _extract_path_from_scope_item(path_str)
+    if cleaned != path_str:
+        logger.debug("scope_item_path_extracted", raw=path_str, extracted=cleaned)
+    p = (cwd / cleaned) if not Path(cleaned).is_absolute() else Path(cleaned)
 
     if p.is_dir():
         # Expand directory to all files recursively

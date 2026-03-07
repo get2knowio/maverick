@@ -1,7 +1,8 @@
 """Unit tests for render_workflow_events in workflow_executor.
 
-Tests verify that RollbackStarted, RollbackCompleted, and CheckpointSaved
-events are rendered correctly to the console.
+Tests verify that RollbackStarted, RollbackCompleted, CheckpointSaved,
+AgentStreamChunk, LoopIterationStarted, and LoopIterationCompleted events
+are rendered correctly to the console.
 """
 
 from __future__ import annotations
@@ -12,15 +13,23 @@ from typing import Any
 from rich.console import Console
 
 from maverick.events import (
+    AgentStreamChunk,
     CheckpointSaved,
+    LoopIterationCompleted,
+    LoopIterationStarted,
     RollbackCompleted,
     RollbackStarted,
+    StepCompleted,
+    StepStarted,
     WorkflowCompleted,
     WorkflowStarted,
 )
+from maverick.types import StepType
 
 
-async def _render_events(events: list[Any]) -> str:
+async def _render_events(
+    events: list[Any], *, verbosity: int = 0,
+) -> str:
     """Render a sequence of events through render_workflow_events and capture output.
 
     Wraps events in WorkflowStarted/WorkflowCompleted framing so the renderer
@@ -30,6 +39,7 @@ async def _render_events(events: list[Any]) -> str:
     Args:
         events: List of ProgressEvent instances to render (excluding
             WorkflowStarted/WorkflowCompleted which are added automatically).
+        verbosity: Verbosity level (0=normal, 1+=verbose).
 
     Returns:
         Captured console output as a string.
@@ -52,6 +62,7 @@ async def _render_events(events: list[Any]) -> str:
     await render_workflow_events(
         _event_iter(),
         test_console,
+        verbosity=verbosity,
     )
 
     return buf.getvalue()
@@ -182,3 +193,154 @@ class TestCheckpointSavedRendering:
             ]
         )
         assert "\U0001f4be" in output
+
+
+class TestAgentStreamChunkRendering:
+    """AgentStreamChunk event rendering with verbosity control."""
+
+    async def test_agent_stream_suppressed_in_normal_mode(self) -> None:
+        """Agent stream chunks are not shown in normal mode (verbosity=0)."""
+        output = await _render_events(
+            [
+                AgentStreamChunk(
+                    step_name="implement",
+                    agent_name="implementer",
+                    text='{"summary": "did stuff"}',
+                    chunk_type="output",
+                ),
+            ],
+            verbosity=0,
+        )
+        assert "did stuff" not in output
+
+    async def test_agent_stream_shown_in_verbose_mode(self) -> None:
+        """Agent stream chunks are shown in verbose mode (verbosity=1)."""
+        output = await _render_events(
+            [
+                AgentStreamChunk(
+                    step_name="implement",
+                    agent_name="implementer",
+                    text="Working on implementation...",
+                    chunk_type="output",
+                ),
+            ],
+            verbosity=1,
+        )
+        assert "Working on implementation..." in output
+
+    async def test_tool_calls_rendered_as_dim_in_verbose(self) -> None:
+        """[TOOL] markers are rendered as dim status lines in verbose mode."""
+        output = await _render_events(
+            [
+                AgentStreamChunk(
+                    step_name="implement",
+                    agent_name="implementer",
+                    text="[TOOL] Read\n",
+                    chunk_type="output",
+                ),
+            ],
+            verbosity=1,
+        )
+        # Should show the tool name but not the raw [TOOL] prefix
+        assert "Read" in output
+        assert "[TOOL]" not in output
+
+    async def test_tool_calls_suppressed_in_normal_mode(self) -> None:
+        """[TOOL] markers are suppressed in normal mode."""
+        output = await _render_events(
+            [
+                AgentStreamChunk(
+                    step_name="implement",
+                    agent_name="implementer",
+                    text="[TOOL] Read\n",
+                    chunk_type="output",
+                ),
+            ],
+            verbosity=0,
+        )
+        assert "Read" not in output
+
+    async def test_agent_stream_newline_before_step_completed(self) -> None:
+        """StepCompleted after agent stream adds a newline to separate."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="implement", step_type=StepType.AGENT),
+                AgentStreamChunk(
+                    step_name="implement",
+                    agent_name="implementer",
+                    text="some output",
+                    chunk_type="output",
+                ),
+                StepCompleted(
+                    step_name="implement",
+                    step_type=StepType.AGENT,
+                    success=True,
+                    duration_ms=1234,
+                ),
+            ],
+            verbosity=1,
+        )
+        assert "\u2713" in output
+
+
+class TestLoopIterationRendering:
+    """LoopIterationStarted and LoopIterationCompleted event rendering."""
+
+    async def test_loop_iteration_started_shows_label(self) -> None:
+        """LoopIterationStarted renders the item label."""
+        output = await _render_events(
+            [
+                LoopIterationStarted(
+                    step_name="bead_loop",
+                    iteration_index=0,
+                    total_iterations=3,
+                    item_label="add-greet-command",
+                ),
+            ],
+        )
+        assert "add-greet-command" in output
+
+    async def test_loop_iteration_started_shows_index(self) -> None:
+        """LoopIterationStarted renders 1-based index."""
+        output = await _render_events(
+            [
+                LoopIterationStarted(
+                    step_name="bead_loop",
+                    iteration_index=1,
+                    total_iterations=5,
+                    item_label="task-two",
+                ),
+            ],
+        )
+        assert "[2/5]" in output
+
+    async def test_loop_iteration_completed_success(self) -> None:
+        """LoopIterationCompleted with success shows completion message."""
+        output = await _render_events(
+            [
+                LoopIterationCompleted(
+                    step_name="bead_loop",
+                    iteration_index=0,
+                    success=True,
+                    duration_ms=5000,
+                ),
+            ],
+        )
+        assert "completed" in output
+        assert "5.00s" in output
+
+    async def test_loop_iteration_completed_failure_shows_error(self) -> None:
+        """LoopIterationCompleted with failure shows error message."""
+        output = await _render_events(
+            [
+                LoopIterationCompleted(
+                    step_name="bead_loop",
+                    iteration_index=2,
+                    success=False,
+                    duration_ms=3000,
+                    error="validation failed",
+                ),
+            ],
+        )
+        assert "failed" in output
+        assert "validation failed" in output

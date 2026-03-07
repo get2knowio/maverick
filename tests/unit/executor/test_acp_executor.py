@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from maverick.config import AgentProviderConfig, PermissionMode
 from maverick.exceptions.agent import (
+    AgentError,
     CLINotFoundError,
     MalformedResponseError,
     MaverickTimeoutError,
@@ -19,7 +20,7 @@ from maverick.exceptions.agent import (
 )
 from maverick.exceptions.config import ConfigError
 from maverick.exceptions.workflow import ReferenceResolutionError
-from maverick.executor.acp import AcpStepExecutor
+from maverick.executor.acp import AcpStepExecutor, _get_available_model_ids
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
@@ -1274,3 +1275,200 @@ class TestTransparentReconnect:
 
         assert any("reconnect_attempt" in e for e in info_events)
         assert any("reconnect_success" in e for e in info_events)
+
+
+# ---------------------------------------------------------------------------
+# Model validation: _get_available_model_ids
+# ---------------------------------------------------------------------------
+
+
+class TestGetAvailableModelIds:
+    """Tests for _get_available_model_ids helper."""
+
+    def test_extracts_from_models_attribute(self) -> None:
+        """Extracts model IDs from session.models.available_models."""
+        model_a = MagicMock()
+        model_a.model_id = "sonnet"
+        model_b = MagicMock()
+        model_b.model_id = "opus"
+        models = MagicMock()
+        models.available_models = [model_a, model_b]
+
+        session = MagicMock()
+        session.models = models
+        session.config_options = None
+
+        assert _get_available_model_ids(session) == {"sonnet", "opus"}
+
+    def test_extracts_from_config_options(self) -> None:
+        """Extracts model IDs from config_options with id='model'."""
+        opt_a = MagicMock()
+        opt_a.value = "default"
+        opt_b = MagicMock()
+        opt_b.value = "haiku"
+        config_opt = MagicMock()
+        config_opt.root = config_opt  # root == self
+        config_opt.id = "model"
+        config_opt.options = [opt_a, opt_b]
+
+        session = MagicMock()
+        session.models = None
+        session.config_options = [config_opt]
+
+        assert _get_available_model_ids(session) == {"default", "haiku"}
+
+    def test_merges_both_sources(self) -> None:
+        """Merges models from both session.models and config_options."""
+        model = MagicMock()
+        model.model_id = "sonnet"
+        models = MagicMock()
+        models.available_models = [model]
+
+        opt_val = MagicMock()
+        opt_val.value = "haiku"
+        config_opt = MagicMock()
+        config_opt.root = config_opt
+        config_opt.id = "model"
+        config_opt.options = [opt_val]
+
+        session = MagicMock()
+        session.models = models
+        session.config_options = [config_opt]
+
+        assert _get_available_model_ids(session) == {"sonnet", "haiku"}
+
+    def test_empty_when_no_models_info(self) -> None:
+        """Returns empty set when session has no models info."""
+        session = MagicMock()
+        session.models = None
+        session.config_options = None
+
+        assert _get_available_model_ids(session) == set()
+
+    def test_skips_non_model_config_options(self) -> None:
+        """Ignores config_options that are not id='model'."""
+        config_opt = MagicMock()
+        config_opt.root = config_opt
+        config_opt.id = "mode"
+        config_opt.options = [MagicMock(value="agent")]
+
+        session = MagicMock()
+        session.models = None
+        session.config_options = [config_opt]
+
+        assert _get_available_model_ids(session) == set()
+
+    def test_skips_none_values(self) -> None:
+        """Skips options with None value."""
+        opt = MagicMock()
+        opt.value = None
+        config_opt = MagicMock()
+        config_opt.root = config_opt
+        config_opt.id = "model"
+        config_opt.options = [opt]
+
+        session = MagicMock()
+        session.models = None
+        session.config_options = [config_opt]
+
+        assert _get_available_model_ids(session) == set()
+
+
+# ---------------------------------------------------------------------------
+# Model validation: executor rejects unavailable models
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestModelValidation:
+    """Tests for model validation in execute()."""
+
+    async def test_raises_on_unavailable_model(self) -> None:
+        """Executor raises AgentError when model is not in available list."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        # Add available models to the session mock
+        mock_session = mock_conn.new_session.return_value
+        model_obj = MagicMock()
+        model_obj.model_id = "sonnet"
+        mock_session.models = MagicMock(available_models=[model_obj])
+        mock_session.config_options = None
+
+        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with pytest.raises(AgentError, match="not available"):
+                await executor.execute(
+                    step_name="s",
+                    agent_name="test_agent",
+                    prompt={},
+                    config=StepConfig(model_id="nonexistent-model"),
+                )
+
+    async def test_error_lists_available_models(self) -> None:
+        """AgentError message includes the list of available models."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        mock_session = mock_conn.new_session.return_value
+        m1 = MagicMock(model_id="haiku")
+        m2 = MagicMock(model_id="sonnet")
+        mock_session.models = MagicMock(available_models=[m1, m2])
+        mock_session.config_options = None
+
+        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with pytest.raises(AgentError, match="haiku.*sonnet"):
+                await executor.execute(
+                    step_name="s",
+                    agent_name="test_agent",
+                    prompt={},
+                    config=StepConfig(model_id="gpt-5"),
+                )
+
+    async def test_proceeds_when_model_available(self) -> None:
+        """Executor proceeds normally when model matches available list."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context(accumulated_text="done")
+
+        mock_session = mock_conn.new_session.return_value
+        model_obj = MagicMock(model_id="sonnet")
+        mock_session.models = MagicMock(available_models=[model_obj])
+        mock_session.config_options = None
+
+        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with patch.object(
+                MaverickAcpClient, "get_accumulated_text", return_value="done"
+            ):
+                result = await executor.execute(
+                    step_name="s",
+                    agent_name="test_agent",
+                    prompt={},
+                    config=StepConfig(model_id="sonnet"),
+                )
+
+        assert result.success is True
+
+    async def test_skips_validation_when_no_models_advertised(self) -> None:
+        """Executor skips validation when provider advertises no models."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context(accumulated_text="ok")
+
+        mock_session = mock_conn.new_session.return_value
+        mock_session.models = None
+        mock_session.config_options = None
+
+        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with patch.object(
+                MaverickAcpClient, "get_accumulated_text", return_value="ok"
+            ):
+                result = await executor.execute(
+                    step_name="s",
+                    agent_name="test_agent",
+                    prompt={},
+                    config=StepConfig(model_id="any-model"),
+                )
+
+        assert result.success is True
