@@ -6,7 +6,15 @@ creating and validating flight plan files.
 
 from __future__ import annotations
 
+import re
+
 import click
+
+# Kebab-case validation: must start with a lowercase letter, then allow
+# lowercase letters, digits, and hyphens, ending with a letter or digit.
+KEBAB_CASE_RE = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
+
+DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
 
 
 @click.group("flight-plan", invoke_without_command=True)

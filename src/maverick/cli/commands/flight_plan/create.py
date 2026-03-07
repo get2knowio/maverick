@@ -6,28 +6,25 @@ directory, validating the name and guarding against accidental overwrites.
 
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 
 import click
 
-from maverick.cli.commands.flight_plan._group import flight_plan
+from maverick.cli.commands.flight_plan._group import (
+    DEFAULT_OUTPUT_DIR,
+    KEBAB_CASE_RE,
+    flight_plan,
+)
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode
-
-# Kebab-case validation: must start with a lowercase letter, then allow
-# lowercase letters, digits, and hyphens, ending with a letter or digit.
-_KEBAB_CASE_RE = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
-
-_DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
 
 
 @flight_plan.command("create")
 @click.argument("name", metavar="NAME")
 @click.option(
     "--output-dir",
-    default=_DEFAULT_OUTPUT_DIR,
+    default=DEFAULT_OUTPUT_DIR,
     show_default=True,
     help="Output directory for the flight plan file.",
 )
@@ -46,7 +43,7 @@ def create(name: str, output_dir: str) -> None:
     from maverick.flight.template import generate_skeleton
 
     # Validate kebab-case name.
-    if not _KEBAB_CASE_RE.match(name):
+    if not KEBAB_CASE_RE.match(name):
         console.print(
             f"[red]Error:[/red] Invalid flight plan name '[bold]{name}[/bold]'.\n"
             "Name must be kebab-case: lowercase letters, digits, and hyphens only,\n"
