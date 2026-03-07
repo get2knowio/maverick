@@ -1,4 +1,4 @@
-"""``maverick refuel flight-plan`` command.
+"""``maverick refuel plan`` command.
 
 Delegates to the ``RefuelMaverickWorkflow`` Python workflow via shared
 helpers in ``_shared``.
@@ -19,7 +19,7 @@ from maverick.cli.commands.refuel._shared import (
 from maverick.cli.context import async_command
 
 
-@refuel.command("flight-plan")
+@refuel.command("plan")
 @refuel_flight_plan_options
 @click.pass_context
 @async_command
@@ -42,11 +42,11 @@ async def flight_plan_cmd(
 
     Examples:
 
-        maverick refuel flight-plan .maverick/flight-plans/add-auth.md
+        maverick refuel plan .maverick/flight-plans/add-auth.md
 
-        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --dry-run
+        maverick refuel plan .maverick/flight-plans/add-auth.md --dry-run
 
-        maverick refuel flight-plan .maverick/flight-plans/add-auth.md --skip-briefing
+        maverick refuel plan .maverick/flight-plans/add-auth.md --skip-briefing
     """
     if list_steps:
         print_steps_and_exit()

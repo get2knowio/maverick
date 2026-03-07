@@ -1,6 +1,6 @@
 """Flight Plan CLI group definition.
 
-Defines the top-level ``maverick flight-plan`` Click group for
+Defines the top-level ``maverick plan`` Click group for
 creating and validating flight plan files.
 """
 
@@ -17,7 +17,7 @@ KEBAB_CASE_RE = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
 DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
 
 
-@click.group("flight-plan", invoke_without_command=True)
+@click.group("plan", invoke_without_command=True)
 @click.pass_context
 def flight_plan(ctx: click.Context) -> None:
     """Create and validate flight plan files."""

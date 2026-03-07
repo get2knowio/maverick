@@ -1,4 +1,4 @@
-"""Shared fixtures for ``maverick flight-plan`` CLI command tests.
+"""Shared fixtures for ``maverick plan`` CLI command tests.
 
 Provides directory-scoped fixtures that eliminate repeated ``os.chdir`` /
 ``Path.home`` monkeypatching boilerplate across flight-plan sub-command test

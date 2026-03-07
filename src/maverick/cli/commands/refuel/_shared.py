@@ -1,7 +1,7 @@
 """Shared helpers for ``maverick refuel`` subcommands.
 
 Extracts the common Click options, step listing, and workflow execution
-logic used by the ``flight-plan`` subcommand.
+logic used by the ``plan`` subcommand.
 """
 
 from __future__ import annotations

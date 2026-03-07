@@ -64,13 +64,13 @@ uv tool install git+https://github.com/get2knowio/maverick.git
 ```bash
 # Full PRD-to-code pipeline:
 # 1. Generate a flight plan from a PRD
-maverick flight-plan generate my-feature --from-prd specs/my-feature/spec.md
+maverick plan generate my-feature --from-prd specs/my-feature/spec.md
 
 # 2. Validate the generated plan
-maverick flight-plan validate .maverick/flight-plans/my-feature.md
+maverick plan validate .maverick/flight-plans/my-feature.md
 
 # 3. Decompose into work units and create beads
-maverick refuel flight-plan .maverick/flight-plans/my-feature.md
+maverick refuel plan .maverick/flight-plans/my-feature.md
 
 # 4. Implement beads (in isolated workspace)
 maverick fly --epic <epic-id> --max-beads 5
@@ -101,7 +101,7 @@ The full pipeline takes a product requirements document and turns it into
 shipped code:
 
 ```
-PRD ──▶ flight-plan generate ──▶ flight-plan validate ──▶ refuel flight-plan ──▶ fly ──▶ land
+PRD ──▶ plan generate ──▶ plan validate ──▶ refuel plan ──▶ fly ──▶ land
             │                                                   │                 │       │
             ├── Pre-Flight Briefing Room                        ├── Briefing      │       ├── Curate
             │   (scopist, codebase analyst,                     │   Room           │       │   commits
@@ -112,7 +112,7 @@ PRD ──▶ flight-plan generate ──▶ flight-plan validate ──▶ refu
                                                                                   └── (see below)
 ```
 
-### `maverick flight-plan generate` — Plan from PRD
+### `maverick plan generate` — Plan from PRD
 
 Generates a flight plan from a product requirements document (PRD). Runs a
 **Pre-Flight Briefing Room** — four parallel AI agents analyze the PRD before
@@ -126,25 +126,25 @@ a generator agent synthesizes the plan:
 | **Contrarian** | Identifies risks, blind spots, and over-engineering |
 
 ```bash
-maverick flight-plan generate my-feature --from-prd specs/my-feature/spec.md
+maverick plan generate my-feature --from-prd specs/my-feature/spec.md
 ```
 
-### `maverick flight-plan validate` — Validate Plan
+### `maverick plan validate` — Validate Plan
 
 Validates a generated flight plan for structural correctness.
 
 ```bash
-maverick flight-plan validate .maverick/flight-plans/my-feature.md
+maverick plan validate .maverick/flight-plans/my-feature.md
 ```
 
-### `maverick refuel flight-plan` — Decompose into Beads
+### `maverick refuel plan` — Decompose into Beads
 
 Decomposes a flight plan into work units and creates beads. Also runs a
 briefing room to inform the decomposition.
 
 ```bash
-maverick refuel flight-plan .maverick/flight-plans/my-feature.md
-maverick refuel flight-plan .maverick/flight-plans/my-feature.md --dry-run
+maverick refuel plan .maverick/flight-plans/my-feature.md
+maverick refuel plan .maverick/flight-plans/my-feature.md --dry-run
 ```
 
 ### `maverick refuel speckit` — Beads from SpecKit
@@ -250,7 +250,7 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, flight-plan, init, brief, land       │
+│  maverick fly, refuel, plan, init, brief, land              │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐

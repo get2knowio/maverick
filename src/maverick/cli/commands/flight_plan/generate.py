@@ -1,4 +1,4 @@
-"""``maverick flight-plan generate`` command.
+"""``maverick plan generate`` command.
 
 Generates a structured flight plan from a PRD using an AI agent.
 """
@@ -70,9 +70,9 @@ async def generate(
 
     Examples:
 
-        maverick flight-plan generate my-feature --from-prd spec.md
+        maverick plan generate my-feature --from-prd spec.md
 
-        cat spec.md | maverick flight-plan generate my-feature --from-prd -
+        cat spec.md | maverick plan generate my-feature --from-prd -
     """
     from maverick.cli.workflow_executor import (
         PythonWorkflowRunConfig,

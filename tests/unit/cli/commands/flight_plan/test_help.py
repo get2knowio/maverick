@@ -1,6 +1,6 @@
-"""Unit tests for ``maverick flight-plan`` help text and subcommand discovery.
+"""Unit tests for ``maverick plan`` help text and subcommand discovery.
 
-T012: Verify that the flight-plan command group is self-documenting — both
+T012: Verify that the plan command group is self-documenting — both
 subcommands are listed in the group help, each subcommand's own help output
 describes its arguments and options correctly, and invoking the group without a
 subcommand shows the same help text as ``--help``.
@@ -14,28 +14,28 @@ from maverick.main import cli
 
 
 class TestFlightPlanGroupHelp:
-    """``maverick flight-plan --help`` lists subcommands with descriptions."""
+    """``maverick plan --help`` lists subcommands with descriptions."""
 
     def test_help_exits_zero(self, cli_runner: CliRunner) -> None:
-        """``maverick flight-plan --help`` exits with code 0."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        """``maverick plan --help`` exits with code 0."""
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
 
     def test_help_lists_create_subcommand(self, cli_runner: CliRunner) -> None:
         """``create`` subcommand appears in the group help output."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         assert "create" in result.output
 
     def test_help_lists_validate_subcommand(self, cli_runner: CliRunner) -> None:
         """``validate`` subcommand appears in the group help output."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         assert "validate" in result.output
 
     def test_help_shows_create_brief_description(self, cli_runner: CliRunner) -> None:
         """The group help shows a brief description for the ``create`` subcommand."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         # The help line for 'create' should contain a short description.
         # The CLI contract requires: "Create a new flight plan from a template."
@@ -49,7 +49,7 @@ class TestFlightPlanGroupHelp:
 
     def test_help_shows_validate_brief_description(self, cli_runner: CliRunner) -> None:
         """The group help shows a brief description for the ``validate`` subcommand."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         output_lower = result.output.lower()
         assert "validate" in output_lower
@@ -61,99 +61,99 @@ class TestFlightPlanGroupHelp:
 
     def test_help_shows_group_description(self, cli_runner: CliRunner) -> None:
         """The group help shows the group-level description."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         # CLI contract group description: "Create and validate flight plan files."
         output_lower = result.output.lower()
-        assert "flight plan" in output_lower or "flight-plan" in output_lower
+        assert "flight plan" in output_lower or "plan" in output_lower
 
 
 class TestFlightPlanNoSubcommand:
-    """Invoking ``maverick flight-plan`` without a subcommand shows help text."""
+    """Invoking ``maverick plan`` without a subcommand shows help text."""
 
     def test_no_subcommand_exits_zero(self, cli_runner: CliRunner) -> None:
-        """``maverick flight-plan`` (no subcommand) exits with code 0."""
-        result = cli_runner.invoke(cli, ["flight-plan"])
+        """``maverick plan`` (no subcommand) exits with code 0."""
+        result = cli_runner.invoke(cli, ["plan"])
         assert result.exit_code == 0
 
     def test_no_subcommand_shows_help(self, cli_runner: CliRunner) -> None:
-        """``maverick flight-plan`` without subcommand displays help text."""
-        result = cli_runner.invoke(cli, ["flight-plan"])
+        """``maverick plan`` without subcommand displays help text."""
+        result = cli_runner.invoke(cli, ["plan"])
         assert result.exit_code == 0
         # Should list subcommands just like --help
         assert "create" in result.output
         assert "validate" in result.output
 
     def test_no_subcommand_output_matches_help(self, cli_runner: CliRunner) -> None:
-        """Output of bare ``flight-plan`` matches ``flight-plan --help``."""
-        result_bare = cli_runner.invoke(cli, ["flight-plan"])
-        result_help = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        """Output of bare ``plan`` matches ``plan --help``."""
+        result_bare = cli_runner.invoke(cli, ["plan"])
+        result_help = cli_runner.invoke(cli, ["plan", "--help"])
         assert result_bare.exit_code == 0
         assert result_help.exit_code == 0
         assert result_bare.output == result_help.output
 
 
 class TestFlightPlanCreateHelp:
-    """``maverick flight-plan create --help`` shows NAME argument and --output-dir."""
+    """``maverick plan create --help`` shows NAME argument and --output-dir."""
 
     def test_create_help_exits_zero(self, cli_runner: CliRunner) -> None:
-        """``maverick flight-plan create --help`` exits with code 0."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        """``maverick plan create --help`` exits with code 0."""
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
 
     def test_create_help_shows_name_argument(self, cli_runner: CliRunner) -> None:
         """``create --help`` shows the NAME positional argument."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         assert "NAME" in result.output
 
     def test_create_help_shows_output_dir_option(self, cli_runner: CliRunner) -> None:
         """``create --help`` shows the ``--output-dir`` option."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         assert "--output-dir" in result.output
 
     def test_create_help_shows_output_dir_default(self, cli_runner: CliRunner) -> None:
         """``create --help`` shows the default value for ``--output-dir``."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         # Default should mention the standard path
         assert ".maverick/flight-plans" in result.output
 
     def test_create_help_shows_usage_line(self, cli_runner: CliRunner) -> None:
         """``create --help`` shows a Usage line with NAME."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         assert "Usage:" in result.output
         assert "NAME" in result.output
 
 
 class TestFlightPlanValidateHelp:
-    """``maverick flight-plan validate --help`` shows FILE_PATH argument."""
+    """``maverick plan validate --help`` shows FILE_PATH argument."""
 
     def test_validate_help_exits_zero(self, cli_runner: CliRunner) -> None:
-        """``maverick flight-plan validate --help`` exits with code 0."""
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", "--help"])
+        """``maverick plan validate --help`` exits with code 0."""
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
 
     def test_validate_help_shows_file_path_argument(
         self, cli_runner: CliRunner
     ) -> None:
         """``validate --help`` shows the FILE_PATH positional argument."""
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
         assert "FILE_PATH" in result.output
 
     def test_validate_help_shows_usage_line(self, cli_runner: CliRunner) -> None:
         """``validate --help`` shows a Usage line with FILE_PATH."""
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
         assert "Usage:" in result.output
         assert "FILE_PATH" in result.output
 
     def test_validate_help_shows_description(self, cli_runner: CliRunner) -> None:
         """``validate --help`` shows a description of what the command does."""
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", "--help"])
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
         output_lower = result.output.lower()
         assert any(

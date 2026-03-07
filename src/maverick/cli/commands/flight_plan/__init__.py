@@ -1,4 +1,4 @@
-"""Flight Plan CLI commands package.
+"""``maverick plan`` CLI commands package.
 
 Re-exports the ``flight_plan`` Click group so that
 ``from maverick.cli.commands.flight_plan import flight_plan`` works.

@@ -1,4 +1,4 @@
-"""``maverick flight-plan validate`` command.
+"""``maverick plan validate`` command.
 
 Validates a flight plan Markdown file against the structural rules V1–V9
 and reports any issues found, exiting with a non-zero code when problems
@@ -27,7 +27,7 @@ def validate(file_path: str) -> None:
 
     Examples:
 
-        maverick flight-plan validate .maverick/flight-plans/my-feature.md
+        maverick plan validate .maverick/flight-plans/my-feature.md
     """
     from maverick.flight.validator import validate_flight_plan_file
 

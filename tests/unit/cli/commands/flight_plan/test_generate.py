@@ -1,4 +1,4 @@
-"""Unit tests for ``maverick flight-plan generate`` CLI subcommand."""
+"""Unit tests for ``maverick plan generate`` CLI subcommand."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from maverick.main import cli
 
 
 class TestFlightPlanGenerateRegistered:
-    """Test that generate subcommand is registered under flight-plan."""
+    """Test that generate subcommand is registered under plan."""
 
     def test_generate_in_flight_plan_help(
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """'generate' subcommand appears in 'maverick flight-plan --help'."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        """'generate' subcommand appears in 'maverick plan --help'."""
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         assert "generate" in result.output
 
@@ -26,8 +26,8 @@ class TestFlightPlanGenerateRegistered:
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """'maverick flight-plan generate --help' shows NAME and options."""
-        result = cli_runner.invoke(cli, ["flight-plan", "generate", "--help"])
+        """'maverick plan generate --help' shows NAME and options."""
+        result = cli_runner.invoke(cli, ["plan", "generate", "--help"])
         assert result.exit_code == 0
         assert "--from-prd" in result.output
         assert "--output-dir" in result.output
@@ -59,7 +59,7 @@ class TestFlightPlanGenerateNameValidation:
         result = cli_runner.invoke(
             cli,
             [
-                "flight-plan",
+                "plan",
                 "generate",
                 invalid_name,
                 "--from-prd",
@@ -77,7 +77,7 @@ class TestFlightPlanGenerateNameValidation:
         """Invalid name produces an error message."""
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "generate", "Bad Name", "--from-prd", "-"],
+            ["plan", "generate", "Bad Name", "--from-prd", "-"],
             input="PRD content",
         )
         assert result.exit_code == 1
@@ -97,7 +97,7 @@ class TestFlightPlanGeneratePrdInput:
         result = cli_runner.invoke(
             cli,
             [
-                "flight-plan",
+                "plan",
                 "generate",
                 "my-plan",
                 "--from-prd",
@@ -115,7 +115,7 @@ class TestFlightPlanGeneratePrdInput:
         """Empty STDIN PRD produces exit code 1."""
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "generate", "my-plan", "--from-prd", "-"],
+            ["plan", "generate", "my-plan", "--from-prd", "-"],
             input="",
         )
         assert result.exit_code == 1
@@ -132,7 +132,7 @@ class TestFlightPlanGeneratePrdInput:
         result = cli_runner.invoke(
             cli,
             [
-                "flight-plan",
+                "plan",
                 "generate",
                 "my-plan",
                 "--from-prd",
@@ -158,7 +158,7 @@ class TestFlightPlanGenerateOverwriteGuard:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "generate", "my-plan", "--from-prd", "-"],
+            ["plan", "generate", "my-plan", "--from-prd", "-"],
             input="Some PRD content",
         )
         assert result.exit_code == 1
@@ -178,7 +178,7 @@ class TestFlightPlanGenerateOverwriteGuard:
 
         cli_runner.invoke(
             cli,
-            ["flight-plan", "generate", "my-plan", "--from-prd", "-"],
+            ["plan", "generate", "my-plan", "--from-prd", "-"],
             input="Some PRD",
         )
         assert existing_file.read_text() == original
@@ -199,7 +199,7 @@ class TestFlightPlanGenerateOutputDir:
         result = cli_runner.invoke(
             cli,
             [
-                "flight-plan",
+                "plan",
                 "generate",
                 "my-plan",
                 "--from-prd",

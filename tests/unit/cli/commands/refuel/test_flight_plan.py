@@ -1,4 +1,4 @@
-"""Unit tests for ``maverick refuel flight-plan`` CLI command."""
+"""Unit tests for ``maverick refuel plan`` CLI command."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _PATCH_EXECUTE = "maverick.cli.commands.refuel._shared.execute_python_workflow"
 
 
 class TestRefuelFlightPlanRegistered:
-    """Test that flight-plan subcommand is registered under refuel."""
+    """Test that plan subcommand is registered under refuel."""
 
     def test_flight_plan_in_refuel_help(
         self,
@@ -21,18 +21,18 @@ class TestRefuelFlightPlanRegistered:
     ) -> None:
         result = cli_runner.invoke(cli, ["refuel", "--help"])
         assert result.exit_code == 0
-        assert "flight-plan" in result.output
+        assert "plan" in result.output
 
 
 class TestRefuelFlightPlanCommand:
-    """Tests for 'maverick refuel flight-plan' command."""
+    """Tests for 'maverick refuel plan' command."""
 
     def test_missing_flight_plan_arg(
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """flight-plan-path argument is required."""
-        result = cli_runner.invoke(cli, ["refuel", "flight-plan"])
+        """plan path argument is required."""
+        result = cli_runner.invoke(cli, ["refuel", "plan"])
         assert result.exit_code != 0
 
     def test_list_steps_prints_step_names_and_exits(
@@ -52,7 +52,7 @@ class TestRefuelFlightPlanCommand:
 
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "some-path.md", "--list-steps"],
+            ["refuel", "plan", "some-path.md", "--list-steps"],
         )
 
         assert result.exit_code == 0
@@ -75,7 +75,7 @@ class TestRefuelFlightPlanCommand:
 
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "my-plan.md"],
+            ["refuel", "plan", "my-plan.md"],
         )
 
         assert result.exit_code == 0
@@ -93,7 +93,7 @@ class TestRefuelFlightPlanCommand:
         """flight_plan_path is passed as a string in inputs."""
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "my-plan.md"],
+            ["refuel", "plan", "my-plan.md"],
         )
 
         assert result.exit_code == 0
@@ -112,7 +112,7 @@ class TestRefuelFlightPlanCommand:
         """--dry-run flag is passed as input to the workflow."""
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "my-plan.md", "--dry-run"],
+            ["refuel", "plan", "my-plan.md", "--dry-run"],
         )
 
         assert result.exit_code == 0
@@ -130,7 +130,7 @@ class TestRefuelFlightPlanCommand:
         """--dry-run defaults to False when not specified."""
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "my-plan.md"],
+            ["refuel", "plan", "my-plan.md"],
         )
 
         assert result.exit_code == 0
@@ -151,7 +151,7 @@ class TestRefuelFlightPlanCommand:
 
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "my-plan.md", "--session-log", str(log_path)],
+            ["refuel", "plan", "my-plan.md", "--session-log", str(log_path)],
         )
 
         assert result.exit_code == 0
@@ -165,7 +165,7 @@ class TestRefuelFlightPlanCommand:
         cli_runner: CliRunner,
     ) -> None:
         """Help text shows --dry-run, --list-steps, --session-log options."""
-        result = cli_runner.invoke(cli, ["refuel", "flight-plan", "--help"])
+        result = cli_runner.invoke(cli, ["refuel", "plan", "--help"])
 
         assert result.exit_code == 0
         assert "--dry-run" in result.output
@@ -181,7 +181,7 @@ class TestRefuelFlightPlanCommand:
         """Verify paths with spaces are handled correctly."""
         result = cli_runner.invoke(
             cli,
-            ["refuel", "flight-plan", "sub dir/my plan.md"],
+            ["refuel", "plan", "sub dir/my plan.md"],
         )
 
         assert result.exit_code == 0

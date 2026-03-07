@@ -1,4 +1,4 @@
-"""Unit tests for ``maverick flight-plan validate`` CLI subcommand.
+"""Unit tests for ``maverick plan validate`` CLI subcommand.
 
 T009: Write tests for validate subcommand (TDD -- written before T011 implementation).
 Tests must FAIL before T011 implementation.
@@ -50,16 +50,16 @@ class TestValidateSubcommandRegistered:
     """validate subcommand is registered under flight-plan."""
 
     def test_validate_in_flight_plan_help(self, cli_runner: CliRunner) -> None:
-        """'validate' appears in 'maverick flight-plan --help' output."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        """'validate' appears in 'maverick plan --help' output."""
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         assert "validate" in result.output
 
     def test_validate_help_shows_file_path_argument(
         self, cli_runner: CliRunner
     ) -> None:
-        """'maverick flight-plan validate --help' shows FILE_PATH argument."""
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", "--help"])
+        """'maverick plan validate --help' shows FILE_PATH argument."""
+        result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
         # The argument should appear in the help text
         assert "FILE_PATH" in result.output or "file" in result.output.lower()
@@ -80,7 +80,7 @@ class TestValidateHappyPath:
     ) -> None:
         """validate exits 0 for a valid flight plan file."""
         path = write_flight_plan(VALID_FLIGHT_PLAN_CONTENT)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         assert result.exit_code == 0, (
             f"Expected 0, got {result.exit_code}. Output: {result.output}"
         )
@@ -92,7 +92,7 @@ class TestValidateHappyPath:
     ) -> None:
         """validate prints a success-like message for a valid flight plan."""
         path = write_flight_plan(VALID_FLIGHT_PLAN_CONTENT)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         # Should contain something indicating success
         assert any(
             word in result.output.lower()
@@ -115,7 +115,7 @@ class TestValidateFailures:
     ) -> None:
         """validate exits 1 when the file has validation issues."""
         path = write_flight_plan(_INVALID_CONTENT_NO_NAME)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         assert result.exit_code == 1, (
             f"Expected 1, got {result.exit_code}. Output: {result.output}"
         )
@@ -127,7 +127,7 @@ class TestValidateFailures:
     ) -> None:
         """validate prints a list of issues for an invalid flight plan."""
         path = write_flight_plan(_INVALID_CONTENT_NO_NAME)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         # Output should contain some reference to the issue (name field)
         assert "name" in result.output.lower() or "V4" in result.output, (
             f"Expected issue mentioning 'name', got: {result.output!r}"
@@ -140,7 +140,7 @@ class TestValidateFailures:
     ) -> None:
         """Each issue's location field appears in the validate output."""
         path = write_flight_plan(_INVALID_CONTENT_NO_NAME)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         # The location should appear somewhere in the output
         # (validator uses "frontmatter.name" or similar)
         out_lower = result.output.lower()
@@ -157,7 +157,7 @@ class TestValidateFailures:
             "## Objective\n\nThis is the objective text.\n", ""
         )
         path = write_flight_plan(content)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         assert result.exit_code == 1
         assert "objective" in result.output.lower(), (
             f"Expected 'objective' in output, got: {result.output!r}"
@@ -171,7 +171,7 @@ class TestValidateFailures:
         """Missing ## Scope section causes issue to appear in output."""
         content = VALID_FLIGHT_PLAN_CONTENT.split("## Scope")[0]
         path = write_flight_plan(content)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         assert result.exit_code == 1
         assert "scope" in result.output.lower(), (
             f"Expected 'scope' in output, got: {result.output!r}"
@@ -186,7 +186,7 @@ class TestValidateFailures:
         # Remove name AND objective
         content = _INVALID_CONTENT_NO_NAME.replace("## Objective\n\nText.\n", "")
         path = write_flight_plan(content)
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(path)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(path)])
         assert result.exit_code == 1
         # Both name-related and objective-related issues should appear
         assert "name" in result.output.lower() or "V4" in result.output
@@ -206,7 +206,7 @@ class TestValidateFileNotFound:
     ) -> None:
         """validate exits 1 when given a non-existent file path."""
         missing = tmp_path / "does-not-exist.md"
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(missing)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(missing)])
         assert result.exit_code == 1, (
             f"Expected 1, got {result.exit_code}. Output: {result.output}"
         )
@@ -216,7 +216,7 @@ class TestValidateFileNotFound:
     ) -> None:
         """validate prints an error message when given a non-existent file path."""
         missing = tmp_path / "does-not-exist.md"
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(missing)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(missing)])
         assert any(
             word in result.output.lower()
             for word in ("not found", "does not exist", "no such file", "error")
@@ -227,7 +227,7 @@ class TestValidateFileNotFound:
     ) -> None:
         """validate error output includes (part of) the missing file path."""
         missing = tmp_path / "does-not-exist.md"
-        result = cli_runner.invoke(cli, ["flight-plan", "validate", str(missing)])
+        result = cli_runner.invoke(cli, ["plan", "validate", str(missing)])
         # Rich may wrap long paths across lines, so join output lines and check
         # for the filename stem which is short enough not to be split.
         joined = "".join(result.output.splitlines())

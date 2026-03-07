@@ -1,4 +1,4 @@
-"""Integration tests for ``maverick flight-plan`` CLI commands.
+"""Integration tests for ``maverick plan`` CLI commands.
 
 T014: End-to-end tests covering the full create-then-validate workflow.
 These tests verify that the create and validate subcommands work together
@@ -26,7 +26,7 @@ class TestCreateThenValidateWorkflow:
         runner = CliRunner()
         with runner.isolated_filesystem():
             # Step 1: create the flight plan
-            result_create = runner.invoke(cli, ["flight-plan", "create", "test-plan"])
+            result_create = runner.invoke(cli, ["plan", "create", "test-plan"])
             assert result_create.exit_code == 0, (
                 f"Create failed. Output: {result_create.output!r}"
             )
@@ -37,7 +37,7 @@ class TestCreateThenValidateWorkflow:
 
             # Step 3: validate the skeleton
             result_validate = runner.invoke(
-                cli, ["flight-plan", "validate", str(plan_path)]
+                cli, ["plan", "validate", str(plan_path)]
             )
             assert result_validate.exit_code == 0, (
                 f"Validate failed for skeleton. Output: {result_validate.output!r}"
@@ -47,10 +47,10 @@ class TestCreateThenValidateWorkflow:
         """Both create and validate print success messages for valid workflows."""
         runner = CliRunner()
         with runner.isolated_filesystem():
-            runner.invoke(cli, ["flight-plan", "create", "my-plan"])
+            runner.invoke(cli, ["plan", "create", "my-plan"])
             plan_path = Path(".maverick/flight-plans/my-plan.md")
 
-            result = runner.invoke(cli, ["flight-plan", "validate", str(plan_path)])
+            result = runner.invoke(cli, ["plan", "validate", str(plan_path)])
             assert result.exit_code == 0
             output_lower = result.output.lower()
             assert any(
@@ -64,7 +64,7 @@ class TestCreateThenValidateWorkflow:
             custom_dir = "my-plans"
             result_create = runner.invoke(
                 cli,
-                ["flight-plan", "create", "api-feature", "--output-dir", custom_dir],
+                ["plan", "create", "api-feature", "--output-dir", custom_dir],
             )
             assert result_create.exit_code == 0, (
                 f"Create failed. Output: {result_create.output!r}"
@@ -74,7 +74,7 @@ class TestCreateThenValidateWorkflow:
             assert plan_path.exists(), f"Expected file at {plan_path}"
 
             result_validate = runner.invoke(
-                cli, ["flight-plan", "validate", str(plan_path)]
+                cli, ["plan", "validate", str(plan_path)]
             )
             assert result_validate.exit_code == 0, (
                 f"Validate failed. Output: {result_validate.output!r}"
@@ -85,7 +85,7 @@ class TestCreateThenValidateWorkflow:
         runner = CliRunner()
         with runner.isolated_filesystem():
             # Create then replace with real content
-            runner.invoke(cli, ["flight-plan", "create", "real-plan"])
+            runner.invoke(cli, ["plan", "create", "real-plan"])
             plan_path = Path(".maverick/flight-plans/real-plan.md")
 
             real_content = """\
@@ -126,7 +126,7 @@ This is a real flight plan for testing purposes.
             plan_path.write_text(real_content, encoding="utf-8")
 
             result_validate = runner.invoke(
-                cli, ["flight-plan", "validate", str(plan_path)]
+                cli, ["plan", "validate", str(plan_path)]
             )
             assert result_validate.exit_code == 0, (
                 f"Expected valid. Output: {result_validate.output!r}"
@@ -140,7 +140,7 @@ class TestCreateFailures:
         """Invalid kebab-case name exits 1 without creating any file."""
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["flight-plan", "create", "Invalid Name"])
+            result = runner.invoke(cli, ["plan", "create", "Invalid Name"])
             assert result.exit_code == 1
             # No file should be created
             plan_dir = Path(".maverick/flight-plans")
@@ -152,11 +152,11 @@ class TestCreateFailures:
         runner = CliRunner()
         with runner.isolated_filesystem():
             # First create succeeds
-            result1 = runner.invoke(cli, ["flight-plan", "create", "duplicate-plan"])
+            result1 = runner.invoke(cli, ["plan", "create", "duplicate-plan"])
             assert result1.exit_code == 0
 
             # Second create fails (overwrite guard)
-            result2 = runner.invoke(cli, ["flight-plan", "create", "duplicate-plan"])
+            result2 = runner.invoke(cli, ["plan", "create", "duplicate-plan"])
             assert result2.exit_code == 1
 
     def test_multiple_plans_can_be_created(self) -> None:
@@ -164,7 +164,7 @@ class TestCreateFailures:
         runner = CliRunner()
         with runner.isolated_filesystem():
             for name in ["plan-alpha", "plan-beta", "plan-gamma"]:
-                result = runner.invoke(cli, ["flight-plan", "create", name])
+                result = runner.invoke(cli, ["plan", "create", name])
                 assert result.exit_code == 0, (
                     f"Failed to create plan '{name}'. Output: {result.output!r}"
                 )
@@ -183,7 +183,7 @@ class TestValidateFailures:
         with runner.isolated_filesystem():
             result = runner.invoke(
                 cli,
-                ["flight-plan", "validate", ".maverick/flight-plans/ghost.md"],
+                ["plan", "validate", ".maverick/flight-plans/ghost.md"],
             )
             assert result.exit_code == 1
             output_lower = result.output.lower()
@@ -200,7 +200,7 @@ class TestValidateFailures:
                 "# No Frontmatter Here\n\nJust plain markdown.\n",
                 encoding="utf-8",
             )
-            result = runner.invoke(cli, ["flight-plan", "validate", str(plan_path)])
+            result = runner.invoke(cli, ["plan", "validate", str(plan_path)])
             assert result.exit_code == 1
 
     def test_file_missing_required_sections_fails(self) -> None:
@@ -213,7 +213,7 @@ class TestValidateFailures:
                 "# No required sections here\n",
                 encoding="utf-8",
             )
-            result = runner.invoke(cli, ["flight-plan", "validate", str(plan_path)])
+            result = runner.invoke(cli, ["plan", "validate", str(plan_path)])
             assert result.exit_code == 1
 
     def test_validate_reports_specific_issues(self) -> None:
@@ -229,7 +229,7 @@ class TestValidateFailures:
                 "## Scope\n\n### In\n\n- Item\n",
                 encoding="utf-8",
             )
-            result = runner.invoke(cli, ["flight-plan", "validate", str(plan_path)])
+            result = runner.invoke(cli, ["plan", "validate", str(plan_path)])
             assert result.exit_code == 1
             # Should mention 'name' field issue
             assert "name" in result.output.lower() or "V4" in result.output

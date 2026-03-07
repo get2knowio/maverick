@@ -1,4 +1,4 @@
-"""``maverick flight-plan create`` command.
+"""``maverick plan create`` command.
 
 Creates a new flight plan skeleton Markdown file in the specified output
 directory, validating the name and guarding against accidental overwrites.
@@ -36,9 +36,9 @@ def create(name: str, output_dir: str) -> None:
 
     Examples:
 
-        maverick flight-plan create my-feature
+        maverick plan create my-feature
 
-        maverick flight-plan create api-gateway --output-dir plans/
+        maverick plan create api-gateway --output-dir plans/
     """
     from maverick.flight.template import generate_skeleton
 

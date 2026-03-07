@@ -1,4 +1,4 @@
-"""Unit tests for ``maverick flight-plan create`` CLI subcommand."""
+"""Unit tests for ``maverick plan create`` CLI subcommand."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from maverick.main import cli
 
 
 class TestFlightPlanCreateRegistered:
-    """Test that create subcommand is registered under flight-plan."""
+    """Test that create subcommand is registered under plan."""
 
     def test_create_in_flight_plan_help(
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """'create' subcommand appears in 'maverick flight-plan --help'."""
-        result = cli_runner.invoke(cli, ["flight-plan", "--help"])
+        """'create' subcommand appears in 'maverick plan --help'."""
+        result = cli_runner.invoke(cli, ["plan", "--help"])
         assert result.exit_code == 0
         assert "create" in result.output
 
@@ -26,8 +26,8 @@ class TestFlightPlanCreateRegistered:
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """'maverick flight-plan create --help' shows NAME argument and options."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "--help"])
+        """'maverick plan create --help' shows NAME argument and options."""
+        result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         assert "--output-dir" in result.output
 
@@ -41,7 +41,7 @@ class TestFlightPlanCreateHappyPath:
         flight_plan_env: Path,
     ) -> None:
         """Command creates a .md file in the default .maverick/flight-plans/ dir."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
         expected_file = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
@@ -55,7 +55,7 @@ class TestFlightPlanCreateHappyPath:
         """The created file's YAML frontmatter contains the correct name."""
         import yaml
 
-        cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         file_path = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
         content = file_path.read_text()
@@ -69,7 +69,7 @@ class TestFlightPlanCreateHappyPath:
         flight_plan_env: Path,
     ) -> None:
         """The created file contains all required Markdown sections."""
-        cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         file_path = flight_plan_env / ".maverick" / "flight-plans" / "my-feature.md"
         content = file_path.read_text()
@@ -89,7 +89,7 @@ class TestFlightPlanCreateHappyPath:
         flight_plan_env: Path,
     ) -> None:
         """Command prints a success message on successful creation."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 0
         # Should mention the file was created
@@ -104,7 +104,7 @@ class TestFlightPlanCreateHappyPath:
         custom_dir = flight_plan_env / "custom" / "plans"
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-feature", "--output-dir", str(custom_dir)],
+            ["plan", "create", "my-feature", "--output-dir", str(custom_dir)],
         )
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
@@ -122,7 +122,7 @@ class TestFlightPlanCreateHappyPath:
         custom_dir = flight_plan_env / "plans"
         cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "api-setup", "--output-dir", str(custom_dir)],
+            ["plan", "create", "api-setup", "--output-dir", str(custom_dir)],
         )
 
         file_path = custom_dir / "api-setup.md"
@@ -144,7 +144,7 @@ class TestFlightPlanCreateDirectoryCreation:
         default_dir = flight_plan_env / ".maverick" / "flight-plans"
         assert not default_dir.exists(), "Directory should not exist before command"
 
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "my-plan"])
+        result = cli_runner.invoke(cli, ["plan", "create", "my-plan"])
 
         assert result.exit_code == 0
         assert default_dir.exists()
@@ -160,7 +160,7 @@ class TestFlightPlanCreateDirectoryCreation:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-plan", "--output-dir", str(nested_dir)],
+            ["plan", "create", "my-plan", "--output-dir", str(nested_dir)],
         )
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
@@ -178,7 +178,7 @@ class TestFlightPlanCreateDirectoryCreation:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-plan", "--output-dir", str(existing_dir)],
+            ["plan", "create", "my-plan", "--output-dir", str(existing_dir)],
         )
 
         assert result.exit_code == 0
@@ -199,7 +199,7 @@ class TestFlightPlanCreateOverwriteGuard:
         existing_file = output_dir / "my-feature.md"
         existing_file.write_text("existing content")
 
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 1
 
@@ -214,7 +214,7 @@ class TestFlightPlanCreateOverwriteGuard:
         existing_file = output_dir / "my-feature.md"
         existing_file.write_text("existing content")
 
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 1
         # Should mention the file already exists or similar
@@ -232,7 +232,7 @@ class TestFlightPlanCreateOverwriteGuard:
         original_content = "original content that must not change"
         existing_file.write_text(original_content)
 
-        cli_runner.invoke(cli, ["flight-plan", "create", "my-feature"])
+        cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert existing_file.read_text() == original_content
 
@@ -249,7 +249,7 @@ class TestFlightPlanCreateOverwriteGuard:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-plan", "--output-dir", str(custom_dir)],
+            ["plan", "create", "my-plan", "--output-dir", str(custom_dir)],
         )
 
         assert result.exit_code == 1
@@ -278,7 +278,7 @@ class TestFlightPlanCreateNameValidation:
         valid_name: str,
     ) -> None:
         """Valid kebab-case names are accepted without error."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", valid_name])
+        result = cli_runner.invoke(cli, ["plan", "create", valid_name])
         assert result.exit_code == 0, (
             f"Expected success for name '{valid_name}', got: {result.output}"
         )
@@ -303,7 +303,7 @@ class TestFlightPlanCreateNameValidation:
         invalid_name: str,
     ) -> None:
         """Invalid names are rejected with exit code 1."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", invalid_name])
+        result = cli_runner.invoke(cli, ["plan", "create", invalid_name])
         assert result.exit_code == 1, (
             f"Expected failure for name '{invalid_name}', "
             f"got exit={result.exit_code}: {result.output}"
@@ -318,7 +318,7 @@ class TestFlightPlanCreateNameValidation:
         # Pass '--' to separate options from the positional argument so Click
         # doesn't parse the leading hyphen as an option flag.
         result = cli_runner.invoke(
-            cli, ["flight-plan", "create", "--", "-starts-with-hyphen"]
+            cli, ["plan", "create", "--", "-starts-with-hyphen"]
         )
         assert result.exit_code != 0, (
             f"Expected failure for name '-starts-with-hyphen', "
@@ -331,7 +331,7 @@ class TestFlightPlanCreateNameValidation:
         flight_plan_env: Path,
     ) -> None:
         """Invalid name produces an informative error message."""
-        result = cli_runner.invoke(cli, ["flight-plan", "create", "Invalid Name"])
+        result = cli_runner.invoke(cli, ["plan", "create", "Invalid Name"])
 
         assert result.exit_code == 1
         # Should mention the name or kebab-case requirement
@@ -348,7 +348,7 @@ class TestFlightPlanCreateNameValidation:
         flight_plan_env: Path,
     ) -> None:
         """An invalid name does not create any file."""
-        cli_runner.invoke(cli, ["flight-plan", "create", "Bad Name!"])
+        cli_runner.invoke(cli, ["plan", "create", "Bad Name!"])
 
         default_dir = flight_plan_env / ".maverick" / "flight-plans"
         if default_dir.exists():
@@ -371,7 +371,7 @@ class TestFlightPlanCreateOutputDirIsFile:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
+            ["plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
         )
 
         assert result.exit_code == 1
@@ -387,7 +387,7 @@ class TestFlightPlanCreateOutputDirIsFile:
 
         result = cli_runner.invoke(
             cli,
-            ["flight-plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
+            ["plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
         )
 
         assert result.exit_code == 1
