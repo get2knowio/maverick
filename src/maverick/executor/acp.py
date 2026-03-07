@@ -296,7 +296,9 @@ class AcpStepExecutor:
         Safe to call multiple times. Logs at INFO level for each connection
         closed (FR-023). Errors during cleanup are logged but not raised.
         Each connection gets a 2-second grace period before the subprocess
-        is force-killed.
+        is force-killed. After termination, waits for the subprocess to
+        exit so that ``BaseSubprocessTransport.__del__`` does not fire
+        after the event loop closes.
         """
         for provider_name, cached in list(self._connections.items()):
             self._logger.info(
@@ -323,6 +325,10 @@ class AcpStepExecutor:
                 )
                 with contextlib.suppress(OSError, ProcessLookupError):
                     cached.proc.kill()
+            # Wait for subprocess to fully exit so its transport is cleaned
+            # up before the event loop closes. Without this,
+            # BaseSubprocessTransport.__del__ raises RuntimeError.
+            await _wait_for_process(cached.proc)
         self._connections.clear()
 
     async def _get_or_create_connection(
@@ -470,14 +476,7 @@ class AcpStepExecutor:
                     provider=provider_name,
                     error=str(close_exc),
                 )
-            try:
-                stale.proc.terminate()
-            except Exception as term_exc:
-                self._logger.debug(
-                    "acp_executor.reconnect_terminate_error",
-                    provider=provider_name,
-                    error=str(term_exc),
-                )
+            await _wait_for_process(stale.proc)
 
         # Spawn a fresh connection
         new_cached = await self._get_or_create_connection(
@@ -731,6 +730,27 @@ class AcpStepExecutor:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+async def _wait_for_process(proc: Any, timeout: float = 3.0) -> None:
+    """Wait for a subprocess to fully exit.
+
+    Prevents ``BaseSubprocessTransport.__del__`` from firing after the
+    event loop closes, which causes ``RuntimeError: Event loop is closed``.
+    """
+    try:
+        proc.terminate()
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+    except (TimeoutError, asyncio.CancelledError):
+        with contextlib.suppress(OSError, ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(proc.wait(), timeout=1.0)
+    except Exception:
+        pass
 
 
 def _get_available_model_ids(session: Any) -> set[str]:

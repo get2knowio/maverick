@@ -87,6 +87,13 @@ async def render_workflow_events(
     _total_steps = total_steps if total_steps is not None else 0
     _agent_streaming = False  # Whether we're mid-agent-stream (for newline mgmt)
     _verbose = verbosity > 0
+    _spinner: Any = None  # Active Rich Status spinner, if any
+
+    def _stop_spinner() -> None:
+        nonlocal _spinner
+        if _spinner is not None:
+            _spinner.stop()
+            _spinner = None
 
     async for event in events:
         # Record event to session journal if active
@@ -150,20 +157,34 @@ async def render_workflow_events(
             icon = type_icons.get(event.step_type.value, "\u25cf")
             step_name = event.step_name
 
+            # Use a spinner for long-running step types (agent/python)
+            _use_spinner = event.step_type.value in ("agent", "python")
+
             if workflow_depth == 1:
                 step_index += 1
                 if _total_steps > 0:
-                    console_obj.print(
-                        f"[blue][{step_index}/{_total_steps}] "
-                        f"{icon} {step_name}[/] "
-                        f"({event.step_type.value})... ",
-                        end="",
+                    step_label = (
+                        f"[{step_index}/{_total_steps}] "
+                        f"{icon} {step_name} ({event.step_type.value})"
                     )
                 else:
+                    step_label = (
+                        f"{icon} {step_name} ({event.step_type.value})"
+                    )
+
+                if _use_spinner and hasattr(console_obj, "status"):
+                    console_obj.print(f"[blue]{step_label}[/]")
+                    _spinner = console_obj.status(
+                        f"[dim]{step_name}...[/]",
+                        spinner="dots",
+                    )
+                    _spinner.start()
+                else:
                     console_obj.print(
-                        f"[blue]{icon} {step_name}[/] ({event.step_type.value})... ",
+                        f"[blue]{step_label}...[/] ",
                         end="",
                     )
+
                 if event.step_type.value in ("loop", "subworkflow"):
                     workflow_depth += 1
             else:
@@ -177,6 +198,8 @@ async def render_workflow_events(
         elif isinstance(event, StepCompleted):
             if event.step_type.value in ("loop", "subworkflow"):
                 workflow_depth = max(1, workflow_depth - 1)
+
+            _stop_spinner()
 
             # If we were streaming agent output, close that section first
             if _agent_streaming:
@@ -263,6 +286,7 @@ async def render_workflow_events(
             )
 
         elif isinstance(event, WorkflowCompleted):
+            _stop_spinner()
             workflow_depth -= 1
 
             if workflow_depth > 0:

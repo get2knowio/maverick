@@ -189,7 +189,9 @@ class AcpProviderHealthCheck:
                 )
                 # Session failure is not fatal for basic health
 
-        # Teardown — health check only, we don't keep the connection
+        # Teardown — health check only, we don't keep the connection.
+        # Wait for subprocess to fully exit so BaseSubprocessTransport.__del__
+        # does not fire after the event loop closes.
         try:
             await ctx.__aexit__(None, None, None)
         except Exception as exc:
@@ -198,6 +200,16 @@ class AcpProviderHealthCheck:
                 provider=self.provider_name,
                 error=str(exc),
             )
+        try:
+            _proc.terminate()
+            await asyncio.wait_for(_proc.wait(), timeout=3.0)
+        except (TimeoutError, asyncio.CancelledError):
+            with contextlib.suppress(OSError, ProcessLookupError):
+                _proc.kill()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(_proc.wait(), timeout=1.0)
+        except Exception:
+            pass
 
         if errors:
             return ValidationResult(

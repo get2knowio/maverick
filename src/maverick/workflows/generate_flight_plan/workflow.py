@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -247,31 +248,51 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
 
             try:
                 # Parallel: Scopist + CodebaseAnalyst + CriteriaWriter
-                scopist_result, analyst_result, criteria_result = await asyncio.gather(
-                    self._step_executor.execute(
-                        step_name=BRIEFING_SCOPIST,
-                        agent_name="scopist",
-                        prompt=briefing_prompt,
-                        output_schema=ScopistBrief,
+                # Wrap each agent to emit progress events on completion.
+                async def _run_agent(
+                    label: str,
+                    step_name: str,
+                    agent_name: str,
+                    prompt: dict[str, Any],
+                    output_schema: type[Any],
+                ) -> Any:
+                    await self.emit_output(
+                        BRIEFING, f"\u23f3 {label}...", level="info",
+                    )
+                    t0 = time.monotonic()
+                    result = await self._step_executor.execute(
+                        step_name=step_name,
+                        agent_name=agent_name,
+                        prompt=prompt,
+                        output_schema=output_schema,
                         event_callback=_briefing_event_cb,
                         config=StepConfig(timeout=300),
-                    ),
-                    self._step_executor.execute(
-                        step_name=BRIEFING_CODEBASE_ANALYST,
-                        agent_name="codebase_analyst",
-                        prompt=briefing_prompt,
-                        output_schema=CodebaseAnalystBrief,
-                        event_callback=_briefing_event_cb,
-                        config=StepConfig(timeout=300),
-                    ),
-                    self._step_executor.execute(
-                        step_name=BRIEFING_CRITERIA_WRITER,
-                        agent_name="criteria_writer",
-                        prompt=briefing_prompt,
-                        output_schema=CriteriaWriterBrief,
-                        event_callback=_briefing_event_cb,
-                        config=StepConfig(timeout=300),
-                    ),
+                    )
+                    elapsed = time.monotonic() - t0
+                    await self.emit_output(
+                        BRIEFING,
+                        f"\u2713 {label} ({elapsed:.1f}s)",
+                        level="success",
+                    )
+                    return result
+
+                scopist_result, analyst_result, criteria_result = (
+                    await asyncio.gather(
+                        _run_agent(
+                            "Scopist", BRIEFING_SCOPIST,
+                            "scopist", briefing_prompt, ScopistBrief,
+                        ),
+                        _run_agent(
+                            "CodebaseAnalyst", BRIEFING_CODEBASE_ANALYST,
+                            "codebase_analyst", briefing_prompt,
+                            CodebaseAnalystBrief,
+                        ),
+                        _run_agent(
+                            "CriteriaWriter", BRIEFING_CRITERIA_WRITER,
+                            "criteria_writer", briefing_prompt,
+                            CriteriaWriterBrief,
+                        ),
+                    )
                 )
 
                 if (
@@ -290,6 +311,10 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     analyst_result.output,
                     criteria_result.output,
                 )
+                await self.emit_output(
+                    BRIEFING, "\u23f3 Contrarian...", level="info",
+                )
+                t0 = time.monotonic()
                 contrarian_result = await self._step_executor.execute(
                     step_name=BRIEFING_CONTRARIAN,
                     agent_name="preflight_contrarian",
@@ -297,6 +322,12 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     output_schema=PreFlightContrarianBrief,
                     event_callback=_briefing_event_cb,
                     config=StepConfig(timeout=300),
+                )
+                elapsed = time.monotonic() - t0
+                await self.emit_output(
+                    BRIEFING,
+                    f"\u2713 Contrarian ({elapsed:.1f}s)",
+                    level="success",
                 )
 
                 if not contrarian_result.output:
