@@ -88,6 +88,7 @@ class GenerateFlightPlanResult:
     name: str
     success_criteria_count: int
     validation_passed: bool
+    briefing_generated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain dictionary for WorkflowResult.final_output."""
@@ -96,4 +97,5 @@ class GenerateFlightPlanResult:
             "name": self.name,
             "success_criteria_count": self.success_criteria_count,
             "validation_passed": self.validation_passed,
+            "briefing_generated": self.briefing_generated,
         }

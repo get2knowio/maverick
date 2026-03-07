@@ -38,6 +38,12 @@ from maverick.agents.fixer import FixerAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.issue_fixer import IssueFixerAgent
+from maverick.agents.preflight_briefing import (
+    CodebaseAnalystAgent,
+    CriteriaWriterAgent,
+    PreFlightContrarianAgent,
+    ScopistAgent,
+)
 from maverick.agents.reviewers import SimpleFixerAgent, UnifiedReviewerAgent
 
 __all__ = [
@@ -100,3 +106,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     registry.agents.register("structuralist", StructuralistAgent)
     registry.agents.register("recon", ReconAgent)
     registry.agents.register("contrarian", ContrarianAgent)
+
+    # Register pre-flight briefing room agents (used in generate-flight-plan workflow)
+    registry.agents.register("scopist", ScopistAgent)
+    registry.agents.register("codebase_analyst", CodebaseAnalystAgent)
+    registry.agents.register("criteria_writer", CriteriaWriterAgent)
+    registry.agents.register("preflight_contrarian", PreFlightContrarianAgent)

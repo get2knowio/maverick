@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,11 @@ from maverick.logging import get_logger
 from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.generate_flight_plan.constants import (
+    BRIEFING,
+    BRIEFING_CODEBASE_ANALYST,
+    BRIEFING_CONTRARIAN,
+    BRIEFING_CRITERIA_WRITER,
+    BRIEFING_SCOPIST,
     GENERATE,
     READ_PRD,
     VALIDATE,
@@ -48,6 +54,7 @@ def _build_generate_prompt(
     prd_content: str,
     name: str,
     today: date,
+    briefing_content: str | None = None,
 ) -> str:
     """Build the prompt for the flight plan generation agent.
 
@@ -55,10 +62,23 @@ def _build_generate_prompt(
         prd_content: Raw PRD text content.
         name: Kebab-case flight plan name.
         today: Current date for the flight plan.
+        briefing_content: Optional pre-flight briefing Markdown to include.
 
     Returns:
         Full prompt string for the agent.
     """
+    briefing_section = ""
+    if briefing_content:
+        briefing_section = f"""
+## Pre-Flight Briefing
+
+The following briefing was produced by specialist agents that analyzed the PRD
+and codebase. Use it to inform your scope, criteria, and constraints — but
+apply your own judgment.
+
+{briefing_content}
+"""
+
     return f"""\
 Generate a Maverick flight plan from the following PRD.
 
@@ -71,7 +91,7 @@ Generate a Maverick flight plan from the following PRD.
 ## PRD Content
 
 {prd_content}
-
+{briefing_section}
 ## Output Requirements
 
 Explore the codebase to understand the project structure and reference actual
@@ -171,6 +191,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         if not name:
             raise WorkflowError("'name' input is required")
         output_dir: str = inputs.get("output_dir", ".maverick/flight-plans")
+        skip_briefing: bool = inputs.get("skip_briefing", False)
 
         output_path = Path(output_dir)
         target_file = output_path / f"{name}.md"
@@ -190,11 +211,135 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
         # ------------------------------------------------------------------
-        # Step 2: Generate flight plan via agent
+        # Step 2: Pre-Flight Briefing Room (optional)
+        # ------------------------------------------------------------------
+        briefing_content: str | None = None
+        briefing_generated = False
+
+        if not skip_briefing:
+            from maverick.agents.preflight_briefing.prompts import (
+                build_preflight_briefing_prompt,
+                build_preflight_contrarian_prompt,
+            )
+            from maverick.preflight_briefing.models import (
+                CodebaseAnalystBrief,
+                CriteriaWriterBrief,
+                PreFlightContrarianBrief,
+                ScopistBrief,
+            )
+            from maverick.preflight_briefing.serializer import (
+                serialize_preflight_briefing,
+            )
+            from maverick.preflight_briefing.synthesis import (
+                synthesize_preflight_briefing,
+            )
+
+            await self.emit_step_started(BRIEFING)
+
+            if self._step_executor is None:
+                raise WorkflowError("step_executor is required for the briefing step")
+
+            briefing_prompt = build_preflight_briefing_prompt(prd_content)
+
+            async def _briefing_event_cb(event: Any) -> None:
+                await self._event_queue.put(event)
+
+            try:
+                # Parallel: Scopist + CodebaseAnalyst + CriteriaWriter
+                scopist_result, analyst_result, criteria_result = await asyncio.gather(
+                    self._step_executor.execute(
+                        step_name=BRIEFING_SCOPIST,
+                        agent_name="scopist",
+                        prompt=briefing_prompt,
+                        output_schema=ScopistBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                    self._step_executor.execute(
+                        step_name=BRIEFING_CODEBASE_ANALYST,
+                        agent_name="codebase_analyst",
+                        prompt=briefing_prompt,
+                        output_schema=CodebaseAnalystBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                    self._step_executor.execute(
+                        step_name=BRIEFING_CRITERIA_WRITER,
+                        agent_name="criteria_writer",
+                        prompt=briefing_prompt,
+                        output_schema=CriteriaWriterBrief,
+                        event_callback=_briefing_event_cb,
+                        config=StepConfig(timeout=300),
+                    ),
+                )
+
+                if (
+                    not scopist_result.output
+                    or not analyst_result.output
+                    or not criteria_result.output
+                ):
+                    raise WorkflowError(
+                        "One or more briefing agents returned no output"
+                    )
+
+                # Sequential: Contrarian reviews all 3
+                contrarian_prompt = build_preflight_contrarian_prompt(
+                    prd_content,
+                    scopist_result.output,
+                    analyst_result.output,
+                    criteria_result.output,
+                )
+                contrarian_result = await self._step_executor.execute(
+                    step_name=BRIEFING_CONTRARIAN,
+                    agent_name="preflight_contrarian",
+                    prompt=contrarian_prompt,
+                    output_schema=PreFlightContrarianBrief,
+                    event_callback=_briefing_event_cb,
+                    config=StepConfig(timeout=300),
+                )
+
+                if not contrarian_result.output:
+                    raise WorkflowError("Contrarian agent returned no output")
+
+                # Synthesize (deterministic)
+                briefing_doc = synthesize_preflight_briefing(
+                    name,
+                    scopist_result.output,
+                    analyst_result.output,
+                    criteria_result.output,
+                    contrarian_result.output,
+                )
+
+                briefing_content = serialize_preflight_briefing(briefing_doc)
+                briefing_generated = True
+
+            except Exception as exc:
+                await self.emit_step_failed(BRIEFING, str(exc))
+                raise
+
+            await self.emit_output(
+                BRIEFING,
+                f"Briefing complete: {len(briefing_doc.key_scope_items)} scope items, "
+                f"{len(briefing_doc.key_criteria)} criteria, "
+                f"{len(briefing_doc.open_questions)} open questions",
+            )
+            await self.emit_step_completed(
+                BRIEFING,
+                output={
+                    "key_scope_items": list(briefing_doc.key_scope_items),
+                    "key_criteria": list(briefing_doc.key_criteria),
+                    "open_questions": list(briefing_doc.open_questions),
+                },
+            )
+
+        # ------------------------------------------------------------------
+        # Step 3: Generate flight plan via agent
         # ------------------------------------------------------------------
         await self.emit_step_started(GENERATE, step_type=StepType.AGENT)
 
-        prompt = _build_generate_prompt(prd_content, name, today)
+        prompt = _build_generate_prompt(
+            prd_content, name, today, briefing_content=briefing_content
+        )
 
         flight_plan_output: FlightPlanOutput | None = None
         try:
@@ -311,5 +456,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             name=name,
             success_criteria_count=len(flight_plan_output.success_criteria),
             validation_passed=validation_passed,
+            briefing_generated=briefing_generated,
         )
         return result.to_dict()

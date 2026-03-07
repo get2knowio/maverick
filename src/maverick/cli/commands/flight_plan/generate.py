@@ -5,20 +5,18 @@ Generates a structured flight plan from a PRD using an AI agent.
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
 import click
 
-from maverick.cli.commands.flight_plan._group import flight_plan
+from maverick.cli.commands.flight_plan._group import (
+    DEFAULT_OUTPUT_DIR,
+    KEBAB_CASE_RE,
+    flight_plan,
+)
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
-
-# Kebab-case validation (reuse same pattern as create.py)
-_KEBAB_CASE_RE = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
-
-_DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
 
 
 @flight_plan.command("generate")
@@ -36,9 +34,15 @@ _DEFAULT_OUTPUT_DIR = ".maverick/flight-plans"
 )
 @click.option(
     "--output-dir",
-    default=_DEFAULT_OUTPUT_DIR,
+    default=DEFAULT_OUTPUT_DIR,
     show_default=True,
     help="Output directory for the flight plan file.",
+)
+@click.option(
+    "--skip-briefing",
+    is_flag=True,
+    default=False,
+    help="Skip the pre-flight briefing room consultation.",
 )
 @click.option(
     "--session-log",
@@ -54,6 +58,7 @@ async def generate(
     from_prd: str,
     interactive: bool,
     output_dir: str,
+    skip_briefing: bool,
     session_log: Path | None,
 ) -> None:
     """Generate a flight plan from a PRD using an AI agent.
@@ -76,7 +81,7 @@ async def generate(
     from maverick.workflows.generate_flight_plan import GenerateFlightPlanWorkflow
 
     # Validate kebab-case name.
-    if not _KEBAB_CASE_RE.match(name):
+    if not KEBAB_CASE_RE.match(name):
         console.print(
             f"[red]Error:[/red] Invalid flight plan name '[bold]{name}[/bold]'.\n"
             "Name must be kebab-case: lowercase letters, digits, and hyphens only,\n"
@@ -137,6 +142,7 @@ async def generate(
                 "prd_content": prd_content,
                 "name": name,
                 "output_dir": output_dir,
+                "skip_briefing": skip_briefing,
             },
             session_log_path=session_log,
         ),

@@ -118,6 +118,24 @@ class TestBuildGeneratePrompt:
         prompt = _build_generate_prompt("Some PRD", "test", today)
         assert "2026-02-28" in prompt
 
+    def test_prompt_without_briefing(self) -> None:
+        """Prompt without briefing content has no briefing section."""
+        from datetime import date
+
+        prompt = _build_generate_prompt("PRD", "test", date.today())
+        assert "Pre-Flight Briefing" not in prompt
+
+    def test_prompt_with_briefing(self) -> None:
+        """Prompt with briefing content includes the briefing section."""
+        from datetime import date
+
+        prompt = _build_generate_prompt(
+            "PRD", "test", date.today(), briefing_content="## Scope\n- Item A"
+        )
+        assert "## Pre-Flight Briefing" in prompt
+        assert "## Scope" in prompt
+        assert "- Item A" in prompt
+
 
 # ---------------------------------------------------------------------------
 # Output conversion tests
@@ -183,6 +201,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                 "prd_content": "Build a hello world CLI",
                 "name": "test-plan",
                 "output_dir": str(tmp_path),
+                "skip_briefing": True,
             },
         )
 
@@ -207,6 +226,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                 "prd_content": "Some PRD",
                 "name": "test-plan",
                 "output_dir": str(tmp_path),
+                "skip_briefing": True,
             },
         )
 
@@ -230,6 +250,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                 "prd_content": "Some PRD",
                 "name": "test-plan",
                 "output_dir": str(tmp_path),
+                "skip_briefing": True,
             },
         )
 
@@ -254,6 +275,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                 "prd_content": "Some PRD",
                 "name": "test-plan",
                 "output_dir": str(tmp_path),
+                "skip_briefing": True,
             },
         )
 
@@ -280,6 +302,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                 "prd_content": "Some PRD",
                 "name": "test-plan",
                 "output_dir": str(tmp_path),
+                "skip_briefing": True,
             },
         )
 
@@ -333,6 +356,7 @@ class TestGenerateFlightPlanWorkflowErrors:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "skip_briefing": True,
                 },
             )
 
@@ -356,5 +380,6 @@ class TestGenerateFlightPlanWorkflowErrors:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "skip_briefing": True,
                 },
             )
