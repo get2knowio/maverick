@@ -400,12 +400,22 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
         except Exception:
             pass
 
+    # Resolve flight_plan_name from epic state metadata
+    flight_plan_name = ""
+    if resolved_epic_id:
+        try:
+            epic_details = await client.show(resolved_epic_id)
+            flight_plan_name = epic_details.state.get("flight_plan_name", "")
+        except Exception:
+            pass
+
     logger.info(
         "bead_selected",
         bead_id=bead.id,
         title=bead.title,
         priority=bead.priority,
         epic_id=resolved_epic_id,
+        flight_plan_name=flight_plan_name or "(none)",
     )
     return SelectNextBeadResult(
         found=True,
@@ -415,6 +425,7 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
         priority=bead.priority,
         epic_id=resolved_epic_id,
         done=False,
+        flight_plan_name=flight_plan_name,
     )
 
 

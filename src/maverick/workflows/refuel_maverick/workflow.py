@@ -269,12 +269,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 )
 
                 # Write to disk (colocated with work units)
-                wu_dir = (
-                    Path.cwd() / ".maverick" / "work-units" / flight_plan.name
-                )
-                await asyncio.to_thread(
-                    wu_dir.mkdir, parents=True, exist_ok=True
-                )
+                wu_dir = Path.cwd() / ".maverick" / "work-units" / flight_plan.name
+                await asyncio.to_thread(wu_dir.mkdir, parents=True, exist_ok=True)
                 briefing_path = wu_dir / "briefing.md"
                 await asyncio.to_thread(
                     briefing_path.write_text,
@@ -491,6 +487,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(CREATE_BEADS, str(exc))
                 raise
+
+            # Attach flight_plan_name to the epic for downstream lookup
+            if bead_result.epic:
+                from maverick.beads.client import BeadClient
+
+                _bead_client = BeadClient(cwd=Path.cwd())
+                try:
+                    await _bead_client.set_state(
+                        bead_result.epic["bd_id"],
+                        {"flight_plan_name": flight_plan.name},
+                        reason="refuel: link epic to flight plan",
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "set_flight_plan_state_failed",
+                        epic_id=bead_result.epic["bd_id"],
+                        error=str(exc),
+                    )
 
             await self.emit_output(
                 CREATE_BEADS,

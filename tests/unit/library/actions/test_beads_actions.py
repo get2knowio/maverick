@@ -499,16 +499,28 @@ class TestSelectNextBead:
             )
         ]
 
-        class _ShowResult:
+        class _BeadShowResult:
             description = "Fetched from show"
+            state: dict[str, str] = {}
 
-        mock_client.show.return_value = _ShowResult()
+        class _EpicShowResult:
+            description = "Epic description"
+            state = {"flight_plan_name": "my-plan"}
+
+        async def _show_side_effect(bead_id: str) -> object:
+            if bead_id == "b-3":
+                return _BeadShowResult()
+            return _EpicShowResult()
+
+        mock_client.show.side_effect = _show_side_effect
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
-        mock_client.show.assert_called_once_with("b-3")
+        # show() called for bead description and epic flight_plan_name
+        assert mock_client.show.call_count == 2
         assert result.description == "Fetched from show"
+        assert result.flight_plan_name == "my-plan"
 
     @pytest.mark.asyncio
     async def test_empty_epic_no_beads_returns_done(self) -> None:
@@ -525,6 +537,60 @@ class TestSelectNextBead:
         assert result.found is False
         assert result.done is True
         assert result.epic_id == ""
+
+    @pytest.mark.asyncio
+    async def test_flight_plan_name_resolved_from_epic(self) -> None:
+        """flight_plan_name is resolved from epic state metadata."""
+        from maverick.beads.models import BeadDetails, ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(
+                id="b-1",
+                title="Task 1",
+                priority=1,
+                description="A task",
+                parent_id="epic-42",
+            )
+        ]
+        mock_client.show.return_value = BeadDetails(
+            id="epic-42",
+            title="add-user-auth",
+            state={"flight_plan_name": "add-user-auth"},
+        )
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await select_next_bead("epic-42")
+
+        assert result.flight_plan_name == "add-user-auth"
+
+    @pytest.mark.asyncio
+    async def test_flight_plan_name_empty_when_no_state(self) -> None:
+        """flight_plan_name defaults to empty when epic has no state."""
+        from maverick.beads.models import BeadDetails, ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(
+                id="b-1",
+                title="Task 1",
+                priority=1,
+                description="A task",
+                parent_id="epic-42",
+            )
+        ]
+        mock_client.show.return_value = BeadDetails(
+            id="epic-42",
+            title="some-epic",
+            state={},
+        )
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await select_next_bead("epic-42")
+
+        assert result.flight_plan_name == ""
 
 
 class TestMarkBeadComplete:
