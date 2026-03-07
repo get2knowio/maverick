@@ -189,10 +189,28 @@ class AcpStepExecutor:
 
         raw_prompt: str = agent_instance.build_prompt(prompt)
 
-        # Prepend system instructions when provided
-        if instructions:
+        # Resolve instructions: explicit caller instructions take priority,
+        # then fall back to the agent's own instructions property.
+        effective_instructions = instructions or getattr(
+            agent_instance, "instructions", None
+        )
+
+        # Append output schema to prompt so the agent knows the exact structure
+        if output_schema is not None:
+            schema_json = json.dumps(output_schema.model_json_schema(), indent=2)
+            raw_prompt = (
+                f"{raw_prompt}\n\n---\n\n"
+                f"[OUTPUT SCHEMA]\n"
+                f"You MUST respond with a single JSON object (inside a ```json code fence) "
+                f"that conforms exactly to this JSON Schema. Use only the field names and "
+                f"types shown — do not nest objects where strings are expected.\n\n"
+                f"```json\n{schema_json}\n```"
+            )
+
+        # Prepend system instructions when available
+        if effective_instructions:
             prompt_text = (
-                f"[SYSTEM INSTRUCTIONS]\n{instructions}\n\n---\n\n{raw_prompt}"
+                f"[SYSTEM INSTRUCTIONS]\n{effective_instructions}\n\n---\n\n{raw_prompt}"
             )
         else:
             prompt_text = raw_prompt
@@ -750,15 +768,184 @@ def _extract_json_output(
             raw_response=text[:500] if text else None,
         )
 
+    # ---- Stage 1: Parse JSON string to Python dict ----
+    raw_data = _parse_json_lenient(json_str, step_name)
+
+    # ---- Stage 2: Validate, with coercion fallback ----
+    # Try direct validation first (fast path for well-behaved agents).
     try:
-        return output_schema.model_validate_json(json_str)
+        return output_schema.model_validate(raw_data)
+    except ValidationError:
+        pass
+
+    # Coerce agent output to match schema (e.g., dicts → strings in
+    # array-of-string fields). This handles the systematic mismatch where
+    # agents produce rich objects that the schema types as flat strings.
+    try:
+        schema = output_schema.model_json_schema()
+        coerced = _coerce_to_schema(raw_data, schema)
+        return output_schema.model_validate(coerced)
     except ValidationError as exc:
         raise OutputSchemaValidationError(step_name, output_schema, exc) from exc
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise MalformedResponseError(
-            message=(f"Step '{step_name}': extracted JSON could not be parsed: {exc}"),
-            raw_response=json_str[:500],
-        ) from exc
+
+
+def _parse_json_lenient(json_str: str, step_name: str) -> Any:
+    """Parse a JSON string, attempting truncation repair on failure.
+
+    Pipeline:
+    1. Try ``json.loads()`` directly.
+    2. On failure, attempt to repair truncated output (close open strings,
+       arrays, objects) and retry.
+    3. If both fail, raise ``MalformedResponseError``.
+
+    Args:
+        json_str: Raw JSON string extracted from agent output.
+        step_name: Step name for logging context.
+
+    Returns:
+        Parsed Python data (dict/list).
+
+    Raises:
+        MalformedResponseError: If the JSON cannot be parsed even after repair.
+    """
+    # Fast path
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as first_err:
+        logger.debug(
+            "acp_executor.json_parse_failed",
+            step_name=step_name,
+            error=str(first_err),
+            json_len=len(json_str),
+        )
+
+    # Repair path — close truncated structures
+    repaired = _repair_truncated_json(json_str)
+    if repaired is not None:
+        try:
+            result = json.loads(repaired)
+            logger.warning(
+                "acp_executor.json_repaired",
+                step_name=step_name,
+                original_len=len(json_str),
+                repaired_len=len(repaired),
+            )
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    raise MalformedResponseError(
+        message=(
+            f"Step '{step_name}': extracted JSON could not be parsed "
+            f"(possibly truncated agent output, {len(json_str)} chars). "
+            f"Tail: ...{json_str[-200:]!r}"
+        ),
+        raw_response=json_str[-500:] if len(json_str) > 500 else json_str,
+    )
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    """Attempt to repair JSON truncated mid-output by closing open structures.
+
+    Handles common truncation patterns where the agent hit a token limit
+    mid-JSON: unclosed strings, arrays, and objects. Walks the text tracking
+    string/escape state and brace depth, then appends closing delimiters.
+
+    Args:
+        text: Potentially truncated JSON string.
+
+    Returns:
+        Repaired JSON string, or None if repair is not feasible.
+    """
+    if not text or not text.lstrip().startswith("{"):
+        return None
+
+    repaired = text.rstrip()
+
+    # Single pass: track string state, brace/bracket depth
+    in_string = False
+    escaped = False
+    brace_depth = 0
+    bracket_depth = 0
+
+    for ch in repaired:
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            if in_string:
+                escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            brace_depth += 1
+        elif ch == "}":
+            brace_depth -= 1
+        elif ch == "[":
+            bracket_depth += 1
+        elif ch == "]":
+            bracket_depth -= 1
+
+    # Close unclosed string
+    if in_string:
+        repaired += '"'
+
+    # Strip trailing comma (invalid before closing delimiter)
+    stripped = repaired.rstrip()
+    if stripped.endswith(","):
+        repaired = stripped[:-1]
+
+    # Close unclosed brackets then braces (innermost first)
+    repaired += "]" * bracket_depth
+    repaired += "}" * brace_depth
+
+    return repaired
+
+
+def _coerce_to_schema(data: Any, schema: dict[str, Any]) -> Any:
+    """Best-effort coercion of parsed JSON to match a JSON Schema.
+
+    Handles the common agent mismatch where dict/list values appear where
+    the schema expects strings, by converting them to compact JSON strings.
+
+    Args:
+        data: Parsed JSON data.
+        schema: JSON Schema dict from Pydantic's ``model_json_schema()``.
+
+    Returns:
+        Coerced data that is more likely to pass validation.
+    """
+    schema_type = schema.get("type")
+
+    if schema_type == "object":
+        if not isinstance(data, dict):
+            return data
+        props = schema.get("properties", {})
+        result = {}
+        for key, value in data.items():
+            if key in props:
+                result[key] = _coerce_to_schema(value, props[key])
+            else:
+                result[key] = value
+        return result
+
+    if schema_type == "array":
+        if not isinstance(data, (list, tuple)):
+            return data
+        items_schema = schema.get("items", {})
+        return [_coerce_to_schema(item, items_schema) for item in data]
+
+    if schema_type == "string":
+        if isinstance(data, str):
+            return data
+        # Convert non-string values (dicts, lists) to compact JSON strings
+        return json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+
+    return data
 
 
 def _extract_last_json_object(text: str) -> str | None:
