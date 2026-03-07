@@ -75,6 +75,10 @@ class AgentProviderConfig(BaseModel, frozen=True):
         description="Permission handling strategy",
     )
     default: bool = Field(default=False, description="Is this the default provider?")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model for this provider (lowest precedence layer).",
+    )
 
 
 class GitHubConfig(BaseModel):

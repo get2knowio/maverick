@@ -16,7 +16,6 @@ from maverick.config import MaverickConfig, load_config
 from maverick.events import OutputLevel, StepOutput
 from maverick.exceptions import ConfigError, MaverickError
 from maverick.logging import get_logger
-from maverick.runners.preflight import AnthropicAPIValidator
 
 logger = get_logger(__name__)
 
@@ -36,7 +35,7 @@ class PreflightCheckResult:
 
     Attributes:
         success: True if all preflight checks passed.
-        api_available: True if Anthropic API is accessible.
+        providers_available: True if all configured ACP providers are healthy.
         git_available: True if git is available.
         github_cli_available: True if gh CLI is available and authenticated.
         validation_tools_available: True if all validation tools are installed.
@@ -45,7 +44,7 @@ class PreflightCheckResult:
     """
 
     success: bool
-    api_available: bool = True
+    providers_available: bool = True
     git_available: bool = True
     jj_available: bool = True
     github_cli_available: bool = True
@@ -57,7 +56,7 @@ class PreflightCheckResult:
         """Convert to dictionary for DSL serialization."""
         return {
             "success": self.success,
-            "api_available": self.api_available,
+            "providers_available": self.providers_available,
             "git_available": self.git_available,
             "jj_available": self.jj_available,
             "github_cli_available": self.github_cli_available,
@@ -99,7 +98,7 @@ async def _emit_check(
 
 
 async def run_preflight_checks(
-    check_api: bool = True,
+    check_providers: bool = True,
     check_git: bool = True,
     check_jj: bool = False,
     check_github: bool = True,
@@ -116,7 +115,8 @@ async def run_preflight_checks(
     with clear error messages rather than failing mid-workflow.
 
     Args:
-        check_api: Whether to validate Anthropic API access.
+        check_providers: Whether to validate ACP provider health
+            (binary, auth, protocol handshake).
         check_git: Whether to validate git is available.
         check_jj: Whether to validate jj (Jujutsu) CLI is available.
         check_github: Whether to validate GitHub CLI is authenticated.
@@ -136,34 +136,21 @@ async def run_preflight_checks(
 
     Example:
         # Fail workflow on preflight errors (default)
-        result = await run_preflight_checks(check_api=True)
-        # Workflow stops here if API check fails
+        result = await run_preflight_checks(check_providers=True)
+        # Workflow stops here if provider check fails
 
         # Return result without failing (for conditional logic)
-        result = await run_preflight_checks(check_api=True, fail_on_error=False)
+        result = await run_preflight_checks(check_providers=True, fail_on_error=False)
         if not result.success:
             # Handle failure gracefully
             ...
     """
-    import os
-
     if validation_stages is None:
         validation_stages = ["format", "lint", "typecheck", "test"]
 
-    # Debug: log env variable status
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
-    logger.debug(
-        "Preflight environment check",
-        anthropic_key_set=bool(anthropic_key),
-        anthropic_key_len=len(anthropic_key) if anthropic_key else 0,
-        oauth_token_set=bool(oauth_token),
-        fail_on_error_param=fail_on_error,
-    )
-
     errors: list[str] = []
     warnings: list[str] = []
-    api_available = True
+    providers_available = True
     git_available = True
     jj_available = True
     github_cli_available = True
@@ -180,27 +167,60 @@ async def run_preflight_checks(
         )
         config = MaverickConfig()
 
-    # Check Anthropic API
-    if check_api:
-        logger.info("Checking Anthropic API access...")
-        api_validator = AnthropicAPIValidator(validate_access=False)
-        api_result = await api_validator.validate()
-        if not api_result.success:
-            api_available = False
-            errors.extend(api_result.errors)
-            logger.debug("Anthropic API check failed", errors=api_result.errors)
-            api_err = (
-                api_result.errors[0] if api_result.errors else "credentials missing"
+    # Check ACP providers
+    if check_providers:
+        from maverick.executor.provider_registry import AgentProviderRegistry
+        from maverick.runners.provider_health import AcpProviderHealthCheck
+
+        logger.info("Checking ACP provider health...")
+        registry = AgentProviderRegistry.from_config(config.agent_providers)
+        health_checks = [
+            AcpProviderHealthCheck(
+                provider_name=name,
+                provider_config=provider_cfg,
             )
-            await _emit_check(event_callback, "Anthropic API", False, api_err)
-        else:
-            logger.info("Anthropic API credentials found")
-            await _emit_check(
-                event_callback,
-                "Anthropic API",
-                True,
-                "credentials found",
-            )
+            for name, provider_cfg in registry.items()
+        ]
+
+        results = await asyncio.gather(
+            *(hc.validate() for hc in health_checks),
+            return_exceptions=True,
+        )
+
+        for hc, result in zip(health_checks, results, strict=True):
+            if isinstance(result, BaseException):
+                providers_available = False
+                err_msg = f"Provider '{hc.provider_name}' health check error: {result}"
+                errors.append(err_msg)
+                await _emit_check(
+                    event_callback,
+                    f"ACP:{hc.provider_name}",
+                    False,
+                    str(result),
+                )
+            elif not result.success:
+                providers_available = False
+                errors.extend(result.errors)
+                err_detail = (
+                    result.errors[0] if result.errors else "health check failed"
+                )
+                await _emit_check(
+                    event_callback,
+                    f"ACP:{hc.provider_name}",
+                    False,
+                    err_detail,
+                )
+            else:
+                logger.info(
+                    "ACP provider healthy",
+                    provider=hc.provider_name,
+                )
+                await _emit_check(
+                    event_callback,
+                    f"ACP:{hc.provider_name}",
+                    True,
+                    "healthy",
+                )
 
     # Check git
     if check_git:
@@ -489,7 +509,7 @@ async def run_preflight_checks(
 
     return PreflightCheckResult(
         success=success,
-        api_available=api_available,
+        providers_available=providers_available,
         git_available=git_available,
         jj_available=jj_available,
         github_cli_available=github_cli_available,

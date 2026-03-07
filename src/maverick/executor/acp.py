@@ -557,6 +557,28 @@ class AcpStepExecutor:
 
             session_id = session.session_id
 
+            # Thread model selection into the ACP session (Phase 3)
+            resolved_model = effective_config.model_id or provider_config.default_model
+            if resolved_model:
+                try:
+                    await conn.set_session_model(
+                        model_id=resolved_model,
+                        session_id=session_id,
+                    )
+                    self._logger.debug(
+                        "acp_executor.session_model_set",
+                        step_name=step_name,
+                        session_id=session_id,
+                        model_id=resolved_model,
+                    )
+                except Exception as exc:
+                    self._logger.warning(
+                        "acp_executor.set_session_model_failed",
+                        step_name=step_name,
+                        model_id=resolved_model,
+                        error=str(exc),
+                    )
+
             self._logger.debug(
                 "acp_executor.prompt_send",
                 step_name=step_name,

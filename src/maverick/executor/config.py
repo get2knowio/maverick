@@ -255,14 +255,16 @@ def resolve_step_config(
     global_model: ModelConfig,
     step_type: StepType,
     step_name: str,
+    provider_default_model: str | None = None,
 ) -> StepConfig:
-    """Resolve per-step configuration from 4-layer precedence.
+    """Resolve per-step configuration from 5-layer precedence.
 
     Resolution order (highest to lowest priority):
     1. ``inline_config``: Raw dict from workflow YAML step's ``config`` field.
     2. ``project_step_config``: From ``MaverickConfig.steps[step_name]``.
     3. ``agent_config``: From ``MaverickConfig.agents[agent_name]``.
     4. ``global_model``: From ``MaverickConfig.model``.
+    5. ``provider_default_model``: From ``AgentProviderConfig.default_model``.
 
     Mode is inferred from ``step_type`` when not explicitly set by any layer.
     Autonomy defaults to ``AutonomyLevel.OPERATOR`` when not set.
@@ -276,6 +278,8 @@ def resolve_step_config(
         global_model: Global model configuration.
         step_type: The step's type (for mode inference).
         step_name: Step name (for error messages).
+        provider_default_model: Default model from the ACP provider config
+            (lowest precedence layer).
 
     Returns:
         Fully-resolved StepConfig with no None model fields.
@@ -332,6 +336,7 @@ def resolve_step_config(
         project_step_config.model_id if project_step_config else None,
         agent_config.model_id if agent_config else None,
         global_model.model_id,
+        provider_default_model,
     )
 
     temperature = _first_non_none(

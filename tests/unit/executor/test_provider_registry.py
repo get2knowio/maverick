@@ -192,6 +192,46 @@ class TestDefault:
 
 
 # ---------------------------------------------------------------------------
+# items()
+# ---------------------------------------------------------------------------
+
+
+class TestItems:
+    def test_items_returns_sorted_tuples(self) -> None:
+        providers = {
+            "zebra": _make_provider(_CMD_A, default=True),
+            "alpha": _make_provider(_CMD_B, default=False),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        items = registry.items()
+        assert len(items) == 2
+        assert items[0][0] == "alpha"
+        assert items[1][0] == "zebra"
+        assert items[0][1] is providers["alpha"]
+        assert items[1][1] is providers["zebra"]
+
+    def test_items_single_provider(self) -> None:
+        cfg = _make_provider(_CMD_A, default=True)
+        registry = AgentProviderRegistry.from_config({"solo": cfg})
+        items = registry.items()
+        assert items == [("solo", cfg)]
+
+    def test_items_synthesized_registry(self) -> None:
+        registry = AgentProviderRegistry.from_config({})
+        items = registry.items()
+        assert len(items) == 1
+        assert items[0][0] == "claude"
+
+    def test_items_returns_list_of_tuples(self) -> None:
+        registry = AgentProviderRegistry.from_config(
+            {"alpha": _make_provider(_CMD_A, default=True)}
+        )
+        items = registry.items()
+        assert isinstance(items, list)
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in items)
+
+
+# ---------------------------------------------------------------------------
 # names()
 # ---------------------------------------------------------------------------
 

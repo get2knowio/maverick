@@ -6,19 +6,15 @@ This module provides the core data structures for preflight validation:
 - PreflightConfig: Configuration for validation behavior
 - PreflightValidator: Orchestrator that runs validations in parallel
 - CustomToolValidator: Validates custom tools from configuration
-- AnthropicAPIValidator: Validates Anthropic API access for workflows
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
-
-from maverick.constants import CLAUDE_HAIKU_LATEST
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,7 +28,6 @@ __all__ = [
     "PreflightConfig",
     "PreflightValidator",
     "CustomToolValidator",
-    "AnthropicAPIValidator",
 ]
 
 
@@ -305,95 +300,4 @@ class CustomToolValidator:
             errors=tuple(errors),
             warnings=tuple(warnings),
             duration_ms=duration_ms,
-        )
-
-
-# =============================================================================
-# Constants for API Validation
-# =============================================================================
-
-#: Default model for API validation (haiku is cheapest/fastest)
-DEFAULT_API_CHECK_MODEL = CLAUDE_HAIKU_LATEST
-
-
-@dataclass(frozen=True, slots=True)
-class AnthropicAPIValidator:
-    """Validates Anthropic API access for workflow preflight.
-
-    This validator checks:
-    1. ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN environment variable is set
-    2. API is accessible with a minimal request (optional)
-
-    Used by fly/refuel workflows to ensure Claude API is available
-    before starting workflow execution.
-
-    Example:
-        validator = AnthropicAPIValidator(
-            validate_access=True,
-            timeout=5.0,
-        )
-        result = await validator.validate()
-        if not result.success:
-            print(f"API check failed: {result.errors}")
-
-    Attributes:
-        validate_access: If True, send a minimal API request to verify access.
-            If False, only check that credentials are set.
-        timeout: Timeout in seconds for the API validation request.
-        model: Claude model to use for validation.
-    """
-
-    validate_access: bool = True
-    timeout: float = 10.0
-    model: str = DEFAULT_API_CHECK_MODEL
-
-    async def validate(self) -> ValidationResult:
-        """Validate Anthropic API configuration and access.
-
-        Returns:
-            ValidationResult with success status:
-            - PASS if API key is set and (optionally) API is accessible
-            - FAIL if API key is not set or API is inaccessible
-
-        Error discrimination:
-        - 401: Invalid API key
-        - 403: Model not accessible (plan limits)
-        - 429: Rate limit exceeded
-        - Timeout: Network connectivity issues
-        """
-        start_time = time.monotonic()
-
-        # Step 1: Check if API key is set
-        # Either ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is acceptable
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get(
-            "CLAUDE_CODE_OAUTH_TOKEN", ""
-        )
-        if not api_key:
-            return ValidationResult(
-                success=False,
-                component="AnthropicAPI",
-                errors=(
-                    "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN "
-                    "environment variable is set",
-                ),
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-
-        # Step 2: Optionally validate API access
-        if not self.validate_access:
-            # Only checking key is set, not validating access
-            return ValidationResult(
-                success=True,
-                component="AnthropicAPI",
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-
-        # Step 3: Validate API access (key format check only — actual API
-        # validation happens when the ACP agent subprocess connects).
-        # The previous claude-agent-sdk import was removed in the ACP migration;
-        # deep validation is deferred to the ACP connection handshake.
-        return ValidationResult(
-            success=True,
-            component="AnthropicAPI",
-            duration_ms=int((time.monotonic() - start_time) * 1000),
         )

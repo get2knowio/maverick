@@ -117,7 +117,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         await self.emit_step_started(PREFLIGHT)
         try:
             preflight_result = await run_preflight_checks(
-                check_api=True,
+                check_providers=True,
                 check_git=True,
                 check_jj=True,
                 check_bd=True,
@@ -198,10 +198,24 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
                 continue
 
+            # Resolve briefing context from flight plan (if available)
+            briefing_context: str | None = None
+            fp_name = select_result.flight_plan_name
+            if fp_name:
+                briefing_path = (
+                    Path.cwd() / ".maverick" / "work-units" / fp_name / "briefing.md"
+                )
+                if briefing_path.is_file():
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        briefing_context = briefing_path.read_text(encoding="utf-8")
+
             logger.info(
                 "fly_beads_processing_bead",
                 bead_id=bead_id,
                 title=bead_title,
+                has_briefing=briefing_context is not None,
             )
 
             try:
@@ -308,17 +322,18 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 if not skip_review:
                     await self.emit_step_started(REVIEW)
                     try:
-                        pr_context_result = await gather_local_review_context(
+                        review_context_result = await gather_local_review_context(
                             base_branch=_DEFAULT_BASE_BRANCH,
                             include_spec_files=True,
                             cwd=cwd_str,
                         )
                         review_loop_result = await run_review_fix_loop(
-                            pr_context=pr_context_result.to_dict(),
+                            review_input=review_context_result.to_dict(),
                             base_branch=_DEFAULT_BASE_BRANCH,
                             max_attempts=_DEFAULT_MAX_REVIEW_ATTEMPTS,
                             generate_report=True,
                             cwd=cwd_str,
+                            briefing_context=briefing_context,
                         )
                         # Normalise to dict
                         review_result = review_loop_result.to_dict()

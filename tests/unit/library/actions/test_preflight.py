@@ -20,7 +20,7 @@ class TestPreflightCheckResult:
         """Test PreflightCheckResult.to_dict() conversion."""
         result = PreflightCheckResult(
             success=True,
-            api_available=True,
+            providers_available=True,
             git_available=True,
             github_cli_available=True,
             validation_tools_available=True,
@@ -31,7 +31,7 @@ class TestPreflightCheckResult:
         result_dict = result.to_dict()
 
         assert result_dict["success"] is True
-        assert result_dict["api_available"] is True
+        assert result_dict["providers_available"] is True
         assert result_dict["errors"] == ["error1"]
         assert result_dict["warnings"] == ["warning1"]
 
@@ -43,7 +43,7 @@ class TestRunPreflightChecks:
     async def test_skip_all_checks_returns_success(self) -> None:
         """Test that skipping all checks returns success."""
         result = await run_preflight_checks(
-            check_api=False,
+            check_providers=False,
             check_git=False,
             check_github=False,
             check_validation_tools=False,
@@ -58,7 +58,7 @@ class TestRunPreflightChecks:
         """Test that missing git binary fails the check."""
         with patch("shutil.which", return_value=None):
             result = await run_preflight_checks(
-                check_api=False,
+                check_providers=False,
                 check_git=True,
                 check_github=False,
                 check_validation_tools=False,
@@ -81,7 +81,7 @@ class TestRunPreflightChecks:
 
             with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
                 result = await run_preflight_checks(
-                    check_api=False,
+                    check_providers=False,
                     check_git=True,
                     check_github=False,
                     check_validation_tools=False,
@@ -136,7 +136,7 @@ class TestRunPreflightChecks:
 
             with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess):
                 result = await run_preflight_checks(
-                    check_api=False,
+                    check_providers=False,
                     check_git=True,
                     check_github=False,
                     check_validation_tools=False,
@@ -161,7 +161,7 @@ class TestRunPreflightChecks:
 
             with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess):
                 result = await run_preflight_checks(
-                    check_api=False,
+                    check_providers=False,
                     check_git=True,
                     check_github=False,
                     check_validation_tools=False,
@@ -178,7 +178,7 @@ class TestRunPreflightChecks:
         with patch("shutil.which", return_value=None):
             with pytest.raises(PreflightError) as exc_info:
                 await run_preflight_checks(
-                    check_api=False,
+                    check_providers=False,
                     check_git=True,
                     check_github=False,
                     check_validation_tools=False,
@@ -199,7 +199,7 @@ class TestRunPreflightChecks:
 
             with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess):
                 result = await run_preflight_checks(
-                    check_api=False,
+                    check_providers=False,
                     check_git=True,
                     check_github=False,
                     check_validation_tools=False,

@@ -119,6 +119,14 @@ class AgentProviderRegistry:
         """
         return self._default_name, self._providers[self._default_name]
 
+    def items(self) -> list[tuple[str, AgentProviderConfig]]:
+        """All registered providers as (name, config) pairs.
+
+        Returns:
+            List of (provider_name, AgentProviderConfig) tuples sorted by name.
+        """
+        return sorted(self._providers.items(), key=lambda item: item[0])
+
     def names(self) -> list[str]:
         """All registered provider names.
 
