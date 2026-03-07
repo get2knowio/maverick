@@ -7,9 +7,10 @@ lifecycle on autopilot.
 ## What is Maverick?
 
 Maverick is a Python CLI application that orchestrates AI-powered development
-workflows using the Claude Agent SDK. It automates the complete development
-lifecycle — from task creation through implementation, validation, code review,
-and commit management — using a **bead-driven** execution model.
+workflows using the Agent Client Protocol (ACP). It automates the complete
+development lifecycle — from PRD decomposition through implementation,
+validation, code review, and commit management — using a **bead-driven**
+execution model.
 
 **Core idea**: Everything is a bead. A bead is a unit of work managed by the
 `bd` CLI tool. The implementer agent doesn't know or care whether it's building
@@ -18,18 +19,18 @@ description tells it what to do.
 
 ### Key Features
 
+- **Full PRD-to-code pipeline** — Generate flight plans from PRDs, decompose
+  into work units, create beads, implement, review, and ship
 - **Bead-driven workflows** — All work is tracked as beads with dependencies,
   priorities, and lifecycle management via `bd`
 - **Autonomous AI agents** — Agents make decisions, implement code, review
-  changes, and recover from failures
-- **YAML-based workflow DSL** — Declarative, shareable workflow definitions with
-  conditional logic, parallel execution, loops, and checkpoints
+  changes, and recover from failures via ACP subprocess communication
+- **Pre-Flight Briefing Room** — Parallel AI analysis (scopist, codebase
+  analyst, criteria writer, contrarian) before plan generation and refueling
 - **Jujutsu (jj) VCS** — Write-path VCS operations use jj in colocated mode for
   snapshot/rollback safety; GitPython handles read-only operations
 - **Resilient operation** — Automatic retries, validation-fix loops,
   review-fix cycles, and bead-level rollback on failure
-- **Extensible architecture** — Custom workflows, agents, and MCP tools with
-  three-location discovery (project, user, built-in)
 
 ## Quick Start
 
@@ -40,6 +41,7 @@ description tells it what to do.
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - [Jujutsu](https://martinvonz.github.io/jj/) (`jj`) for VCS write operations
 - [bd](https://beads.dev/) for bead/work-item management
+- [claude-agent-acp](https://www.npmjs.com/package/@zed-industries/claude-agent-acp) — ACP agent subprocess (`npm install -g @zed-industries/claude-agent-acp`)
 - Claude API access (set `ANTHROPIC_API_KEY` environment variable)
 - Git repository with remote origin (jj runs in colocated mode)
 
@@ -60,38 +62,107 @@ uv tool install git+https://github.com/get2knowio/maverick.git
 ### Basic Usage
 
 ```bash
-# Refuel: create beads from a SpecKit specification
+# Full PRD-to-code pipeline:
+# 1. Generate a flight plan from a PRD
+maverick flight-plan generate my-feature --from-prd specs/my-feature/spec.md
+
+# 2. Validate the generated plan
+maverick flight-plan validate .maverick/flight-plans/my-feature.md
+
+# 3. Decompose into work units and create beads
+maverick refuel flight-plan .maverick/flight-plans/my-feature.md
+
+# 4. Implement beads (in isolated workspace)
+maverick fly --epic <epic-id> --max-beads 5
+
+# 5. Curate history and push
+maverick land
+
+# Alternative: create beads directly from a SpecKit specification
 maverick refuel speckit .specify/specs/my-feature/
 
-# Fly: implement, validate, review, and commit
-maverick fly
-maverick fly --epic my-epic
+# Other commands
 maverick fly --skip-review --max-beads 5
-
-# Land: curate history and push
-maverick land
 maverick land --dry-run
-maverick land --heuristic-only
-
-# Review queued beads before flying
-maverick brief
-
-# Watch bead status live while fly runs
-maverick brief --watch --interval 2
-
-# Initialize a new Maverick project
-maverick init
+maverick brief                  # Review queued beads
+maverick brief --watch          # Live polling while fly runs
+maverick init                   # Initialize a new project
 ```
 
 ## Workflows
 
 Maverick uses a beads-only workflow model. All development is driven by beads
-(units of work managed by the `bd` CLI tool).
+(units of work managed by the `bd` CLI tool). Workflows are implemented as
+Python async classes (not YAML DSL) under `src/maverick/workflows/`.
+
+### The PRD-to-Code Pipeline
+
+The full pipeline takes a product requirements document and turns it into
+shipped code:
+
+```
+PRD ──▶ flight-plan generate ──▶ flight-plan validate ──▶ refuel flight-plan ──▶ fly ──▶ land
+            │                                                   │                 │       │
+            ├── Pre-Flight Briefing Room                        ├── Briefing      │       ├── Curate
+            │   (scopist, codebase analyst,                     │   Room           │       │   commits
+            │    criteria writer, contrarian)                    ├── Decompose     │       ├── Push
+            ├── AI-generated flight plan                        │   into work     │       └── Teardown
+            └── Markdown output                                 │   units          │
+                                                                └── Create beads  ├── Bead loop
+                                                                                  └── (see below)
+```
+
+### `maverick flight-plan generate` — Plan from PRD
+
+Generates a flight plan from a product requirements document (PRD). Runs a
+**Pre-Flight Briefing Room** — four parallel AI agents analyze the PRD before
+a generator agent synthesizes the plan:
+
+| Agent | Role |
+|-------|------|
+| **Scopist** | Defines scope boundaries, in/out decisions |
+| **Codebase Analyst** | Maps relevant modules, patterns, dependencies |
+| **Criteria Writer** | Drafts acceptance criteria and test scenarios |
+| **Contrarian** | Identifies risks, blind spots, and over-engineering |
+
+```bash
+maverick flight-plan generate my-feature --from-prd specs/my-feature/spec.md
+```
+
+### `maverick flight-plan validate` — Validate Plan
+
+Validates a generated flight plan for structural correctness.
+
+```bash
+maverick flight-plan validate .maverick/flight-plans/my-feature.md
+```
+
+### `maverick refuel flight-plan` — Decompose into Beads
+
+Decomposes a flight plan into work units and creates beads. Also runs a
+briefing room to inform the decomposition.
+
+```bash
+maverick refuel flight-plan .maverick/flight-plans/my-feature.md
+maverick refuel flight-plan .maverick/flight-plans/my-feature.md --dry-run
+```
+
+### `maverick refuel speckit` — Beads from SpecKit
+
+Creates beads from a SpecKit specification directory containing `tasks.md`:
+
+1. **Parse** — Extract phases and tasks from `tasks.md`
+2. **Create** — Generate epic and work beads via `bd`
+3. **Enrich** — Add acceptance criteria and context to bead descriptions
+4. **Wire** — Set up dependencies between beads
+
+```bash
+maverick refuel speckit .specify/specs/my-feature/
+```
 
 ### `maverick fly` — Bead-Driven Development
 
-The primary command. Iterates over ready beads until done, running the
-`fly-beads` YAML workflow:
+The primary execution command. Iterates over ready beads until done:
 
 ```
 preflight ──▶ create_workspace ──▶ bead loop
@@ -99,7 +170,7 @@ preflight ──▶ create_workspace ──▶ bead loop
                                       ├── select next ready bead
                                       ├── snapshot (jj operation for rollback)
                                       ├── describe_change (bead → change description)
-                                      ├── implement (ImplementerAgent)
+                                      ├── implement (ImplementerAgent via ACP)
                                       ├── sync_deps (install/update dependencies)
                                       ├── validate & fix (format/lint/typecheck/test, 3 attempts)
                                       ├── create fix beads (for remaining failures)
@@ -113,8 +184,6 @@ preflight ──▶ create_workspace ──▶ bead loop
 
 After `fly` finishes, run `maverick land` to curate history and push.
 
-**Options**:
-
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--epic <id>` | (any) | Filter to beads under this epic |
@@ -126,30 +195,7 @@ After `fly` finishes, run `maverick land` to curate history and push.
 
 **How failures become beads**: When validation or review finds issues that can't
 be auto-fixed, new beads are created under the same epic with high priority.
-The outer loop picks them up on the next iteration — no inline fix loops needed.
-
-### `maverick refuel speckit` — Bead Creation
-
-Creates beads from a SpecKit specification directory containing `tasks.md`:
-
-1. **Parse** — Extract phases and tasks from `tasks.md`
-2. **Create** — Generate epic and work beads via `bd`
-3. **Enrich** — Add acceptance criteria and context to bead descriptions
-4. **Wire** — Set up dependencies between beads
-
-```bash
-maverick refuel speckit .specify/specs/my-feature/
-maverick refuel speckit .specify/specs/my-feature/ --dry-run
-```
-
-### `maverick init` — Project Setup
-
-Initialize a new Maverick project with configuration files.
-
-### `maverick brief` — Bead Dashboard
-
-Review ready and blocked beads before starting a fly session. Use `--watch` for
-live polling while `maverick fly` runs in another terminal.
+The outer loop picks them up on the next iteration.
 
 ### `maverick land` — Finalize and Ship
 
@@ -177,6 +223,15 @@ maverick land --base develop     # Custom base revision
 | `--finalize` | false | Create PR from preview branch, teardown |
 | `--branch <name>` | `maverick/<project>` | Custom branch name |
 
+### `maverick init` — Project Setup
+
+Initialize a new Maverick project with configuration files.
+
+### `maverick brief` — Bead Dashboard
+
+Review ready and blocked beads before starting a fly session. Use `--watch` for
+live polling while `maverick fly` runs in another terminal.
+
 ### `maverick workspace` — Workspace Management
 
 Manage the hidden workspace used by `maverick fly`. The workspace lives in
@@ -195,19 +250,27 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, init, brief, land                    │
+│  maverick fly, refuel, flight-plan, init, brief, land       │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
-│  Workflow DSL Layer                                         │
-│  YAML parsing, step execution (python, agent, validate,     │
-│  parallel, loop, subworkflow, checkpoint), bead lifecycle   │
+│  Workflow Layer (Python async)                              │
+│  FlyBeadsWorkflow, GenerateFlightPlanWorkflow,              │
+│  RefuelMaverickWorkflow, RefuelSpeckitWorkflow              │
+│  (orchestration, state management, bead lifecycle)          │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
-│  Agent Layer (Claude Agent SDK)                             │
+│  ACP Executor Layer (Agent Client Protocol)                 │
+│  MaverickAcpExecutor — spawns claude-agent-acp subprocess,  │
+│  streams output, extracts structured JSON with schema       │
+│  coercion and truncation repair                             │
+└─────────────────────────────────────────────────────────────┘
+                          |
+┌─────────────────────────────────────────────────────────────┐
+│  Agent Layer                                                │
 │  ImplementerAgent, UnifiedReviewerAgent, FixerAgent,        │
-│  SimpleFixerAgent, IssueFixerAgent, CuratorAgent, Generators│
+│  CuratorAgent, PreFlight Briefing agents, Generators        │
 │  (system prompts, tool selection, autonomous decisions)      │
 └─────────────────────────────────────────────────────────────┘
                           |
@@ -220,11 +283,31 @@ Maverick follows a clean separation of concerns:
 
 ### Separation of Concerns
 
-- **Agents** know HOW to do a task — system prompts, tool selection, Claude SDK
-  interaction. They provide judgment (implementation, review, fix suggestions).
+- **Agents** know HOW to do a task — system prompts, tool selection, structured
+  output schemas. They provide judgment (implementation, review, fix suggestions).
 - **Workflows** know WHAT to do and WHEN — orchestration, state management,
   sequencing. They own deterministic side effects (commits, validation, retries).
+- **ACP Executor** bridges agents and workflows — spawns agent subprocesses via
+  the Agent Client Protocol, streams conversational output for display, and
+  extracts structured JSON from agent responses with schema coercion and
+  truncation repair.
 - **Tools** wrap external systems — GitHub API, VCS, notifications.
+
+### Agent Execution via ACP
+
+Agents run as `claude-agent-acp` subprocesses communicating over stdio via the
+[Agent Client Protocol](https://github.com/anthropics/agent-client-protocol).
+The executor handles:
+
+- **Prompt construction** — Merges agent instructions, context, and output
+  schema directives into a single prompt
+- **Streaming output** — Agent text is streamed to the console in real-time
+- **Structured extraction** — The last JSON block in the agent's conversational
+  output is extracted and validated against a Pydantic schema
+- **Schema coercion** — When agents produce rich objects where the schema
+  expects strings, a recursive coercion pass converts mismatched types
+- **Truncation repair** — When agents hit token limits mid-JSON, unclosed
+  strings, arrays, and objects are automatically closed
 
 ### VCS: Jujutsu + Git
 
@@ -244,87 +327,6 @@ before each bead, and restores to the snapshot if the verification gate fails.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#directory-structure) for the full directory layout.
 
-## Workflow DSL
-
-Workflows are defined in YAML with a rich set of step types:
-
-```yaml
-version: "1.0"
-name: my-workflow
-description: Example workflow
-
-inputs:
-  branch_name:
-    type: string
-    required: true
-  skip_tests:
-    type: boolean
-    default: false
-
-steps:
-  # Python action
-  - name: setup
-    type: python
-    action: init_workspace
-    kwargs:
-      branch: ${{ inputs.branch_name }}
-
-  # Agent invocation
-  - name: implement
-    type: agent
-    agent: implementer
-    context:
-      task_description: ${{ steps.setup.output.task_description }}
-
-  # Validation with retry
-  - name: validate
-    type: validate
-    stages: ["format", "lint", "typecheck", "test"]
-    retry: 3
-
-  # Conditional execution
-  - name: run_tests
-    type: python
-    action: run_tests
-    when: ${{ not inputs.skip_tests }}
-
-  # Parallel execution
-  - name: parallel_reviews
-    type: parallel
-    steps:
-      - name: agent_review
-        type: agent
-        agent: unified_reviewer
-      - name: static_analysis
-        type: python
-        action: run_static_analysis
-
-  # Loop with exit condition
-  - name: work_loop
-    type: loop
-    until: ${{ steps.check_done.output.done }}
-    max_iterations: 30
-    steps:
-      - name: do_work
-        type: python
-        action: process_next_item
-
-  # Sub-workflow
-  - name: create_pr
-    type: subworkflow
-    workflow: create-pr-with-summary
-    inputs:
-      base_branch: main
-```
-
-### Workflow Discovery
-
-Workflows are discovered from three locations (higher precedence overrides lower):
-
-1. **Project** — `.maverick/workflows/` — Project-specific customizations
-2. **User** — `~/.config/maverick/workflows/` — User-wide customizations
-3. **Built-in** — Packaged with Maverick — Default implementations
-
 ## Configuration
 
 Maverick uses YAML configuration files with layered precedence:
@@ -338,7 +340,7 @@ Maverick uses YAML configuration files with layered precedence:
 project_type: python
 
 # Project-specific conventions injected into agent prompts at runtime.
-# Agents run via the Claude Agent SDK without access to CLAUDE.md, so any
+# Agents run as ACP subprocesses without access to CLAUDE.md, so any
 # project-specific standards (canonical libraries, language style, async
 # rules) must be declared here.
 project_conventions: |
@@ -373,7 +375,7 @@ notifications:
 
 #### Agent Convention Injection
 
-Agents run via the Claude Agent SDK and do **not** see CLAUDE.md at runtime.
+Agents run as ACP subprocesses and do **not** see CLAUDE.md at runtime.
 Convention guidance is injected into prompts via a two-tier model:
 
 | Tier | Source | Scope |
@@ -392,7 +394,7 @@ See [Agent Prompts Reference](docs/agent-prompts.md) for details.
 | Language | Python 3.10+ | `from __future__ import annotations` |
 | Package Manager | uv | Fast, reproducible builds via `uv.lock` |
 | Build System | Make | AI-friendly commands with minimal output |
-| AI/Agents | Claude Agent SDK | `claude-agent-sdk` package |
+| AI/Agents | Agent Client Protocol (ACP) | `acp` SDK + `claude-agent-acp` subprocess |
 | CLI | Click + Rich | Auto TTY detection for output |
 | Validation | Pydantic | Configuration and data models |
 | VCS (writes) | Jujutsu (jj) | Colocated mode; `maverick.library.actions.jj` |
@@ -445,4 +447,4 @@ MIT
 - [Documentation Site](https://get2knowio.github.io/maverick/)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Issue Tracker](https://github.com/get2knowio/maverick/issues)
-- [Claude Agent SDK](https://github.com/anthropics/anthropic-agent-sdk)
+- [Agent Client Protocol](https://github.com/anthropics/agent-client-protocol)
