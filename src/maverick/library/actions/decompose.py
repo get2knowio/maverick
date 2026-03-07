@@ -166,7 +166,7 @@ async def gather_codebase_context(
                     all_paths.append((str(file_path), file_path))
         else:
             missing.append(path_str)
-            logger.warning("in_scope_path_not_found", path=path_str)
+            logger.debug("in_scope_path_not_found", path=path_str)
 
     if not all_paths:
         logger.info("no_in_scope_files", in_scope_count=len(in_scope))

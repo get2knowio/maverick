@@ -153,15 +153,29 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             await self.emit_step_failed(GATHER_CONTEXT, str(exc))
             raise
 
-        for missing in codebase_context.missing_files:
-            await self.emit_output(
-                GATHER_CONTEXT, f"File not found: {missing}", level="warning"
-            )
+        total_scope = len(flight_plan.scope.in_scope)
+        found_count = len(codebase_context.files)
+        missing_count = len(codebase_context.missing_files)
 
+        if missing_count > 0 and found_count == 0:
+            # All files missing — greenfield project, not an error
+            await self.emit_output(
+                GATHER_CONTEXT,
+                f"Greenfield project \u2014 none of {total_scope} "
+                f"in-scope files exist yet",
+            )
+        elif missing_count > 0:
+            # Partial — some files exist, some don't
+            await self.emit_output(
+                GATHER_CONTEXT,
+                f"{missing_count} of {total_scope} in-scope files "
+                f"not found (may not exist yet)",
+                level="warning",
+            )
         size_kb = codebase_context.total_size // 1024
         await self.emit_output(
             GATHER_CONTEXT,
-            f"Gathered context ({len(codebase_context.files)} files, {size_kb}KB)",
+            f"Gathered context ({found_count} files, {size_kb}KB)",
         )
         await self.emit_step_completed(
             GATHER_CONTEXT,
