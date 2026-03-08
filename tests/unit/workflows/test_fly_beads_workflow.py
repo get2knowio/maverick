@@ -88,7 +88,13 @@ def _make_mock_actions(
         verify_result = _make_verify_result(passed=True)
 
     if check_done_result is None:
-        check_done_result = CheckEpicDoneResult(done=True, remaining_count=0)
+        check_done_result = CheckEpicDoneResult(
+            done=True,
+            remaining_count=0,
+            all_children_closed=True,
+            total_children=1,
+            closed_children=1,
+        )
 
     sync = DependencySyncResult(
         success=True,
@@ -485,7 +491,10 @@ class TestFlyBeadsWorkflow:
         ]
         mv = _make_mock_actions(
             select_side_effect=select_side_effect,
-            check_done_result=CheckEpicDoneResult(done=False, remaining_count=5),
+            check_done_result=CheckEpicDoneResult(
+                done=False, remaining_count=5,
+                all_children_closed=False, total_children=10, closed_children=5,
+            ),
         )
 
         with _patch_all_actions(mv):
@@ -531,8 +540,14 @@ class TestFlyBeadsWorkflow:
             commit={"side_effect": capture_commit},
             check_done={
                 "side_effect": [
-                    CheckEpicDoneResult(done=False, remaining_count=1),
-                    CheckEpicDoneResult(done=True, remaining_count=0),
+                    CheckEpicDoneResult(
+                        done=False, remaining_count=1,
+                        all_children_closed=False, total_children=2, closed_children=1,
+                    ),
+                    CheckEpicDoneResult(
+                        done=True, remaining_count=0,
+                        all_children_closed=True, total_children=2, closed_children=2,
+                    ),
                 ]
             },
         ):
@@ -556,3 +571,77 @@ class TestFlyBeadsWorkflow:
                 pass
 
         mocks["select"].assert_called_once_with(epic_id="epic-42")
+
+    async def test_epic_closed_when_all_children_done(self, fly_workflow: Any) -> None:
+        """Epic bead is closed when all child beads are closed."""
+        mv = _make_mock_actions(
+            check_done_result=CheckEpicDoneResult(
+                done=True,
+                remaining_count=0,
+                all_children_closed=True,
+                total_children=1,
+                closed_children=1,
+            ),
+        )
+
+        with _patch_all_actions(mv) as mocks:
+            async for _ in fly_workflow.execute(
+                {"epic_id": "epic-99", "max_beads": 5}
+            ):
+                pass
+
+        # mark_bead_complete called twice: once for the work bead, once for epic
+        calls = mocks["mark_complete"].call_args_list
+        epic_calls = [c for c in calls if c.kwargs.get("bead_id") == "epic-99"]
+        assert len(epic_calls) == 1
+        assert "All child beads completed" in epic_calls[0].kwargs.get("reason", "")
+
+    async def test_epic_not_closed_when_children_still_open(
+        self, fly_workflow: Any
+    ) -> None:
+        """Epic bead stays open when some children are blocked."""
+        mv = _make_mock_actions(
+            check_done_result=CheckEpicDoneResult(
+                done=True,
+                remaining_count=0,
+                all_children_closed=False,
+                total_children=2,
+                closed_children=1,
+            ),
+        )
+
+        with _patch_all_actions(mv) as mocks:
+            async for _ in fly_workflow.execute(
+                {"epic_id": "epic-99", "max_beads": 5}
+            ):
+                pass
+
+        # mark_bead_complete called only for the work bead, not the epic
+        calls = mocks["mark_complete"].call_args_list
+        epic_calls = [c for c in calls if c.kwargs.get("bead_id") == "epic-99"]
+        assert len(epic_calls) == 0
+
+    async def test_epic_not_closed_without_epic_id(self, fly_workflow: Any) -> None:
+        """Epic is not closed when no epic_id was provided."""
+        mv = _make_mock_actions(
+            check_done_result=CheckEpicDoneResult(
+                done=True,
+                remaining_count=0,
+                all_children_closed=True,
+                total_children=1,
+                closed_children=1,
+            ),
+        )
+
+        with _patch_all_actions(mv) as mocks:
+            async for _ in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 5}
+            ):
+                pass
+
+        # mark_bead_complete called only for the work bead (empty epic_id)
+        calls = mocks["mark_complete"].call_args_list
+        # The work bead call uses bead_id="b1", no epic close call
+        for c in calls:
+            assert c.kwargs.get("bead_id") != ""
+            assert c.kwargs.get("reason", "") != "All child beads completed"

@@ -457,12 +457,18 @@ async def mark_bead_complete(
 async def check_epic_done(epic_id: str = "") -> CheckEpicDoneResult:
     """Check if there are any remaining ready beads.
 
+    When an ``epic_id`` is provided, also queries child beads to determine
+    whether *all* children are closed (not just that none are ready — some
+    may be blocked or failed).  ``all_children_closed`` is the safe signal
+    for closing the epic itself.
+
     Args:
         epic_id: Epic bead ID to check. When empty, checks for any ready bead
             across all epics.
 
     Returns:
-        CheckEpicDoneResult with done flag and remaining count.
+        CheckEpicDoneResult with done flag, remaining count, and child
+        status breakdown.
     """
     from maverick.beads.client import BeadClient
 
@@ -471,15 +477,41 @@ async def check_epic_done(epic_id: str = "") -> CheckEpicDoneResult:
     beads = await client.ready(parent, limit=10)
 
     done = len(beads) == 0
+
+    # When we have a concrete epic, check whether every child is closed.
+    all_children_closed = False
+    total_children = 0
+    closed_children = 0
+
+    if epic_id:
+        try:
+            children = await client.children(epic_id)
+            total_children = len(children)
+            closed_children = sum(1 for c in children if c.status == "closed")
+            all_closed = closed_children == total_children
+            all_children_closed = total_children > 0 and all_closed
+        except Exception as exc:
+            logger.warning(
+                "check_epic_children_failed",
+                epic_id=epic_id,
+                error=str(exc),
+            )
+
     logger.info(
         "epic_done_check",
         epic_id=epic_id or "(any)",
         done=done,
         remaining=len(beads),
+        all_children_closed=all_children_closed,
+        total_children=total_children,
+        closed_children=closed_children,
     )
     return CheckEpicDoneResult(
         done=done,
         remaining_count=len(beads),
+        all_children_closed=all_children_closed,
+        total_children=total_children,
+        closed_children=closed_children,
     )
 
 

@@ -628,21 +628,50 @@ class TestCheckEpicDone:
     """Tests for check_epic_done action."""
 
     @pytest.mark.asyncio
-    async def test_done(self) -> None:
+    async def test_done_all_children_closed(self) -> None:
+        from maverick.beads.models import BeadSummary
         from maverick.library.actions.beads import check_epic_done
 
         mock_client = AsyncMock()
         mock_client.ready.return_value = []
+        mock_client.children.return_value = [
+            BeadSummary(id="b-1", title="T1", status="closed"),
+            BeadSummary(id="b-2", title="T2", status="closed"),
+        ]
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("epic-1")
 
         assert result.done is True
         assert result.remaining_count == 0
+        assert result.all_children_closed is True
+        assert result.total_children == 2
+        assert result.closed_children == 2
+
+    @pytest.mark.asyncio
+    async def test_done_but_children_still_open(self) -> None:
+        """No ready beads but some children are blocked/open."""
+        from maverick.beads.models import BeadSummary
+        from maverick.library.actions.beads import check_epic_done
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = []
+        mock_client.children.return_value = [
+            BeadSummary(id="b-1", title="T1", status="closed"),
+            BeadSummary(id="b-2", title="T2", status="blocked"),
+        ]
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await check_epic_done("epic-1")
+
+        assert result.done is True
+        assert result.all_children_closed is False
+        assert result.total_children == 2
+        assert result.closed_children == 1
 
     @pytest.mark.asyncio
     async def test_not_done(self) -> None:
-        from maverick.beads.models import ReadyBead
+        from maverick.beads.models import BeadSummary, ReadyBead
         from maverick.library.actions.beads import check_epic_done
 
         mock_client = AsyncMock()
@@ -650,12 +679,17 @@ class TestCheckEpicDone:
             ReadyBead(id="b-1", title="T1", priority=1),
             ReadyBead(id="b-2", title="T2", priority=2),
         ]
+        mock_client.children.return_value = [
+            BeadSummary(id="b-1", title="T1", status="open"),
+            BeadSummary(id="b-2", title="T2", status="open"),
+        ]
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await check_epic_done("epic-1")
 
         assert result.done is False
         assert result.remaining_count == 2
+        assert result.all_children_closed is False
 
     @pytest.mark.asyncio
     async def test_empty_epic_queries_all(self) -> None:
@@ -671,6 +705,9 @@ class TestCheckEpicDone:
         # Should pass None to client.ready (no parent filter)
         mock_client.ready.assert_called_once_with(None, limit=10)
         assert result.done is True
+        # No epic_id means children are not queried
+        mock_client.children.assert_not_called()
+        assert result.all_children_closed is False
 
     @pytest.mark.asyncio
     async def test_empty_epic_not_done(self) -> None:
@@ -689,6 +726,38 @@ class TestCheckEpicDone:
         mock_client.ready.assert_called_once_with(None, limit=10)
         assert result.done is False
         assert result.remaining_count == 1
+
+    @pytest.mark.asyncio
+    async def test_children_query_failure_graceful(self) -> None:
+        """Children query failure doesn't break check_epic_done."""
+        from maverick.library.actions.beads import check_epic_done
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = []
+        mock_client.children.side_effect = RuntimeError("bd unavailable")
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await check_epic_done("epic-1")
+
+        assert result.done is True
+        assert result.all_children_closed is False
+        assert result.total_children == 0
+
+    @pytest.mark.asyncio
+    async def test_no_children_not_closeable(self) -> None:
+        """Epic with zero children should not be marked all_children_closed."""
+        from maverick.library.actions.beads import check_epic_done
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = []
+        mock_client.children.return_value = []
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await check_epic_done("epic-1")
+
+        assert result.done is True
+        assert result.all_children_closed is False
+        assert result.total_children == 0
 
 
 class TestCreateBeadsFromFailures:

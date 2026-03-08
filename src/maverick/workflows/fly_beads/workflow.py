@@ -441,6 +441,26 @@ class FlyBeadsWorkflow(PythonWorkflow):
             try:
                 done_result = await check_epic_done(epic_id=epic_id)
                 if done_result.done:
+                    # Close the epic if all its children are closed.
+                    if done_result.all_children_closed and epic_id:
+                        try:
+                            await mark_bead_complete(
+                                bead_id=epic_id,
+                                reason="All child beads completed",
+                            )
+                            await self.emit_output(
+                                COMMIT,
+                                f"Epic {epic_id} closed — all"
+                                f" {done_result.total_children} child"
+                                " beads completed",
+                                level="success",
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "epic_close_failed",
+                                epic_id=epic_id,
+                                error=str(exc),
+                            )
                     await self.emit_output(
                         COMMIT,
                         "Epic done — no more ready beads"

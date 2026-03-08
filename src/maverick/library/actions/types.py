@@ -636,21 +636,32 @@ class CreateBeadsFromFindingsResult:
 
 @dataclass(frozen=True, slots=True)
 class CheckEpicDoneResult:
-    """Result of checking whether an epic has remaining ready beads.
+    """Result of checking whether an epic has remaining work.
 
     Attributes:
         done: Whether the epic has no more ready beads.
         remaining_count: Number of remaining ready beads.
+        all_children_closed: Whether every child bead has status "closed".
+            True means the epic can safely be closed. False when some
+            children are still open or blocked (even if none are ready).
+        total_children: Total number of child beads under the epic.
+        closed_children: Number of child beads with status "closed".
     """
 
     done: bool
     remaining_count: int
+    all_children_closed: bool = False
+    total_children: int = 0
+    closed_children: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "done": self.done,
             "remaining_count": self.remaining_count,
+            "all_children_closed": self.all_children_closed,
+            "total_children": self.total_children,
+            "closed_children": self.closed_children,
         }
 
 
