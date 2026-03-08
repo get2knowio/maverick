@@ -122,6 +122,7 @@ class FlightPlanFile:
                 version=str(fm.get("version", "")),
                 created=fm.get("created"),  # type: ignore[arg-type]
                 tags=tuple(fm.get("tags") or []),
+                depends_on_plans=tuple(fm.get("depends-on-plans") or []),
                 objective=sections["objective"],
                 success_criteria=success_criteria,
                 scope=scope,

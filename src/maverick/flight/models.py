@@ -135,6 +135,10 @@ class FlightPlan(BaseModel):
     version: str = Field(description="Version string")
     created: date = Field(description="Creation date")
     tags: tuple[str, ...] = Field(description="Classification tags")
+    depends_on_plans: tuple[str, ...] = Field(
+        default=(),
+        description="Names of flight plans this plan depends on",
+    )
     objective: str = Field(description="Plan objective")
     success_criteria: tuple[SuccessCriterion, ...] = Field(
         description="Success criteria"
@@ -197,6 +201,7 @@ class FlightPlan(BaseModel):
             "version": self.version,
             "created": self.created.isoformat(),
             "tags": list(self.tags),
+            "depends_on_plans": list(self.depends_on_plans),
             "objective": self.objective,
             "success_criteria": [
                 {"text": sc.text, "checked": sc.checked} for sc in self.success_criteria

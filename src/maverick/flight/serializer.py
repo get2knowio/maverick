@@ -49,6 +49,8 @@ def serialize_flight_plan(plan: FlightPlan) -> str:
         "created": plan.created.isoformat(),
         "tags": list(plan.tags),
     }
+    if plan.depends_on_plans:
+        frontmatter["depends-on-plans"] = list(plan.depends_on_plans)
     fm_yaml = yaml.dump(
         frontmatter,
         default_flow_style=False,

@@ -128,6 +128,10 @@ class RefuelMaverickResult:
     coverage_warnings: tuple[str, ...]
     dry_run: bool
     briefing_path: str | None = None
+    cross_plan_deps: tuple[dict[str, Any], ...] = ()
+    cross_plan_dep_errors: tuple[str, ...] = ()
+    suggested_cross_plan_deps: tuple[str, ...] = ()
+    open_bead_overlap_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain dictionary for WorkflowResult.final_output."""
@@ -141,4 +145,8 @@ class RefuelMaverickResult:
             "coverage_warnings": list(self.coverage_warnings),
             "dry_run": self.dry_run,
             "briefing_path": self.briefing_path,
+            "cross_plan_deps": list(self.cross_plan_deps),
+            "cross_plan_dep_errors": list(self.cross_plan_dep_errors),
+            "suggested_cross_plan_deps": list(self.suggested_cross_plan_deps),
+            "open_bead_overlap_count": self.open_bead_overlap_count,
         }

@@ -117,6 +117,50 @@ class TestFlightPlanFileLoad:
         fp = FlightPlanFile.load(fp_file)
         assert "refresh tokens" in fp.notes
 
+    def test_load_depends_on_plans_absent_defaults_empty(self, tmp_path: Path) -> None:
+        """load() defaults depends_on_plans to () when absent."""
+        from maverick.flight.loader import FlightPlanFile
+
+        fp_file = tmp_path / "plan.md"
+        fp_file.write_text(SAMPLE_FLIGHT_PLAN_MD)
+
+        fp = FlightPlanFile.load(fp_file)
+        assert fp.depends_on_plans == ()
+
+    def test_load_depends_on_plans_present(self, tmp_path: Path) -> None:
+        """load() reads depends-on-plans from YAML frontmatter."""
+        from maverick.flight.loader import FlightPlanFile
+
+        content = """\
+---
+name: add-payments
+version: "1.0"
+created: 2026-03-01
+depends-on-plans:
+  - add-auth
+  - add-database
+---
+
+## Objective
+
+Add payment processing.
+
+## Success Criteria
+
+- [ ] Payments work
+
+## Scope
+
+### In
+
+- src/payments/
+"""
+        fp_file = tmp_path / "plan.md"
+        fp_file.write_text(content)
+
+        fp = FlightPlanFile.load(fp_file)
+        assert fp.depends_on_plans == ("add-auth", "add-database")
+
     def test_load_missing_file_raises_not_found(self, tmp_path: Path) -> None:
         """load() on a missing file raises FlightPlanNotFoundError with path."""
         from maverick.flight.errors import FlightPlanNotFoundError

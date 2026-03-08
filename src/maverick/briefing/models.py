@@ -108,6 +108,7 @@ class ReconBrief(BaseModel):
     ambiguities: tuple[Ambiguity, ...]
     testing_strategy: str
     summary: str
+    suggested_cross_plan_dependencies: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------

@@ -9,26 +9,37 @@ from maverick.library.actions.decompose import _format_codebase_context
 if TYPE_CHECKING:
     from maverick.briefing.models import NavigatorBrief, ReconBrief, StructuralistBrief
     from maverick.library.actions.decompose import CodebaseContext
+    from maverick.library.actions.open_bead_analysis import OpenBeadAnalysisResult
 
 
 def build_briefing_prompt(
     flight_plan_content: str,
     codebase_context: CodebaseContext,
+    open_bead_context: OpenBeadAnalysisResult | None = None,
 ) -> str:
     """Build the shared prompt for Navigator, Structuralist, and Recon agents.
 
     Args:
         flight_plan_content: Raw flight plan Markdown.
         codebase_context: Gathered codebase file contents.
+        open_bead_context: Optional open bead analysis for cross-plan awareness.
 
     Returns:
-        Formatted prompt with flight plan and codebase context sections.
+        Formatted prompt with flight plan, codebase context, and optionally
+        open bead context sections.
     """
     context_section = _format_codebase_context(codebase_context)
-    return (
+    prompt = (
         f"## Flight Plan\n\n{flight_plan_content}"
         f"\n\n## Codebase Context\n\n{context_section}"
     )
+
+    if open_bead_context is not None:
+        bead_section = open_bead_context.format_for_prompt()
+        if bead_section:
+            prompt += f"\n\n{bead_section}"
+
+    return prompt
 
 
 def build_contrarian_prompt(

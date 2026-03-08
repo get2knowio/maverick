@@ -428,6 +428,45 @@ class TestFlightPlanRoundTrip:
         original, reloaded = self._round_trip(tmp_path, SAMPLE_FLIGHT_PLAN_MD)
         assert reloaded.notes == original.notes
 
+    def test_round_trip_depends_on_plans(self, tmp_path: Path) -> None:
+        """depends_on_plans must survive round-trip when present."""
+        content = """\
+---
+name: add-payments
+version: "1.0"
+created: 2026-03-01
+tags: []
+depends-on-plans:
+  - add-auth
+  - add-database
+---
+
+## Objective
+
+Add payment processing.
+
+## Success Criteria
+
+- [ ] Payments work
+
+## Scope
+
+### In
+
+- src/payments/
+
+### Out
+
+### Boundaries
+"""
+        original, reloaded = self._round_trip(tmp_path, content)
+        assert reloaded.depends_on_plans == ("add-auth", "add-database")
+
+    def test_round_trip_depends_on_plans_empty(self, tmp_path: Path) -> None:
+        """depends_on_plans empty default survives round-trip."""
+        original, reloaded = self._round_trip(tmp_path, SAMPLE_FLIGHT_PLAN_MD)
+        assert reloaded.depends_on_plans == ()
+
 
 # ---------------------------------------------------------------------------
 # Round-trip fidelity — WorkUnit

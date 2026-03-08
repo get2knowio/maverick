@@ -386,6 +386,38 @@ class TestFlightPlan:
         fp = self._make_flight_plan()
         assert fp.source_path is None
 
+    def test_depends_on_plans_default_empty(self) -> None:
+        """depends_on_plans defaults to empty tuple."""
+        fp = self._make_flight_plan()
+        assert fp.depends_on_plans == ()
+
+    def test_depends_on_plans_with_values(self) -> None:
+        """depends_on_plans stores plan names as tuple."""
+        from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
+
+        fp = FlightPlan(
+            name="add-payments",
+            version="1.0",
+            created=date(2026, 3, 1),
+            tags=(),
+            depends_on_plans=("add-auth", "add-database"),
+            objective="Add payment processing.",
+            success_criteria=(SuccessCriterion(text="Payments work", checked=False),),
+            scope=Scope(
+                in_scope=("src/payments/",),
+                out_of_scope=(),
+                boundaries=(),
+            ),
+        )
+        assert fp.depends_on_plans == ("add-auth", "add-database")
+
+    def test_depends_on_plans_in_to_dict(self) -> None:
+        """to_dict() includes depends_on_plans as a list."""
+        fp = self._make_flight_plan()
+        d = fp.to_dict()
+        assert "depends_on_plans" in d
+        assert isinstance(d["depends_on_plans"], list)
+
 
 # ===========================================================================
 # T012: WorkUnit model tests

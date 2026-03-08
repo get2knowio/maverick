@@ -15,6 +15,8 @@ VALIDATE = "validate"
 WRITE_WORK_UNITS = "write_work_units"
 CREATE_BEADS = "create_beads"
 WIRE_DEPS = "wire_deps"
+ANALYZE_OPEN_BEADS = "analyze_open_beads"
+WIRE_CROSS_PLAN_DEPS = "wire_cross_plan_deps"
 
 # Default config values
 WORKFLOW_NAME: str = "refuel-maverick"

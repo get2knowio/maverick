@@ -140,6 +140,28 @@ class TestReconModels:
         )
         assert brief.testing_strategy == "Unit + integration"
 
+    def test_recon_brief_suggested_cross_plan_deps_default(self) -> None:
+        brief = ReconBrief(
+            risks=(),
+            ambiguities=(),
+            testing_strategy="test",
+            summary="summary",
+        )
+        assert brief.suggested_cross_plan_dependencies == ()
+
+    def test_recon_brief_suggested_cross_plan_deps(self) -> None:
+        brief = ReconBrief(
+            risks=(),
+            ambiguities=(),
+            testing_strategy="test",
+            summary="summary",
+            suggested_cross_plan_dependencies=("add-auth", "add-db"),
+        )
+        assert brief.suggested_cross_plan_dependencies == (
+            "add-auth",
+            "add-db",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Challenge / Simplification / ContrarianBrief

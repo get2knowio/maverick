@@ -41,6 +41,13 @@ You have access to: **Read, Glob, Grep**
 ### Grep
 {TOOL_USAGE_GREP}
 
+4. **Cross-Plan Dependencies** — if open bead context is provided, identify
+   flight plans whose in-progress work overlaps with the new plan's scope.
+   Output their names in ``suggested_cross_plan_dependencies``. Only suggest
+   plans where there is genuine file-level or functional overlap that
+   could cause merge conflicts or integration issues. If no open bead
+   context is provided, leave ``suggested_cross_plan_dependencies`` empty.
+
 ## Principles
 
 - Examine existing test patterns and coverage to inform strategy.
