@@ -141,9 +141,7 @@ def _shutdown_loop(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> Non
         if pending:
             for task in pending:
                 task.cancel()
-            loop.run_until_complete(
-                asyncio.wait(pending, timeout=timeout)
-            )
+            loop.run_until_complete(asyncio.wait(pending, timeout=timeout))
     except Exception:
         pass
     finally:

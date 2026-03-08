@@ -136,9 +136,7 @@ class TestFlightPlanValidateHelp:
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
 
-    def test_validate_help_shows_name_argument(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_validate_help_shows_name_argument(self, cli_runner: CliRunner) -> None:
         """``validate --help`` shows the NAME positional argument."""
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0

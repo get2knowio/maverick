@@ -257,7 +257,9 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     output_schema: type[Any],
                 ) -> Any:
                     await self.emit_output(
-                        BRIEFING, f"\u23f3 {label}...", level="info",
+                        BRIEFING,
+                        f"\u23f3 {label}...",
+                        level="info",
                     )
                     t0 = time.monotonic()
                     result = await self._step_executor.execute(
@@ -276,23 +278,28 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     )
                     return result
 
-                scopist_result, analyst_result, criteria_result = (
-                    await asyncio.gather(
-                        _run_agent(
-                            "Scopist", BRIEFING_SCOPIST,
-                            "scopist", briefing_prompt, ScopistBrief,
-                        ),
-                        _run_agent(
-                            "CodebaseAnalyst", BRIEFING_CODEBASE_ANALYST,
-                            "codebase_analyst", briefing_prompt,
-                            CodebaseAnalystBrief,
-                        ),
-                        _run_agent(
-                            "CriteriaWriter", BRIEFING_CRITERIA_WRITER,
-                            "criteria_writer", briefing_prompt,
-                            CriteriaWriterBrief,
-                        ),
-                    )
+                scopist_result, analyst_result, criteria_result = await asyncio.gather(
+                    _run_agent(
+                        "Scopist",
+                        BRIEFING_SCOPIST,
+                        "scopist",
+                        briefing_prompt,
+                        ScopistBrief,
+                    ),
+                    _run_agent(
+                        "CodebaseAnalyst",
+                        BRIEFING_CODEBASE_ANALYST,
+                        "codebase_analyst",
+                        briefing_prompt,
+                        CodebaseAnalystBrief,
+                    ),
+                    _run_agent(
+                        "CriteriaWriter",
+                        BRIEFING_CRITERIA_WRITER,
+                        "criteria_writer",
+                        briefing_prompt,
+                        CriteriaWriterBrief,
+                    ),
                 )
 
                 if (
@@ -312,7 +319,9 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     criteria_result.output,
                 )
                 await self.emit_output(
-                    BRIEFING, "\u23f3 Contrarian...", level="info",
+                    BRIEFING,
+                    "\u23f3 Contrarian...",
+                    level="info",
                 )
                 t0 = time.monotonic()
                 contrarian_result = await self._step_executor.execute(
@@ -370,7 +379,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_started(
             GENERATE,
             step_type=StepType.AGENT,
-            agent_name="flight-plan-generator",
+            provider=self._resolve_display_provider(),
             model_id=self._resolve_display_model(),
         )
 

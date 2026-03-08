@@ -120,28 +120,39 @@ class PythonWorkflow(ABC):
         """Read-only access to the optional step executor."""
         return self._step_executor
 
+    def _resolve_display_provider(self) -> str | None:
+        """Return the default provider name for display purposes."""
+        try:
+            providers = self._config.agent_providers
+            for name, pcfg in providers.items():
+                if pcfg.default:
+                    return name
+            # No default marked — try first provider
+            for name in providers:
+                return name
+        except (AttributeError, TypeError):
+            pass
+        return None
+
     def _resolve_display_model(self) -> str | None:
         """Resolve the effective model ID for display purposes.
 
-        Returns the explicitly-configured model_id, or the default provider's
-        default_model, or None if neither is available.
+        Returns the explicitly-configured model_id, or the default
+        provider's default_model, or None if neither is available.
         """
         try:
             model_cfg = self._config.model
-            # Explicit global model_id takes precedence
             fields_set = getattr(model_cfg, "model_fields_set", set())
             if "model_id" in fields_set:
                 return model_cfg.model_id
         except (AttributeError, TypeError):
             return None
 
-        # Fall back to default provider's default_model
         try:
             providers = self._config.agent_providers
             for _name, pcfg in providers.items():
                 if pcfg.default:
                     return pcfg.default_model
-            # No default marked — try first provider
             for _name, pcfg in providers.items():
                 return pcfg.default_model
         except (AttributeError, TypeError):
@@ -272,7 +283,7 @@ class PythonWorkflow(ABC):
         self,
         name: str,
         step_type: StepType = StepType.PYTHON,
-        agent_name: str | None = None,
+        provider: str | None = None,
         model_id: str | None = None,
     ) -> None:
         """Emit a StepStarted event and record the step start time.
@@ -280,7 +291,7 @@ class PythonWorkflow(ABC):
         Args:
             name: Step name (unique within this workflow execution).
             step_type: Step type for the event. Defaults to StepType.PYTHON.
-            agent_name: Optional agent name for display.
+            provider: Optional provider name for display.
             model_id: Optional model identifier for display.
         """
         self._current_step = name
@@ -290,7 +301,7 @@ class PythonWorkflow(ABC):
                 step_name=name,
                 step_type=step_type,
                 step_path=f"{self._workflow_name}.{name}",
-                agent_name=agent_name,
+                provider=provider,
                 model_id=model_id,
             )
         )

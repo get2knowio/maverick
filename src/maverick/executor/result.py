@@ -56,6 +56,7 @@ class ExecutorResult:
     success: bool
     usage: UsageMetadata | None
     events: tuple[AgentStreamChunk, ...]
+    model_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""

@@ -249,8 +249,9 @@ class AcpStepExecutor:
         )
         cwd_str = str(cwd) if cwd is not None else str(Path.cwd())
 
+        model_label: str | None = None
         try:
-            output = await self._execute_with_retry(
+            output, model_label = await self._execute_with_retry(
                 step_name=step_name,
                 agent_name=agent_name,
                 prompt_text=prompt_text,
@@ -292,6 +293,7 @@ class AcpStepExecutor:
             success=True,
             usage=None,
             events=(),
+            model_label=model_label,
         )
 
     async def cleanup(self) -> None:
@@ -510,7 +512,7 @@ class AcpStepExecutor:
         max_attempts: int,
         wait_min: float,
         wait_max: float,
-    ) -> Any:
+    ) -> tuple[Any, str | None]:
         """Run the ACP prompt with optional tenacity retry.
 
         A fresh ACP session is created per attempt. The connection is reused.
@@ -535,7 +537,7 @@ class AcpStepExecutor:
             wait_max: Tenacity maximum wait between retries in seconds.
 
         Returns:
-            Extracted output (validated BaseModel instance or raw string).
+            Tuple of (extracted output, resolved model label string or None).
 
         Raises:
             CircuitBreakerError: Circuit breaker triggered.
@@ -544,9 +546,10 @@ class AcpStepExecutor:
             NetworkError: Connection drop persisted after one reconnect attempt.
             AgentError: Other execution failures.
         """
-        # Mutable reference so _run_single_attempt always uses the latest connection
-        # after a transparent reconnect.
+        # Mutable references so _run_single_attempt always uses the latest connection
+        # after a transparent reconnect, and captures the resolved model label.
         current_cached: list[CachedConnection] = [cached]
+        resolved_model_label: list[str | None] = [None]
 
         async def _run_single_attempt() -> Any:
             """Execute one ACP session: create session → prompt → extract output."""
@@ -594,9 +597,7 @@ class AcpStepExecutor:
             session_id = session.session_id
 
             # Thread model selection into the ACP session (Phase 3)
-            resolved_model = (
-                effective_config.model_id or provider_config.default_model
-            )
+            resolved_model = effective_config.model_id or provider_config.default_model
             if resolved_model:
                 # Validate against available models from the session
                 available_ids = _get_available_model_ids(session)
@@ -627,27 +628,14 @@ class AcpStepExecutor:
                         error=str(exc),
                     )
 
-            # Emit the effective model for observability
-            if event_callback is not None:
-                effective_model = resolved_model
-                if not effective_model:
-                    # Read current_model_id from the session
-                    models_state = getattr(session, "models", None)
-                    if models_state:
-                        effective_model = getattr(
-                            models_state, "current_model_id", None,
-                        )
-                if effective_model:
-                    from maverick.events import StepOutput
-
-                    await event_callback(
-                        StepOutput(
-                            step_name=step_name,
-                            message=f"model: {effective_model}",
-                            level="debug",
-                            source="acp_executor",
-                        )
-                    )
+            # Resolve and store effective model for observability
+            prov_name = current_cached[0].provider_name
+            label = _resolve_model_label(
+                session,
+                resolved_model,
+            )
+            if label:
+                resolved_model_label[0] = f"{prov_name}/{label}"
 
             self._logger.debug(
                 "acp_executor.prompt_send",
@@ -739,7 +727,8 @@ class AcpStepExecutor:
             return accumulated_text
 
         if max_attempts <= 1:
-            return await _run_single_attempt()
+            output = await _run_single_attempt()
+            return output, resolved_model_label[0]
 
         # Retry with tenacity
         result: Any = None
@@ -750,7 +739,7 @@ class AcpStepExecutor:
         ):
             with attempt:
                 result = await _run_single_attempt()
-        return result
+        return result, resolved_model_label[0]
 
 
 # ---------------------------------------------------------------------------
@@ -775,6 +764,47 @@ async def _wait_for_process(proc: Any, timeout: float = 3.0) -> None:
             await asyncio.wait_for(proc.wait(), timeout=1.0)
     except Exception:
         pass
+
+
+def _resolve_model_label(
+    session: Any,
+    resolved_model: str | None,
+) -> str | None:
+    """Build a human-readable model label from the ACP session.
+
+    Prefers the ``name`` field from ``ModelInfo`` (e.g. "Claude Opus 4.6")
+    over the bare ``model_id`` (e.g. "opus"). Falls back to
+    ``current_model_id`` when no explicit model was requested.
+
+    Args:
+        session: ACP NewSessionResponse.
+        resolved_model: Model ID explicitly set on the session, or None.
+
+    Returns:
+        Display label like "Claude Opus 4.6", or None if unavailable.
+    """
+    models_state = getattr(session, "models", None)
+    if not models_state:
+        return resolved_model or None
+
+    # Determine which model_id to look up
+    model_id = resolved_model or getattr(
+        models_state,
+        "current_model_id",
+        None,
+    )
+    if not model_id:
+        return None
+
+    # Try to find the full name from available_models
+    for m in getattr(models_state, "available_models", []):
+        if getattr(m, "model_id", None) == model_id:
+            name = getattr(m, "name", None)
+            if name:
+                return name
+            break
+
+    return model_id
 
 
 def _get_available_model_ids(session: Any) -> set[str]:

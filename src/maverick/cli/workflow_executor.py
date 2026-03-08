@@ -157,10 +157,10 @@ async def render_workflow_events(
             icon = type_icons.get(event.step_type.value, "\u25cf")
             step_name = event.step_name
 
-            # Build type annotation: "agent / model" or just "python"
+            # Build type annotation: "provider / model" or just "python"
             type_annotation = event.step_type.value
-            if event.agent_name or event.model_id:
-                parts = [p for p in (event.agent_name, event.model_id) if p]
+            if event.provider or event.model_id:
+                parts = [p for p in (event.provider, event.model_id) if p]
                 type_annotation = " / ".join(parts)
 
             # Use a spinner for long-running step types (agent/python)
@@ -174,9 +174,7 @@ async def render_workflow_events(
                         f"{icon} {step_name} ({type_annotation})"
                     )
                 else:
-                    step_label = (
-                        f"{icon} {step_name} ({type_annotation})"
-                    )
+                    step_label = f"{icon} {step_name} ({type_annotation})"
 
                 if _use_spinner and hasattr(console_obj, "status"):
                     console_obj.print(f"[blue]{step_label}[/]")
@@ -196,8 +194,7 @@ async def render_workflow_events(
             else:
                 indent = "  " * (workflow_depth - 1)
                 console_obj.print(
-                    f"[dim cyan]{indent}{icon} {step_name}[/] "
-                    f"({type_annotation})... ",
+                    f"[dim cyan]{indent}{icon} {step_name}[/] ({type_annotation})... ",
                     end="",
                 )
 
@@ -234,24 +231,21 @@ async def render_workflow_events(
                     if not _agent_streaming:
                         _agent_streaming = True
                     console_obj.print(
-                        text, end="", highlight=False, markup=False,
+                        text,
+                        end="",
+                        highlight=False,
+                        markup=False,
                     )
             # Normal mode: suppress raw agent stream entirely.
             # Workflows should emit StepOutput events for user-facing summaries.
 
         elif isinstance(event, StepOutput):
-            # Model announcements: update spinner or suppress
+            # Model announcements: suppress from output
             if (
                 event.source == "acp_executor"
                 and event.level == "debug"
                 and event.message.startswith("model: ")
             ):
-                model_name = event.message.removeprefix("model: ")
-                if _spinner is not None:
-                    _spinner.update(
-                        f"[dim]{event.step_name} ({model_name})...[/]",
-                    )
-                # Suppress from normal output either way
                 continue
             level_styles = {
                 "info": "[cyan]",

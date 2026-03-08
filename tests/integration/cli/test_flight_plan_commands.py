@@ -36,9 +36,7 @@ class TestCreateThenValidateWorkflow:
             assert plan_path.exists(), f"Expected file at {plan_path}"
 
             # Step 3: validate the skeleton (validate now takes NAME)
-            result_validate = runner.invoke(
-                cli, ["plan", "validate", "test-plan"]
-            )
+            result_validate = runner.invoke(cli, ["plan", "validate", "test-plan"])
             assert result_validate.exit_code == 0, (
                 f"Validate failed for skeleton. Output: {result_validate.output!r}"
             )
@@ -125,9 +123,7 @@ This is a real flight plan for testing purposes.
 """
             plan_path.write_text(real_content, encoding="utf-8")
 
-            result_validate = runner.invoke(
-                cli, ["plan", "validate", "real-plan"]
-            )
+            result_validate = runner.invoke(cli, ["plan", "validate", "real-plan"])
             assert result_validate.exit_code == 0, (
                 f"Expected valid. Output: {result_validate.output!r}"
             )

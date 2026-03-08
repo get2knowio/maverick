@@ -65,9 +65,7 @@ class TestValidateSubcommandRegistered:
         assert result.exit_code == 0
         assert "validate" in result.output
 
-    def test_validate_help_shows_name_argument(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_validate_help_shows_name_argument(self, cli_runner: CliRunner) -> None:
         """'maverick plan validate --help' shows NAME argument."""
         result = cli_runner.invoke(cli, ["plan", "validate", "--help"])
         assert result.exit_code == 0
@@ -154,9 +152,7 @@ class TestValidateFailures:
         # (validator uses "frontmatter.name" or similar)
         out_lower = result.output.lower()
         in_output = "frontmatter" in out_lower or "name" in out_lower
-        assert in_output, (
-            f"Expected location in output, got: {result.output!r}"
-        )
+        assert in_output, f"Expected location in output, got: {result.output!r}"
 
     def test_missing_objective_shown_in_output(
         self,
@@ -195,9 +191,7 @@ class TestValidateFailures:
     ) -> None:
         """When multiple issues exist, all are shown in output."""
         # Remove name AND objective
-        content = _INVALID_CONTENT_NO_NAME.replace(
-            "## Objective\n\nText.\n", ""
-        )
+        content = _INVALID_CONTENT_NO_NAME.replace("## Objective\n\nText.\n", "")
         _write_plan(flight_plan_env, "multi-bad", content)
         result = cli_runner.invoke(cli, ["plan", "validate", "multi-bad"])
         assert result.exit_code == 1
@@ -220,9 +214,7 @@ class TestValidateFileNotFound:
         flight_plan_env: Path,
     ) -> None:
         """validate exits 1 when given a non-existent plan name."""
-        result = cli_runner.invoke(
-            cli, ["plan", "validate", "does-not-exist"]
-        )
+        result = cli_runner.invoke(cli, ["plan", "validate", "does-not-exist"])
         assert result.exit_code == 1, (
             f"Expected 1, got {result.exit_code}. Output: {result.output}"
         )
@@ -233,9 +225,7 @@ class TestValidateFileNotFound:
         flight_plan_env: Path,
     ) -> None:
         """validate prints an error message for a non-existent plan name."""
-        result = cli_runner.invoke(
-            cli, ["plan", "validate", "does-not-exist"]
-        )
+        result = cli_runner.invoke(cli, ["plan", "validate", "does-not-exist"])
         assert any(
             word in result.output.lower()
             for word in ("not found", "does not exist", "no such file", "error")
@@ -247,9 +237,7 @@ class TestValidateFileNotFound:
         flight_plan_env: Path,
     ) -> None:
         """validate error output includes the plan name in the path."""
-        result = cli_runner.invoke(
-            cli, ["plan", "validate", "does-not-exist"]
-        )
+        result = cli_runner.invoke(cli, ["plan", "validate", "does-not-exist"])
         joined = "".join(result.output.splitlines())
         assert "does-not-exist" in joined, (
             f"Expected plan name in output, got: {result.output!r}"

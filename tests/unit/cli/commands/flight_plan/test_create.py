@@ -45,11 +45,7 @@ class TestFlightPlanCreateHappyPath:
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
         expected_file = (
-            flight_plan_env
-            / ".maverick"
-            / "plans"
-            / "my-feature"
-            / "flight-plan.md"
+            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         )
         assert expected_file.exists(), f"Expected file not found: {expected_file}"
 
@@ -64,11 +60,7 @@ class TestFlightPlanCreateHappyPath:
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         file_path = (
-            flight_plan_env
-            / ".maverick"
-            / "plans"
-            / "my-feature"
-            / "flight-plan.md"
+            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         )
         content = file_path.read_text()
         parts = content.split("---", 2)
@@ -84,11 +76,7 @@ class TestFlightPlanCreateHappyPath:
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         file_path = (
-            flight_plan_env
-            / ".maverick"
-            / "plans"
-            / "my-feature"
-            / "flight-plan.md"
+            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         )
         content = file_path.read_text()
         assert "## Objective" in content
@@ -336,9 +324,7 @@ class TestFlightPlanCreateNameValidation:
         """Name starting with a hyphen is rejected (non-zero exit code)."""
         # Pass '--' to separate options from the positional argument so Click
         # doesn't parse the leading hyphen as an option flag.
-        result = cli_runner.invoke(
-            cli, ["plan", "create", "--", "-starts-with-hyphen"]
-        )
+        result = cli_runner.invoke(cli, ["plan", "create", "--", "-starts-with-hyphen"])
         assert result.exit_code != 0, (
             f"Expected failure for name '-starts-with-hyphen', "
             f"got exit=0: {result.output}"

@@ -28,7 +28,9 @@ from maverick.types import StepType
 
 
 async def _render_events(
-    events: list[Any], *, verbosity: int = 0,
+    events: list[Any],
+    *,
+    verbosity: int = 0,
 ) -> str:
     """Render a sequence of events through render_workflow_events and capture output.
 
@@ -284,34 +286,34 @@ class TestAgentStreamChunkRendering:
 
 
 class TestAgentModelDisplay:
-    """StepStarted with agent_name and model_id renders provider/model info."""
+    """StepStarted with provider and model_id renders provider/model info."""
 
-    async def test_agent_and_model_shown(self) -> None:
-        """Agent name and model_id appear in the step label."""
+    async def test_provider_and_model_shown(self) -> None:
+        """Provider and model_id appear in the step label."""
         output = await _render_events(
             [
                 StepStarted(
                     step_name="decompose",
                     step_type=StepType.AGENT,
-                    agent_name="decomposer",
+                    provider="copilot",
                     model_id="sonnet",
                 ),
             ],
         )
-        assert "decomposer / sonnet" in output
+        assert "copilot / sonnet" in output
 
-    async def test_agent_only_no_model(self) -> None:
-        """Only agent name shown when model_id is None."""
+    async def test_provider_only_no_model(self) -> None:
+        """Only provider shown when model_id is None."""
         output = await _render_events(
             [
                 StepStarted(
                     step_name="implement",
                     step_type=StepType.AGENT,
-                    agent_name="implementer",
+                    provider="copilot",
                 ),
             ],
         )
-        assert "implementer" in output
+        assert "copilot" in output
         assert "None" not in output
 
     async def test_no_agent_shows_step_type(self) -> None:

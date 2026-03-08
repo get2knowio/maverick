@@ -334,9 +334,7 @@ def resolve_step_config(
     # Only use global_model.model_id if it was explicitly set in the config.
     # When it's the Pydantic default, non-Claude providers won't recognize it.
     global_model_id = (
-        global_model.model_id
-        if "model_id" in global_model.model_fields_set
-        else None
+        global_model.model_id if "model_id" in global_model.model_fields_set else None
     )
     model_id = _first_non_none(
         parsed_inline.model_id if parsed_inline else None,

@@ -164,7 +164,8 @@ class AcpProviderHealthCheck:
         if self.models_to_validate:
             try:
                 session = await conn.new_session(
-                    cwd=os.getcwd(), mcp_servers=[],
+                    cwd=os.getcwd(),
+                    mcp_servers=[],
                 )
                 from maverick.executor.acp import _get_available_model_ids
 
