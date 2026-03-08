@@ -57,6 +57,8 @@ class StepStarted:
     step_type: StepType
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
+    agent_name: str | None = None
+    model_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""

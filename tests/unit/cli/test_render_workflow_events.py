@@ -283,6 +283,50 @@ class TestAgentStreamChunkRendering:
         assert "\u2713" in output
 
 
+class TestAgentModelDisplay:
+    """StepStarted with agent_name and model_id renders provider/model info."""
+
+    async def test_agent_and_model_shown(self) -> None:
+        """Agent name and model_id appear in the step label."""
+        output = await _render_events(
+            [
+                StepStarted(
+                    step_name="decompose",
+                    step_type=StepType.AGENT,
+                    agent_name="decomposer",
+                    model_id="sonnet",
+                ),
+            ],
+        )
+        assert "decomposer / sonnet" in output
+
+    async def test_agent_only_no_model(self) -> None:
+        """Only agent name shown when model_id is None."""
+        output = await _render_events(
+            [
+                StepStarted(
+                    step_name="implement",
+                    step_type=StepType.AGENT,
+                    agent_name="implementer",
+                ),
+            ],
+        )
+        assert "implementer" in output
+        assert "None" not in output
+
+    async def test_no_agent_shows_step_type(self) -> None:
+        """Falls back to step type when no agent/model info."""
+        output = await _render_events(
+            [
+                StepStarted(
+                    step_name="preflight",
+                    step_type=StepType.PYTHON,
+                ),
+            ],
+        )
+        assert "python" in output
+
+
 class TestLoopIterationRendering:
     """LoopIterationStarted and LoopIterationCompleted event rendering."""
 

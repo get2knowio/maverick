@@ -36,6 +36,7 @@ from maverick.library.actions.decompose import (
     validate_decomposition,
 )
 from maverick.logging import get_logger
+from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_maverick.constants import (
     BRIEFING,
@@ -344,7 +345,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 3: Decompose via agent (with retry)
         # ------------------------------------------------------------------
-        await self.emit_step_started(DECOMPOSE)
+        await self.emit_step_started(
+            DECOMPOSE,
+            step_type=StepType.AGENT,
+            agent_name="decomposer",
+            model_id=self._resolve_display_model(),
+        )
 
         prompt = build_decomposition_prompt(
             raw_content, codebase_context, briefing=briefing_doc
@@ -562,6 +568,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 CREATE_BEADS,
                 f"Created {len(bead_result.work_beads)} task beads",
             )
+            if bead_result.errors:
+                for error in bead_result.errors:
+                    await self.emit_output(
+                        CREATE_BEADS, error, level="error",
+                    )
+                raise WorkflowError(
+                    f"Failed to create {len(bead_result.errors)} beads"
+                )
             await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
 
             # Step 7: Wire dependencies

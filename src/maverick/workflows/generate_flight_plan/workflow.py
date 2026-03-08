@@ -367,7 +367,12 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 3: Generate flight plan via agent
         # ------------------------------------------------------------------
-        await self.emit_step_started(GENERATE, step_type=StepType.AGENT)
+        await self.emit_step_started(
+            GENERATE,
+            step_type=StepType.AGENT,
+            agent_name="flight-plan-generator",
+            model_id=self._resolve_display_model(),
+        )
 
         prompt = _build_generate_prompt(
             prd_content, name, today, briefing_content=briefing_content

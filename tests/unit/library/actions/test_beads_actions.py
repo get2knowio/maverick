@@ -368,8 +368,6 @@ class TestWireDependencies:
     async def test_wires_via_client(self) -> None:
         mock_client = AsyncMock()
         mock_client.add_dependency.return_value = None
-        mock_client.sync.return_value = None
-
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await wire_dependencies(
                 work_definitions=self._make_definitions(),
@@ -381,7 +379,6 @@ class TestWireDependencies:
 
         assert result.success is True
         assert mock_client.add_dependency.call_count == 2
-        mock_client.sync.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_foundation_blocks_cleanup_when_no_stories(self) -> None:

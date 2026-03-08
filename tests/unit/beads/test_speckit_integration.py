@@ -44,8 +44,6 @@ class TestGenerateBeadsFromSpeckit:
         client = AsyncMock(spec=BeadClient)
         client.create_bead = _make_create_side_effect(counter)
         client.add_dependency = AsyncMock()
-        client.sync = AsyncMock()
-
         result = await generate_beads_from_speckit(spec_dir_with_tasks, client)
 
         assert result.success
@@ -92,7 +90,6 @@ class TestGenerateBeadsFromSpeckit:
         assert all(b.bd_id.startswith("dry-run-") for b in result.work_beads)
         client.create_bead.assert_not_called()
         client.add_dependency.assert_not_called()
-        client.sync.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_epic_creation_failure(self, spec_dir_with_tasks: Path) -> None:
@@ -128,7 +125,6 @@ class TestGenerateBeadsFromSpeckit:
         client = AsyncMock(spec=BeadClient)
         client.create_bead = AsyncMock(side_effect=_create_with_failures)
         client.add_dependency = AsyncMock()
-        client.sync = AsyncMock()
 
         result = await generate_beads_from_speckit(spec_dir_with_tasks, client)
 
@@ -143,7 +139,6 @@ class TestGenerateBeadsFromSpeckit:
         client = AsyncMock(spec=BeadClient)
         client.create_bead = _make_create_side_effect(counter)
         client.add_dependency = AsyncMock()
-        client.sync = AsyncMock()
 
         result = await generate_beads_from_speckit(spec_dir_with_deps, client)
 
@@ -155,26 +150,11 @@ class TestGenerateBeadsFromSpeckit:
         assert len(foundation_deps) > 0
 
     @pytest.mark.asyncio
-    async def test_sync_failure_captured(self, spec_dir_with_tasks: Path) -> None:
-        counter = [0]
-        client = AsyncMock(spec=BeadClient)
-        client.create_bead = _make_create_side_effect(counter)
-        client.add_dependency = AsyncMock()
-        client.sync = AsyncMock(side_effect=Exception("Sync failed"))
-
-        result = await generate_beads_from_speckit(spec_dir_with_tasks, client)
-
-        assert result.epic is not None
-        assert len(result.work_beads) > 0
-        assert any("sync" in e.lower() for e in result.errors)
-
-    @pytest.mark.asyncio
     async def test_bead_categories(self, spec_dir_with_tasks: Path) -> None:
         counter = [0]
         client = AsyncMock(spec=BeadClient)
         client.create_bead = _make_create_side_effect(counter)
         client.add_dependency = AsyncMock()
-        client.sync = AsyncMock()
 
         result = await generate_beads_from_speckit(spec_dir_with_tasks, client)
 

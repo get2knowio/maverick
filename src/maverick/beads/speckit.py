@@ -673,14 +673,6 @@ async def generate_beads_from_speckit(
             )
             errors.append(error_msg)
 
-    # 7. Sync
-    try:
-        await client.sync()
-    except Exception as e:
-        error_msg = f"Failed to sync beads: {e}"
-        logger.warning("sync_failed", error=str(e))
-        errors.append(error_msg)
-
     result = BeadGenerationResult(
         epic=epic,
         work_beads=work_beads,

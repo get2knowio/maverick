@@ -217,19 +217,6 @@ class BeadClient:
             dep_type=dep.dep_type.value,
         )
 
-    async def sync(self) -> None:
-        """Sync beads state with ``bd sync``.
-
-        Raises:
-            BeadError: If ``bd sync`` fails.
-        """
-        result = await self._runner.run(["bd", "sync"], cwd=self._cwd)
-
-        if not result.success:
-            raise BeadError(f"Failed to sync beads: {result.stderr.strip()}")
-
-        logger.info("beads_synced")
-
     async def ready(
         self,
         parent_id: str | None = None,

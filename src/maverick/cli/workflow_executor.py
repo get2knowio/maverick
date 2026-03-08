@@ -157,6 +157,12 @@ async def render_workflow_events(
             icon = type_icons.get(event.step_type.value, "\u25cf")
             step_name = event.step_name
 
+            # Build type annotation: "agent / model" or just "python"
+            type_annotation = event.step_type.value
+            if event.agent_name or event.model_id:
+                parts = [p for p in (event.agent_name, event.model_id) if p]
+                type_annotation = " / ".join(parts)
+
             # Use a spinner for long-running step types (agent/python)
             _use_spinner = event.step_type.value in ("agent", "python")
 
@@ -165,11 +171,11 @@ async def render_workflow_events(
                 if _total_steps > 0:
                     step_label = (
                         f"[{step_index}/{_total_steps}] "
-                        f"{icon} {step_name} ({event.step_type.value})"
+                        f"{icon} {step_name} ({type_annotation})"
                     )
                 else:
                     step_label = (
-                        f"{icon} {step_name} ({event.step_type.value})"
+                        f"{icon} {step_name} ({type_annotation})"
                     )
 
                 if _use_spinner and hasattr(console_obj, "status"):
@@ -191,7 +197,7 @@ async def render_workflow_events(
                 indent = "  " * (workflow_depth - 1)
                 console_obj.print(
                     f"[dim cyan]{indent}{icon} {step_name}[/] "
-                    f"({event.step_type.value})... ",
+                    f"({type_annotation})... ",
                     end="",
                 )
 
@@ -234,6 +240,19 @@ async def render_workflow_events(
             # Workflows should emit StepOutput events for user-facing summaries.
 
         elif isinstance(event, StepOutput):
+            # Model announcements: update spinner or suppress
+            if (
+                event.source == "acp_executor"
+                and event.level == "debug"
+                and event.message.startswith("model: ")
+            ):
+                model_name = event.message.removeprefix("model: ")
+                if _spinner is not None:
+                    _spinner.update(
+                        f"[dim]{event.step_name} ({model_name})...[/]",
+                    )
+                # Suppress from normal output either way
+                continue
             level_styles = {
                 "info": "[cyan]",
                 "success": "[green]",

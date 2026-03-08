@@ -202,16 +202,20 @@ class AcpStepExecutor:
             raw_prompt = (
                 f"{raw_prompt}\n\n---\n\n"
                 f"[OUTPUT SCHEMA]\n"
-                f"You MUST respond with a single JSON object (inside a ```json code fence) "
-                f"that conforms exactly to this JSON Schema. Use only the field names and "
-                f"types shown — do not nest objects where strings are expected.\n\n"
+                f"You MUST respond with a single JSON object "
+                f"(inside a ```json code fence) that conforms "
+                f"exactly to this JSON Schema. Use only the "
+                f"field names and types shown — do not nest "
+                f"objects where strings are expected.\n\n"
                 f"```json\n{schema_json}\n```"
             )
 
         # Prepend system instructions when available
         if effective_instructions:
             prompt_text = (
-                f"[SYSTEM INSTRUCTIONS]\n{effective_instructions}\n\n---\n\n{raw_prompt}"
+                f"[SYSTEM INSTRUCTIONS]\n"
+                f"{effective_instructions}\n\n"
+                f"---\n\n{raw_prompt}"
             )
         else:
             prompt_text = raw_prompt
@@ -623,6 +627,28 @@ class AcpStepExecutor:
                         error=str(exc),
                     )
 
+            # Emit the effective model for observability
+            if event_callback is not None:
+                effective_model = resolved_model
+                if not effective_model:
+                    # Read current_model_id from the session
+                    models_state = getattr(session, "models", None)
+                    if models_state:
+                        effective_model = getattr(
+                            models_state, "current_model_id", None,
+                        )
+                if effective_model:
+                    from maverick.events import StepOutput
+
+                    await event_callback(
+                        StepOutput(
+                            step_name=step_name,
+                            message=f"model: {effective_model}",
+                            level="debug",
+                            source="acp_executor",
+                        )
+                    )
+
             self._logger.debug(
                 "acp_executor.prompt_send",
                 step_name=step_name,
@@ -738,10 +764,8 @@ async def _wait_for_process(proc: Any, timeout: float = 3.0) -> None:
     Prevents ``BaseSubprocessTransport.__del__`` from firing after the
     event loop closes, which causes ``RuntimeError: Event loop is closed``.
     """
-    try:
+    with contextlib.suppress(OSError, ProcessLookupError):
         proc.terminate()
-    except (OSError, ProcessLookupError):
-        pass
     try:
         await asyncio.wait_for(proc.wait(), timeout=timeout)
     except (TimeoutError, asyncio.CancelledError):
@@ -1023,8 +1047,8 @@ def _coerce_to_schema(data: Any, schema: dict[str, Any]) -> Any:
     if schema_type == "string":
         if isinstance(data, str):
             return data
-        # Convert non-string values (dicts, lists) to compact JSON strings
-        return json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+        # Convert non-string values (dicts, lists) to compact JSON
+        return json.dumps(data, ensure_ascii=False)
 
     return data
 

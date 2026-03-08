@@ -96,7 +96,8 @@ async def refuel(
     """
     if source_type == "plan":
         await _refuel_from_plan(
-            ctx, name_or_path, plans_dir, dry_run, list_steps, session_log, skip_briefing
+            ctx, name_or_path, plans_dir,
+            dry_run, list_steps, session_log, skip_briefing
         )
     else:
         await _refuel_from_speckit(

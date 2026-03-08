@@ -340,14 +340,6 @@ async def wire_dependencies(
             )
             errors.append(error_msg)
 
-    # Sync
-    try:
-        await client.sync()
-    except Exception as e:
-        error_msg = f"Failed to sync beads: {e}"
-        logger.warning("sync_failed", error=str(e))
-        errors.append(error_msg)
-
     return DependencyWiringResult(
         dependencies=tuple(d.model_dump(mode="json") for d in wired),
         errors=tuple(errors),

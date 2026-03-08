@@ -218,37 +218,6 @@ class TestBeadClientAddDependency:
         assert exc_info.value.blocked_id == "b"
 
 
-class TestBeadClientSync:
-    """Tests for BeadClient.sync()."""
-
-    @pytest.mark.asyncio
-    async def test_sync_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
-        mock_runner.run.return_value = CommandResult(
-            returncode=0,
-            stdout="",
-            stderr="",
-            duration_ms=50,
-            timed_out=False,
-        )
-        client = BeadClient(cwd=temp_dir, runner=mock_runner)
-        await client.sync()
-
-    @pytest.mark.asyncio
-    async def test_sync_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
-        mock_runner.run.return_value = CommandResult(
-            returncode=1,
-            stdout="",
-            stderr="Error: sync failed",
-            duration_ms=50,
-            timed_out=False,
-        )
-        client = BeadClient(cwd=temp_dir, runner=mock_runner)
-        with pytest.raises(BeadError, match="Failed to sync"):
-            await client.sync()
-
-
 class TestBeadClientReady:
     """Tests for BeadClient.ready()."""
 

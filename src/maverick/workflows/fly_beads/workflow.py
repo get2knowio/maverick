@@ -30,6 +30,7 @@ from maverick.library.actions.review import (
 from maverick.library.actions.validation import run_fix_retry_loop
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
+from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.fly_beads.constants import (
     COMMIT,
@@ -234,7 +235,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
 
                 # --- Implement (agent step) ---
-                await self.emit_step_started(IMPLEMENT)
+                await self.emit_step_started(
+                    IMPLEMENT,
+                    step_type=StepType.AGENT,
+                    agent_name="implementer",
+                    model_id=self._resolve_display_model(),
+                )
                 if self._step_executor is not None:
                     try:
                         await self._step_executor.execute(
@@ -322,7 +328,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 # --- Review and fix (skipped when skip_review=True) ---
                 review_result: dict[str, Any] | None = None
                 if not skip_review:
-                    await self.emit_step_started(REVIEW)
+                    await self.emit_step_started(
+                        REVIEW,
+                        step_type=StepType.AGENT,
+                        agent_name="reviewer",
+                        model_id=self._resolve_display_model(),
+                    )
                     try:
                         review_context_result = await gather_local_review_context(
                             base_branch=_DEFAULT_BASE_BRANCH,

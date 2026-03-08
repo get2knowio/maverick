@@ -828,3 +828,36 @@ class TestResolveStepConfig:
         )
         assert result.prompt_suffix is None
         assert result.prompt_file is None
+
+    # --- Default model_id skipped for non-Claude providers ---
+
+    def test_default_model_id_not_propagated(self) -> None:
+        """Default model_id is NOT propagated when not explicitly set.
+
+        Non-Claude providers use their own model aliases, so the Pydantic
+        default (claude-sonnet-*) should not leak through to the resolved
+        config. The provider_default_model should be used instead.
+        """
+        result = resolve_step_config(
+            inline_config=None,
+            project_step_config=None,
+            agent_config=None,
+            global_model=self._make_global(),  # model_id not in model_fields_set
+            step_type=StepType.AGENT,
+            step_name="test",
+            provider_default_model="sonnet",
+        )
+        assert result.model_id == "sonnet"
+
+    def test_explicit_model_id_still_propagated(self) -> None:
+        """Explicitly-set model_id IS propagated even with provider default."""
+        result = resolve_step_config(
+            inline_config=None,
+            project_step_config=None,
+            agent_config=None,
+            global_model=self._make_global(model_id="claude-opus-4-6"),
+            step_type=StepType.AGENT,
+            step_name="test",
+            provider_default_model="sonnet",
+        )
+        assert result.model_id == "claude-opus-4-6"

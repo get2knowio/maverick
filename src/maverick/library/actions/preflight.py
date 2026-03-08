@@ -194,8 +194,11 @@ async def run_preflight_checks(
                 models_set.add(pcfg.default_model)
             provider_models[name] = models_set
 
-        # Global model.model_id → default provider
-        if default_provider_name and config.model.model_id:
+        # Global model.model_id → default provider (only if explicitly set)
+        # When model_id is the Pydantic default (e.g. claude-sonnet-4-5-*),
+        # skip validation — non-Claude providers use their own model aliases.
+        model_id_explicit = "model_id" in config.model.model_fields_set
+        if default_provider_name and config.model.model_id and model_id_explicit:
             provider_models.setdefault(default_provider_name, set()).add(
                 config.model.model_id,
             )
