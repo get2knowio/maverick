@@ -40,6 +40,7 @@ def _make_workflow(
     workflow_name: str = "test-workflow",
     checkpoint_store: MemoryCheckpointStore | None = None,
     steps_override: dict[str, Any] | None = None,
+    agents_override: dict[str, Any] | None = None,
 ) -> Any:
     """Instantiate a ConcreteTestWorkflow with injected dependencies.
 
@@ -55,6 +56,7 @@ def _make_workflow(
     mock_config = MagicMock(spec=MaverickConfig)
     mock_config.model = ModelConfig()
     mock_config.steps = steps_override or {}
+    mock_config.agents = agents_override or {}
 
     mock_registry = MagicMock(spec=ComponentRegistry)
 
@@ -366,6 +368,29 @@ class TestResolveStepConfig:
         cfg = wf.resolve_step_config("my-step")
         assert cfg.model_id == "claude-opus-4-6"
 
+    def test_resolve_step_config_uses_agent_config(self) -> None:
+        """resolve_step_config() picks up agent-level overrides from config.agents."""
+        from maverick.config import AgentConfig
+
+        agent_cfg = AgentConfig(model_id="claude-opus-4-6")
+        wf = _make_workflow(agents_override={"my_agent": agent_cfg})
+        cfg = wf.resolve_step_config("some-step", agent_name="my_agent")
+        assert cfg.model_id == "claude-opus-4-6"
+
+    def test_resolve_step_config_step_overrides_agent(self) -> None:
+        """Per-step config takes precedence over per-agent config."""
+        from maverick.config import AgentConfig
+        from maverick.executor.config import StepConfig
+
+        agent_cfg = AgentConfig(model_id="claude-opus-4-6")
+        step_cfg = StepConfig(model_id="claude-sonnet-4-6")
+        wf = _make_workflow(
+            steps_override={"my-step": step_cfg},
+            agents_override={"my_agent": agent_cfg},
+        )
+        cfg = wf.resolve_step_config("my-step", agent_name="my_agent")
+        assert cfg.model_id == "claude-sonnet-4-6"
+
     def test_resolve_step_config_defaults_to_python_step_type(self) -> None:
         """Default step_type for resolve_step_config is PYTHON (deterministic mode)."""
         from maverick.types import StepMode
@@ -544,6 +569,7 @@ class TestCheckpointing:
         mock_cfg = MagicMock(spec=MaverickConfig)
         mock_cfg.model = ModelConfig()
         mock_cfg.steps = {}
+        mock_cfg.agents = {}
 
         wf = _Impl(
             config=mock_cfg,

@@ -29,8 +29,13 @@ from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.executor.config import StepConfig
-from maverick.executor.config import resolve_step_config as _resolve_step_config
+from maverick.exceptions import WorkflowError
+from maverick.executor.config import (
+    StepConfig,
+)
+from maverick.executor.config import (
+    resolve_step_config as _resolve_step_config,
+)
 from maverick.logging import get_logger
 from maverick.results import StepResult, WorkflowResult
 from maverick.types import StepType
@@ -250,26 +255,32 @@ class PythonWorkflow(ABC):
         self,
         step_name: str,
         step_type: StepType = StepType.PYTHON,
+        agent_name: str | None = None,
     ) -> StepConfig:
         """Resolve per-step configuration by merging defaults with overrides.
 
-        Uses the 4-layer resolution from maverick.executor.config:
+        Uses the 5-layer resolution from maverick.executor.config:
         - inline_config: None (Python workflows have no YAML inline config)
         - project_step_config: from self._config.steps.get(step_name)
-        - agent_config: None (resolved separately for agent steps)
+        - agent_config: from self._config.agents.get(agent_name) when provided
         - global_model: from self._config.model
+        - provider_default_model: from the default provider config
 
         Args:
             step_name: The step name to resolve config for.
             step_type: Step type for mode inference. Defaults to StepType.PYTHON.
+            agent_name: Optional agent name for agent-level config lookup.
 
         Returns:
             Resolved StepConfig with merged values.
         """
+        agent_config = (
+            self._config.agents.get(agent_name) if agent_name else None
+        )
         return _resolve_step_config(
             inline_config=None,
             project_step_config=self._config.steps.get(step_name),
-            agent_config=None,
+            agent_config=agent_config,
             global_model=self._config.model,
             step_type=step_type,
             step_name=step_name,
@@ -381,6 +392,118 @@ class PythonWorkflow(ABC):
                 step_path=f"{self._workflow_name}.{name}",
             )
         )
+
+    async def execute_agent(
+        self,
+        *,
+        step_name: str,
+        agent_name: str,
+        label: str,
+        prompt: Any,
+        output_schema: type[Any] | None = None,
+        parent_step: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 3,
+    ) -> Any:
+        """Execute an agent with retry, progress messaging, and timing.
+
+        Wraps ``self._step_executor.execute()`` with:
+        - R4/R8 agent lifecycle interims (🤖 start, ✓ end)
+        - Exponential-backoff retry on transient/timeout errors
+        - Retry progress messages (↻ label retry N/max...)
+
+        Args:
+            step_name: Executor step name for observability.
+            agent_name: Registry key of the agent.
+            label: Human-readable label for progress messages.
+            prompt: Prompt passed to the agent.
+            output_schema: Optional Pydantic model for structured output.
+            parent_step: Step name for emitting progress events.
+                Defaults to ``step_name``.
+            timeout: Per-attempt timeout in seconds.
+            max_retries: Maximum number of attempts.
+
+        Returns:
+            The ``ExecutorResult`` from the executor.
+
+        Raises:
+            WorkflowError: If no step executor is configured.
+        """
+        from tenacity import (
+            AsyncRetrying,
+            retry_if_exception_type,
+            stop_after_attempt,
+            wait_exponential,
+        )
+
+        from maverick.exceptions.agent import MaverickTimeoutError
+
+        if self._step_executor is None:
+            raise WorkflowError(f"step_executor required for agent step '{step_name}'")
+
+        emit_step = parent_step or step_name
+
+        # Resolve per-step config (provider, model, timeout, etc.) from the
+        # 5-layer precedence chain so that per-step YAML overrides are honoured.
+        resolved = self.resolve_step_config(
+            step_name, StepType.PYTHON, agent_name=agent_name
+        )
+        # Config timeout takes precedence; fall back to caller-supplied value.
+        effective_timeout = resolved.timeout if resolved.timeout is not None else timeout
+        resolved = resolved.model_copy(update={"timeout": effective_timeout})
+
+        provider = resolved.provider or self._resolve_display_provider() or "default"
+        model = resolved.model_id or self._resolve_display_model() or "default"
+
+        # R4/R8: 🤖 start
+        await self.emit_output(
+            emit_step,
+            f"\U0001f916 {label}... ({provider}/{model})",
+            level="info",
+        )
+
+        async def _event_cb(event: Any) -> None:
+            await self._event_queue.put(event)
+
+        _transient = (
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            MaverickTimeoutError,
+        )
+
+        t0 = time.monotonic()
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(max_retries),
+            wait=wait_exponential(multiplier=2, min=2, max=30),
+            retry=retry_if_exception_type(_transient),
+            reraise=True,
+        ):
+            with attempt:
+                if attempt.retry_state.attempt_number > 1:
+                    n = attempt.retry_state.attempt_number
+                    await self.emit_output(
+                        emit_step,
+                        f"\u21bb {label} retry {n}/{max_retries}...",
+                        level="warning",
+                    )
+                result = await self._step_executor.execute(
+                    step_name=step_name,
+                    agent_name=agent_name,
+                    prompt=prompt,
+                    output_schema=output_schema,
+                    event_callback=_event_cb,
+                    config=resolved,
+                )
+
+        elapsed = time.monotonic() - t0
+        # R4: ✓ end
+        await self.emit_output(
+            emit_step,
+            f"\u2713 {label} ({elapsed:.1f}s)",
+            level="success",
+        )
+        return result
 
     async def emit_output(
         self,

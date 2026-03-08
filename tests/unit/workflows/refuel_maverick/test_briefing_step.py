@@ -108,7 +108,13 @@ class TestBriefingStep:
 
     @pytest.fixture
     def mock_config(self) -> MagicMock:
-        return MagicMock()
+        from maverick.config import ModelConfig
+
+        cfg = MagicMock()
+        cfg.steps = {}
+        cfg.agents = {}
+        cfg.model = ModelConfig()
+        return cfg
 
     @pytest.fixture
     def mock_registry(self) -> MagicMock:

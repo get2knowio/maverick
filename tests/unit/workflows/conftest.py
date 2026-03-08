@@ -53,6 +53,7 @@ def mock_config() -> MagicMock:
 
     cfg = MagicMock(spec=MaverickConfig)
     cfg.steps = {}
+    cfg.agents = {}
     cfg.model = ModelConfig()
     return cfg
 
