@@ -107,6 +107,7 @@ async def run_preflight_checks(
     validation_stages: list[str] | None = None,
     fail_on_error: bool = True,
     event_callback: Any | None = None,
+    config: MaverickConfig | None = None,
 ) -> PreflightCheckResult:
     """Run preflight validation checks before workflow execution.
 
@@ -156,16 +157,17 @@ async def run_preflight_checks(
     github_cli_available = True
     validation_tools_available = True
 
-    # Load config for validation commands
-    try:
-        config = load_config()
-    except (ConfigError, ValidationError, FileNotFoundError, OSError) as e:
-        logger.warning(
-            "Failed to load config, using defaults",
-            error=str(e),
-            error_type=type(e).__name__,
-        )
-        config = MaverickConfig()
+    # Load config for validation commands (use provided config if available)
+    if config is None:
+        try:
+            config = load_config()
+        except (ConfigError, ValidationError, FileNotFoundError, OSError) as e:
+            logger.warning(
+                "Failed to load config, using defaults",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            config = MaverickConfig()
 
     # Check ACP providers
     if check_providers:
@@ -209,7 +211,8 @@ async def run_preflight_checks(
             for agent_cfg in config.agents.values():
                 if agent_cfg.model_id:
                     provider_models.setdefault(
-                        default_provider_name, set(),
+                        default_provider_name,
+                        set(),
                     ).add(agent_cfg.model_id)
 
         health_checks = [

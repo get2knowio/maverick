@@ -124,6 +124,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 check_bd=True,
                 check_validation_tools=False,
                 fail_on_error=True,
+                config=self._config,
             )
         except Exception as exc:
             await self.emit_step_failed(PREFLIGHT, str(exc))
@@ -238,7 +239,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 await self.emit_step_started(
                     IMPLEMENT,
                     step_type=StepType.AGENT,
-                    agent_name="implementer",
+                    provider=self._resolve_display_provider(),
                     model_id=self._resolve_display_model(),
                 )
                 if self._step_executor is not None:
@@ -331,7 +332,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     await self.emit_step_started(
                         REVIEW,
                         step_type=StepType.AGENT,
-                        agent_name="reviewer",
+                        provider=self._resolve_display_provider(),
                         model_id=self._resolve_display_model(),
                     )
                     try:

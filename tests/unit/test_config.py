@@ -527,3 +527,75 @@ steps:
 
         with pytest.raises(ConfigError):
             load_config()
+
+
+class TestLoadConfigCustomPath:
+    """Tests for load_config(config_path) respecting the provided path."""
+
+    def test_custom_config_path_is_loaded(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """load_config(custom_path) loads from the custom file, not maverick.yaml."""
+        import os
+
+        os.chdir(temp_dir)
+
+        # Write a default maverick.yaml with one value
+        (temp_dir / "maverick.yaml").write_text(
+            """
+github:
+  owner: "default-org"
+"""
+        )
+
+        # Write a custom-named config with a different value
+        custom_path = temp_dir / "maverick-copilot.yaml"
+        custom_path.write_text(
+            """
+github:
+  owner: "copilot-org"
+model:
+  max_tokens: 8192
+"""
+        )
+
+        from maverick.config import load_config
+
+        config = load_config(config_path=custom_path)
+        # Should load from the custom file, NOT maverick.yaml
+        assert config.github.owner == "copilot-org"
+        assert config.model.max_tokens == 8192
+
+    def test_default_path_still_works(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """load_config() without a path still loads maverick.yaml from cwd."""
+        import os
+
+        os.chdir(temp_dir)
+
+        (temp_dir / "maverick.yaml").write_text(
+            """
+github:
+  owner: "cwd-org"
+"""
+        )
+
+        from maverick.config import load_config
+
+        config = load_config()
+        assert config.github.owner == "cwd-org"
+
+    def test_custom_path_nonexistent_uses_defaults(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """load_config(missing_path) uses defaults when file doesn't exist."""
+        import os
+
+        os.chdir(temp_dir)
+
+        from maverick.config import load_config
+
+        config = load_config(config_path=temp_dir / "nonexistent.yaml")
+        assert config.model.model_id == "claude-sonnet-4-5-20250929"
+        assert config.model.max_tokens == 64000

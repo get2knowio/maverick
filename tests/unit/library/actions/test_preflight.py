@@ -208,3 +208,62 @@ class TestRunPreflightChecks:
 
         # Timeout should add a warning, not an error
         assert any("timed out" in w for w in result.warnings)
+
+    @pytest.mark.asyncio
+    async def test_provided_config_is_used(self) -> None:
+        """config= skips load_config() and uses the provided config."""
+        from maverick.config import AgentProviderConfig, MaverickConfig
+
+        custom_config = MaverickConfig(
+            agent_providers={
+                "test-provider": AgentProviderConfig(
+                    command=["echo", "test"],
+                    default=True,
+                ),
+            },
+        )
+
+        with patch(
+            "maverick.library.actions.preflight.load_config"
+        ) as mock_load:
+            result = await run_preflight_checks(
+                check_providers=False,
+                check_git=False,
+                check_github=False,
+                check_validation_tools=False,
+                fail_on_error=False,
+                config=custom_config,
+            )
+
+        # load_config should NOT have been called
+        mock_load.assert_not_called()
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_no_config_falls_back_to_load_config(self) -> None:
+        """Test that omitting config= falls back to load_config()."""
+        with patch(
+            "maverick.library.actions.preflight.load_config"
+        ) as mock_load:
+            mock_load.return_value = MagicMock(
+                agent_providers={},
+                validation=MagicMock(
+                    sync_cmd=None,
+                    format_cmd=["ruff", "format", "."],
+                    lint_cmd=["ruff", "check", "--fix", "."],
+                    typecheck_cmd=["mypy", "."],
+                    test_cmd=["pytest", "-x", "--tb=short"],
+                ),
+                preflight=MagicMock(custom_tools=[]),
+                agents=MagicMock(values=MagicMock(return_value=[])),
+                model=MagicMock(model_id="test", model_fields_set=set()),
+            )
+            await run_preflight_checks(
+                check_providers=False,
+                check_git=False,
+                check_github=False,
+                check_validation_tools=False,
+                fail_on_error=False,
+            )
+
+        mock_load.assert_called_once()

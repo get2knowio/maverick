@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -46,6 +47,10 @@ __all__ = [
 ]
 
 logger = get_logger(__name__)
+
+_project_config_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "_project_config_path", default=None
+)
 
 
 class PermissionMode(str, Enum):
@@ -453,7 +458,9 @@ class MaverickConfig(BaseSettings):
         """
         # Get user and project config paths
         user_config_path = get_user_config_path()
-        project_config_path = Path.cwd() / "maverick.yaml"
+        project_config_path = _project_config_path_var.get() or (
+            Path.cwd() / "maverick.yaml"
+        )
 
         # Return sources from highest to lowest priority
         # (earlier sources override later ones)
@@ -528,8 +535,8 @@ def load_config(config_path: Path | None = None) -> MaverickConfig:
     if not config_path.exists():
         logger.info("No project configuration found, using defaults.")
 
-    # Note: The actual config loading hierarchy is handled by
-    # settings_customise_sources() in MaverickConfig
+    # Set the context var so settings_customise_sources() picks up the path
+    token = _project_config_path_var.set(config_path)
     try:
         return MaverickConfig()
     except ValidationError as e:
@@ -541,3 +548,5 @@ def load_config(config_path: Path | None = None) -> MaverickConfig:
             field=field,
             value=first_error.get("input"),
         ) from e
+    finally:
+        _project_config_path_var.reset(token)
