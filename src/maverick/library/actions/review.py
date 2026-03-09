@@ -550,6 +550,7 @@ async def run_review_fix_loop(
 
     attempts = 0
     current_recommendation = "request_changes"
+    review_errors: list[str] = []
 
     for attempt_num in range(1, max_attempts + 1):
         attempts = attempt_num
@@ -560,6 +561,17 @@ async def run_review_fix_loop(
             review_input, base_branch, stream_callback
         )
         current_recommendation = review_result.get("recommendation", "request_changes")
+
+        # Step 1b: Handle reviewer errors — don't treat failures as clean reviews
+        if current_recommendation == "error":
+            review_error = review_result.get("review_error", "unknown")
+            review_errors.append(f"attempt {attempt_num}: {review_error}")
+            logger.warning(
+                "Review errored on attempt %d: %s", attempt_num, review_error
+            )
+            # Don't try to fix when we can't even review — skip to next attempt
+            # so we get a fresh retry of the reviewers
+            continue
 
         # Step 2: Check if we're done (approved on first attempt = skip fixes)
         if current_recommendation == "approve":
@@ -599,9 +611,25 @@ async def run_review_fix_loop(
         # Don't fix on the last attempt - just report what's remaining
         if attempt_num < max_attempts:
             logger.info("Running review fixer agent")
-            await _run_review_fixer(review_result, review_input, stream_callback)
+            fix_result = await _run_review_fixer(
+                review_result, review_input, stream_callback
+            )
+            if not fix_result.get("success", False):
+                fix_error = fix_result.get("error", "unknown")
+                logger.warning(
+                    "Review fixer failed on attempt %d: %s", attempt_num, fix_error
+                )
+                review_errors.append(
+                    f"attempt {attempt_num} fixer: {fix_error}"
+                )
+                # Continue to next iteration — the re-review will show whether
+                # the fixer managed partial progress before failing
 
-    # Max attempts exhausted
+    # Max attempts exhausted — if every attempt was a reviewer error, report failure
+    if review_errors and current_recommendation == "error":
+        logger.error("Review loop exhausted with errors: %s", review_errors)
+        current_recommendation = "request_changes"
+
     return await _maybe_report(
         ReviewFixLoopResult(
             success=current_recommendation == "approve",
@@ -620,7 +648,10 @@ async def _run_dual_review(
     base_branch: str,
     stream_callback: StreamCallback | None = None,
 ) -> dict[str, Any]:
-    """Run unified reviewer (spawns parallel expert subagents).
+    """Run completeness and correctness reviewers in parallel.
+
+    Spawns two independent reviewer agents concurrently via asyncio.gather,
+    then merges their GroupedReviewResult outputs with de-duplicated finding IDs.
 
     Args:
         review_input: Review context dict with review_metadata, changed_files,
@@ -631,10 +662,15 @@ async def _run_dual_review(
     Returns:
         Review result with recommendation and report
     """
-    try:
-        from maverick.agents.reviewers import UnifiedReviewerAgent
+    import asyncio
 
-        # Build context dict for reviewer — accept both old and new key names
+    try:
+        from maverick.agents.reviewers import (
+            CompletenessReviewerAgent,
+            CorrectnessReviewerAgent,
+        )
+
+        # Build context dict for reviewers — accept both old and new key names
         review_meta = review_input.get(
             "review_metadata", review_input.get("pr_metadata", {})
         )
@@ -648,27 +684,99 @@ async def _run_dual_review(
             "cwd": review_input.get("cwd"),
         }
 
-        # Thread briefing context for architecture-aware review
+        # Thread briefing context for completeness reviewer
         briefing = review_input.get("briefing_context")
         if briefing:
             review_context["briefing_context"] = briefing
 
-        # Run unified reviewer via ACP executor
+        # Run both reviewers in parallel via ACP executor
         from maverick.executor import create_default_executor
         from maverick.models.review_models import GroupedReviewResult
 
-        reviewer = UnifiedReviewerAgent()
+        completeness = CompletenessReviewerAgent()
+        correctness = CorrectnessReviewerAgent()
         _executor = create_default_executor()
         try:
-            _exec_result = await _executor.execute(
-                step_name="unified_review",
-                agent_name=reviewer.name,
+            completeness_task = _executor.execute(
+                step_name="completeness_review",
+                agent_name=completeness.name,
                 prompt=review_context,
                 output_schema=GroupedReviewResult,
             )
-            result = _exec_result.output
-            if not isinstance(result, GroupedReviewResult):
-                result = GroupedReviewResult(groups=[])
+            correctness_task = _executor.execute(
+                step_name="correctness_review",
+                agent_name=correctness.name,
+                prompt=review_context,
+                output_schema=GroupedReviewResult,
+            )
+            completeness_result, correctness_result = await asyncio.gather(
+                completeness_task, correctness_task, return_exceptions=True
+            )
+
+            # Handle individual reviewer failures gracefully
+            completeness_groups: list[Any] = []
+            correctness_groups: list[Any] = []
+            completeness_failed = isinstance(completeness_result, Exception)
+            correctness_failed = isinstance(correctness_result, Exception)
+
+            if completeness_failed:
+                logger.warning("Completeness reviewer failed: %s", completeness_result)
+            else:
+                output = completeness_result.output
+                if isinstance(output, GroupedReviewResult):
+                    completeness_groups = list(output.groups)
+
+            if correctness_failed:
+                logger.warning("Correctness reviewer failed: %s", correctness_result)
+            else:
+                output = correctness_result.output
+                if isinstance(output, GroupedReviewResult):
+                    correctness_groups = list(output.groups)
+
+            # If both reviewers failed, report as error — don't
+            # masquerade as "no issues found"
+            if completeness_failed and correctness_failed:
+                await _executor.cleanup()
+                errors = [str(completeness_result), str(correctness_result)]
+                return {
+                    "recommendation": "error",
+                    "review_report": "",
+                    "has_critical": False,
+                    "review_error": f"Both reviewers failed: {'; '.join(errors)}",
+                }
+
+            # Merge results — re-number correctness findings to avoid ID collisions
+            max_completeness_id = 0
+            for group in completeness_groups:
+                for finding in group.findings:
+                    # Extract numeric part of F001, F002, etc.
+                    num = "".join(c for c in finding.id if c.isdigit())
+                    if num:
+                        max_completeness_id = max(max_completeness_id, int(num))
+
+            renumbered_correctness_groups = []
+            for group in correctness_groups:
+                renumbered_findings = []
+                for finding in group.findings:
+                    max_completeness_id += 1
+                    renumbered_findings.append(
+                        finding.model_copy(
+                            update={"id": f"F{max_completeness_id:03d}"}
+                        )
+                    )
+                if renumbered_findings:
+                    from maverick.models.review_models import FindingGroup
+
+                    renumbered_correctness_groups.append(
+                        FindingGroup(
+                            description=group.description,
+                            findings=renumbered_findings,
+                        )
+                    )
+
+            result = GroupedReviewResult(
+                groups=completeness_groups + renumbered_correctness_groups
+            )
         finally:
             await _executor.cleanup()
 
@@ -705,18 +813,20 @@ async def _run_dual_review(
         }
 
     except ImportError as e:
-        logger.warning("Failed to import UnifiedReviewerAgent: %s", e)
+        logger.warning("Failed to import reviewer agents: %s", e)
         return {
-            "recommendation": "request_changes",
+            "recommendation": "error",
             "review_report": "",
             "has_critical": False,
+            "review_error": str(e),
         }
     except Exception as e:
         logger.warning("Review failed: %s", e)
         return {
-            "recommendation": "request_changes",
+            "recommendation": "error",
             "review_report": "",
             "has_critical": False,
+            "review_error": str(e),
         }
 
 
@@ -741,7 +851,7 @@ async def _run_review_fixer(
     try:
         from maverick.agents.reviewers import SimpleFixerAgent
 
-        # Get the ReviewResult from unified reviewer
+        # Get the ReviewResult from parallel reviewers
         result_obj = review_result.get("review_result")
         if result_obj is None:
             logger.warning("No review_result in review_result dict")
@@ -799,7 +909,7 @@ async def _run_review_fixer(
 async def _run_review_check(base_branch: str) -> dict[str, Any]:
     """Re-run the review to check if issues are resolved.
 
-    Gathers local review context and re-runs the unified reviewer.
+    Gathers local review context and re-runs the parallel reviewers.
 
     Args:
         base_branch: Base branch for comparison
@@ -888,9 +998,18 @@ async def generate_review_fix_report(
         report_lines.append(f"- {line}")
     report_lines.append("")
 
+    # Only upgrade to "approve" when the loop genuinely succeeded AND the
+    # final recommendation isn't already indicating a problem.  Never
+    # upgrade "request_changes" or "error" to "approve" — that masks
+    # reviewer/fixer failures.
+    if success and final_recommendation in ("approve", "comment"):
+        effective_recommendation = "approve"
+    else:
+        effective_recommendation = final_recommendation
+
     return ReviewAndFixReport(
         review_report="\n".join(report_lines),
-        recommendation=final_recommendation,
+        recommendation=effective_recommendation,
         issues_found=0,  # Not tracking individual issues in simplified flow
         issues_fixed=0,
         issues_remaining=0,

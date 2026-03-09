@@ -9,10 +9,9 @@ Registration Functions:
 
 Registered Agents:
     implementer: ImplementerAgent - Executes tasks from task files
-    code_reviewer: CodeReviewerAgent - Performs general code review
-    unified_reviewer: UnifiedReviewerAgent - Reviews code with parallel subagents
+    completeness_reviewer: CompletenessReviewerAgent - Reviews for requirement coverage
+    correctness_reviewer: CorrectnessReviewerAgent - Reviews for technical correctness
     simple_fixer: SimpleFixerAgent - Fixes review findings
-    issue_fixer: IssueFixerAgent - Fixes GitHub issues
     validation_fixer: FixerAgent - Applies validation fixes
     decomposer: DecomposerAgent - Decomposes flight plans into work units
     flight_plan_generator: FlightPlanGeneratorAgent - Generates flight plans from PRDs
@@ -32,19 +31,22 @@ from maverick.agents.briefing import (
     ReconAgent,
     StructuralistAgent,
 )
-from maverick.agents.code_reviewer import CodeReviewerAgent
+from maverick.agents.curator import CuratorAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.fixer import FixerAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
-from maverick.agents.issue_fixer import IssueFixerAgent
 from maverick.agents.preflight_briefing import (
     CodebaseAnalystAgent,
     CriteriaWriterAgent,
     PreFlightContrarianAgent,
     ScopistAgent,
 )
-from maverick.agents.reviewers import SimpleFixerAgent, UnifiedReviewerAgent
+from maverick.agents.reviewers import (
+    CompletenessReviewerAgent,
+    CorrectnessReviewerAgent,
+    SimpleFixerAgent,
+)
 
 __all__ = [
     "register_all_agents",
@@ -56,14 +58,6 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     This function registers agents that are referenced in workflow YAML files.
     Each agent is registered with a name that matches the YAML reference.
-
-    Registered agents:
-    - implementer: ImplementerAgent (executes tasks from task files)
-    - code_reviewer: CodeReviewerAgent (performs general code review)
-    - unified_reviewer: UnifiedReviewerAgent (reviews code with parallel subagents)
-    - simple_fixer: SimpleFixerAgent (fixes review findings)
-    - issue_fixer: IssueFixerAgent (fixes GitHub issues)
-    - validation_fixer: FixerAgent (applies validation fixes)
 
     Args:
         registry: Component registry to register agents with.
@@ -79,18 +73,13 @@ def register_all_agents(registry: ComponentRegistry) -> None:
         implementer_class = component_registry.agents.get("implementer")
         ```
     """
-    # Register implementer agent (used in feature.yaml)
+    # Register implementer agent
     registry.agents.register("implementer", ImplementerAgent)
 
-    # Register code reviewer agent (legacy, still available)
-    registry.agents.register("code_reviewer", CodeReviewerAgent)
-
-    # Register unified review agents (used in review.yaml)
-    registry.agents.register("unified_reviewer", UnifiedReviewerAgent)
+    # Register parallel review agents
+    registry.agents.register("completeness_reviewer", CompletenessReviewerAgent)
+    registry.agents.register("correctness_reviewer", CorrectnessReviewerAgent)
     registry.agents.register("simple_fixer", SimpleFixerAgent)
-
-    # Register issue fixer agent (used in quick_fix.yaml, cleanup.yaml)
-    registry.agents.register("issue_fixer", IssueFixerAgent)
 
     # Register validation fixer agent (used in validate-and-fix fragment)
     registry.agents.register("validation_fixer", FixerAgent)
@@ -112,3 +101,8 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     registry.agents.register("codebase_analyst", CodebaseAnalystAgent)
     registry.agents.register("criteria_writer", CriteriaWriterAgent)
     registry.agents.register("preflight_contrarian", PreFlightContrarianAgent)
+
+    # Register curator agent (used in maverick land for history curation).
+    # CuratorAgent extends GeneratorAgent (not MaverickAgent) — skip
+    # inheritance validation; it satisfies the build_prompt/name interface.
+    registry.agents.register("curator", CuratorAgent, validate=False)
