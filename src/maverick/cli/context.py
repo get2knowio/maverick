@@ -145,6 +145,18 @@ def _shutdown_loop(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> Non
     except Exception:
         pass
     finally:
-        with contextlib.suppress(Exception):
-            loop.run_until_complete(loop.shutdown_asyncgens())
+        # Suppress noisy ACP library errors during async generator cleanup.
+        # The ACP spawn_stdio_transport generator logs ERROR-level tracebacks
+        # ("aclose(): asynchronous generator is already running") when the
+        # event loop tears down connections during shutdown.
+        import logging as _logging
+
+        _root = _logging.getLogger()
+        _prev = _root.level
+        _root.setLevel(_logging.CRITICAL)
+        try:
+            with contextlib.suppress(Exception):
+                loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            _root.setLevel(_prev)
         loop.close()

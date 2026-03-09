@@ -29,13 +29,14 @@ from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.exceptions import WorkflowError
+from maverick.exceptions import MalformedResponseError, WorkflowError
 from maverick.executor.config import (
     StepConfig,
 )
 from maverick.executor.config import (
     resolve_step_config as _resolve_step_config,
 )
+from maverick.executor.errors import OutputSchemaValidationError
 from maverick.logging import get_logger
 from maverick.results import StepResult, WorkflowResult
 from maverick.types import StepType
@@ -277,9 +278,16 @@ class PythonWorkflow(ABC):
         agent_config = (
             self._config.agents.get(agent_name) if agent_name else None
         )
+        # Look up by full step name first (e.g. "briefing_scopist"), then
+        # fall back to the bare agent name so users can write either
+        # ``steps: { briefing_scopist: ... }`` or the shorter
+        # ``steps: { scopist: ... }`` in their config.
+        project_step_config = self._config.steps.get(step_name)
+        if project_step_config is None and agent_name:
+            project_step_config = self._config.steps.get(agent_name)
         return _resolve_step_config(
             inline_config=None,
-            project_step_config=self._config.steps.get(step_name),
+            project_step_config=project_step_config,
             agent_config=agent_config,
             global_model=self._config.model,
             step_type=step_type,
@@ -470,6 +478,11 @@ class PythonWorkflow(ABC):
             ConnectionError,
             OSError,
             MaverickTimeoutError,
+            # Agent returned unparseable or schema-invalid output — retry
+            # since this is non-deterministic (the same prompt may succeed
+            # on the next attempt).
+            MalformedResponseError,
+            OutputSchemaValidationError,
         )
 
         t0 = time.monotonic()

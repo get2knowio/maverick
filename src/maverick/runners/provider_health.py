@@ -193,24 +193,39 @@ class AcpProviderHealthCheck:
         # Teardown — health check only, we don't keep the connection.
         # Wait for subprocess to fully exit so BaseSubprocessTransport.__del__
         # does not fire after the event loop closes.
+        #
+        # The ACP library's internal receive loop fires a background task
+        # callback (_on_done) that logs "Receive loop failed" / "message
+        # queue already closed" at ERROR level to the root logger when the
+        # connection is torn down.  This is a benign race (the health check
+        # already succeeded), but the traceback is alarming.  Temporarily
+        # suppress root-logger ERROR output during teardown.
+        import logging as _logging
+
+        _root = _logging.getLogger()
+        _prev = _root.level
+        _root.setLevel(_logging.CRITICAL)
         try:
-            await ctx.__aexit__(None, None, None)
-        except Exception as exc:
-            logger.debug(
-                "provider_health.teardown_error",
-                provider=self.provider_name,
-                error=str(exc),
-            )
-        try:
-            _proc.terminate()
-            await asyncio.wait_for(_proc.wait(), timeout=3.0)
-        except (TimeoutError, asyncio.CancelledError):
-            with contextlib.suppress(OSError, ProcessLookupError):
-                _proc.kill()
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(_proc.wait(), timeout=1.0)
-        except Exception:
-            pass
+            try:
+                await ctx.__aexit__(None, None, None)
+            except Exception as exc:
+                logger.debug(
+                    "provider_health.teardown_error",
+                    provider=self.provider_name,
+                    error=str(exc),
+                )
+            try:
+                _proc.terminate()
+                await asyncio.wait_for(_proc.wait(), timeout=3.0)
+            except (TimeoutError, asyncio.CancelledError):
+                with contextlib.suppress(OSError, ProcessLookupError):
+                    _proc.kill()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(_proc.wait(), timeout=1.0)
+            except Exception:
+                pass
+        finally:
+            _root.setLevel(_prev)
 
         if errors:
             return ValidationResult(

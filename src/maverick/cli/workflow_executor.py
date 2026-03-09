@@ -2,6 +2,8 @@
 
 Contains ``render_workflow_events`` — a shared event-rendering loop
 used by Python workflow execution paths.
+
+See docs/cli-output-rules.md for the rendering rules.
 """
 
 from __future__ import annotations
@@ -44,22 +46,23 @@ async def render_workflow_events(
 ) -> None:
     """Render workflow progress events to the console.
 
-    Shared event-rendering loop for Python workflow execution. Handles
-    ValidationStarted/Completed/Failed, PreflightStarted/CheckPassed/
-    CheckFailed/Completed, WorkflowStarted, StepStarted, StepCompleted,
-    AgentStreamChunk, WorkflowCompleted, StepOutput, and
-    LoopIterationStarted/Completed events.
+    Implements the CLI Output Rules (docs/cli-output-rules.md):
+    - R1: step start (⚙) / completion (✓/✗) with step name + timing
+    - R2: meaningful messages shown as interim ∟ lines only
+    - R3: interim lines use ``∟`` prefix, no step name repetition
+    - R4: agent lifecycle interims with 🤖 start and ✓ end
+    - R5: trivial steps may have no interim lines
+    - R6: semantic icons (⚙ 🤖 ✓ ✗)
+    - R7: start line shows (python) or (agent)/(agents)
+    - R8: agent interims show actual provider/model
 
     Args:
-        events: Async iterator of ProgressEvent instances (accepts both
-            AsyncGenerator and AsyncIterator).
+        events: Async iterator of ProgressEvent instances.
         console_obj: Rich Console to render to.
         session_journal: Optional SessionJournal for logging events.
         workflow_name: Display name for the workflow (for header display).
-        total_steps: Total step count for progress numbering. If None,
-            step numbers are not shown.
-        verbosity: Verbosity level. 0 = normal (agent stream suppressed),
-            1+ = verbose (raw agent stream shown).
+        total_steps: Total step count for progress numbering.
+        verbosity: Verbosity level. 0 = normal, 1+ = verbose.
     """
     from maverick.events import (
         AgentStreamChunk,
@@ -89,11 +92,22 @@ async def render_workflow_events(
     _verbose = verbosity > 0
     _spinner: Any = None  # Active Rich Status spinner, if any
 
+    # Track current step name for context
+    _current_step_name: str = ""
+
     def _stop_spinner() -> None:
         nonlocal _spinner
         if _spinner is not None:
             _spinner.stop()
             _spinner = None
+
+    # R3: style map for interim ∟ lines
+    _level_styles = {
+        "info": "[cyan]",
+        "success": "[green]",
+        "warning": "[yellow]",
+        "error": "[red]",
+    }
 
     async for event in events:
         # Record event to session journal if active
@@ -147,55 +161,46 @@ async def render_workflow_events(
             workflow_depth += 1
 
         elif isinstance(event, StepStarted):
-            type_icons = {
-                "python": "\u2699",
-                "agent": "\U0001f916",
-                "generate": "\u270d",
-                "validate": "\u2713",
-                "checkpoint": "\U0001f4be",
-            }
-            icon = type_icons.get(event.step_type.value, "\u25cf")
-            step_name = event.step_name
+            _current_step_name = event.step_name
 
-            # Build type annotation: "provider / model" or just "python"
-            type_annotation = event.step_type.value
-            if event.provider or event.model_id:
-                parts = [p for p in (event.provider, event.model_id) if p]
-                type_annotation = " / ".join(parts)
+            # R7: type annotation is (python) or (agentic)
+            step_type_value = event.step_type.value
+            type_annotation = (
+                "agentic" if step_type_value == "agent" else step_type_value
+            )
+
+            # R6: ⚙ for all step starts
+            icon = "\u2699"
 
             # Use a spinner for long-running step types (agent/python)
-            _use_spinner = event.step_type.value in ("agent", "python")
+            _use_spinner = step_type_value in ("agent", "python")
 
             if workflow_depth == 1:
                 step_index += 1
                 if _total_steps > 0:
                     step_label = (
                         f"[{step_index}/{_total_steps}] "
-                        f"{icon} {step_name} ({type_annotation})"
+                        f"{icon} {event.step_name} ({type_annotation})"
                     )
                 else:
-                    step_label = f"{icon} {step_name} ({type_annotation})"
+                    step_label = f"{icon} {event.step_name} ({type_annotation})"
 
                 if _use_spinner and hasattr(console_obj, "status"):
                     console_obj.print(f"[blue]{step_label}[/]")
                     _spinner = console_obj.status(
-                        f"[dim]{step_name}...[/]",
+                        f"[dim]{event.step_name}...[/]",
                         spinner="dots",
                     )
                     _spinner.start()
                 else:
-                    console_obj.print(
-                        f"[blue]{step_label}...[/] ",
-                        end="",
-                    )
+                    console_obj.print(f"[blue]{step_label}[/]")
 
-                if event.step_type.value in ("loop", "subworkflow"):
+                if step_type_value in ("loop", "subworkflow"):
                     workflow_depth += 1
             else:
                 indent = "  " * (workflow_depth - 1)
                 console_obj.print(
-                    f"[dim cyan]{indent}{icon} {step_name}[/] ({type_annotation})... ",
-                    end="",
+                    f"[dim cyan]{indent}{icon} {event.step_name}[/] ({type_annotation})"
                 )
 
         elif isinstance(event, StepCompleted):
@@ -204,23 +209,30 @@ async def render_workflow_events(
 
             _stop_spinner()
 
-            # If we were streaming agent output, close that section first
+            # If we were streaming agent output, close that section
             if _agent_streaming:
-                console_obj.print()  # End the agent stream block
+                console_obj.print()
                 _agent_streaming = False
 
             duration_sec = event.duration_ms / 1000
 
+            # R1: completion line — step name + timing only.
+            step_name = event.step_name
+
             if event.success:
                 console_obj.print(
-                    f"[bold green]\u2713[/] [dim]({duration_sec:.2f}s)[/]"
+                    f"[bold green]\u2713[/] {step_name} [dim]({duration_sec:.2f}s)[/]"
                 )
             else:
-                console_obj.print(f"[bold red]\u2717[/] [dim]({duration_sec:.2f}s)[/]")
+                error_detail = f": {event.error}" if event.error else ""
+                console_obj.print(
+                    f"[bold red]\u2717[/] {step_name}{error_detail} "
+                    f"[dim]({duration_sec:.2f}s)[/]"
+                )
 
         elif isinstance(event, AgentStreamChunk):
             if _verbose:
-                # Verbose mode: show raw agent stream, but dim [TOOL] lines
+                # Verbose mode: show raw agent stream, dim [TOOL] lines
                 text = event.text
                 if text.startswith("[TOOL] "):
                     tool_name = text.removeprefix("[TOOL] ").strip()
@@ -237,25 +249,11 @@ async def render_workflow_events(
                         markup=False,
                     )
             # Normal mode: suppress raw agent stream entirely.
-            # Workflows should emit StepOutput events for user-facing summaries.
 
         elif isinstance(event, StepOutput):
-            # Model announcements: suppress from output
-            if (
-                event.source == "acp_executor"
-                and event.level == "debug"
-                and event.message.startswith("model: ")
-            ):
-                continue
-            level_styles = {
-                "info": "[cyan]",
-                "success": "[green]",
-                "warning": "[yellow]",
-                "error": "[red]",
-            }
-            style = level_styles.get(event.level, "[cyan]")
-            prefix = f"  {style}{event.step_name}[/]: " if event.step_name else "  "
-            console_obj.print(f"{prefix}{event.message}")
+            # R3: all interim lines use ∟ prefix
+            style = _level_styles.get(event.level, "[cyan]")
+            console_obj.print(f"  {style}\u221f[/] {event.message}")
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  \u21a9 Rolling back: {event.step_name}...[/]")
@@ -283,14 +281,14 @@ async def render_workflow_events(
             duration_sec = event.duration_ms / 1000
             if event.success:
                 console_obj.print(
-                    f"[dim]  Iteration {event.iteration_index + 1} completed "
-                    f"({duration_sec:.2f}s)[/]"
+                    f"[dim]  Iteration {event.iteration_index + 1}"
+                    f" completed ({duration_sec:.2f}s)[/]"
                 )
             else:
                 error_detail = f": {event.error}" if event.error else ""
                 console_obj.print(
-                    f"[red]  Iteration {event.iteration_index + 1} failed "
-                    f"({duration_sec:.2f}s){error_detail}[/]"
+                    f"[red]  Iteration {event.iteration_index + 1}"
+                    f" failed ({duration_sec:.2f}s){error_detail}[/]"
                 )
 
         elif isinstance(event, CheckpointSaved):
@@ -452,14 +450,32 @@ async def execute_python_workflow(
             # Clean up ACP agent subprocesses (FR-019).
             # Use a timeout to prevent cleanup from hanging when the
             # subprocess is unresponsive (e.g. after Ctrl-C).
-            if hasattr(step_executor, "cleanup"):
-                try:
-                    await asyncio.wait_for(step_executor.cleanup(), timeout=3.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    logger.warning("step_executor_cleanup_timeout")
-                    _force_kill_connections(step_executor)
-                except Exception as exc:
-                    logger.warning("step_executor_cleanup_failed", error=str(exc))
+            # Temporarily suppress asyncio's noisy async-generator
+            # cleanup warnings (RuntimeError from spawn_agent_process).
+            import logging as _logging
+
+            # Suppress both asyncio and root logger noise during ACP
+            # teardown.  The ACP library's background receive loop fires
+            # _on_done callbacks that log "Receive loop failed" /
+            # "message queue already closed" at ERROR to the root logger.
+            _root_logger = _logging.getLogger()
+            _asyncio_logger = _logging.getLogger("asyncio")
+            _prev_root = _root_logger.level
+            _prev_asyncio = _asyncio_logger.level
+            _root_logger.setLevel(_logging.CRITICAL)
+            _asyncio_logger.setLevel(_logging.CRITICAL)
+            try:
+                if hasattr(step_executor, "cleanup"):
+                    try:
+                        await asyncio.wait_for(step_executor.cleanup(), timeout=3.0)
+                    except (TimeoutError, asyncio.CancelledError):
+                        logger.warning("step_executor_cleanup_timeout")
+                        _force_kill_connections(step_executor)
+                    except Exception as exc:
+                        logger.warning("step_executor_cleanup_failed", error=str(exc))
+            finally:
+                _root_logger.setLevel(_prev_root)
+                _asyncio_logger.setLevel(_prev_asyncio)
 
             if journal is not None:
                 try:
