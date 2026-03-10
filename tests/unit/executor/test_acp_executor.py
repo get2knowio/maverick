@@ -577,6 +577,42 @@ class TestStructuredOutputEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# _parse_json_lenient: escaped single quote handling
+# ---------------------------------------------------------------------------
+
+
+class TestParseJsonLenient:
+    """Tests for _parse_json_lenient edge cases."""
+
+    def test_escaped_single_quotes_sanitized(self) -> None:
+        """LLM-produced \\' in JSON strings should be stripped to bare '."""
+        from maverick.executor.acp import _parse_json_lenient
+
+        json_str = (
+            '{"summary": "The agent\\\'s output was correct", "count": 1}'
+        )
+        result = _parse_json_lenient(json_str, "test_step")
+        assert result["summary"] == "The agent's output was correct"
+        assert result["count"] == 1
+
+    def test_valid_json_unchanged(self) -> None:
+        """Valid JSON passes through without modification."""
+        from maverick.executor.acp import _parse_json_lenient
+
+        json_str = '{"message": "hello", "count": 42}'
+        result = _parse_json_lenient(json_str, "test_step")
+        assert result["message"] == "hello"
+
+    def test_truncated_json_repaired(self) -> None:
+        """Truncated JSON is repaired by closing open structures."""
+        from maverick.executor.acp import _parse_json_lenient
+
+        json_str = '{"message": "hello"'
+        result = _parse_json_lenient(json_str, "test_step")
+        assert result["message"] == "hello"
+
+
+# ---------------------------------------------------------------------------
 # T031-6: Connection caching — same provider reuses connection
 # ---------------------------------------------------------------------------
 

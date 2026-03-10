@@ -167,12 +167,21 @@ class AcpStepExecutor:
             provider_name, provider_config = self._provider_registry.default()
 
         # --- Resolve agent and build prompt string ---
-        if not self._agent_registry.agents.has(agent_name):
-            raise ReferenceResolutionError(
-                reference_type="agent",
-                reference_name=agent_name,
-                available_names=self._agent_registry.agents.list_names(),
-            )
+        # Normalize agent name: allow hyphens as alias for underscores
+        # (e.g. "unified-reviewer" → "unified_reviewer") so callers can
+        # pass either convention.
+        _resolved_agent_name = agent_name
+        if not self._agent_registry.agents.has(_resolved_agent_name):
+            _alt = agent_name.replace("-", "_")
+            if self._agent_registry.agents.has(_alt):
+                _resolved_agent_name = _alt
+            else:
+                raise ReferenceResolutionError(
+                    reference_type="agent",
+                    reference_name=agent_name,
+                    available_names=self._agent_registry.agents.list_names(),
+                )
+        agent_name = _resolved_agent_name
 
         agent_class = self._agent_registry.agents.get(agent_name)
         try:
@@ -953,6 +962,21 @@ def _parse_json_lenient(json_str: str, step_name: str) -> Any:
             error=str(first_err),
             json_len=len(json_str),
         )
+
+    # Common LLM quirk: agents produce Python-style escaped single quotes
+    # (\') which are invalid in JSON.  Strip the backslash — single quotes
+    # are legal unescaped in JSON strings.
+    sanitized = json_str.replace("\\'", "'")
+    if sanitized != json_str:
+        try:
+            result = json.loads(sanitized)
+            logger.info(
+                "acp_executor.json_sanitized_single_quotes",
+                step_name=step_name,
+            )
+            return result
+        except json.JSONDecodeError:
+            pass
 
     # Repair path — close truncated structures
     repaired = _repair_truncated_json(json_str)
