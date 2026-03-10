@@ -358,60 +358,105 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             error=str(exc),
                         )
 
-                # --- Review and fix (skipped when skip_review=True) ---
+                # --- Review-validate loop ---
+                # After the review fixer makes changes, re-run validation
+                # to catch any regressions. Retry up to 2 times before
+                # giving up on this bead attempt.
+                _max_rv_cycles = 2
                 review_result: dict[str, Any] | None = None
-                if not skip_review:
-                    await self.emit_step_started(REVIEW, step_type=StepType.AGENT)
-                    try:
-                        review_context_result = await gather_local_review_context(
-                            base_branch=_DEFAULT_BASE_BRANCH,
-                            include_spec_files=True,
-                            cwd=cwd_str,
-                        )
-                        review_loop_result = await run_review_fix_loop(
-                            review_input=review_context_result.to_dict(),
-                            base_branch=_DEFAULT_BASE_BRANCH,
-                            max_attempts=_DEFAULT_MAX_REVIEW_ATTEMPTS,
-                            generate_report=True,
-                            cwd=cwd_str,
-                            briefing_context=briefing_context,
-                        )
-                        # Normalise to dict
-                        review_result = review_loop_result.to_dict()
-                    except Exception as exc:
-                        logger.warning(
-                            "review_step_failed",
-                            bead_id=bead_id,
-                            error=str(exc),
-                        )
-                        await self.emit_output(
-                            REVIEW,
-                            f"Review step failed: {exc}",
-                            level="warning",
-                        )
-                        review_result = None
-                    await self.emit_step_completed(REVIEW, review_result)
 
-                    # Create review beads for remaining findings
-                    if review_result is not None:
+                for _rv_cycle in range(1, _max_rv_cycles + 1):
+                    # --- Review and fix ---
+                    if not skip_review:
+                        await self.emit_step_started(REVIEW, step_type=StepType.AGENT)
                         try:
-                            await create_beads_from_findings(
-                                epic_id=bead_epic_id,
-                                review_result=review_result,
+                            review_context_result = await gather_local_review_context(
+                                base_branch=_DEFAULT_BASE_BRANCH,
+                                include_spec_files=True,
+                                cwd=cwd_str,
                             )
+                            review_loop_result = await run_review_fix_loop(
+                                review_input=review_context_result.to_dict(),
+                                base_branch=_DEFAULT_BASE_BRANCH,
+                                max_attempts=_DEFAULT_MAX_REVIEW_ATTEMPTS,
+                                generate_report=True,
+                                cwd=cwd_str,
+                                briefing_context=briefing_context,
+                            )
+                            review_result = review_loop_result.to_dict()
                         except Exception as exc:
                             logger.warning(
-                                "create_review_beads_failed",
+                                "review_step_failed",
                                 bead_id=bead_id,
                                 error=str(exc),
                             )
+                            await self.emit_output(
+                                REVIEW,
+                                f"Review step failed: {exc}",
+                                level="warning",
+                            )
+                            review_result = None
+                        await self.emit_step_completed(REVIEW, review_result)
 
-                # --- Verify completion ---
-                verify_result = await verify_bead_completion(
-                    validation_result=validation_result,
-                    review_result=review_result,
-                    skip_review=skip_review,
-                )
+                        # Create review beads for remaining findings
+                        if review_result is not None:
+                            try:
+                                await create_beads_from_findings(
+                                    epic_id=bead_epic_id,
+                                    review_result=review_result,
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "create_review_beads_failed",
+                                    bead_id=bead_id,
+                                    error=str(exc),
+                                )
+
+                    # --- Re-validate after review fixer changes ---
+                    # The review fixer may have introduced format/lint
+                    # regressions.  Re-run validation so verify sees the
+                    # current state, not the stale pre-review result.
+                    await self.emit_step_started(VALIDATE)
+                    revalidation: dict[str, Any] = {
+                        "passed": False,
+                        "stage_results": {},
+                        "success": False,
+                    }
+                    try:
+                        validation_result = await run_fix_retry_loop(
+                            stages=_DEFAULT_STAGES,
+                            max_attempts=_DEFAULT_MAX_FIX_ATTEMPTS,
+                            fixer_agent="fixer",
+                            validation_result=revalidation,
+                            generate_report=True,
+                            cwd=cwd_str,
+                        )
+                    except Exception as exc:
+                        await self.emit_step_failed(VALIDATE, str(exc))
+                        raise
+                    await self.emit_step_completed(VALIDATE, validation_result)
+
+                    # --- Verify completion ---
+                    verify_result = await verify_bead_completion(
+                        validation_result=validation_result,
+                        review_result=review_result,
+                        skip_review=skip_review,
+                    )
+
+                    if verify_result.passed:
+                        break  # Good — proceed to commit
+
+                    # Log the cycle failure
+                    reasons_str = "; ".join(verify_result.reasons)
+                    if _rv_cycle < _max_rv_cycles:
+                        await self.emit_output(
+                            REVIEW,
+                            f"Verify failed (cycle {_rv_cycle}/"
+                            f"{_max_rv_cycles}): {reasons_str}"
+                            " — retrying review+validate",
+                            level="warning",
+                        )
+                    # else: fall through with verify_result.passed=False
 
                 if not verify_result.passed:
                     # Rollback jj state
