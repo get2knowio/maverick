@@ -113,6 +113,16 @@ class GeneratorAgent(ABC):
         return self._system_prompt
 
     @property
+    def instructions(self) -> str:
+        """Alias for system_prompt for executor compatibility.
+
+        The ACP executor resolves agent instructions via
+        ``getattr(agent, 'instructions', None)``.  Without this alias,
+        generator agents' system prompts are silently dropped.
+        """
+        return self._system_prompt
+
+    @property
     def model(self) -> str:
         """Claude model ID."""
         return self._model
