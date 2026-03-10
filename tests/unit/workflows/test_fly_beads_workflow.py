@@ -25,7 +25,8 @@ from maverick.library.actions.types import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MOD = "maverick.workflows.fly_beads.workflow"
+_WF_MOD = "maverick.workflows.fly_beads.workflow"
+_STEPS_MOD = "maverick.workflows.fly_beads.steps"
 
 
 def _make_select_result(
@@ -158,34 +159,48 @@ def _make_mock_actions(
 _RV = "return_value"
 _SE = "side_effect"
 
+# Actions imported by workflow.py (preflight, workspace, select, check_done,
+# mark_complete) are patched in the workflow module. Actions imported by
+# steps.py are patched in the steps module.
 _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     # (short_name, patch_target, mock_dict_key, patch_kwarg)
-    ("preflight", f"{_MOD}.run_preflight_checks", "preflight_return", _RV),
-    ("workspace", f"{_MOD}.create_fly_workspace", "workspace_return", _RV),
-    ("select", f"{_MOD}.select_next_bead", "select_side_effect", _SE),
-    ("snapshot", f"{_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
-    ("describe", f"{_MOD}.jj_describe", "describe_return", _RV),
-    ("sync_deps", f"{_MOD}.sync_dependencies", "sync_return", _RV),
-    ("validation", f"{_MOD}.run_fix_retry_loop", "validation_return", _RV),
-    ("gather_ctx", f"{_MOD}.gather_local_review_context", "review_context_return", _RV),
-    ("review_loop", f"{_MOD}.run_review_fix_loop", "review_loop_return", _RV),
+    ("preflight", f"{_WF_MOD}.run_preflight_checks", "preflight_return", _RV),
+    ("workspace", f"{_WF_MOD}.create_fly_workspace", "workspace_return", _RV),
+    ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
+    ("snapshot", f"{_STEPS_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
+    ("describe", f"{_STEPS_MOD}.jj_describe", "describe_return", _RV),
+    ("sync_deps", f"{_STEPS_MOD}.sync_dependencies", "sync_return", _RV),
+    ("validation", f"{_STEPS_MOD}.run_fix_retry_loop", "validation_return", _RV),
+    (
+        "gather_ctx",
+        f"{_STEPS_MOD}.gather_local_review_context",
+        "review_context_return",
+        _RV,
+    ),
+    ("review_loop", f"{_STEPS_MOD}.run_review_fix_loop", "review_loop_return", _RV),
     (
         "create_failures",
-        f"{_MOD}.create_beads_from_failures",
+        f"{_STEPS_MOD}.create_beads_from_failures",
         "create_failures_return",
         _RV,
     ),
     (
         "create_findings",
-        f"{_MOD}.create_beads_from_findings",
+        f"{_STEPS_MOD}.create_beads_from_findings",
         "create_findings_return",
         _RV,
     ),
-    ("verify", f"{_MOD}.verify_bead_completion", "verify_return", _RV),
-    ("commit", f"{_MOD}.jj_commit_bead", "commit_return", _RV),
-    ("mark_complete", f"{_MOD}.mark_bead_complete", "mark_complete_return", _RV),
-    ("check_done", f"{_MOD}.check_epic_done", "check_done_return", _RV),
-    ("restore", f"{_MOD}.jj_restore_operation", None, _RV),
+    ("verify", f"{_STEPS_MOD}.verify_bead_completion", "verify_return", _RV),
+    ("commit", f"{_STEPS_MOD}.jj_commit_bead", "commit_return", _RV),
+    (
+        "mark_complete_steps",
+        f"{_STEPS_MOD}.mark_bead_complete",
+        "mark_complete_return",
+        _RV,
+    ),
+    ("mark_complete", f"{_WF_MOD}.mark_bead_complete", "mark_complete_return", _RV),
+    ("check_done", f"{_WF_MOD}.check_epic_done", "check_done_return", _RV),
+    ("restore", f"{_STEPS_MOD}.jj_restore_operation", None, _RV),
     ("ws_manager", "maverick.workspace.manager.WorkspaceManager", None, _RV),
 ]
 
@@ -397,7 +412,7 @@ class TestFlyBeadsWorkflow:
 
         mocks["restore"].assert_called_once()
         mocks["commit"].assert_not_called()
-        mocks["mark_complete"].assert_not_called()
+        mocks["mark_complete_steps"].assert_not_called()
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is True
@@ -597,7 +612,9 @@ class TestFlyBeadsWorkflow:
             async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
                 pass
 
-        # mark_bead_complete called twice: once for the work bead, once for epic
+        # mark_bead_complete called twice: once for the work bead (steps),
+        # once for epic (workflow)
+        # Check the workflow-level mock for epic close
         calls = mocks["mark_complete"].call_args_list
         epic_calls = [c for c in calls if c.kwargs.get("bead_id") == "epic-99"]
         assert len(epic_calls) == 1
@@ -621,7 +638,7 @@ class TestFlyBeadsWorkflow:
             async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
                 pass
 
-        # mark_bead_complete called only for the work bead, not the epic
+        # mark_bead_complete called only for the work bead (in steps), not the epic
         calls = mocks["mark_complete"].call_args_list
         epic_calls = [c for c in calls if c.kwargs.get("bead_id") == "epic-99"]
         assert len(epic_calls) == 0

@@ -6,56 +6,37 @@ from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import WorkflowError
-from maverick.executor.config import StepConfig
 from maverick.library.actions.beads import (
     check_epic_done,
-    create_beads_from_failures,
-    create_beads_from_findings,
     mark_bead_complete,
     select_next_bead,
-    verify_bead_completion,
-)
-from maverick.library.actions.dependencies import sync_dependencies
-from maverick.library.actions.jj import (
-    jj_commit_bead,
-    jj_describe,
-    jj_restore_operation,
-    jj_snapshot_operation,
 )
 from maverick.library.actions.preflight import run_preflight_checks
-from maverick.library.actions.review import (
-    gather_local_review_context,
-    run_review_fix_loop,
-)
-from maverick.library.actions.validation import run_fix_retry_loop
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
-from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.fly_beads.constants import (
     COMMIT,
     CREATE_WORKSPACE,
-    IMPLEMENT,
     MAX_BEADS,
     PREFLIGHT,
-    REVIEW,
     SELECT_BEAD,
-    SYNC_DEPS,
-    VALIDATE,
     WORKFLOW_NAME,
 )
-from maverick.workflows.fly_beads.models import FlyBeadsResult
+from maverick.workflows.fly_beads.models import BeadContext, FlyBeadsResult
+from maverick.workflows.fly_beads.steps import (
+    commit_bead,
+    load_briefing_context,
+    rollback_bead,
+    run_implement,
+    run_sync_deps,
+    run_validate_and_fix,
+    run_verify_cycle,
+    snapshot_and_describe,
+)
 from maverick.workspace.manager import WorkspaceManager
 
 logger = get_logger(__name__)
-
-# Default validation stages for fly-beads
-_DEFAULT_STAGES = ["format", "lint", "typecheck", "test"]
-
-# Default review settings
-_DEFAULT_BASE_BRANCH = "main"
-_DEFAULT_MAX_REVIEW_ATTEMPTS = 2
-_DEFAULT_MAX_FIX_ATTEMPTS = 3
 
 
 class FlyBeadsWorkflow(PythonWorkflow):
@@ -164,9 +145,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
             self.register_rollback("workspace_teardown", _teardown)
 
-        # Convenience: cwd as str for actions that expect str | None
-        cwd_str: str | None = str(workspace_path) if workspace_path else None
-
         # ----------------------------------------------------------------
         # Bead loop
         # ----------------------------------------------------------------
@@ -196,7 +174,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
             bead_id = select_result.bead_id
             bead_title = select_result.title
-            bead_epic_id = select_result.epic_id
 
             await self.emit_output(
                 SELECT_BEAD,
@@ -226,272 +203,44 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     level="warning",
                 )
 
-            # Resolve briefing context from flight plan (if available).
-            # Check refuel-briefing first, then fall back to preflight briefing.
-            briefing_context: str | None = None
-            fp_name = select_result.flight_plan_name
-            if fp_name:
-                plan_dir = Path.cwd() / ".maverick" / "plans" / fp_name
-                for candidate in ("refuel-briefing.md", "briefing.md"):
-                    briefing_path = plan_dir / candidate
-                    if briefing_path.is_file():
-                        import contextlib
-
-                        with contextlib.suppress(Exception):
-                            briefing_context = briefing_path.read_text(encoding="utf-8")
-                        break
+            # Build per-bead context
+            ctx = BeadContext(
+                bead_id=bead_id,
+                title=bead_title,
+                description=select_result.description,
+                epic_id=select_result.epic_id,
+                cwd=workspace_path,
+                prior_failures=prior_failures,
+                briefing_context=load_briefing_context(select_result.flight_plan_name),
+            )
 
             logger.info(
                 "fly_beads_processing_bead",
                 bead_id=bead_id,
                 title=bead_title,
-                has_briefing=briefing_context is not None,
+                has_briefing=ctx.briefing_context is not None,
             )
 
             try:
-                # --- Snapshot jj operation for per-bead rollback ---
-                snapshot_result = await jj_snapshot_operation(
-                    cwd=workspace_path,
-                )
-                operation_id: str | None = snapshot_result.get("operation_id")
+                await snapshot_and_describe(self, ctx)
+                await run_implement(self, ctx)
+                await run_sync_deps(self, ctx)
+                await run_validate_and_fix(self, ctx)
+                await run_verify_cycle(self, ctx, skip_review=skip_review)
 
-                # --- Describe WIP change for observability ---
-                await jj_describe(
-                    message=f"WIP bead({bead_id}): {bead_title}",
-                    cwd=workspace_path,
-                )
-
-                # --- Implement (agent step) ---
-                await self.emit_step_started(IMPLEMENT, step_type=StepType.AGENT)
-                if self._step_executor is not None:
-                    # Build prompt with failure context if retrying
-                    implement_prompt: dict[str, Any] = {
-                        "task_description": select_result.description,
-                        "cwd": cwd_str,
-                    }
-                    if prior_failures:
-                        implement_prompt["previous_failures"] = (
-                            "This bead failed in previous attempt(s). "
-                            "Address these issues:\n"
-                            + "\n".join(
-                                f"- Attempt {i + 1}: {reason}"
-                                for i, reason in enumerate(prior_failures)
-                            )
-                        )
-                    try:
-                        await self._step_executor.execute(
-                            step_name=IMPLEMENT,
-                            agent_name="implementer",
-                            prompt=implement_prompt,
-                            cwd=workspace_path,
-                            config=StepConfig(timeout=600),
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "implement_step_failed",
-                            bead_id=bead_id,
-                            error=str(exc),
-                        )
-                        await self.emit_output(
-                            IMPLEMENT,
-                            f"Implement step failed: {exc}",
-                            level="warning",
-                        )
-                else:
-                    await self.emit_output(
-                        IMPLEMENT,
-                        "No step executor configured — skipping agent implement step",
-                        level="warning",
-                    )
-                await self.emit_step_completed(IMPLEMENT)
-
-                # --- Sync dependencies ---
-                await self.emit_step_started(SYNC_DEPS)
-                try:
-                    sync_result = await sync_dependencies(cwd=cwd_str)
-                except Exception as exc:
-                    await self.emit_step_failed(SYNC_DEPS, str(exc))
-                    raise
-                await self.emit_step_completed(SYNC_DEPS, sync_result.to_dict())
-
-                # --- Validate and fix ---
-                await self.emit_step_started(VALIDATE)
-                # Pass an initially-failing sentinel dict to run_fix_retry_loop.
-                # The function checks ``validation_result.get("success", False)``
-                # at its entry point: if False (our sentinel), it proceeds
-                # straight into the fix-and-retry loop which re-runs actual
-                # validation on the first iteration via _run_validation().
-                # This is intentional: we want the loop to *start* with a fresh
-                # validation run rather than requiring a separate pre-validate
-                # step, because the implement and sync_deps steps above may have
-                # changed the workspace state since any prior run.
-                initial_validation: dict[str, Any] = {
-                    "passed": False,
-                    "stage_results": {},
-                    "success": False,
-                }
-                try:
-                    validation_result = await run_fix_retry_loop(
-                        stages=_DEFAULT_STAGES,
-                        max_attempts=_DEFAULT_MAX_FIX_ATTEMPTS,
-                        fixer_agent="fixer",
-                        validation_result=initial_validation,
-                        generate_report=True,
-                        cwd=cwd_str,
-                    )
-                except Exception as exc:
-                    await self.emit_step_failed(VALIDATE, str(exc))
-                    raise
-                await self.emit_step_completed(VALIDATE, validation_result)
-
-                # Create fix beads for any validation failures
-                if not validation_result.get("passed", False):
-                    try:
-                        await create_beads_from_failures(
-                            epic_id=bead_epic_id,
-                            validation_result=validation_result,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "create_fix_beads_failed",
-                            bead_id=bead_id,
-                            error=str(exc),
-                        )
-
-                # --- Review-validate loop ---
-                # After the review fixer makes changes, re-run validation
-                # to catch any regressions. Retry up to 2 times before
-                # giving up on this bead attempt.
-                _max_rv_cycles = 2
-                review_result: dict[str, Any] | None = None
-
-                for _rv_cycle in range(1, _max_rv_cycles + 1):
-                    # --- Review and fix ---
-                    if not skip_review:
-                        await self.emit_step_started(REVIEW, step_type=StepType.AGENT)
-                        try:
-                            review_context_result = await gather_local_review_context(
-                                base_branch=_DEFAULT_BASE_BRANCH,
-                                include_spec_files=True,
-                                cwd=cwd_str,
-                            )
-                            review_loop_result = await run_review_fix_loop(
-                                review_input=review_context_result.to_dict(),
-                                base_branch=_DEFAULT_BASE_BRANCH,
-                                max_attempts=_DEFAULT_MAX_REVIEW_ATTEMPTS,
-                                generate_report=True,
-                                cwd=cwd_str,
-                                briefing_context=briefing_context,
-                            )
-                            review_result = review_loop_result.to_dict()
-                        except Exception as exc:
-                            logger.warning(
-                                "review_step_failed",
-                                bead_id=bead_id,
-                                error=str(exc),
-                            )
-                            await self.emit_output(
-                                REVIEW,
-                                f"Review step failed: {exc}",
-                                level="warning",
-                            )
-                            review_result = None
-                        await self.emit_step_completed(REVIEW, review_result)
-
-                        # Create review beads for remaining findings
-                        if review_result is not None:
-                            try:
-                                await create_beads_from_findings(
-                                    epic_id=bead_epic_id,
-                                    review_result=review_result,
-                                )
-                            except Exception as exc:
-                                logger.warning(
-                                    "create_review_beads_failed",
-                                    bead_id=bead_id,
-                                    error=str(exc),
-                                )
-
-                    # --- Re-validate after review fixer changes ---
-                    # The review fixer may have introduced format/lint
-                    # regressions.  Re-run validation so verify sees the
-                    # current state, not the stale pre-review result.
-                    await self.emit_step_started(VALIDATE)
-                    revalidation: dict[str, Any] = {
-                        "passed": False,
-                        "stage_results": {},
-                        "success": False,
-                    }
-                    try:
-                        validation_result = await run_fix_retry_loop(
-                            stages=_DEFAULT_STAGES,
-                            max_attempts=_DEFAULT_MAX_FIX_ATTEMPTS,
-                            fixer_agent="fixer",
-                            validation_result=revalidation,
-                            generate_report=True,
-                            cwd=cwd_str,
-                        )
-                    except Exception as exc:
-                        await self.emit_step_failed(VALIDATE, str(exc))
-                        raise
-                    await self.emit_step_completed(VALIDATE, validation_result)
-
-                    # --- Verify completion ---
-                    verify_result = await verify_bead_completion(
-                        validation_result=validation_result,
-                        review_result=review_result,
-                        skip_review=skip_review,
-                    )
-
-                    if verify_result.passed:
-                        break  # Good — proceed to commit
-
-                    # Log the cycle failure
-                    reasons_str = "; ".join(verify_result.reasons)
-                    if _rv_cycle < _max_rv_cycles:
-                        await self.emit_output(
-                            REVIEW,
-                            f"Verify failed (cycle {_rv_cycle}/"
-                            f"{_max_rv_cycles}): {reasons_str}"
-                            " — retrying review+validate",
-                            level="warning",
-                        )
-                    # else: fall through with verify_result.passed=False
-
-                if not verify_result.passed:
-                    # Rollback jj state
-                    if operation_id:
-                        await jj_restore_operation(
-                            operation_id=operation_id,
-                            cwd=workspace_path,
-                        )
-                    beads_failed += 1
-                    reasons_str = "; ".join(verify_result.reasons)
-                    bead_failure_history.setdefault(bead_id, []).append(reasons_str)
-                    await self.emit_output(
-                        COMMIT,
-                        f"Bead {bead_id} failed verification: {reasons_str}",
-                        level="error",
-                    )
-                else:
-                    # --- Commit ---
-                    await self.emit_step_started(COMMIT)
-                    commit_result = await jj_commit_bead(
-                        message=f"bead({bead_id}): {bead_title}",
-                        cwd=workspace_path,
-                    )
-                    await self.emit_step_completed(COMMIT, commit_result)
-
-                    # --- Mark bead complete ---
-                    await mark_bead_complete(bead_id=bead_id)
-
-                    completed_bead_ids.add(bead_id)
+                if ctx.verify_result and ctx.verify_result.passed:
+                    await commit_bead(self, ctx)
+                    completed_bead_ids.add(ctx.bead_id)
                     beads_succeeded += 1
-                    await self.emit_output(
-                        COMMIT,
-                        f"Bead {bead_id} completed: {bead_title}",
-                        level="success",
+                else:
+                    await rollback_bead(self, ctx)
+                    beads_failed += 1
+                    reasons = (
+                        "; ".join(ctx.verify_result.reasons)
+                        if ctx.verify_result
+                        else "unknown"
                     )
+                    bead_failure_history.setdefault(bead_id, []).append(reasons)
 
             except Exception as exc:
                 logger.warning(

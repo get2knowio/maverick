@@ -2,8 +2,34 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+from maverick.library.actions.types import VerifyBeadCompletionResult
+
+
+@dataclass
+class BeadContext:
+    """Per-bead execution context threaded through step functions.
+
+    Mutable because it accumulates results step-by-step.
+    Short-lived (one per bead iteration). Not serialised to checkpoints.
+    """
+
+    bead_id: str
+    title: str
+    description: str
+    epic_id: str
+    cwd: Path | None
+    operation_id: str | None = None
+    briefing_context: str | None = None
+    prior_failures: list[str] = field(default_factory=list)
+
+    # Populated by step functions as pipeline progresses
+    validation_result: dict[str, Any] | None = None
+    review_result: dict[str, Any] | None = None
+    verify_result: VerifyBeadCompletionResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
