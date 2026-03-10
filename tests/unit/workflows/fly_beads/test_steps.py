@@ -92,9 +92,13 @@ class TestLoadBriefingContext:
             mock_path.__truediv__ = Path.__truediv__
             mock_path.return_value = tmp_path
             # Need the real Path for file operations
-            result = load_briefing_context.__wrapped__(  # type: ignore[attr-defined]
-                "my-plan"
-            ) if hasattr(load_briefing_context, "__wrapped__") else None
+            result = (
+                load_briefing_context.__wrapped__(  # type: ignore[attr-defined]
+                    "my-plan"
+                )
+                if hasattr(load_briefing_context, "__wrapped__")
+                else None
+            )
 
         # Simpler approach: just call it with the real cwd set
         import os
@@ -449,9 +453,7 @@ class TestCommitBead:
         ):
             await commit_bead(wf, ctx)
 
-        mock_commit.assert_called_once_with(
-            message="bead(b1): Test bead", cwd=ctx.cwd
-        )
+        mock_commit.assert_called_once_with(message="bead(b1): Test bead", cwd=ctx.cwd)
         mock_mark.assert_called_once_with(bead_id="b1")
         wf.emit_step_completed.assert_called_once()
         wf.emit_output.assert_called_once()
@@ -474,9 +476,7 @@ class TestRollbackBead:
         ) as mock_restore:
             await rollback_bead(wf, ctx)
 
-        mock_restore.assert_called_once_with(
-            operation_id="op99", cwd=ctx.cwd
-        )
+        mock_restore.assert_called_once_with(operation_id="op99", cwd=ctx.cwd)
         wf.emit_output.assert_called_once()
 
     async def test_skips_restore_when_no_operation_id(self) -> None:
