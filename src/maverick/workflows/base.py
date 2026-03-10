@@ -148,7 +148,7 @@ class PythonWorkflow(ABC):
         """
         try:
             model_cfg = self._config.model
-            fields_set = getattr(model_cfg, "model_fields_set", set())
+            fields_set: set[str] = getattr(model_cfg, "model_fields_set", set())
             if "model_id" in fields_set:
                 return model_cfg.model_id
         except (AttributeError, TypeError):

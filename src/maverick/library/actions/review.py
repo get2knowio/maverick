@@ -719,14 +719,14 @@ async def _run_dual_review(
 
             if completeness_failed:
                 logger.warning("Completeness reviewer failed: %s", completeness_result)
-            else:
+            elif not isinstance(completeness_result, BaseException):
                 output = completeness_result.output
                 if isinstance(output, GroupedReviewResult):
                     completeness_groups = list(output.groups)
 
             if correctness_failed:
                 logger.warning("Correctness reviewer failed: %s", correctness_result)
-            else:
+            elif not isinstance(correctness_result, BaseException):
                 output = correctness_result.output
                 if isinstance(output, GroupedReviewResult):
                     correctness_groups = list(output.groups)

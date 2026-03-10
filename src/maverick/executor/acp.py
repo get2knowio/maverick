@@ -810,7 +810,7 @@ def _resolve_model_label(
         if getattr(m, "model_id", None) == model_id:
             name = getattr(m, "name", None)
             if name:
-                return name
+                return str(name)
             break
 
     return model_id

@@ -98,6 +98,8 @@ class AcpProviderHealthCheck:
         component = f"ACP:{self.provider_name}"
 
         command_args = self.provider_config.command
+        if not command_args:
+            raise ValueError(f"Provider {self.provider_name} has no command")
         command = command_args[0]
         args = tuple(command_args[1:])
 

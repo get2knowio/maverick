@@ -105,4 +105,4 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     # Register curator agent (used in maverick land for history curation).
     # CuratorAgent extends GeneratorAgent (not MaverickAgent) — skip
     # inheritance validation; it satisfies the build_prompt/name interface.
-    registry.agents.register("curator", CuratorAgent, validate=False)
+    registry.agents.register("curator", CuratorAgent, validate=False)  # type: ignore[arg-type]
