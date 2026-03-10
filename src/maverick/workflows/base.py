@@ -275,9 +275,7 @@ class PythonWorkflow(ABC):
         Returns:
             Resolved StepConfig with merged values.
         """
-        agent_config = (
-            self._config.agents.get(agent_name) if agent_name else None
-        )
+        agent_config = self._config.agents.get(agent_name) if agent_name else None
         # Look up by full step name first (e.g. "briefing_scopist"), then
         # fall back to the bare agent name so users can write either
         # ``steps: { briefing_scopist: ... }`` or the shorter

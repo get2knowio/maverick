@@ -107,9 +107,7 @@ class TestRegisterAllAgents:
         validation_fixer = validation_fixer_class()
         assert validation_fixer is not None
 
-    def test_does_not_register_legacy_agents(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_does_not_register_legacy_agents(self, registry: ComponentRegistry) -> None:
         """Test that removed legacy agents are not registered."""
         register_all_agents(registry)
 

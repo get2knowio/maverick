@@ -619,9 +619,7 @@ async def run_review_fix_loop(
                 logger.warning(
                     "Review fixer failed on attempt %d: %s", attempt_num, fix_error
                 )
-                review_errors.append(
-                    f"attempt {attempt_num} fixer: {fix_error}"
-                )
+                review_errors.append(f"attempt {attempt_num} fixer: {fix_error}")
                 # Continue to next iteration — the re-review will show whether
                 # the fixer managed partial progress before failing
 
@@ -760,9 +758,7 @@ async def _run_dual_review(
                 for finding in group.findings:
                     max_completeness_id += 1
                     renumbered_findings.append(
-                        finding.model_copy(
-                            update={"id": f"F{max_completeness_id:03d}"}
-                        )
+                        finding.model_copy(update={"id": f"F{max_completeness_id:03d}"})
                     )
                 if renumbered_findings:
                     from maverick.models.review_models import FindingGroup

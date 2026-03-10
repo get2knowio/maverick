@@ -420,9 +420,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
             outline: DecompositionOutline | None = outline_result.output
             if outline is None:
-                raise WorkflowError(
-                    "Outline pass completed but produced no output"
-                )
+                raise WorkflowError("Outline pass completed but produced no output")
 
             unit_count = len(outline.work_units)
             await self.emit_output(
@@ -443,9 +441,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 detail_prompt = build_detail_prompt(
                     raw_content, outline_json, batch_ids
                 )
-                batch_label = (
-                    f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
-                )
+                batch_label = f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
                 try:
                     detail_result = await self.execute_agent(
                         step_name=DECOMPOSE_DETAIL,
@@ -467,16 +463,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
                 if detail_result.output is None:
                     raise WorkflowError(
-                        f"Detail batch {batch_idx + 1} completed but "
-                        f"produced no output"
+                        f"Detail batch {batch_idx + 1} completed but produced no output"
                     )
                 detail_outputs.append(detail_result.output)
 
             # --- Merge outline + details ---
             try:
-                decomposition = merge_outline_and_details(
-                    outline, detail_outputs
-                )
+                decomposition = merge_outline_and_details(outline, detail_outputs)
             except ValueError as exc:
                 await self.emit_step_failed(DECOMPOSE, str(exc))
                 raise WorkflowError(
@@ -489,9 +482,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 f" ({len(batches)} detail batch(es))",
             )
             if decomposition.rationale:
-                first_sentence = decomposition.rationale.split(". ")[0].rstrip(
-                    "."
-                )
+                first_sentence = decomposition.rationale.split(". ")[0].rstrip(".")
                 await self.emit_output(
                     DECOMPOSE,
                     f"Rationale: {first_sentence}",
@@ -550,9 +541,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
             # Validation passed — break out of retry loop
             for warning in coverage_warnings:
-                await self.emit_output(
-                    VALIDATE, f"Warning: {warning}", level="warning"
-                )
+                await self.emit_output(VALIDATE, f"Warning: {warning}", level="warning")
 
             parallel_group_count = len(
                 {
@@ -563,8 +552,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             )
             await self.emit_output(
                 VALIDATE,
-                f"Dependency graph is acyclic"
-                f" ({parallel_group_count} parallel groups)",
+                f"Dependency graph is acyclic ({parallel_group_count} parallel groups)",
             )
             await self.emit_step_completed(
                 VALIDATE,

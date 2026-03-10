@@ -161,7 +161,8 @@ class DecompositionOutline(BaseModel):
     @field_validator("work_units")
     @classmethod
     def work_units_must_not_be_empty(
-        cls, v: list[WorkUnitOutline],
+        cls,
+        v: list[WorkUnitOutline],
     ) -> list[WorkUnitOutline]:
         """Reject empty work_units list."""
         if not v:

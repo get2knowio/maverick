@@ -588,9 +588,7 @@ class TestParseJsonLenient:
         """LLM-produced \\' in JSON strings should be stripped to bare '."""
         from maverick.executor.acp import _parse_json_lenient
 
-        json_str = (
-            '{"summary": "The agent\\\'s output was correct", "count": 1}'
-        )
+        json_str = '{"summary": "The agent\\\'s output was correct", "count": 1}'
         result = _parse_json_lenient(json_str, "test_step")
         assert result["summary"] == "The agent's output was correct"
         assert result["count"] == 1

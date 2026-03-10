@@ -422,9 +422,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         )
                     beads_failed += 1
                     reasons_str = "; ".join(verify_result.reasons)
-                    bead_failure_history.setdefault(bead_id, []).append(
-                        reasons_str
-                    )
+                    bead_failure_history.setdefault(bead_id, []).append(reasons_str)
                     await self.emit_output(
                         COMMIT,
                         f"Bead {bead_id} failed verification: {reasons_str}",
