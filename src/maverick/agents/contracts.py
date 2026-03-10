@@ -152,7 +152,6 @@ def validate_output(
 from maverick.agents.result import AgentResult  # noqa: E402
 from maverick.models.fixer import FixerResult  # noqa: E402
 from maverick.models.implementation import ImplementationResult  # noqa: E402
-from maverick.models.issue_fix import FixResult  # noqa: E402
 from maverick.models.review import ReviewFinding, ReviewResult  # noqa: E402
 from maverick.models.review_models import (  # noqa: E402
     Finding,
@@ -171,7 +170,6 @@ __all__ = [
     "FindingGroup",
     "FixerResult",
     "FixOutcome",
-    "FixResult",
     "GroupedReviewResult",
     "ImplementationResult",
     "ReviewFinding",

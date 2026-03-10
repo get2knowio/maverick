@@ -223,9 +223,7 @@ class TestRunPreflightChecks:
             },
         )
 
-        with patch(
-            "maverick.library.actions.preflight.load_config"
-        ) as mock_load:
+        with patch("maverick.library.actions.preflight.load_config") as mock_load:
             result = await run_preflight_checks(
                 check_providers=False,
                 check_git=False,
@@ -242,9 +240,7 @@ class TestRunPreflightChecks:
     @pytest.mark.asyncio
     async def test_no_config_falls_back_to_load_config(self) -> None:
         """Test that omitting config= falls back to load_config()."""
-        with patch(
-            "maverick.library.actions.preflight.load_config"
-        ) as mock_load:
+        with patch("maverick.library.actions.preflight.load_config") as mock_load:
             mock_load.return_value = MagicMock(
                 agent_providers={},
                 validation=MagicMock(

@@ -1007,12 +1007,17 @@ async def generate_review_fix_report(
     else:
         effective_recommendation = final_recommendation
 
+    # When the loop failed (not approved), report issues_remaining > 0
+    # so verify_bead_completion correctly blocks the commit.
+    # We use 1 as a sentinel since we don't track individual counts.
+    effective_remaining = 0 if effective_recommendation == "approve" else 1
+
     return ReviewAndFixReport(
         review_report="\n".join(report_lines),
         recommendation=effective_recommendation,
-        issues_found=0,  # Not tracking individual issues in simplified flow
+        issues_found=0 if effective_recommendation == "approve" else 1,
         issues_fixed=0,
-        issues_remaining=0,
+        issues_remaining=effective_remaining,
         attempts=attempts,
         fix_summary=tuple(fix_summary_lines),
     )

@@ -107,6 +107,70 @@ class TestFromConfigEmpty:
 
 
 # ---------------------------------------------------------------------------
+# from_config — built-in provider resolution
+# ---------------------------------------------------------------------------
+
+
+class TestBuiltinProviderResolution:
+    def test_claude_resolves_command_automatically(self) -> None:
+        providers = {
+            "claude": AgentProviderConfig(default=True),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("claude")
+        assert cfg.command is not None
+        assert "claude-agent-acp" in cfg.command
+
+    def test_copilot_resolves_command_automatically(self) -> None:
+        providers = {
+            "copilot": AgentProviderConfig(default=True),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("copilot")
+        assert cfg.command is not None
+        assert "copilot" in cfg.command
+        assert "--acp" in cfg.command
+
+    def test_gemini_resolves_command_automatically(self) -> None:
+        providers = {
+            "gemini": AgentProviderConfig(default=True),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("gemini")
+        assert cfg.command is not None
+        assert "gemini" in cfg.command
+        assert "--experimental-acp" in cfg.command
+
+    def test_gemini_includes_model_flag_when_default_model_set(self) -> None:
+        providers = {
+            "gemini": AgentProviderConfig(
+                default=True, default_model="gemini-3.1-pro-preview"
+            ),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("gemini")
+        assert cfg.command is not None
+        assert "--model" in cfg.command
+        assert "gemini-3.1-pro-preview" in cfg.command
+
+    def test_gemini_omits_model_flag_when_no_default_model(self) -> None:
+        providers = {
+            "gemini": AgentProviderConfig(default=True),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("gemini")
+        assert cfg.command is not None
+        assert "--model" not in cfg.command
+
+    def test_unknown_provider_without_command_raises(self) -> None:
+        providers = {
+            "custom-llm": AgentProviderConfig(default=True),
+        }
+        with pytest.raises(ConfigError):
+            AgentProviderRegistry.from_config(providers)
+
+
+# ---------------------------------------------------------------------------
 # get(name)
 # ---------------------------------------------------------------------------
 

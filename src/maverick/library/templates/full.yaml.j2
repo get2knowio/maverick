@@ -240,11 +240,9 @@ steps:
   # This step is CONDITIONAL - it only runs when skip_review is false AND
   # dry_run is false.
   #
-  # The code reviewer agent:
-  # - Analyzes the diff between current branch and base branch
-  # - Checks for architecture consistency
-  # - Validates adherence to project conventions
-  # - Identifies potential issues or improvements
+  # The review step runs two agents in parallel:
+  # - Completeness reviewer: verifies requirement coverage
+  # - Correctness reviewer: checks technical quality
   #
   # Context includes:
   # - Git diff
@@ -256,7 +254,7 @@ steps:
   # ============================================================================
   - name: review
     type: agent
-    agent: code_reviewer
+    agent: completeness_reviewer
     when: {% raw %}${{ not inputs.skip_review and not inputs.dry_run }}{% endraw %}
     context: review_context
     metadata:

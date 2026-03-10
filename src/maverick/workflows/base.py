@@ -457,7 +457,9 @@ class PythonWorkflow(ABC):
             step_name, StepType.PYTHON, agent_name=agent_name
         )
         # Config timeout takes precedence; fall back to caller-supplied value.
-        effective_timeout = resolved.timeout if resolved.timeout is not None else timeout
+        effective_timeout = (
+            resolved.timeout if resolved.timeout is not None else timeout
+        )
         resolved = resolved.model_copy(update={"timeout": effective_timeout})
 
         provider = resolved.provider or self._resolve_display_provider() or "default"

@@ -394,7 +394,6 @@ class TestContractsModuleReExports:
             FindingGroup,
             FixerResult,
             FixOutcome,
-            FixResult,
             GroupedReviewResult,
             ImplementationResult,
             OutputValidationError,
@@ -409,7 +408,6 @@ class TestContractsModuleReExports:
         assert FindingGroup is not None
         assert FixerResult is not None
         assert FixOutcome is not None
-        assert FixResult is not None
         assert GroupedReviewResult is not None
         assert ImplementationResult is not None
         assert OutputValidationError is not None
@@ -429,7 +427,6 @@ class TestContractsModuleReExports:
             "FindingGroup",
             "FixerResult",
             "FixOutcome",
-            "FixResult",
             "GroupedReviewResult",
             "ImplementationResult",
             "ReviewFinding",
@@ -440,12 +437,7 @@ class TestContractsModuleReExports:
     def test_agents_with_output_model_set(self) -> None:
         """Agents that parse output from Claude have output_model wired."""
         from maverick.agents.fixer import FixerAgent
-        from maverick.agents.reviewers.unified_reviewer import UnifiedReviewerAgent
 
         fixer = FixerAgent()
         assert fixer._output_model is not None
         assert fixer._output_model.__name__ == "FixerResult"
-
-        reviewer = UnifiedReviewerAgent()
-        assert reviewer._output_model is not None
-        assert reviewer._output_model.__name__ == "GroupedReviewResult"

@@ -366,18 +366,21 @@ class TestValidateDecomposition:
         # Both SC-001 and SC-002 are covered
         assert warnings == []
 
-    def test_coverage_warnings_for_uncovered_sc(self) -> None:
-        """Returns warnings for SC criteria not covered by any work unit."""
+    def test_coverage_gaps_raise_sc_coverage_error(self) -> None:
+        """Uncovered SC criteria raise SCCoverageError with gap details."""
+        from maverick.library.actions.decompose import SCCoverageError
+
         specs = [
             make_work_unit_spec("unit-a", sequence=1, trace_refs=["SC-001"]),
         ]
 
         # 3 criteria but only SC-001 covered
-        warnings = validate_decomposition(specs, success_criteria_count=3)
+        with pytest.raises(SCCoverageError) as exc_info:
+            validate_decomposition(specs, success_criteria_count=3)
 
-        assert len(warnings) == 2
-        assert any("SC-002" in w for w in warnings)
-        assert any("SC-003" in w for w in warnings)
+        assert len(exc_info.value.gaps) == 2
+        assert "SC-002" in exc_info.value.gaps[0]
+        assert "SC-003" in exc_info.value.gaps[1]
 
     def test_circular_dependency_raises(self) -> None:
         """Circular dependency raises ValueError."""
@@ -406,27 +409,33 @@ class TestValidateDecomposition:
 
         assert warnings == []
 
-    def test_uncovered_sc_produces_warning_not_exception(self) -> None:
-        """Uncovered SC produces warnings, not exceptions (non-blocking)."""
+    def test_uncovered_sc_raises_error(self) -> None:
+        """Uncovered SC raises SCCoverageError (blocking for retry)."""
+        from maverick.library.actions.decompose import SCCoverageError
+
         specs = [make_work_unit_spec("unit-a", sequence=1)]
 
-        # Should not raise
-        warnings = validate_decomposition(specs, success_criteria_count=3)
-        assert len(warnings) == 3  # SC-001, SC-002, SC-003 all uncovered
+        with pytest.raises(SCCoverageError) as exc_info:
+            validate_decomposition(specs, success_criteria_count=3)
+
+        assert len(exc_info.value.gaps) == 3  # SC-001, SC-002, SC-003 all uncovered
 
     def test_empty_specs_with_zero_sc_passes(self) -> None:
         """Empty specs with zero sc count produces empty warnings."""
         warnings = validate_decomposition([], success_criteria_count=0)
         assert warnings == []
 
-    def test_sc_warning_text_mentions_ref(self) -> None:
-        """Coverage warning text contains the SC reference."""
+    def test_sc_coverage_error_text_mentions_ref(self) -> None:
+        """SCCoverageError gap text contains the SC reference."""
+        from maverick.library.actions.decompose import SCCoverageError
+
         specs = [make_work_unit_spec("unit-a", sequence=1)]
 
-        warnings = validate_decomposition(specs, success_criteria_count=1)
+        with pytest.raises(SCCoverageError) as exc_info:
+            validate_decomposition(specs, success_criteria_count=1)
 
-        assert len(warnings) == 1
-        assert "SC-001" in warnings[0]
+        assert len(exc_info.value.gaps) == 1
+        assert "SC-001" in exc_info.value.gaps[0]
 
     def test_all_sc_covered_no_warnings(self) -> None:
         """When all SCs are covered, no coverage warnings produced."""
@@ -441,15 +450,18 @@ class TestValidateDecomposition:
 
     def test_none_trace_refs_do_not_count_as_covered(self) -> None:
         """Criteria with trace_ref=None do not count toward SC coverage."""
+        from maverick.library.actions.decompose import SCCoverageError
+
         specs = [
             make_work_unit_spec("unit-a", sequence=1, trace_refs=[None]),
         ]
 
-        warnings = validate_decomposition(specs, success_criteria_count=1)
+        with pytest.raises(SCCoverageError) as exc_info:
+            validate_decomposition(specs, success_criteria_count=1)
 
         # SC-001 is not covered because trace_ref=None
-        assert len(warnings) == 1
-        assert "SC-001" in warnings[0]
+        assert len(exc_info.value.gaps) == 1
+        assert "SC-001" in exc_info.value.gaps[0]
 
     def test_three_way_circular_dependency_raises(self) -> None:
         """Three-unit circular dependency raises ValueError."""

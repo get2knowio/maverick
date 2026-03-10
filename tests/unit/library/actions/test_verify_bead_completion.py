@@ -133,6 +133,36 @@ class TestVerifyBeadCompletion:
         assert d["reasons"] == []
 
     @pytest.mark.asyncio
+    async def test_passes_when_request_changes_but_zero_remaining(self) -> None:
+        """request_changes with 0 issues remaining passes (all fixed)."""
+        result = await verify_bead_completion(
+            validation_result={"passed": True},
+            review_result={
+                "recommendation": "request_changes",
+                "issues_remaining": 0,
+            },
+            skip_review=False,
+        )
+
+        assert result.passed is True
+        assert result.reasons == ()
+
+    @pytest.mark.asyncio
+    async def test_passes_when_request_changes_but_empty_list_remaining(self) -> None:
+        """request_changes with empty issues list passes (all fixed)."""
+        result = await verify_bead_completion(
+            validation_result={"passed": True},
+            review_result={
+                "recommendation": "request_changes",
+                "issues_remaining": [],
+            },
+            skip_review=False,
+        )
+
+        assert result.passed is True
+        assert result.reasons == ()
+
+    @pytest.mark.asyncio
     async def test_review_issues_remaining_as_integer(self) -> None:
         """issues_remaining can be an integer instead of a list."""
         result = await verify_bead_completion(

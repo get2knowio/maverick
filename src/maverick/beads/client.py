@@ -338,7 +338,7 @@ class BeadClient:
         return details
 
     async def children(self, parent_id: str) -> list[BeadSummary]:
-        """Get child beads of a parent via ``bd children``.
+        """Get child beads of a parent via ``bd list --parent``.
 
         Args:
             parent_id: Parent bead ID.
@@ -347,9 +347,9 @@ class BeadClient:
             List of BeadSummary for children.
 
         Raises:
-            BeadQueryError: If ``bd children`` fails.
+            BeadQueryError: If ``bd list`` fails.
         """
-        cmd = ["bd", "children", parent_id, "--json"]
+        cmd = ["bd", "list", "--parent", parent_id, "--flat", "--json"]
 
         data = await self._run_bd(
             cmd,

@@ -9,7 +9,6 @@ import pytest
 
 from maverick.exceptions import WorkflowError
 from maverick.executor.protocol import StepExecutor
-from maverick.executor.result import ExecutorResult
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
 from maverick.workflows.refuel_maverick.constants import (
@@ -23,6 +22,7 @@ from maverick.workflows.refuel_maverick.models import (
 )
 from tests.unit.workflows.refuel_maverick.conftest import (
     collect_events,
+    decomposition_to_two_pass_results,
     make_workflow,
     patch_cwd,
 )
@@ -286,11 +286,8 @@ class TestErrorHandling:
         )
 
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=circular_decomp,
-            success=True,
-            events=(),
-            usage=None,
+        executor.execute.side_effect = decomposition_to_two_pass_results(
+            circular_decomp
         )
         workflow = make_workflow(mock_config, mock_registry, executor)
 
@@ -416,12 +413,7 @@ Test objective.
             rationale="Single unit",
         )
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=decomp,
-            success=True,
-            events=(),
-            usage=None,
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -542,11 +534,8 @@ Test objective.
         )
 
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=dangling_decomp,
-            success=True,
-            events=(),
-            usage=None,
+        executor.execute.side_effect = decomposition_to_two_pass_results(
+            dangling_decomp
         )
         workflow = make_workflow(mock_config, mock_registry, executor)
 
@@ -588,11 +577,8 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=parallel_decomp,
-            success=True,
-            events=(),
-            usage=None,
+        executor.execute.side_effect = decomposition_to_two_pass_results(
+            parallel_decomp
         )
         workflow = make_workflow(mock_config, mock_registry, executor)
 
@@ -667,11 +653,8 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=parallel_decomp,
-            success=True,
-            events=(),
-            usage=None,
+        executor.execute.side_effect = decomposition_to_two_pass_results(
+            parallel_decomp
         )
         workflow = make_workflow(mock_config, mock_registry, executor)
 
@@ -720,11 +703,8 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.return_value = ExecutorResult(
-            output=parallel_decomp,
-            success=True,
-            events=(),
-            usage=None,
+        executor.execute.side_effect = decomposition_to_two_pass_results(
+            parallel_decomp
         )
         workflow = make_workflow(mock_config, mock_registry, executor)
 

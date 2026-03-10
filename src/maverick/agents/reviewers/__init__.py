@@ -1,16 +1,22 @@
 """Specialized code review agents.
 
-This package provides the unified review-fix workflow:
+This package provides the parallel review-fix workflow:
 
-- UnifiedReviewerAgent: Comprehensive review spawning parallel expert subagents
+- CompletenessReviewerAgent: Requirements coverage and acceptance criteria
+- CorrectnessReviewerAgent: Technical quality, security, and best practices
+- UnifiedReviewerAgent: Legacy combined reviewer (superseded by the parallel pair)
 - SimpleFixerAgent: Fixes findings with parallel execution support
 
 Usage:
-    from maverick.agents.reviewers import UnifiedReviewerAgent, SimpleFixerAgent
+    from maverick.agents.reviewers import (
+        CompletenessReviewerAgent,
+        CorrectnessReviewerAgent,
+        SimpleFixerAgent,
+    )
 
-    # Run unified review
-    reviewer = UnifiedReviewerAgent(feature_name="my-feature")
-    result = await reviewer.execute({"cwd": Path.cwd()})
+    # Run parallel reviews
+    completeness = CompletenessReviewerAgent(feature_name="my-feature")
+    correctness = CorrectnessReviewerAgent(feature_name="my-feature")
 
     # Fix findings
     fixer = SimpleFixerAgent()
@@ -19,10 +25,12 @@ Usage:
 
 from __future__ import annotations
 
+from maverick.agents.reviewers.completeness_reviewer import CompletenessReviewerAgent
+from maverick.agents.reviewers.correctness_reviewer import CorrectnessReviewerAgent
 from maverick.agents.reviewers.simple_fixer import SimpleFixerAgent
-from maverick.agents.reviewers.unified_reviewer import UnifiedReviewerAgent
 
 __all__ = [
-    "UnifiedReviewerAgent",
+    "CompletenessReviewerAgent",
+    "CorrectnessReviewerAgent",
     "SimpleFixerAgent",
 ]

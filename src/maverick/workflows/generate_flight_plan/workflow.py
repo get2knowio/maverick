@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
-
 from maverick.exceptions import WorkflowError
-from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
 from maverick.flight.serializer import serialize_flight_plan
@@ -42,13 +33,6 @@ from maverick.workflows.generate_flight_plan.models import (
 )
 
 logger = get_logger(__name__)
-
-# Transient errors that warrant retry (API/network errors)
-_TRANSIENT_ERRORS = (
-    TimeoutError,
-    ConnectionError,
-    OSError,
-)
 
 
 def _build_generate_prompt(
@@ -236,69 +220,36 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 synthesize_preflight_briefing,
             )
 
-            await self.emit_step_started(BRIEFING)
-
-            if self._step_executor is None:
-                raise WorkflowError("step_executor is required for the briefing step")
+            await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
 
             briefing_prompt = build_preflight_briefing_prompt(prd_content)
 
-            async def _briefing_event_cb(event: Any) -> None:
-                await self._event_queue.put(event)
-
             try:
                 # Parallel: Scopist + CodebaseAnalyst + CriteriaWriter
-                # Wrap each agent to emit progress events on completion.
-                async def _run_agent(
-                    label: str,
-                    step_name: str,
-                    agent_name: str,
-                    prompt: dict[str, Any],
-                    output_schema: type[Any],
-                ) -> Any:
-                    await self.emit_output(
-                        BRIEFING,
-                        f"\u23f3 {label}...",
-                        level="info",
-                    )
-                    t0 = time.monotonic()
-                    result = await self._step_executor.execute(
-                        step_name=step_name,
-                        agent_name=agent_name,
-                        prompt=prompt,
-                        output_schema=output_schema,
-                        event_callback=_briefing_event_cb,
-                        config=StepConfig(timeout=300),
-                    )
-                    elapsed = time.monotonic() - t0
-                    await self.emit_output(
-                        BRIEFING,
-                        f"\u2713 {label} ({elapsed:.1f}s)",
-                        level="success",
-                    )
-                    return result
-
                 scopist_result, analyst_result, criteria_result = await asyncio.gather(
-                    _run_agent(
-                        "Scopist",
-                        BRIEFING_SCOPIST,
-                        "scopist",
-                        briefing_prompt,
-                        ScopistBrief,
+                    self.execute_agent(
+                        step_name=BRIEFING_SCOPIST,
+                        agent_name="scopist",
+                        label="Scopist",
+                        prompt=briefing_prompt,
+                        output_schema=ScopistBrief,
+                        parent_step=BRIEFING,
                     ),
-                    _run_agent(
-                        "CodebaseAnalyst",
-                        BRIEFING_CODEBASE_ANALYST,
-                        "codebase_analyst",
-                        briefing_prompt,
-                        CodebaseAnalystBrief,
+                    self.execute_agent(
+                        step_name=BRIEFING_CODEBASE_ANALYST,
+                        agent_name="codebase_analyst",
+                        label="CodebaseAnalyst",
+                        prompt=briefing_prompt,
+                        output_schema=CodebaseAnalystBrief,
+                        parent_step=BRIEFING,
                     ),
-                    _run_agent(
-                        "CriteriaWriter",
-                        BRIEFING_CRITERIA_WRITER,
-                        "criteria_writer",
-                        briefing_prompt,
-                        CriteriaWriterBrief,
+                    self.execute_agent(
+                        step_name=BRIEFING_CRITERIA_WRITER,
+                        agent_name="criteria_writer",
+                        label="CriteriaWriter",
+                        prompt=briefing_prompt,
+                        output_schema=CriteriaWriterBrief,
+                        parent_step=BRIEFING,
                     ),
                 )
 
@@ -318,25 +269,13 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     analyst_result.output,
                     criteria_result.output,
                 )
-                await self.emit_output(
-                    BRIEFING,
-                    "\u23f3 Contrarian...",
-                    level="info",
-                )
-                t0 = time.monotonic()
-                contrarian_result = await self._step_executor.execute(
+                contrarian_result = await self.execute_agent(
                     step_name=BRIEFING_CONTRARIAN,
                     agent_name="preflight_contrarian",
+                    label="Contrarian",
                     prompt=contrarian_prompt,
                     output_schema=PreFlightContrarianBrief,
-                    event_callback=_briefing_event_cb,
-                    config=StepConfig(timeout=300),
-                )
-                elapsed = time.monotonic() - t0
-                await self.emit_output(
-                    BRIEFING,
-                    f"\u2713 Contrarian ({elapsed:.1f}s)",
-                    level="success",
+                    parent_step=BRIEFING,
                 )
 
                 if not contrarian_result.output:
@@ -376,49 +315,21 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 3: Generate flight plan via agent
         # ------------------------------------------------------------------
-        await self.emit_step_started(
-            GENERATE,
-            step_type=StepType.AGENT,
-            provider=self._resolve_display_provider(),
-            model_id=self._resolve_display_model(),
-        )
+        await self.emit_step_started(GENERATE, step_type=StepType.AGENT)
 
         prompt = _build_generate_prompt(
             prd_content, name, today, briefing_content=briefing_content
         )
 
-        flight_plan_output: FlightPlanOutput | None = None
         try:
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(3),
-                wait=wait_exponential(multiplier=1, min=1, max=10),
-                retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-                reraise=True,
-            ):
-                with attempt:
-                    if self._step_executor is None:
-                        raise WorkflowError(
-                            "step_executor is required for the generate step"
-                        )
-
-                    async def _event_cb(event: Any) -> None:
-                        await self._event_queue.put(event)
-
-                    executor_result = await self._step_executor.execute(
-                        step_name=GENERATE,
-                        agent_name="flight_plan_generator",
-                        prompt=prompt,
-                        output_schema=FlightPlanOutput,
-                        event_callback=_event_cb,
-                        config=StepConfig(timeout=600),
-                    )
-
-                    if executor_result.output is None:
-                        raise WorkflowError(
-                            "Flight plan generator agent returned no output"
-                        )
-
-                    flight_plan_output = executor_result.output
+            executor_result = await self.execute_agent(
+                step_name=GENERATE,
+                agent_name="flight_plan_generator",
+                label="FlightPlanGenerator",
+                prompt=prompt,
+                output_schema=FlightPlanOutput,
+                timeout=600,
+            )
         except OutputSchemaValidationError:
             await self.emit_step_failed(
                 GENERATE, "Agent output failed schema validation"
@@ -428,6 +339,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             await self.emit_step_failed(GENERATE, str(exc))
             raise
 
+        flight_plan_output = executor_result.output
         if flight_plan_output is None:
             raise WorkflowError("Generate step completed but produced no output")
         await self.emit_output(

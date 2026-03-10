@@ -362,6 +362,7 @@ def resolve_step_config(
     provider = _first_non_none(
         parsed_inline.provider if parsed_inline else None,
         project_step_config.provider if project_step_config else None,
+        agent_config.provider if agent_config else None,
     )
 
     # --- Step 4: Resolve mode via infer_step_mode ---

@@ -399,6 +399,57 @@ class TestResolveStepConfig:
         cfg = wf.resolve_step_config("any-step")
         assert cfg.mode == StepMode.DETERMINISTIC
 
+    def test_resolve_step_config_agent_config_provider(self) -> None:
+        """resolve_step_config() picks up provider from agent-level config."""
+        from maverick.config import AgentConfig
+
+        agent_cfg = AgentConfig(provider="gemini", model_id="gemini-3.1-pro-preview")
+        wf = _make_workflow(agents_override={"scopist": agent_cfg})
+        cfg = wf.resolve_step_config("briefing:scopist", agent_name="scopist")
+        assert cfg.provider == "gemini"
+        assert cfg.model_id == "gemini-3.1-pro-preview"
+
+    def test_resolve_step_config_step_provider_overrides_agent_provider(self) -> None:
+        """Per-step provider takes precedence over per-agent provider."""
+        from maverick.config import AgentConfig
+        from maverick.executor.config import StepConfig
+
+        agent_cfg = AgentConfig(provider="gemini", model_id="gemini-3.1-pro-preview")
+        step_cfg = StepConfig(provider="claude", model_id="claude-sonnet-4-6")
+        wf = _make_workflow(
+            steps_override={"briefing:scopist": step_cfg},
+            agents_override={"scopist": agent_cfg},
+        )
+        cfg = wf.resolve_step_config("briefing:scopist", agent_name="scopist")
+        assert cfg.provider == "claude"
+        assert cfg.model_id == "claude-sonnet-4-6"
+
+    def test_resolve_step_config_falls_back_to_agent_name_key(self) -> None:
+        """When steps has no entry for compound name, falls back to agent_name."""
+        from maverick.executor.config import StepConfig
+
+        step_cfg = StepConfig(provider="gemini", model_id="gemini-3.1-pro-preview")
+        wf = _make_workflow(steps_override={"scopist": step_cfg})
+        cfg = wf.resolve_step_config("briefing:scopist", agent_name="scopist")
+        assert cfg.provider == "gemini"
+        assert cfg.model_id == "gemini-3.1-pro-preview"
+
+    def test_resolve_step_config_compound_name_preferred_over_bare(self) -> None:
+        """Full compound step name takes precedence over bare agent_name fallback."""
+        from maverick.executor.config import StepConfig
+
+        bare_cfg = StepConfig(provider="gemini", model_id="gemini-3.1-pro-preview")
+        compound_cfg = StepConfig(provider="claude", model_id="opus")
+        wf = _make_workflow(
+            steps_override={
+                "scopist": bare_cfg,
+                "briefing:scopist": compound_cfg,
+            },
+        )
+        cfg = wf.resolve_step_config("briefing:scopist", agent_name="scopist")
+        assert cfg.provider == "claude"
+        assert cfg.model_id == "opus"
+
 
 # ---------------------------------------------------------------------------
 # T005-e: register_rollback / rollback execution

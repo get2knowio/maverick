@@ -7,8 +7,6 @@ Available generators:
     GeneratorAgent: Abstract base class for all generators.
     CommitMessageGenerator: Generates conventional commit messages.
     PRDescriptionGenerator: Generates markdown PR descriptions.
-    CodeAnalyzer: Analyzes code (explain, review, summarize).
-    ErrorExplainer: Explains errors with fix suggestions.
 
 Example:
     >>> from maverick.agents.generators import CommitMessageGenerator
@@ -27,10 +25,8 @@ from maverick.agents.generators.base import (
     GeneratorAgent,
 )
 from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
-from maverick.agents.generators.code_analyzer import CodeAnalyzer
 from maverick.agents.generators.commit_message import CommitMessageGenerator
 from maverick.agents.generators.dependency_extractor import DependencyExtractor
-from maverick.agents.generators.error_explainer import ErrorExplainer
 from maverick.agents.generators.pr_description import PRDescriptionGenerator
 from maverick.agents.generators.pr_title import PRTitleGenerator
 
@@ -39,10 +35,8 @@ __all__ = [
     "GeneratorAgent",
     # Concrete generators
     "BeadEnricherGenerator",
-    "CodeAnalyzer",
     "CommitMessageGenerator",
     "DependencyExtractor",
-    "ErrorExplainer",
     "PRDescriptionGenerator",
     "PRTitleGenerator",
     # Constants

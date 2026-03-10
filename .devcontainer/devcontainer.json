@@ -15,7 +15,7 @@
     "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
     "ghcr.io/devcontainers-extra/features/starship:1": {},
     "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
-      "install": "claudeCode,specifyCli,beads"
+      "install": "claudeCode,specifyCli,beads,copilot,geminiCli"
     },
     "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:2": {},
     "ghcr.io/get2knowio/devcontainer-features/python-tools:2": {
@@ -53,7 +53,8 @@
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/GitHub/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/GitHub/sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/GitHub/site,target=/workspaces/site,type=bind,consistency=cached"
   ],
   "postCreateCommand": "python3 --version && uv --version && node --version"
 }

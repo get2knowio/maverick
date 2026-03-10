@@ -20,6 +20,7 @@ from maverick.events import (
     RollbackCompleted,
     RollbackStarted,
     StepCompleted,
+    StepOutput,
     StepStarted,
     WorkflowCompleted,
     WorkflowStarted,
@@ -285,11 +286,23 @@ class TestAgentStreamChunkRendering:
         assert "\u2713" in output
 
 
-class TestAgentModelDisplay:
-    """StepStarted with provider and model_id renders provider/model info."""
+class TestStepTypeAnnotation:
+    """R7: StepStarted shows (python) or (agentic) annotation."""
 
-    async def test_provider_and_model_shown(self) -> None:
-        """Provider and model_id appear in the step label."""
+    async def test_python_step_shows_python_annotation(self) -> None:
+        """Python step shows (python) annotation."""
+        output = await _render_events(
+            [
+                StepStarted(
+                    step_name="preflight",
+                    step_type=StepType.PYTHON,
+                ),
+            ],
+        )
+        assert "(python)" in output
+
+    async def test_agent_step_shows_agentic_annotation(self) -> None:
+        """Agent step shows (agentic), not provider/model."""
         output = await _render_events(
             [
                 StepStarted(
@@ -300,33 +313,10 @@ class TestAgentModelDisplay:
                 ),
             ],
         )
-        assert "copilot / sonnet" in output
-
-    async def test_provider_only_no_model(self) -> None:
-        """Only provider shown when model_id is None."""
-        output = await _render_events(
-            [
-                StepStarted(
-                    step_name="implement",
-                    step_type=StepType.AGENT,
-                    provider="copilot",
-                ),
-            ],
-        )
-        assert "copilot" in output
-        assert "None" not in output
-
-    async def test_no_agent_shows_step_type(self) -> None:
-        """Falls back to step type when no agent/model info."""
-        output = await _render_events(
-            [
-                StepStarted(
-                    step_name="preflight",
-                    step_type=StepType.PYTHON,
-                ),
-            ],
-        )
-        assert "python" in output
+        assert "(agentic)" in output
+        # R7: provider/model must NOT appear on the start line
+        assert "copilot" not in output
+        assert "sonnet" not in output
 
 
 class TestLoopIterationRendering:
@@ -390,3 +380,110 @@ class TestLoopIterationRendering:
         )
         assert "failed" in output
         assert "validation failed" in output
+
+
+class TestStepLifecycleRendering:
+    """R1: Step lifecycle with start and completion lines."""
+
+    async def test_completion_line_includes_step_name(self) -> None:
+        """R1: Completion line includes step name and timing."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="read_prd", step_type=StepType.PYTHON),
+                StepCompleted(
+                    step_name="read_prd",
+                    step_type=StepType.PYTHON,
+                    success=True,
+                    duration_ms=10,
+                ),
+            ],
+        )
+        assert "\u2713" in output
+        assert "read_prd" in output
+        assert "0.01s" in output
+
+    async def test_completion_line_has_no_message(self) -> None:
+        """R2: Completion line is step name + timing only."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="validate", step_type=StepType.PYTHON),
+                StepOutput(step_name="validate", message="All checks passed"),
+                StepCompleted(
+                    step_name="validate",
+                    step_type=StepType.PYTHON,
+                    success=True,
+                    duration_ms=10,
+                ),
+            ],
+        )
+        lines = output.strip().splitlines()
+        completion = [ln for ln in lines if "\u2713" in ln and "validate" in ln]
+        assert len(completion) == 1
+        # No colon — message is not promoted to the completion line
+        assert ":" not in completion[0]
+        assert "All checks passed" not in completion[0]
+
+    async def test_failed_step_shows_x_and_error(self) -> None:
+        """R1: Failed step shows ✗ with error."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="validate", step_type=StepType.PYTHON),
+                StepCompleted(
+                    step_name="validate",
+                    step_type=StepType.PYTHON,
+                    success=False,
+                    duration_ms=500,
+                    error="schema invalid",
+                ),
+            ],
+        )
+        assert "\u2717" in output
+        assert "validate" in output
+        assert "schema invalid" in output
+
+
+class TestInterimPrefix:
+    """R3: Interim lines use ∟ prefix."""
+
+    async def test_step_output_renders_as_interim(self) -> None:
+        """R3: StepOutput renders as ∟ interim line."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="read_prd", step_type=StepType.PYTHON),
+                StepOutput(
+                    step_name="read_prd",
+                    message='PRD: "Greet CLI" (3195 chars)',
+                ),
+                StepCompleted(
+                    step_name="read_prd",
+                    step_type=StepType.PYTHON,
+                    success=True,
+                    duration_ms=5,
+                ),
+            ],
+        )
+        assert "\u221f" in output
+        assert 'PRD: "Greet CLI" (3195 chars)' in output
+
+    async def test_all_outputs_shown_as_interims(self) -> None:
+        """R3: All StepOutputs shown as ∟ interims."""
+        output = await _render_events(
+            [
+                StepStarted(step_name="briefing", step_type=StepType.AGENT),
+                StepOutput(step_name="briefing", message="Agent A started"),
+                StepOutput(step_name="briefing", message="Agent A done"),
+                StepOutput(step_name="briefing", message="Briefing complete"),
+                StepCompleted(
+                    step_name="briefing",
+                    step_type=StepType.AGENT,
+                    success=True,
+                    duration_ms=5000,
+                ),
+            ],
+        )
+        lines = output.strip().splitlines()
+        interim_lines = [ln for ln in lines if "\u221f" in ln]
+        assert len(interim_lines) == 3
+        assert "Agent A started" in interim_lines[0]
+        assert "Agent A done" in interim_lines[1]
+        assert "Briefing complete" in interim_lines[2]

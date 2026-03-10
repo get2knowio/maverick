@@ -17,7 +17,6 @@ from maverick.library.actions.review import (
 )
 from maverick.library.actions.types import ReviewAndFixReport
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -173,6 +172,29 @@ async def test_report_does_not_upgrade_request_changes() -> None:
     )
 
     assert report.recommendation == "request_changes"
+    assert report.issues_remaining > 0
+
+
+@pytest.mark.asyncio
+async def test_report_approved_has_zero_remaining() -> None:
+    """Approved report has issues_remaining == 0."""
+    from maverick.library.actions.review import generate_review_fix_report
+
+    report = await generate_review_fix_report(
+        loop_result={
+            "success": True,
+            "attempts": 1,
+            "final_recommendation": "approve",
+            "skipped": False,
+            "skip_reason": None,
+            "issues_fixed": [],
+            "issues_remaining": [],
+        },
+        max_attempts=2,
+    )
+
+    assert report.recommendation == "approve"
+    assert report.issues_remaining == 0
 
 
 @pytest.mark.asyncio

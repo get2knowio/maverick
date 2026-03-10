@@ -9,10 +9,8 @@ from __future__ import annotations
 import pytest
 
 from maverick.agents import (
-    CodeReviewerAgent,
     FixerAgent,
     ImplementerAgent,
-    IssueFixerAgent,
 )
 from maverick.library.agents import register_all_agents
 from maverick.registry import ComponentRegistry
@@ -34,21 +32,21 @@ class TestRegisterAllAgents:
         agent_class = registry.agents.get("implementer")
         assert agent_class is ImplementerAgent
 
-    def test_registers_code_reviewer_agent(self, registry: ComponentRegistry) -> None:
-        """Test that code_reviewer agent is registered."""
+    def test_registers_completeness_reviewer_agent(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """Test that completeness_reviewer agent is registered."""
         register_all_agents(registry)
 
-        assert registry.agents.has("code_reviewer")
-        agent_class = registry.agents.get("code_reviewer")
-        assert agent_class is CodeReviewerAgent
+        assert registry.agents.has("completeness_reviewer")
 
-    def test_registers_issue_fixer_agent(self, registry: ComponentRegistry) -> None:
-        """Test that issue_fixer agent is registered."""
+    def test_registers_correctness_reviewer_agent(
+        self, registry: ComponentRegistry
+    ) -> None:
+        """Test that correctness_reviewer agent is registered."""
         register_all_agents(registry)
 
-        assert registry.agents.has("issue_fixer")
-        agent_class = registry.agents.get("issue_fixer")
-        assert agent_class is IssueFixerAgent
+        assert registry.agents.has("correctness_reviewer")
 
     def test_registers_validation_fixer_agent(
         self, registry: ComponentRegistry
@@ -66,23 +64,32 @@ class TestRegisterAllAgents:
 
         expected_agents = {
             "implementer",
-            "code_reviewer",
-            "issue_fixer",
+            "completeness_reviewer",
+            "correctness_reviewer",
+            "simple_fixer",
             "validation_fixer",
+            "decomposer",
+            "flight_plan_generator",
+            "navigator",
+            "structuralist",
+            "recon",
+            "contrarian",
+            "scopist",
+            "codebase_analyst",
+            "criteria_writer",
+            "preflight_contrarian",
         }
 
         registered_agents = set(registry.agents.list_names())
         assert expected_agents.issubset(registered_agents)
 
     def test_registration_is_idempotent(self, registry: ComponentRegistry) -> None:
-        """Test that calling register_all_agents multiple times doesn't fail.
+        """Test that calling register_all_agents multiple times raises.
 
-        Note: This will raise DuplicateComponentError because the registry
-        doesn't allow duplicate registrations. This is expected behavior.
+        The registry doesn't allow duplicate registrations.
         """
         register_all_agents(registry)
 
-        # Second call should raise DuplicateComponentError
         with pytest.raises(Exception):  # DuplicateComponentError
             register_all_agents(registry)
 
@@ -92,31 +99,23 @@ class TestRegisterAllAgents:
         """Test that registered agents can be instantiated."""
         register_all_agents(registry)
 
-        # Get each agent class and verify it can be instantiated
         implementer_class = registry.agents.get("implementer")
         implementer = implementer_class()
         assert implementer is not None
-
-        code_reviewer_class = registry.agents.get("code_reviewer")
-        code_reviewer = code_reviewer_class()
-        assert code_reviewer is not None
-
-        issue_fixer_class = registry.agents.get("issue_fixer")
-        issue_fixer = issue_fixer_class()
-        assert issue_fixer is not None
 
         validation_fixer_class = registry.agents.get("validation_fixer")
         validation_fixer = validation_fixer_class()
         assert validation_fixer is not None
 
-    def test_does_not_register_issue_analyzer(
+    def test_does_not_register_legacy_agents(
         self, registry: ComponentRegistry
     ) -> None:
-        """Test that issue_analyzer is not registered (not yet implemented)."""
+        """Test that removed legacy agents are not registered."""
         register_all_agents(registry)
 
-        # issue_analyzer is referenced in refuel.yaml but not yet implemented
-        assert not registry.agents.has("issue_analyzer")
+        assert not registry.agents.has("code_reviewer")
+        assert not registry.agents.has("issue_fixer")
+        assert not registry.agents.has("unified_reviewer")
 
     def test_registered_agents_have_correct_names(
         self, registry: ComponentRegistry
@@ -124,8 +123,13 @@ class TestRegisterAllAgents:
         """Test that registered agents have the expected class names."""
         register_all_agents(registry)
 
-        # Verify class names match expected values
         assert registry.agents.get("implementer").__name__ == "ImplementerAgent"
-        assert registry.agents.get("code_reviewer").__name__ == "CodeReviewerAgent"
-        assert registry.agents.get("issue_fixer").__name__ == "IssueFixerAgent"
+        assert (
+            registry.agents.get("completeness_reviewer").__name__
+            == "CompletenessReviewerAgent"
+        )
+        assert (
+            registry.agents.get("correctness_reviewer").__name__
+            == "CorrectnessReviewerAgent"
+        )
         assert registry.agents.get("validation_fixer").__name__ == "FixerAgent"

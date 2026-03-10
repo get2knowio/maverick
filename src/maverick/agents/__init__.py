@@ -17,9 +17,7 @@ Public API:
     FIXER_TOOLS: Minimal tools for targeted file fixes
     ISSUE_FIXER_TOOLS: Issue resolution with file search capability
     GENERATOR_TOOLS: Empty set for text generation agents
-    CodeReviewerAgent: Concrete agent for code review (if available)
     ImplementerAgent: Concrete agent for task implementation (if available)
-    IssueFixerAgent: Concrete agent for issue fixing (if available)
 
 Submodules:
     generators: Lightweight text generators (CommitMessageGenerator, etc.)
@@ -44,19 +42,9 @@ from maverick.agents.tools import (
 
 # Conditional import for concrete agent implementations
 try:
-    from maverick.agents.code_reviewer import CodeReviewerAgent
-except ImportError:
-    CodeReviewerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
-
-try:
     from maverick.agents.implementer import ImplementerAgent
 except ImportError:
     ImplementerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
-
-try:
-    from maverick.agents.issue_fixer import IssueFixerAgent
-except ImportError:
-    IssueFixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
 
 try:
     from maverick.agents.fixer import FixerAgent
@@ -94,15 +82,8 @@ __all__: list[str] = [
     "generators",
 ]
 
-# Conditionally add concrete agents to __all__ if they were successfully imported
-if CodeReviewerAgent is not None:
-    __all__ += ["CodeReviewerAgent"]
-
 if ImplementerAgent is not None:
     __all__ += ["ImplementerAgent"]
-
-if IssueFixerAgent is not None:
-    __all__ += ["IssueFixerAgent"]
 
 if FixerAgent is not None:
     __all__ += ["FixerAgent"]

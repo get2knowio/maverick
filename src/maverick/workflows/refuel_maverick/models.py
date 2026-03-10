@@ -104,6 +104,114 @@ class DecompositionOutput(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# Chunked decomposition models (outline → detail)
+# ---------------------------------------------------------------------------
+
+
+class WorkUnitOutline(BaseModel):
+    """Lightweight work unit produced by the outline pass.
+
+    Contains structural information (ID, task, dependencies, file scope) but
+    omits large text fields (instructions, acceptance_criteria, verification)
+    to fit within the output token window.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(description="Kebab-case identifier")
+    sequence: int = Field(ge=1, description="Execution order (>= 1)")
+    parallel_group: str | None = Field(default=None)
+    depends_on: list[str] = Field(default_factory=list)
+    task: str = Field(description="Task description")
+    file_scope: FileScopeSpec = Field(default_factory=FileScopeSpec)
+
+    @field_validator("id")
+    @classmethod
+    def id_must_be_kebab_case(cls, v: str) -> str:
+        """Validate that id matches kebab-case pattern."""
+        if not _KEBAB_RE.match(v):
+            raise ValueError(f"id must be kebab-case, got: {v!r}")
+        return v
+
+    @field_validator("task")
+    @classmethod
+    def task_must_not_be_empty(cls, v: str) -> str:
+        """Reject empty task."""
+        if not v.strip():
+            raise ValueError("task must not be empty")
+        return v
+
+
+class DecompositionOutline(BaseModel):
+    """Agent output schema for the outline pass of chunked decomposition.
+
+    Contains a lightweight list of work unit skeletons (IDs, tasks,
+    dependencies, file scopes) plus the decomposition rationale. Designed
+    to always fit within the output token window even for large flight plans.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    work_units: list[WorkUnitOutline] = Field(
+        description="Ordered list of work unit outlines"
+    )
+    rationale: str = Field(description="Agent's reasoning for the decomposition")
+
+    @field_validator("work_units")
+    @classmethod
+    def work_units_must_not_be_empty(
+        cls, v: list[WorkUnitOutline],
+    ) -> list[WorkUnitOutline]:
+        """Reject empty work_units list."""
+        if not v:
+            raise ValueError("work_units must not be empty")
+        return v
+
+    @model_validator(mode="after")
+    def work_unit_ids_must_be_unique(self) -> DecompositionOutline:
+        """Validate that all work unit IDs are unique."""
+        ids = [wu.id for wu in self.work_units]
+        seen: set[str] = set()
+        for wuid in ids:
+            if wuid in seen:
+                raise ValueError(f"Duplicate work unit ID: {wuid!r}")
+            seen.add(wuid)
+        return self
+
+
+class WorkUnitDetail(BaseModel):
+    """Detailed fields for a single work unit produced by the detail pass.
+
+    Keyed by ``id`` to merge with the corresponding ``WorkUnitOutline``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(description="Must match a WorkUnitOutline.id")
+    instructions: str = Field(description="Implementation guidance")
+    acceptance_criteria: list[AcceptanceCriterionSpec] = Field(default_factory=list)
+    verification: list[str] = Field(default_factory=list)
+
+    @field_validator("verification")
+    @classmethod
+    def verification_must_not_be_empty(cls, v: list[str]) -> list[str]:
+        """Reject empty verification list."""
+        if not v:
+            raise ValueError("verification must not be empty")
+        return v
+
+
+class DetailBatchOutput(BaseModel):
+    """Agent output schema for a detail pass batch."""
+
+    model_config = ConfigDict(frozen=True)
+
+    details: list[WorkUnitDetail] = Field(
+        description="Detail entries for the requested work units"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RefuelMaverickResult:
     """Final output from RefuelMaverickWorkflow.

@@ -44,14 +44,9 @@ async def test_briefing_context_reaches_reviewer() -> None:
         "diff": "some diff",
     }
 
-    with (
-        patch(
-            "maverick.executor.create_default_executor",
-            return_value=mock_executor,
-        ),
-        patch(
-            "maverick.agents.reviewers.UnifiedReviewerAgent",
-        ),
+    with patch(
+        "maverick.executor.create_default_executor",
+        return_value=mock_executor,
     ):
         await run_review_fix_loop(
             review_input=review_input,
@@ -97,14 +92,9 @@ async def test_no_briefing_context_omitted() -> None:
         "diff": "some diff",
     }
 
-    with (
-        patch(
-            "maverick.executor.create_default_executor",
-            return_value=mock_executor,
-        ),
-        patch(
-            "maverick.agents.reviewers.UnifiedReviewerAgent",
-        ),
+    with patch(
+        "maverick.executor.create_default_executor",
+        return_value=mock_executor,
     ):
         await run_review_fix_loop(
             review_input=review_input,

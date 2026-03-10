@@ -117,7 +117,8 @@ __all__: list[str] = [
 # Tool Permission Constants
 # =============================================================================
 
-#: Read-only tools for code analysis agents (CodeReviewerAgent).
+#: Read-only tools for code analysis agents
+#: (CompletenessReviewerAgent, CorrectnessReviewerAgent).
 #:
 #: Reviewers analyze code but must not modify it. Search tools (Glob, Grep)
 #: enable finding relevant code sections for review.
@@ -137,7 +138,7 @@ IMPLEMENTER_TOOLS: frozenset[str] = frozenset(
 #: This is the smallest viable tool set for code modification.
 FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit"})
 
-#: Issue resolution with file search capability (IssueFixerAgent).
+#: Issue resolution with file search capability (SimpleFixerAgent).
 #:
 #: Issue fixers may need to search for relevant files when investigating
 #: GitHub issues. Identical to IMPLEMENTER_TOOLS.

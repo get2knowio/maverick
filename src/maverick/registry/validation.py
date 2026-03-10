@@ -131,7 +131,7 @@ def validate_agent_class(cls: Any, component_name: str) -> None:
 
     Example:
         ```python
-        validate_agent_class(CodeReviewerAgent, "code_reviewer")
+        validate_agent_class(ImplementerAgent, "implementer")
         ```
     """
     # First check if it's a class

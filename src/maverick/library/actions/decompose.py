@@ -16,7 +16,13 @@ from maverick.logging import get_logger
 if TYPE_CHECKING:
     from maverick.briefing.models import BriefingDocument
     from maverick.flight.models import WorkUnit
-    from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+    from maverick.workflows.refuel_maverick.models import (
+        DecompositionOutline,
+        DecompositionOutput,
+        DetailBatchOutput,
+        WorkUnitDetail,
+        WorkUnitSpec,
+    )
 
 logger = get_logger(__name__)
 
@@ -315,11 +321,13 @@ def build_decomposition_prompt(
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
             "- instructions field should contain detailed implementation guidance",
+            "- Keep the instructions field concise: key implementation steps"
+            " only, no background or rationale (aim for 2-5 short bullet points)",
             "",
             "## CRITICAL: Output Format",
-            "You MUST output your result as a single JSON object in a ```json"
-            " fenced code block. Do NOT write any files. The JSON must match"
-            " this schema exactly:",
+            "Output ONLY a single JSON object in a ```json fenced code block."
+            " No analysis, preamble, or commentary before or after the JSON."
+            " Do NOT write any files. The JSON must match this schema exactly:",
             '{"work_units": [{"id": "kebab-id", "sequence": 1,'
             ' "parallel_group": null, "depends_on": [],'
             ' "task": "description", "acceptance_criteria":'
@@ -343,6 +351,190 @@ def build_decomposition_prompt(
     prompt += f"\n\n## Instructions\n{instructions}"
 
     return prompt
+
+
+# ---------------------------------------------------------------------------
+# Chunked decomposition prompts (outline → detail batches)
+# ---------------------------------------------------------------------------
+
+
+def build_outline_prompt(
+    flight_plan_content: str,
+    context: CodebaseContext,
+    briefing: BriefingDocument | None = None,
+) -> str:
+    """Build the outline pass prompt for chunked decomposition.
+
+    Asks the agent to produce only the structural skeleton of work units
+    (IDs, tasks, dependencies, file scopes) without detailed instructions,
+    acceptance criteria, or verification commands. This keeps output small
+    enough to always fit within the token window.
+
+    Args:
+        flight_plan_content: Raw flight plan markdown content.
+        context: Gathered codebase context.
+        briefing: Optional synthesized briefing document from the briefing room.
+
+    Returns:
+        Formatted prompt string for the outline pass.
+    """
+    codebase_section = _format_codebase_context(context)
+
+    instructions = "\n".join(
+        [
+            "- Produce 3-15 work units (exceed only with justification)",
+            "- Each work unit = one logical change",
+            "- File scopes must include ALL protect boundaries from the flight"
+            " plan's scope.boundaries in every work unit's file_scope.protect",
+            "- Use depends_on to express ordering constraints"
+            " (list of work unit IDs that must complete first)",
+            "- Assign parallel_group labels to work units that can execute"
+            " concurrently within the same dependency tier",
+            "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
+            "- Sequence numbers must be sequential starting from 1",
+            "",
+            "## CRITICAL: Output Format",
+            "This is the OUTLINE pass. Output ONLY structural information — NO"
+            " instructions, acceptance_criteria, or verification fields.",
+            "Output ONLY a single JSON object in a ```json fenced code block."
+            " No analysis, preamble, or commentary before or after the JSON."
+            " Do NOT write any files. The JSON must match this schema exactly:",
+            '{"work_units": [{"id": "kebab-id", "sequence": 1,'
+            ' "parallel_group": null, "depends_on": [],'
+            ' "task": "short description",'
+            ' "file_scope": {"create": [], "modify": [], "protect": []}}],'
+            ' "rationale": "brief explanation"}',
+        ]
+    )
+
+    prompt = (
+        "You are a software decomposition expert. Given a flight plan and"
+        " codebase context, produce an ordered set of small, focused work units."
+        "\n\nThis is a TWO-PASS decomposition. In this first pass, produce ONLY"
+        " the structural outline: IDs, tasks, dependencies, and file scopes."
+        " Detailed instructions and acceptance criteria will be requested"
+        " separately for each work unit in a follow-up pass."
+        f"\n\n## Flight Plan\n\n{flight_plan_content}"
+        f"\n\n## Codebase Context\n\n{codebase_section}"
+    )
+
+    if briefing is not None:
+        prompt += f"\n\n{_format_briefing_section(briefing)}"
+
+    prompt += f"\n\n## Instructions\n{instructions}"
+
+    return prompt
+
+
+def build_detail_prompt(
+    flight_plan_content: str,
+    outline_json: str,
+    unit_ids: list[str],
+) -> str:
+    """Build a detail pass prompt for a batch of work units.
+
+    Given the full outline and a subset of work unit IDs, asks the agent to
+    produce detailed instructions, acceptance criteria, and verification
+    commands for those specific units.
+
+    Args:
+        flight_plan_content: Raw flight plan markdown content.
+        outline_json: JSON string of the full DecompositionOutline.
+        unit_ids: IDs of the work units to detail in this batch.
+
+    Returns:
+        Formatted prompt string for the detail pass.
+    """
+    id_list = ", ".join(f'"{uid}"' for uid in unit_ids)
+
+    instructions = "\n".join(
+        [
+            f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
+            "- Each detail entry must include: instructions, acceptance_criteria,"
+            " verification",
+            "- Instructions: concise implementation steps (2-5 bullet points)",
+            "- Acceptance criteria must trace to flight plan success criteria"
+            " (SC-### where ### is the 1-based index)",
+            "- Verification commands must be concrete and runnable",
+            "",
+            "## CRITICAL: Output Format",
+            "Output ONLY a single JSON object in a ```json fenced code block."
+            " No analysis, preamble, or commentary before or after the JSON."
+            " Do NOT write any files. The JSON must match this schema exactly:",
+            '{"details": [{"id": "kebab-id",'
+            ' "instructions": "step-by-step guidance",'
+            ' "acceptance_criteria": [{"text": "criterion", "trace_ref": "SC-001"}],'
+            ' "verification": ["cmd1"]}]}',
+        ]
+    )
+
+    prompt = (
+        "You are a software decomposition expert. This is the DETAIL pass"
+        " of a two-pass decomposition. You have already produced the structural"
+        " outline below. Now produce detailed instructions, acceptance criteria,"
+        " and verification commands for the specified work units."
+        f"\n\n## Flight Plan\n\n{flight_plan_content}"
+        f"\n\n## Full Outline\n\n```json\n{outline_json}\n```"
+        f"\n\n## Instructions\n{instructions}"
+    )
+
+    return prompt
+
+
+def merge_outline_and_details(
+    outline: DecompositionOutline,
+    detail_batches: list[DetailBatchOutput],
+) -> DecompositionOutput:
+    """Merge outline skeletons with detail batch results into full WorkUnitSpecs.
+
+    Args:
+        outline: The structural outline from the outline pass.
+        detail_batches: Detail outputs from one or more detail pass batches.
+
+    Returns:
+        Complete DecompositionOutput with fully populated work units.
+
+    Raises:
+        ValueError: If a work unit ID from the outline has no matching detail.
+    """
+    from maverick.workflows.refuel_maverick.models import (
+        DecompositionOutput as _DecompositionOutput,
+    )
+    from maverick.workflows.refuel_maverick.models import (
+        WorkUnitSpec as _WorkUnitSpec,
+    )
+
+    # Index details by ID
+    detail_map: dict[str, WorkUnitDetail] = {}
+    for batch in detail_batches:
+        for d in batch.details:
+            detail_map[d.id] = d
+
+    specs: list[_WorkUnitSpec] = []
+    for wu in outline.work_units:
+        detail = detail_map.get(wu.id)
+        if detail is None:
+            raise ValueError(
+                f"Work unit '{wu.id}' from outline has no matching detail entry"
+            )
+        specs.append(
+            _WorkUnitSpec(
+                id=wu.id,
+                sequence=wu.sequence,
+                parallel_group=wu.parallel_group,
+                depends_on=wu.depends_on,
+                task=wu.task,
+                file_scope=wu.file_scope,
+                instructions=detail.instructions,
+                acceptance_criteria=detail.acceptance_criteria,
+                verification=detail.verification,
+            )
+        )
+
+    return _DecompositionOutput(
+        work_units=specs,
+        rationale=outline.rationale,
+    )
 
 
 def convert_specs_to_work_units(
@@ -400,17 +592,18 @@ def validate_decomposition(
     - Acyclic dependency graph via resolve_execution_order (cycle detection)
     - Unique work unit IDs
     - Dangling depends_on references
-    - SC coverage (warnings only, non-blocking)
+    - SC coverage (fails if any SC is not traced by at least one work unit)
 
     Args:
         specs: List of WorkUnitSpec from decomposition agent.
         success_criteria_count: Number of success criteria in flight plan.
 
     Returns:
-        List of coverage warning strings (non-blocking).
+        List of SC coverage gap descriptions (empty if all covered).
 
     Raises:
-        ValueError: If circular dependency or dangling depends_on detected.
+        ValueError: If circular dependency, dangling depends_on, or
+            uncovered success criteria detected.
     """
     from maverick.flight.errors import WorkUnitDependencyError
     from maverick.flight.resolver import resolve_execution_order
@@ -424,8 +617,8 @@ def validate_decomposition(
     except WorkUnitDependencyError as e:
         raise ValueError(str(e)) from e
 
-    # Check SC coverage (warning-level)
-    warnings: list[str] = []
+    # Check SC coverage — every success criterion must be traced
+    gaps: list[str] = []
     if success_criteria_count > 0:
         covered_refs: set[str] = set()
         for spec in specs:
@@ -436,8 +629,27 @@ def validate_decomposition(
         for i in range(1, success_criteria_count + 1):
             ref = f"SC-{i:03d}"
             if ref not in covered_refs:
-                warning = f"SC-{i:03d} not explicitly covered by any work unit"
-                warnings.append(warning)
+                gap = f"{ref} not explicitly covered by any work unit"
+                gaps.append(gap)
                 logger.warning("sc_not_covered", ref=ref)
 
-    return warnings
+    if gaps:
+        raise SCCoverageError(
+            f"Incomplete SC coverage: {len(gaps)} success "
+            f"criteria not traced — {'; '.join(gaps)}",
+            gaps=gaps,
+        )
+
+    return gaps
+
+
+class SCCoverageError(ValueError):
+    """Raised when success criteria are not fully covered by work units.
+
+    Attributes:
+        gaps: List of uncovered SC references.
+    """
+
+    def __init__(self, message: str, gaps: list[str]) -> None:
+        super().__init__(message)
+        self.gaps = gaps

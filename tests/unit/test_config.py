@@ -566,9 +566,7 @@ model:
         assert config.github.owner == "copilot-org"
         assert config.model.max_tokens == 8192
 
-    def test_default_path_still_works(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_default_path_still_works(self, clean_env: None, temp_dir: Path) -> None:
         """load_config() without a path still loads maverick.yaml from cwd."""
         import os
 

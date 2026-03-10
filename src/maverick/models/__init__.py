@@ -1,6 +1,6 @@
 """Maverick Models Module.
 
-Exports data models for CodeReviewerAgent, ImplementerAgent, and IssueFixerAgent.
+Exports data models for agents and workflows.
 """
 
 from __future__ import annotations
@@ -58,24 +58,6 @@ try:
 except ImportError as e:
     if "implementation" in str(e).lower():
         logger.debug("Implementation models not yet available")
-    else:
-        raise  # Re-raise unexpected import errors
-
-try:
-    from maverick.models.issue_fix import (
-        FixResult,
-        IssueFixerContext,
-    )
-
-    __all__.extend(
-        [
-            "FixResult",
-            "IssueFixerContext",
-        ]
-    )
-except ImportError as e:
-    if "issue_fix" in str(e).lower():
-        logger.debug("Issue fix models not yet available")
     else:
         raise  # Re-raise unexpected import errors
 

@@ -116,7 +116,7 @@ async def _process_single_issue(issue: dict[str, Any]) -> dict[str, Any]:
 
     TODO: Implement actual issue processing:
     - Create branch for the issue
-    - Invoke issue fixer agent
+    - Invoke fixer agent
     - Run validation loop
     - Commit and push changes
     - Create pull request

@@ -18,6 +18,7 @@ from maverick.executor.result import ExecutorResult
 
 from .conftest import (
     collect_events,
+    decomposition_to_two_pass_results,
     make_bead_result,
     make_simple_decomposition_output,
     make_simple_flight_plan,
@@ -69,14 +70,17 @@ def _make_executor_with_briefing() -> AsyncMock:
     executor = AsyncMock(spec=StepExecutor)
     decomp = make_simple_decomposition_output()
 
-    # Map agent names to their outputs
-    output_map = {
+    # Map agent names to their outputs (briefing agents return single outputs)
+    briefing_map: dict[str, Any] = {
         "navigator": _make_navigator_brief(),
         "structuralist": _make_structuralist_brief(),
         "recon": _make_recon_brief(),
         "contrarian": _make_contrarian_brief(),
-        "decomposer": decomp,
     }
+
+    # Decomposer uses two-pass: outline first, then detail batch(es)
+    decomp_results = decomposition_to_two_pass_results(decomp)
+    decomp_iter = iter(decomp_results)
 
     async def _execute(
         step_name: str,
@@ -86,7 +90,9 @@ def _make_executor_with_briefing() -> AsyncMock:
         event_callback: Any = None,
         config: Any = None,
     ) -> ExecutorResult:
-        output = output_map.get(agent_name)
+        if agent_name == "decomposer":
+            return next(decomp_iter)
+        output = briefing_map.get(agent_name)
         return ExecutorResult(
             output=output,
             success=True,

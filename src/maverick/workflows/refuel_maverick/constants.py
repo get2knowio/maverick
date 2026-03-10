@@ -11,6 +11,14 @@ BRIEFING_STRUCTURALIST = "briefing_structuralist"
 BRIEFING_RECON = "briefing_recon"
 BRIEFING_CONTRARIAN = "briefing_contrarian"
 DECOMPOSE = "decompose"
+DECOMPOSE_OUTLINE = "decompose_outline"
+DECOMPOSE_DETAIL = "decompose_detail"
+
+#: Maximum work units per detail batch to stay within output token limits.
+DETAIL_BATCH_SIZE = 5
+
+#: Maximum decompose → validate attempts before giving up.
+MAX_DECOMPOSE_ATTEMPTS = 3
 VALIDATE = "validate"
 WRITE_WORK_UNITS = "write_work_units"
 CREATE_BEADS = "create_beads"

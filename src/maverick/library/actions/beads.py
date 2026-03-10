@@ -766,7 +766,13 @@ async def verify_bead_completion(
             remaining = review_result.get("issues_remaining", 0)
             if isinstance(remaining, list):
                 remaining = len(remaining)
-            reasons.append(f"Review requests changes ({remaining} issues remaining)")
+            # Only fail if there are actually unresolved issues.
+            # The review-fix loop may resolve all issues while keeping
+            # the stale "request_changes" recommendation.
+            if remaining > 0:
+                reasons.append(
+                    f"Review requests changes ({remaining} issues remaining)"
+                )
 
     passed = len(reasons) == 0
     if passed:

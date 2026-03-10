@@ -16,6 +16,7 @@ from maverick.library.actions.decompose import CodebaseContext
 from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
     DECOMPOSE,
+    DECOMPOSE_OUTLINE,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     VALIDATE,
@@ -148,9 +149,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """StepExecutor.execute() is called with DecompositionOutput as output_schema."""  # noqa: E501
-        from maverick.workflows.refuel_maverick.models import DecompositionOutput
-
+        """StepExecutor.execute() is called for outline pass first."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
         bead_result = make_bead_result()
@@ -172,10 +171,10 @@ class TestRefuelMaverickWorkflowHappyPath:
                 {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        mock_step_executor.execute.assert_called_once()
-        call_kwargs = mock_step_executor.execute.call_args.kwargs
-        assert call_kwargs["output_schema"] is DecompositionOutput
-        assert call_kwargs["step_name"] == DECOMPOSE
+        # Two-pass: outline call + at least one detail call
+        assert mock_step_executor.execute.call_count >= 2
+        first_call = mock_step_executor.execute.call_args_list[0].kwargs
+        assert first_call["step_name"] == DECOMPOSE_OUTLINE
 
     async def test_work_unit_files_written_with_correct_naming(
         self,

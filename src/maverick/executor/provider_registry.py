@@ -26,6 +26,13 @@ _DEFAULT_COPILOT_COMMAND: list[str] = [
     "--stdio",
 ]
 
+#: Default Gemini CLI provider command.
+#: Uses the experimental ACP mode in the Gemini CLI.
+_DEFAULT_GEMINI_COMMAND: list[str] = [
+    "gemini",
+    "--experimental-acp",
+]
+
 #: Name used for the synthesized default provider
 _DEFAULT_PROVIDER_NAME: str = "claude"
 
@@ -33,6 +40,7 @@ _DEFAULT_PROVIDER_NAME: str = "claude"
 _BUILTIN_PROVIDERS: dict[str, list[str]] = {
     "claude": _DEFAULT_CLAUDE_COMMAND,
     "copilot": _DEFAULT_COPILOT_COMMAND,
+    "gemini": _DEFAULT_GEMINI_COMMAND,
 }
 
 
@@ -123,6 +131,11 @@ class AgentProviderRegistry:
                         field="agent_providers",
                         value=name,
                     )
+                # Gemini CLI accepts --model at launch; its experimental ACP
+                # server does not support session/set_model, so the model must
+                # be baked into the spawn command.
+                if name == "gemini" and cfg.default_model:
+                    builtin_cmd = [*builtin_cmd, "--model", cfg.default_model]
                 logger.debug(
                     "agent_provider_registry.resolved_builtin",
                     provider=name,

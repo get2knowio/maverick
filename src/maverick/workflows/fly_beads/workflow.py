@@ -112,6 +112,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
         beads_failed = 0
         beads_skipped = 0
 
+        # Track failure reasons per bead for retry context
+        bead_failure_history: dict[str, list[str]] = {}
+
         # ----------------------------------------------------------------
         # Step 1: Preflight
         # ----------------------------------------------------------------
@@ -167,7 +170,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Bead loop
         # ----------------------------------------------------------------
-        for _iteration in range(max_beads):
+        # max_beads caps *successful* completions, not total iterations.
+        # Safety limit prevents infinite retries (2 retries per bead max).
+        max_iterations = max_beads * 3
+        _iteration = 0
+        while beads_succeeded < max_beads and _iteration < max_iterations:
+            _iteration += 1
             # --- Select next bead ---
             await self.emit_step_started(SELECT_BEAD)
             try:
@@ -190,6 +198,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
             bead_title = select_result.title
             bead_epic_id = select_result.epic_id
 
+            await self.emit_output(
+                SELECT_BEAD,
+                f"Selected bead {bead_id}: {bead_title}",
+                level="info",
+            )
+
             # Skip beads we already completed (checkpoint resume)
             if bead_id in completed_bead_ids:
                 beads_skipped += 1
@@ -199,6 +213,18 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     level="info",
                 )
                 continue
+
+            # Detect retry of a previously-failed bead
+            prior_failures = bead_failure_history.get(bead_id, [])
+            if prior_failures:
+                attempt_num = len(prior_failures) + 1
+                prev_reason = prior_failures[-1]
+                await self.emit_output(
+                    SELECT_BEAD,
+                    f"Retrying bead {bead_id} (attempt {attempt_num},"
+                    f" previous failure: {prev_reason})",
+                    level="warning",
+                )
 
             # Resolve briefing context from flight plan (if available).
             # Check refuel-briefing first, then fall back to preflight briefing.
@@ -236,21 +262,27 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
 
                 # --- Implement (agent step) ---
-                await self.emit_step_started(
-                    IMPLEMENT,
-                    step_type=StepType.AGENT,
-                    provider=self._resolve_display_provider(),
-                    model_id=self._resolve_display_model(),
-                )
+                await self.emit_step_started(IMPLEMENT, step_type=StepType.AGENT)
                 if self._step_executor is not None:
+                    # Build prompt with failure context if retrying
+                    implement_prompt: dict[str, Any] = {
+                        "task_description": select_result.description,
+                        "cwd": cwd_str,
+                    }
+                    if prior_failures:
+                        implement_prompt["previous_failures"] = (
+                            "This bead failed in previous attempt(s). "
+                            "Address these issues:\n"
+                            + "\n".join(
+                                f"- Attempt {i + 1}: {reason}"
+                                for i, reason in enumerate(prior_failures)
+                            )
+                        )
                     try:
                         await self._step_executor.execute(
                             step_name=IMPLEMENT,
                             agent_name="implementer",
-                            prompt={
-                                "task_description": select_result.description,
-                                "cwd": cwd_str,
-                            },
+                            prompt=implement_prompt,
                             cwd=workspace_path,
                             config=StepConfig(timeout=600),
                         )
@@ -329,12 +361,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 # --- Review and fix (skipped when skip_review=True) ---
                 review_result: dict[str, Any] | None = None
                 if not skip_review:
-                    await self.emit_step_started(
-                        REVIEW,
-                        step_type=StepType.AGENT,
-                        provider=self._resolve_display_provider(),
-                        model_id=self._resolve_display_model(),
-                    )
+                    await self.emit_step_started(REVIEW, step_type=StepType.AGENT)
                     try:
                         review_context_result = await gather_local_review_context(
                             base_branch=_DEFAULT_BASE_BRANCH,
@@ -395,6 +422,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         )
                     beads_failed += 1
                     reasons_str = "; ".join(verify_result.reasons)
+                    bead_failure_history.setdefault(bead_id, []).append(
+                        reasons_str
+                    )
                     await self.emit_output(
                         COMMIT,
                         f"Bead {bead_id} failed verification: {reasons_str}",
@@ -427,6 +457,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     error=str(exc),
                 )
                 beads_failed += 1
+                bead_failure_history.setdefault(bead_id, []).append(str(exc))
 
             # --- Checkpoint after each bead attempt ---
             await self.save_checkpoint(

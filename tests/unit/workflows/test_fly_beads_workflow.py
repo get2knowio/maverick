@@ -492,8 +492,11 @@ class TestFlyBeadsWorkflow:
         mv = _make_mock_actions(
             select_side_effect=select_side_effect,
             check_done_result=CheckEpicDoneResult(
-                done=False, remaining_count=5,
-                all_children_closed=False, total_children=10, closed_children=5,
+                done=False,
+                remaining_count=5,
+                all_children_closed=False,
+                total_children=10,
+                closed_children=5,
             ),
         )
 
@@ -541,12 +544,18 @@ class TestFlyBeadsWorkflow:
             check_done={
                 "side_effect": [
                     CheckEpicDoneResult(
-                        done=False, remaining_count=1,
-                        all_children_closed=False, total_children=2, closed_children=1,
+                        done=False,
+                        remaining_count=1,
+                        all_children_closed=False,
+                        total_children=2,
+                        closed_children=1,
                     ),
                     CheckEpicDoneResult(
-                        done=True, remaining_count=0,
-                        all_children_closed=True, total_children=2, closed_children=2,
+                        done=True,
+                        remaining_count=0,
+                        all_children_closed=True,
+                        total_children=2,
+                        closed_children=2,
                     ),
                 ]
             },
@@ -585,9 +594,7 @@ class TestFlyBeadsWorkflow:
         )
 
         with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute(
-                {"epic_id": "epic-99", "max_beads": 5}
-            ):
+            async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
                 pass
 
         # mark_bead_complete called twice: once for the work bead, once for epic
@@ -611,9 +618,7 @@ class TestFlyBeadsWorkflow:
         )
 
         with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute(
-                {"epic_id": "epic-99", "max_beads": 5}
-            ):
+            async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
                 pass
 
         # mark_bead_complete called only for the work bead, not the epic
@@ -634,9 +639,7 @@ class TestFlyBeadsWorkflow:
         )
 
         with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute(
-                {"epic_id": "", "max_beads": 5}
-            ):
+            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
                 pass
 
         # mark_bead_complete called only for the work bead (empty epic_id)

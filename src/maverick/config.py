@@ -275,6 +275,7 @@ class WorkspaceConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
+    provider: str | None = None
     model_id: str | None = None
     max_tokens: int | None = Field(default=None, gt=0, le=200000)
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)

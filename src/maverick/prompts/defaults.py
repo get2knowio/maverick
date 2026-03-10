@@ -22,26 +22,24 @@ def build_default_registry() -> PromptRegistry:
     if _cached_registry is not None:
         return _cached_registry
     # Lazy imports to avoid circular dependencies
-    from maverick.agents.code_reviewer.prompts import (
-        SYSTEM_PROMPT as REVIEWER_SYSTEM_PROMPT,
-    )
     from maverick.agents.curator import SYSTEM_PROMPT as CURATOR_SYSTEM_PROMPT
     from maverick.agents.fixer import FIXER_SYSTEM_PROMPT
     from maverick.agents.generators.bead_enricher import BEAD_ENRICHER_SYSTEM_PROMPT
-    from maverick.agents.generators.code_analyzer import SYSTEM_PROMPT_REVIEW
     from maverick.agents.generators.commit_message import (
         COMMIT_MESSAGE_SYSTEM_PROMPT,
     )
     from maverick.agents.generators.dependency_extractor import (
         DEPENDENCY_EXTRACTOR_SYSTEM_PROMPT,
     )
-    from maverick.agents.generators.error_explainer import (
-        SYSTEM_PROMPT as ERROR_EXPLAINER_SYSTEM_PROMPT,
-    )
     from maverick.agents.generators.pr_description import PRDescriptionGenerator
     from maverick.agents.generators.pr_title import PR_TITLE_SYSTEM_PROMPT
     from maverick.agents.implementer import IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE
-    from maverick.agents.issue_fixer import ISSUE_FIXER_SYSTEM_PROMPT
+    from maverick.agents.reviewers.completeness_reviewer import (
+        COMPLETENESS_REVIEWER_PROMPT_TEMPLATE,
+    )
+    from maverick.agents.reviewers.correctness_reviewer import (
+        CORRECTNESS_REVIEWER_PROMPT_TEMPLATE,
+    )
 
     # Get PR description default by instantiating with default sections
     pr_desc_gen = PRDescriptionGenerator()
@@ -53,16 +51,16 @@ def build_default_registry() -> PromptRegistry:
             policy=OverridePolicy.AUGMENT_ONLY,
             is_template=True,
         ),
-        ("review", GENERIC_PROVIDER): PromptEntry(
-            text=REVIEWER_SYSTEM_PROMPT,
+        ("completeness_review", GENERIC_PROVIDER): PromptEntry(
+            text=COMPLETENESS_REVIEWER_PROMPT_TEMPLATE,
+            policy=OverridePolicy.AUGMENT_ONLY,
+        ),
+        ("correctness_review", GENERIC_PROVIDER): PromptEntry(
+            text=CORRECTNESS_REVIEWER_PROMPT_TEMPLATE,
             policy=OverridePolicy.AUGMENT_ONLY,
         ),
         ("fix", GENERIC_PROVIDER): PromptEntry(
             text=FIXER_SYSTEM_PROMPT,
-            policy=OverridePolicy.AUGMENT_ONLY,
-        ),
-        ("issue_fix", GENERIC_PROVIDER): PromptEntry(
-            text=ISSUE_FIXER_SYSTEM_PROMPT,
             policy=OverridePolicy.AUGMENT_ONLY,
         ),
         ("curator", GENERIC_PROVIDER): PromptEntry(
@@ -79,14 +77,6 @@ def build_default_registry() -> PromptRegistry:
         ),
         ("pr_title", GENERIC_PROVIDER): PromptEntry(
             text=PR_TITLE_SYSTEM_PROMPT,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("code_analyze", GENERIC_PROVIDER): PromptEntry(
-            text=SYSTEM_PROMPT_REVIEW,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("error_explain", GENERIC_PROVIDER): PromptEntry(
-            text=ERROR_EXPLAINER_SYSTEM_PROMPT,
             policy=OverridePolicy.REPLACE,
         ),
         ("dependency_extract", GENERIC_PROVIDER): PromptEntry(

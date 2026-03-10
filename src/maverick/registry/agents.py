@@ -41,8 +41,8 @@ class AgentRegistry:
     Example:
         ```python
         # Using decorator registration with prerequisites
-        @agent_registry.register("code_reviewer", requires=("anthropic_key",))
-        class CodeReviewerAgent(MaverickAgent):
+        @agent_registry.register("completeness_reviewer", requires=("anthropic_key",))
+        class CompletenessReviewerAgent(MaverickAgent):
             ...
 
         # Using explicit registration
@@ -51,10 +51,10 @@ class AgentRegistry:
         )
 
         # Looking up an agent
-        agent_class = agent_registry.get("code_reviewer")
+        agent_class = agent_registry.get("completeness_reviewer")
 
         # Getting prerequisites for an agent
-        prereqs = agent_registry.get_requires("code_reviewer")
+        prereqs = agent_registry.get_requires("completeness_reviewer")
         ```
     """
 
@@ -94,12 +94,12 @@ class AgentRegistry:
         Example:
             ```python
             # As a decorator with prerequisites
-            @registry.register("my_agent", requires=("anthropic_key",))
+            @registry.register("my_agent")
             class MyAgent(MaverickAgent):
                 ...
 
-            # Direct registration with prerequisites
-            registry.register("my_agent", MyAgentClass, requires=["anthropic_key"])
+            # Direct registration
+            registry.register("my_agent", MyAgentClass)
 
             # For testing with mocks
             registry.register("mock_agent", MockAgent, validate=False)
@@ -170,8 +170,8 @@ class AgentRegistry:
 
         Example:
             ```python
-            agent_class = registry.get("code_reviewer")
-            agent = agent_class(mcp_servers={...})
+            agent_class = registry.get("implementer")
+            agent = agent_class()
             ```
         """
         if name not in self._agents:
@@ -191,7 +191,7 @@ class AgentRegistry:
         Example:
             ```python
             names = registry.list_names()
-            # ['code_reviewer', 'implementer', 'issue_fixer', ...]
+            # ['completeness_reviewer', 'correctness_reviewer', 'implementer', ...]
             ```
         """
         return sorted(self._agents.keys())
@@ -207,8 +207,8 @@ class AgentRegistry:
 
         Example:
             ```python
-            if registry.has("code_reviewer"):
-                agent_class = registry.get("code_reviewer")
+            if registry.has("implementer"):
+                agent_class = registry.get("implementer")
             ```
         """
         return name in self._agents
@@ -227,7 +227,7 @@ class AgentRegistry:
 
         Example:
             ```python
-            prereqs = registry.get_requires("code_reviewer")
+            prereqs = registry.get_requires("implementer")
             # ('anthropic_key',)
             ```
         """
