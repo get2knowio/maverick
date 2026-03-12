@@ -142,6 +142,41 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
 
 
 # =============================================================================
+# Runway Initialization (best-effort)
+# =============================================================================
+
+
+async def _maybe_init_runway(project_path: Path, verbose: bool) -> bool:
+    """Initialize runway store if not already present.
+
+    Best-effort: errors are logged but never raised.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log progress.
+
+    Returns:
+        True if runway was initialized, False otherwise.
+    """
+    try:
+        from maverick.runway.store import RunwayStore
+
+        runway_path = project_path / ".maverick" / "runway"
+        store = RunwayStore(runway_path)
+        if store.is_initialized:
+            if verbose:
+                logger.debug("runway_already_initialized", path=str(runway_path))
+            return True
+        await store.initialize()
+        if verbose:
+            logger.info("runway_initialized", path=str(runway_path))
+        return True
+    except Exception as exc:
+        logger.debug("runway_init_error", error=str(exc))
+        return False
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -307,6 +342,9 @@ async def run_init(
     # Step 6: Initialize beads (best-effort, if bd is available)
     beads_initialized = await _maybe_init_beads(effective_path, verbose)
 
+    # Step 7: Initialize runway (best-effort)
+    runway_initialized = await _maybe_init_runway(effective_path, verbose)
+
     # Build and return result
     return InitResult(
         success=True,
@@ -317,4 +355,5 @@ async def run_init(
         detection=detection,
         findings_printed=verbose,
         beads_initialized=beads_initialized,
+        runway_initialized=runway_initialized,
     )

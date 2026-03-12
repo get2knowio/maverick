@@ -28,6 +28,7 @@ from maverick.library.actions.review import (
     gather_local_review_context,
     run_review_fix_loop,
 )
+from maverick.library.actions.runway import record_bead_outcome, record_review_findings
 from maverick.library.actions.validation import run_fix_retry_loop
 from maverick.logging import get_logger
 from maverick.types import StepType
@@ -206,6 +207,7 @@ async def _run_review(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             briefing_context=ctx.briefing_context,
         )
         ctx.review_result = review_loop_result.to_dict()
+        await record_runway_review(wf, ctx)
     except Exception as exc:
         logger.warning(
             "review_step_failed",
@@ -287,11 +289,49 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     await wf.emit_step_completed(COMMIT, commit_result)
 
     await mark_bead_complete(bead_id=ctx.bead_id)
+    await record_runway_outcome(wf, ctx)
     await wf.emit_output(
         COMMIT,
         f"Bead {ctx.bead_id} completed: {ctx.title}",
         level="success",
     )
+
+
+async def record_runway_outcome(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Record bead outcome to runway store (best-effort)."""
+    try:
+        await record_bead_outcome(
+            bead_id=ctx.bead_id,
+            epic_id=ctx.epic_id,
+            title=ctx.title,
+            validation_result=ctx.validation_result,
+            review_result=ctx.review_result,
+            cwd=ctx.cwd,
+        )
+    except Exception as exc:
+        logger.warning(
+            "runway_outcome_recording_failed",
+            bead_id=ctx.bead_id,
+            error=str(exc),
+        )
+
+
+async def record_runway_review(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Record review findings to runway store (best-effort)."""
+    if ctx.review_result is None:
+        return
+    try:
+        await record_review_findings(
+            bead_id=ctx.bead_id,
+            review_result=ctx.review_result,
+            cwd=ctx.cwd,
+        )
+    except Exception as exc:
+        logger.warning(
+            "runway_review_recording_failed",
+            bead_id=ctx.bead_id,
+            error=str(exc),
+        )
 
 
 async def rollback_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:

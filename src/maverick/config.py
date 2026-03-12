@@ -40,6 +40,9 @@ __all__ = [
     "SessionLogConfig",
     "WorkspaceConfig",
     "AgentConfig",
+    "RunwayConfig",
+    "RunwayConsolidationConfig",
+    "RunwayRetrievalConfig",
     "PermissionMode",
     "AgentProviderConfig",
     "load_config",
@@ -272,6 +275,39 @@ class WorkspaceConfig(BaseModel):
     env_files: list[str] = Field(default_factory=lambda: [".env"])
 
 
+class RunwayConsolidationConfig(BaseModel):
+    """Settings for runway consolidation."""
+
+    auto: bool = True
+    max_episodic_age_days: int = Field(default=90, ge=1, le=365)
+    max_episodic_records: int = Field(default=500, ge=10, le=10000)
+
+
+class RunwayRetrievalConfig(BaseModel):
+    """Settings for runway retrieval."""
+
+    max_passages: int = Field(default=10, ge=1, le=50)
+    bm25_top_k: int = Field(default=20, ge=1, le=100)
+
+
+class RunwayConfig(BaseModel):
+    """Settings for the runway knowledge store.
+
+    Attributes:
+        enabled: Whether runway recording is active.
+        path: Path to the runway directory relative to project root.
+        consolidation: Consolidation settings.
+        retrieval: Retrieval settings.
+    """
+
+    enabled: bool = True
+    path: str = ".maverick/runway"
+    consolidation: RunwayConsolidationConfig = Field(
+        default_factory=RunwayConsolidationConfig
+    )
+    retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
+
+
 class AgentConfig(BaseModel):
     """Flat key-value configuration for agent-specific overrides."""
 
@@ -343,6 +379,7 @@ class MaverickConfig(BaseSettings):
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
+    runway: RunwayConfig = Field(default_factory=RunwayConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
     agent_providers: dict[str, AgentProviderConfig] = Field(
         default_factory=dict,

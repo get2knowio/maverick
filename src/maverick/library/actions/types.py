@@ -518,6 +518,80 @@ class RefuelSummaryResult:
 
 
 # =============================================================================
+# Runway Types
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class RecordBeadOutcomeResult:
+    """Result of recording a bead outcome to the runway store.
+
+    Attributes:
+        success: Whether the record was written successfully.
+        bead_id: ID of the bead recorded.
+        error: Error message if recording failed.
+    """
+
+    success: bool
+    bead_id: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "bead_id": self.bead_id,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RecordReviewFindingsResult:
+    """Result of recording review findings to the runway store.
+
+    Attributes:
+        success: Whether the records were written successfully.
+        findings_recorded: Number of findings written.
+        error: Error message if recording failed.
+    """
+
+    success: bool
+    findings_recorded: int
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "findings_recorded": self.findings_recorded,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RecordFixAttemptResult:
+    """Result of recording a fix attempt to the runway store.
+
+    Attributes:
+        success: Whether the record was written successfully.
+        attempt_id: ID of the attempt recorded.
+        error: Error message if recording failed.
+    """
+
+    success: bool
+    attempt_id: str
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "attempt_id": self.attempt_id,
+            "error": self.error,
+        }
+
+
+# =============================================================================
 # Tech Debt Types
 # =============================================================================
 

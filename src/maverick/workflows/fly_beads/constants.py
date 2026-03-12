@@ -11,6 +11,7 @@ SYNC_DEPS = "sync_deps"
 VALIDATE = "validate"
 REVIEW = "review"
 COMMIT = "commit"
+RECORD_RUNWAY = "record_runway"
 
 # Default config values
 MAX_BEADS: int = 30

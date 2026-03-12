@@ -627,6 +627,7 @@ class InitResult:
     detection: ProjectDetectionResult | None = None
     findings_printed: bool = False
     beads_initialized: bool = False
+    runway_initialized: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -643,6 +644,7 @@ class InitResult:
             "config": self.config.model_dump(),
             "findings_printed": self.findings_printed,
             "beads_initialized": self.beads_initialized,
+            "runway_initialized": self.runway_initialized,
         }
 
 
