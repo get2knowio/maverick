@@ -233,9 +233,7 @@ async def run_init(
         logger.info("init_started", project_path=str(effective_path))
 
     # Step 1: Verify prerequisites
-    # Skip API check if not using Claude for detection
     preflight_result = await verify_prerequisites(
-        skip_api_check=not use_claude,
         cwd=effective_path,
     )
 

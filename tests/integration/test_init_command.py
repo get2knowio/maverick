@@ -132,18 +132,6 @@ asyncio_mode = "auto"
                 status=PreflightStatus.PASS,
                 message="GitHub CLI authenticated (user: @testuser)",
             ),
-            PrerequisiteCheck(
-                name="anthropic_key",
-                display_name="Anthropic API Key",
-                status=PreflightStatus.PASS,
-                message="ANTHROPIC_API_KEY set (sk-ant-...xxxx)",
-            ),
-            PrerequisiteCheck(
-                name="anthropic_api",
-                display_name="Anthropic API",
-                status=PreflightStatus.PASS,
-                message="Anthropic API accessible",
-            ),
         )
         return InitPreflightResult(
             success=True,
@@ -295,18 +283,6 @@ asyncio_mode = "auto"
                     display_name="GitHub Auth",
                     status=PreflightStatus.PASS,
                     message="GitHub CLI authenticated",
-                ),
-                PrerequisiteCheck(
-                    name="anthropic_key",
-                    display_name="Anthropic API Key",
-                    status=PreflightStatus.PASS,
-                    message="ANTHROPIC_API_KEY set",
-                ),
-                PrerequisiteCheck(
-                    name="anthropic_api",
-                    display_name="Anthropic API",
-                    status=PreflightStatus.SKIP,  # Skipped with --no-detect
-                    message="API check skipped (--no-detect)",
                 ),
             ),
             total_duration_ms=100,

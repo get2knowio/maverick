@@ -342,57 +342,6 @@ class TestNoDetectFlag:
         _, kwargs = mock_detect.call_args
         assert kwargs.get("use_claude") is False
 
-    def test_no_detect_flag_skips_api_check(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_detection_python: ProjectDetectionResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --no-detect causes API check to be skipped."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        mock_preflight = InitPreflightResult(
-            success=True,
-            checks=(
-                PrerequisiteCheck(
-                    name="git_installed",
-                    display_name="Git",
-                    status=PreflightStatus.PASS,
-                    message="Git installed",
-                ),
-                PrerequisiteCheck(
-                    name="anthropic_api",
-                    display_name="Anthropic API",
-                    status=PreflightStatus.SKIP,  # Should be skipped
-                    message="Skipped (--no-detect)",
-                ),
-            ),
-            total_duration_ms=10,
-        )
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight,
-            ) as mock_prereqs,
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-                return_value=mock_detection_python,
-            ),
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-
-        # Verify prereqs was called with skip_api_check=True
-        mock_prereqs.assert_called_once()
-        _, kwargs = mock_prereqs.call_args
-        assert kwargs.get("skip_api_check") is True
-
     def test_no_detect_with_type_uses_type(
         self,
         cli_runner: CliRunner,

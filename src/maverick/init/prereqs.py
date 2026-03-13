@@ -8,14 +8,11 @@ GitHub CLI installation and authentication, and Anthropic API access.
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from maverick.constants import CLAUDE_HAIKU_LATEST
-from maverick.exceptions.init import AnthropicAPIError
 from maverick.init.models import InitPreflightResult, PreflightStatus, PrerequisiteCheck
 from maverick.logging import get_logger
 
@@ -27,10 +24,7 @@ __all__ = [
     "check_in_git_repo",
     "check_gh_installed",
     "check_gh_authenticated",
-    "check_anthropic_key_set",
-    "check_anthropic_api_accessible",
     "verify_prerequisites",
-    "redact_api_key",
 ]
 
 # =============================================================================
@@ -52,9 +46,6 @@ GH_VERSION_PATTERN = re.compile(r"gh version (\d+\.\d+(?:\.\d+)?)")
 #: Pattern to extract username from gh auth status output
 GH_USERNAME_PATTERN = re.compile(r"Logged in to [^\s]+ as ([^\s]+)")
 
-#: Default model for API validation (haiku is cheapest/fastest)
-DEFAULT_API_CHECK_MODEL = CLAUDE_HAIKU_LATEST
-
 #: Grace period for subprocess termination before SIGKILL
 TERMINATION_GRACE_PERIOD: float = 2.0
 
@@ -62,35 +53,6 @@ TERMINATION_GRACE_PERIOD: float = 2.0
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-
-def redact_api_key(key: str) -> str:
-    """Redact API key showing only prefix and last 4 chars.
-
-    Args:
-        key: The API key to redact.
-
-    Returns:
-        Redacted key in format "prefix...last4".
-
-    Example:
-        >>> redact_api_key("sk-ant-abc123xyz789")
-        'sk-ant-...9789'
-        >>> redact_api_key("short")
-        '...ort'
-    """
-    if not key:
-        return ""
-
-    # Find the prefix (e.g., "sk-ant-")
-    prefix_match = re.match(r"^(sk-ant-)", key)
-    prefix = prefix_match.group(1) if prefix_match else ""
-
-    # Get last 4 characters
-    suffix_len = min(4, len(key))
-    suffix = key[-suffix_len:] if suffix_len > 0 else ""
-
-    return f"{prefix}...{suffix}"
 
 
 async def _run_command(
@@ -379,189 +341,8 @@ async def check_gh_authenticated(timeout: float = 10.0) -> PrerequisiteCheck:
     )
 
 
-def check_anthropic_key_set() -> PrerequisiteCheck:
-    """Check if Anthropic API credentials are set.
-
-    Checks for either ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN
-    environment variable. Either credential type is acceptable.
-
-    This is a synchronous check that only validates the presence
-    of credentials, not their validity.
-
-    Returns:
-        PrerequisiteCheck with PASS status and redacted key,
-        or FAIL status with remediation instructions.
-    """
-    start = time.monotonic()
-
-    # Check for either credential type
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
-
-    duration_ms = int((time.monotonic() - start) * 1000)
-
-    if not api_key and not oauth_token:
-        return PrerequisiteCheck(
-            name="anthropic_key_set",
-            display_name="Anthropic API Key",
-            status=PreflightStatus.FAIL,
-            message=(
-                "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN "
-                "environment variable is set"
-            ),
-            remediation=(
-                "Set ANTHROPIC_API_KEY: export ANTHROPIC_API_KEY=<your-key> "
-                "or use Claude Code OAuth authentication"
-            ),
-            duration_ms=duration_ms,
-        )
-
-    # Prefer API key for display, fall back to OAuth token
-    if api_key:
-        redacted = redact_api_key(api_key)
-        credential_type = "API key"
-    else:
-        redacted = redact_api_key(oauth_token)
-        credential_type = "OAuth token"
-
-    return PrerequisiteCheck(
-        name="anthropic_key_set",
-        display_name="Anthropic API Key",
-        status=PreflightStatus.PASS,
-        message=f"{credential_type} configured ({redacted})",
-        duration_ms=duration_ms,
-    )
-
-
-async def check_anthropic_api_accessible(
-    model: str = DEFAULT_API_CHECK_MODEL,
-    timeout: float = 10.0,
-) -> PrerequisiteCheck:
-    """Validate Anthropic API access with a minimal request.
-
-    Sends a minimal "Hi" request to the Claude API to verify
-    that the API key is valid and the model is accessible.
-
-    Args:
-        model: Claude model to validate access for.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        PrerequisiteCheck with PASS status if API is accessible,
-        or FAIL status with specific error discrimination:
-        - 401: Invalid API key
-        - 403: Model not accessible (plan limits)
-        - 429: Rate limit exceeded
-        - Timeout: Network connectivity issues
-
-    Raises:
-        AnthropicAPIError: For unexpected API failures.
-    """
-    start = time.monotonic()
-
-    try:
-        from claude_agent_sdk import ClaudeAgentOptions, query  # noqa: PLC0415
-
-        options = ClaudeAgentOptions(
-            system_prompt="Respond with exactly 'OK'.",
-            model=model,
-            max_turns=1,
-            allowed_tools=[],
-        )
-
-        # Use asyncio.wait_for for timeout
-        async def make_request() -> None:
-            async for _ in query(prompt="Hi", options=options):
-                pass
-
-        await asyncio.wait_for(make_request(), timeout=timeout)
-
-        duration_ms = int((time.monotonic() - start) * 1000)
-
-        return PrerequisiteCheck(
-            name="anthropic_api_accessible",
-            display_name="Anthropic API",
-            status=PreflightStatus.PASS,
-            message=f"API accessible (model: {model})",
-            duration_ms=duration_ms,
-        )
-
-    except TimeoutError:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        return PrerequisiteCheck(
-            name="anthropic_api_accessible",
-            display_name="Anthropic API",
-            status=PreflightStatus.FAIL,
-            message="API request timed out",
-            remediation="Check network connectivity and try again",
-            duration_ms=duration_ms,
-        )
-
-    except ImportError:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        return PrerequisiteCheck(
-            name="anthropic_api_accessible",
-            display_name="Anthropic API",
-            status=PreflightStatus.FAIL,
-            message="claude-agent-sdk is not installed",
-            remediation="Install agent-client-protocol and configure ACP integration",
-            duration_ms=duration_ms,
-        )
-
-    except Exception as e:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        error_type = type(e).__name__
-        error_message = str(e)
-
-        # Discriminate error types based on exception class name and message
-        # since we don't want to import anthropic package directly
-        if "AuthenticationError" in error_type or "401" in error_message:
-            return PrerequisiteCheck(
-                name="anthropic_api_accessible",
-                display_name="Anthropic API",
-                status=PreflightStatus.FAIL,
-                message="Invalid API key",
-                remediation="Verify ANTHROPIC_API_KEY is correct",
-                duration_ms=duration_ms,
-            )
-
-        if "PermissionDeniedError" in error_type or "403" in error_message:
-            return PrerequisiteCheck(
-                name="anthropic_api_accessible",
-                display_name="Anthropic API",
-                status=PreflightStatus.FAIL,
-                message=f"Model not accessible: {model}",
-                remediation="Check your Anthropic plan limits or use a different model",
-                duration_ms=duration_ms,
-            )
-
-        if "RateLimitError" in error_type or "429" in error_message:
-            return PrerequisiteCheck(
-                name="anthropic_api_accessible",
-                display_name="Anthropic API",
-                status=PreflightStatus.FAIL,
-                message="Rate limit exceeded",
-                remediation="Wait a moment and try again",
-                duration_ms=duration_ms,
-            )
-
-        # Log unexpected errors for debugging
-        logger.error(
-            "anthropic_api_check_failed",
-            error_type=error_type,
-            error_message=error_message,
-        )
-
-        # Raise AnthropicAPIError for unexpected failures
-        raise AnthropicAPIError(
-            f"Anthropic API error: {error_message}",
-            status_code=None,
-        ) from e
-
-
 async def verify_prerequisites(
     *,
-    skip_api_check: bool = False,
     timeout_per_check: float = 10.0,
     cwd: Path | None = None,
 ) -> InitPreflightResult:
@@ -571,7 +352,6 @@ async def verify_prerequisites(
     termination on critical failures (git not installed, not in repo).
 
     Args:
-        skip_api_check: Skip Anthropic API validation (for --no-detect).
         timeout_per_check: Timeout in seconds for each check.
         cwd: Working directory for git repository check.
 
@@ -633,56 +413,6 @@ async def verify_prerequisites(
                 display_name="GitHub Auth",
                 status=PreflightStatus.SKIP,
                 message="Skipped (gh not installed)",
-                duration_ms=0,
-            )
-        )
-
-    # 5. Check Anthropic API key set
-    api_key_check = check_anthropic_key_set()
-    checks.append(api_key_check)
-    if api_key_check.status == PreflightStatus.FAIL:
-        failed_checks.append(api_key_check.name)
-
-    # 6. Check Anthropic API accessible (only if key is set and not skipped)
-    if skip_api_check:
-        checks.append(
-            PrerequisiteCheck(
-                name="anthropic_api_accessible",
-                display_name="Anthropic API",
-                status=PreflightStatus.SKIP,
-                message="Skipped (--no-detect)",
-                duration_ms=0,
-            )
-        )
-    elif api_key_check.status == PreflightStatus.PASS:
-        try:
-            api_check = await check_anthropic_api_accessible(
-                timeout=timeout_per_check,
-            )
-            checks.append(api_check)
-            if api_check.status == PreflightStatus.FAIL:
-                failed_checks.append(api_check.name)
-        except AnthropicAPIError as e:
-            # Convert exception to failed check
-            checks.append(
-                PrerequisiteCheck(
-                    name="anthropic_api_accessible",
-                    display_name="Anthropic API",
-                    status=PreflightStatus.FAIL,
-                    message=str(e),
-                    remediation="Check https://status.anthropic.com for API status",
-                    duration_ms=int((time.monotonic() - start) * 1000),
-                )
-            )
-            failed_checks.append("anthropic_api_accessible")
-    else:
-        # Skip API check if key is not set
-        checks.append(
-            PrerequisiteCheck(
-                name="anthropic_api_accessible",
-                display_name="Anthropic API",
-                status=PreflightStatus.SKIP,
-                message="Skipped (API key not set)",
                 duration_ms=0,
             )
         )
