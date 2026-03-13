@@ -227,8 +227,7 @@ async def _approve(
 
     if not yes:
         console.print(
-            f"\n  Proposed: {len(commits)} curated commit(s) "
-            f"to merge into local repo\n"
+            f"\n  Proposed: {len(commits)} curated commit(s) to merge into local repo\n"
         )
         answer = console.input(
             "  [A]pprove and merge  [E]ject to git branch  [C]ancel? "
@@ -294,11 +293,7 @@ async def _approve(
         console.print("No workspace found — nothing to merge.")
         return
 
-    console.print(
-        format_success(
-            f"Landed {len(commits)} commit(s) into local repo."
-        )
-    )
+    console.print(format_success(f"Landed {len(commits)} commit(s) into local repo."))
 
     # Teardown workspace
     if manager.exists:
@@ -372,9 +367,7 @@ async def _finalize(
     # Merge preview branch into current branch
     merge_result = await git_merge(preview_branch, cwd=user_repo)
     if merge_result["success"]:
-        console.print(
-            format_success(f"Merged {preview_branch} into local repo.")
-        )
+        console.print(format_success(f"Merged {preview_branch} into local repo."))
         # Clean up the preview branch
         try:
             from maverick.runners.command import CommandRunner
@@ -390,9 +383,7 @@ async def _finalize(
         err_console.print(
             format_error(
                 f"Merge failed: {merge_result['error']}",
-                suggestion=(
-                    f"You can merge manually with: git merge {preview_branch}"
-                ),
+                suggestion=(f"You can merge manually with: git merge {preview_branch}"),
             )
         )
         raise SystemExit(ExitCode.FAILURE)

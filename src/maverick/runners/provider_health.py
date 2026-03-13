@@ -177,9 +177,7 @@ class AcpProviderHealthCheck:
                 available = _get_available_model_ids(session)
                 if available:
                     for model_id in sorted(self.models_to_validate):
-                        resolved = _resolve_model_for_provider(
-                            model_id, session
-                        )
+                        resolved = _resolve_model_for_provider(model_id, session)
                         if resolved not in available:
                             available_list = ", ".join(sorted(available))
                             errors.append(

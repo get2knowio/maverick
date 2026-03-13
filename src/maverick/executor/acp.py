@@ -611,9 +611,7 @@ class AcpStepExecutor:
             if resolved_model:
                 # Map semantic names (sonnet/opus/haiku or full IDs) to the
                 # provider's actual model IDs before validation.
-                resolved_model = _resolve_model_for_provider(
-                    resolved_model, session
-                )
+                resolved_model = _resolve_model_for_provider(resolved_model, session)
 
                 # Validate against available models from the session
                 available_ids = _get_available_model_ids(session)

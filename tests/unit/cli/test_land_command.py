@@ -133,9 +133,7 @@ class TestApprovePath:
         mock_client.bookmark_set.assert_awaited_once_with(
             "maverick/myproject", revision="@-"
         )
-        mock_client.git_push.assert_awaited_once_with(
-            bookmark="maverick/myproject"
-        )
+        mock_client.git_push.assert_awaited_once_with(bookmark="maverick/myproject")
         mock_merge.assert_awaited_once()
         mock_manager.teardown.assert_awaited_once()
 
@@ -324,9 +322,7 @@ class TestEjectPath:
                 cwd=Path("/tmp/workspace"),
             )
 
-        mock_client.bookmark_set.assert_awaited_once_with(
-            "my/preview", revision="@-"
-        )
+        mock_client.bookmark_set.assert_awaited_once_with("my/preview", revision="@-")
 
     @pytest.mark.asyncio
     async def test_eject_sets_workspace_state_to_ejected(self) -> None:
@@ -350,9 +346,7 @@ class TestEjectPath:
                 cwd=Path("/tmp/workspace"),
             )
 
-        mock_manager.set_state.assert_called_once_with(
-            WorkspaceState.EJECTED
-        )
+        mock_manager.set_state.assert_called_once_with(WorkspaceState.EJECTED)
 
     @pytest.mark.asyncio
     async def test_eject_does_not_teardown(self) -> None:
@@ -471,9 +465,7 @@ class TestFinalizePath:
             patch("maverick.cli.commands.land.Path") as mock_path,
             _mock_command_runner(),
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             # Should not raise — custom branch accepted
             await _finalize(base="main", branch="my/custom-branch")
 
@@ -496,9 +488,7 @@ class TestFinalizePath:
             patch("maverick.cli.commands.land.Path") as mock_path,
             _mock_command_runner(),
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             await _finalize(base="main", branch=None)
 
         mock_manager.teardown.assert_awaited_once()
@@ -522,9 +512,7 @@ class TestFinalizePath:
             patch("maverick.cli.commands.land.Path") as mock_path,
             _mock_command_runner(),
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             await _finalize(base="main", branch=None)
 
         mock_manager.teardown.assert_not_awaited()
@@ -551,9 +539,7 @@ class TestFinalizePath:
             patch("maverick.cli.commands.land.Path") as mock_path,
             pytest.raises(SystemExit) as exc_info,
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/proj"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
             await _finalize(base="main", branch=None)
 
         assert exc_info.value.code == ExitCode.FAILURE

@@ -110,7 +110,6 @@ async def _propagate_git_identity(user_repo: Path, workspace_path: Path) -> None
         logger.debug("propagated_git_identity", key=key, value=value)
 
 
-
 async def create_fly_workspace(
     setup_command: str | None = None,
 ) -> dict[str, Any]:

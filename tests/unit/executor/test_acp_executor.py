@@ -1454,74 +1454,79 @@ class TestResolveModelForProvider:
 
     def test_maps_sonnet_to_default_when_default_is_sonnet(self) -> None:
         """'sonnet' → 'default' when default's name contains 'Sonnet'."""
-        session = self._make_session([
-            ("default", "Claude Sonnet 4.6"),
-            ("opus", "Claude Opus 4.6"),
-        ])
+        session = self._make_session(
+            [
+                ("default", "Claude Sonnet 4.6"),
+                ("opus", "Claude Opus 4.6"),
+            ]
+        )
         assert _resolve_model_for_provider("sonnet", session) == "default"
 
     def test_maps_opus_to_default_when_default_is_opus(self) -> None:
         """'opus' → 'default' when default's name contains 'Opus'."""
-        session = self._make_session([
-            ("default", "Claude Opus 4.6"),
-            ("sonnet", "Claude Sonnet 4.6"),
-        ])
+        session = self._make_session(
+            [
+                ("default", "Claude Opus 4.6"),
+                ("sonnet", "Claude Sonnet 4.6"),
+            ]
+        )
         assert _resolve_model_for_provider("opus", session) == "default"
 
     def test_maps_full_model_id_to_provider_id(self) -> None:
         """Full model ID like 'claude-sonnet-4-5-20250929' maps correctly."""
-        session = self._make_session([
-            ("default", "Claude Sonnet 4.6"),
-            ("opus", "Claude Opus 4.6"),
-        ])
-        result = _resolve_model_for_provider(
-            "claude-sonnet-4-5-20250929", session
+        session = self._make_session(
+            [
+                ("default", "Claude Sonnet 4.6"),
+                ("opus", "Claude Opus 4.6"),
+            ]
         )
+        result = _resolve_model_for_provider("claude-sonnet-4-5-20250929", session)
         assert result == "default"
 
     def test_maps_full_opus_model_id(self) -> None:
         """Full opus model ID maps to the matching provider ID."""
-        session = self._make_session([
-            ("default", "Claude Sonnet 4.6"),
-            ("opus", "Claude Opus 4.6"),
-        ])
-        result = _resolve_model_for_provider(
-            "claude-opus-4-5-20251101", session
+        session = self._make_session(
+            [
+                ("default", "Claude Sonnet 4.6"),
+                ("opus", "Claude Opus 4.6"),
+            ]
         )
+        result = _resolve_model_for_provider("claude-opus-4-5-20251101", session)
         assert result == "opus"
 
     def test_returns_unchanged_when_no_available_models(self) -> None:
         """No available models → return original (no validation)."""
         session = self._make_session(None)
-        assert (
-            _resolve_model_for_provider("sonnet", session) == "sonnet"
-        )
+        assert _resolve_model_for_provider("sonnet", session) == "sonnet"
 
     def test_returns_unchanged_for_unrecognised_model(self) -> None:
         """Unknown model name passes through for downstream validation."""
-        session = self._make_session([
-            ("default", "Claude Sonnet 4.6"),
-        ])
-        assert (
-            _resolve_model_for_provider("gpt-4", session)
-            == "gpt-4"
+        session = self._make_session(
+            [
+                ("default", "Claude Sonnet 4.6"),
+            ]
         )
+        assert _resolve_model_for_provider("gpt-4", session) == "gpt-4"
 
     def test_haiku_mapping(self) -> None:
         """'haiku' maps to the provider ID whose name contains 'Haiku'."""
-        session = self._make_session([
-            ("default", "Claude Haiku 4.5"),
-            ("sonnet", "Claude Sonnet 4.6"),
-        ])
+        session = self._make_session(
+            [
+                ("default", "Claude Haiku 4.5"),
+                ("sonnet", "Claude Sonnet 4.6"),
+            ]
+        )
         assert _resolve_model_for_provider("haiku", session) == "default"
 
     def test_no_name_match_returns_original(self) -> None:
         """When no available model name or ID matches the type, return original."""
         # Provider has models but none whose names or IDs contain "opus"
-        session = self._make_session([
-            ("default", "Claude Sonnet 4.6"),
-            ("fast", "Claude Haiku 4.5"),
-        ])
+        session = self._make_session(
+            [
+                ("default", "Claude Sonnet 4.6"),
+                ("fast", "Claude Haiku 4.5"),
+            ]
+        )
         assert _resolve_model_for_provider("opus", session) == "opus"
 
     def test_does_not_match_extended_variants(self) -> None:
@@ -1546,13 +1551,15 @@ class TestResolveModelForProvider:
         Available: default, haiku, opus[1m], sonnet, sonnet[1m]
         Where "default" might be opus or sonnet depending on the session.
         """
-        session = self._make_session([
-            ("default", "Claude Opus 4.6"),
-            ("haiku", "Claude Haiku 4.5"),
-            ("opus[1m]", ""),
-            ("sonnet", "Claude Sonnet 4.6"),
-            ("sonnet[1m]", ""),
-        ])
+        session = self._make_session(
+            [
+                ("default", "Claude Opus 4.6"),
+                ("haiku", "Claude Haiku 4.5"),
+                ("opus[1m]", ""),
+                ("sonnet", "Claude Sonnet 4.6"),
+                ("sonnet[1m]", ""),
+            ]
+        )
 
         # "sonnet" → direct match
         assert _resolve_model_for_provider("sonnet", session) == "sonnet"

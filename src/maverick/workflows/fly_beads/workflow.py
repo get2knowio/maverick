@@ -133,9 +133,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         snap = await snapshot_uncommitted_changes()
                         if not snap["success"]:
                             err = snap["error"] or "commit failed"
-                            await self.emit_step_failed(
-                                SNAPSHOT_UNCOMMITTED, err
-                            )
+                            await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, err)
                             raise WorkflowError(
                                 f"Snapshot failed: {err}",
                                 workflow_name=WORKFLOW_NAME,
