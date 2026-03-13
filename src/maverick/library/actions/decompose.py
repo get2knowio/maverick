@@ -129,13 +129,16 @@ def _expand_path(path_str: str, cwd: Path) -> list[Path]:
         logger.debug("scope_item_path_extracted", raw=path_str, extracted=cleaned)
     p = (cwd / cleaned) if not Path(cleaned).is_absolute() else Path(cleaned)
 
-    if p.is_dir():
-        # Expand directory to all files recursively
-        return [f for f in p.rglob("*") if f.is_file()]
-    elif p.exists():
-        return [p]
-    else:
-        return []
+    try:
+        if p.is_dir():
+            # Expand directory to all files recursively
+            return [f for f in p.rglob("*") if f.is_file()]
+        elif p.exists():
+            return [p]
+    except OSError:
+        # Path too long, invalid characters, etc. — not a real path.
+        logger.debug("scope_item_not_a_path", raw=path_str)
+    return []
 
 
 async def gather_codebase_context(
