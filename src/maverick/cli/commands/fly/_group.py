@@ -24,6 +24,7 @@ from maverick.workflows.fly_beads.constants import (
     PREFLIGHT,
     REVIEW,
     SELECT_BEAD,
+    SNAPSHOT_UNCOMMITTED,
     SYNC_DEPS,
     VALIDATE,
     WORKFLOW_NAME,
@@ -32,6 +33,7 @@ from maverick.workflows.fly_beads.constants import (
 # Ordered list of fly-beads steps for --list-steps display.
 _FLY_BEADS_STEPS = [
     PREFLIGHT,
+    SNAPSHOT_UNCOMMITTED,
     CREATE_WORKSPACE,
     SELECT_BEAD,
     IMPLEMENT,
@@ -74,6 +76,12 @@ _FLY_BEADS_STEPS = [
     help="List workflow steps and exit without executing.",
 )
 @click.option(
+    "--auto-commit",
+    is_flag=True,
+    default=False,
+    help="Automatically commit uncommitted changes before cloning workspace.",
+)
+@click.option(
     "--session-log",
     type=click.Path(path_type=Path),
     default=None,
@@ -88,6 +96,7 @@ async def fly(
     dry_run: bool,
     skip_review: bool,
     list_steps: bool,
+    auto_commit: bool,
     session_log: Path | None,
 ) -> None:
     """Run a bead-driven development workflow.
@@ -123,6 +132,7 @@ async def fly(
                 "max_beads": max_beads,
                 "dry_run": dry_run,
                 "skip_review": skip_review,
+                "auto_commit": auto_commit,
             },
             session_log_path=session_log,
         ),

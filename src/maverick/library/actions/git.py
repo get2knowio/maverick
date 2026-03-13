@@ -531,6 +531,57 @@ async def git_merge(
         }
 
 
+async def snapshot_uncommitted_changes(
+    message: str = "chore: snapshot uncommitted changes before fly",
+    cwd: str | Path | None = None,
+) -> dict[str, Any]:
+    """Stage and commit all uncommitted changes (staged, unstaged, untracked).
+
+    Used by ``maverick fly`` to ensure ``jj git clone`` picks up all local
+    state (e.g. files created by ``maverick init``).
+
+    Args:
+        message: Commit message for the snapshot.
+        cwd: Working directory. Defaults to process cwd.
+
+    Returns:
+        Dict with:
+        - success: True if a commit was created or there was nothing to commit
+        - committed: True if a new commit was created
+        - commit_sha: SHA of the new commit (if created)
+        - error: Error message on failure
+    """
+    status = await git_has_changes(cwd=cwd)
+    if not status["has_any"]:
+        return {
+            "success": True,
+            "committed": False,
+            "commit_sha": None,
+            "error": None,
+        }
+
+    result = await git_commit(
+        message=message,
+        add_all=True,
+        include_attribution=False,
+        cwd=cwd,
+    )
+    if not result["success"]:
+        return {
+            "success": False,
+            "committed": False,
+            "commit_sha": None,
+            "error": result.get("error", "commit failed"),
+        }
+
+    return {
+        "success": True,
+        "committed": True,
+        "commit_sha": result.get("commit_sha"),
+        "error": None,
+    }
+
+
 async def create_git_branch(
     branch_name: str,
     base: str = "main",

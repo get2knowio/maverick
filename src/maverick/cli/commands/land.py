@@ -1,11 +1,11 @@
 """``maverick land`` command.
 
-Curate commit history and push after ``maverick fly`` finishes.
+Curate commit history and apply to local repo after ``maverick fly`` finishes.
 
 Three modes:
-  - **Approve** (default):  curate → push → optional PR → teardown workspace.
-  - **Eject** (``--eject``):  curate → push preview branch → keep workspace.
-  - **Finalize** (``--finalize``):  create PR from preview branch → teardown.
+  - **Approve** (default):  curate → merge into local repo → teardown workspace.
+  - **Eject** (``--eject``):  curate → create local preview branch → keep workspace.
+  - **Finalize** (``--finalize``):  merge preview branch → teardown.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ logger = get_logger(__name__)
     "--no-curate",
     is_flag=True,
     default=False,
-    help="Skip curation, just push.",
+    help="Skip curation, just merge.",
 )
 @click.option(
     "--dry-run",
@@ -61,18 +61,18 @@ logger = get_logger(__name__)
     "--eject",
     is_flag=True,
     default=False,
-    help="Skip approval; push to a preview branch and keep workspace.",
+    help="Skip approval; create a local preview branch and keep workspace.",
 )
 @click.option(
     "--finalize",
     is_flag=True,
     default=False,
-    help="Finalize after eject: create PR, cleanup workspace.",
+    help="Finalize after eject: merge preview branch, cleanup workspace.",
 )
 @click.option(
     "--branch",
     default=None,
-    help="Branch name for the pushed bookmark (default: maverick/<project>).",
+    help="Branch name for the local bookmark (default: maverick/<project>).",
 )
 @click.pass_context
 @async_command
@@ -87,17 +87,17 @@ async def land(
     finalize: bool,
     branch: str | None,
 ) -> None:
-    """Curate commit history and push.
+    """Curate commit history and apply to local repo.
 
     Finalizes work from 'maverick fly' by reorganizing commits into
-    clean history and pushing to remote.
+    clean history and merging them into your local repo.
 
     Three modes of operation:
 
     \b
-      maverick land             # curate → approve → push → cleanup
-      maverick land --eject     # curate → push preview branch
-      maverick land --finalize  # create PR from preview → cleanup
+      maverick land             # curate → merge into local repo → cleanup
+      maverick land --eject     # curate → create local preview branch
+      maverick land --finalize  # merge preview branch → cleanup
 
     Examples:
 
@@ -178,7 +178,7 @@ async def land(
         )
 
     if dry_run:
-        console.print("Dry run — skipping push.")
+        console.print("Dry run — skipping merge.")
         return
 
     # ── 3. Push via jj or git ──────────────────────────────────────
@@ -220,7 +220,7 @@ async def _approve(
     cwd: Path | None,
     user_repo: Path | None = None,
 ) -> None:
-    """Approve: set bookmark, push, optionally create PR, teardown."""
+    """Approve: push workspace commits to user repo and merge locally."""
     from maverick.jj.client import JjClient
 
     branch_name = branch or f"maverick/{project_name}"
@@ -228,10 +228,10 @@ async def _approve(
     if not yes:
         console.print(
             f"\n  Proposed: {len(commits)} curated commit(s) "
-            f"on branch [bold]{branch_name}[/bold]\n"
+            f"to merge into local repo\n"
         )
         answer = console.input(
-            "  [A]pprove and push  [E]ject to git branch  [C]ancel? "
+            "  [A]pprove and merge  [E]ject to git branch  [C]ancel? "
         )
         choice = answer.strip().lower()[:1]
         if choice == "e":
@@ -248,49 +248,56 @@ async def _approve(
             console.print("Cancelled.")
             raise SystemExit(ExitCode.SUCCESS)
 
-    # Push via jj if workspace exists, otherwise git push
+    repo_path = user_repo or Path.cwd().resolve()
+
     if cwd is not None:
+        # Phase 1: jj push from workspace → user repo (creates local branch)
         client = JjClient(cwd=cwd)
         try:
             await client.bookmark_set(branch_name, revision="@-")
-            # Phase 1: jj push from workspace → user repo (workspace's origin)
             await client.git_push(bookmark=branch_name)
         except Exception as e:
-            err_console.print(format_error(f"Push failed: {e}"))
+            err_console.print(format_error(f"Push to local repo failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
 
-        # Phase 2: push from user repo → remote origin
-        # The jj push above lands commits in the user repo as a local branch.
-        # We still need to push that branch to the actual remote.
-        repo_path = user_repo or Path.cwd().resolve()
+        # Phase 2: merge the branch into the user's current branch
+        from maverick.library.actions.git import git_merge
+
+        merge_result = await git_merge(branch_name, cwd=repo_path)
+        if not merge_result["success"]:
+            err_console.print(
+                format_error(
+                    f"Merge failed: {merge_result['error']}",
+                    suggestion=(
+                        f"The branch '{branch_name}' exists in your local repo. "
+                        "You can merge it manually with: "
+                        f"git merge {branch_name}"
+                    ),
+                )
+            )
+            raise SystemExit(ExitCode.FAILURE)
+
+        # Phase 3: clean up the temporary branch
         try:
             from maverick.runners.command import CommandRunner
 
-            runner = CommandRunner(timeout=60.0)
-            result = await runner.run(
-                ["git", "push", "--set-upstream", "origin", branch_name],
+            runner = CommandRunner(timeout=30.0)
+            await runner.run(
+                ["git", "branch", "-d", branch_name],
                 cwd=repo_path,
             )
-            if not result.success:
-                err_console.print(
-                    format_error(f"Push to origin failed: {result.stderr.strip()}")
-                )
-                raise SystemExit(ExitCode.FAILURE)
-        except SystemExit:
-            raise
-        except Exception as e:
-            err_console.print(format_error(f"Push to origin failed: {e}"))
-            raise SystemExit(ExitCode.FAILURE) from e
+        except Exception:
+            # Non-fatal — branch cleanup is best-effort
+            logger.debug("branch_cleanup_failed", branch=branch_name)
     else:
-        from maverick.library.actions.git import git_push
-
-        push_result = await git_push(set_upstream=True)
-        if not push_result["success"]:
-            err_console.print(format_error(f"Push failed: {push_result['error']}"))
-            raise SystemExit(ExitCode.FAILURE)
+        # No workspace — nothing to merge
+        console.print("No workspace found — nothing to merge.")
+        return
 
     console.print(
-        format_success(f"Landed {len(commits)} commit(s) on branch {branch_name}.")
+        format_success(
+            f"Landed {len(commits)} commit(s) into local repo."
+        )
     )
 
     # Teardown workspace
@@ -313,7 +320,7 @@ async def _eject(
     cwd: Path | None,
     user_repo: Path | None = None,
 ) -> None:
-    """Eject: push to a preview branch and keep workspace."""
+    """Eject: push to a local preview branch and keep workspace."""
     from maverick.workspace.models import WorkspaceState
 
     preview_branch = branch or f"maverick/preview/{project_name}"
@@ -324,47 +331,22 @@ async def _eject(
         client = JjClient(cwd=cwd)
         try:
             await client.bookmark_set(preview_branch, revision="@-")
-            # Phase 1: jj push from workspace → user repo
+            # Push from workspace → user repo (creates local branch only)
             await client.git_push(bookmark=preview_branch)
         except Exception as e:
             err_console.print(format_error(f"Eject push failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
 
-        # Phase 2: push from user repo → remote origin
-        repo_path = user_repo or Path.cwd().resolve()
-        try:
-            from maverick.runners.command import CommandRunner
-
-            runner = CommandRunner(timeout=60.0)
-            result = await runner.run(
-                ["git", "push", "--set-upstream", "origin", preview_branch],
-                cwd=repo_path,
-            )
-            if not result.success:
-                err_console.print(
-                    format_error(f"Push to origin failed: {result.stderr.strip()}")
-                )
-                raise SystemExit(ExitCode.FAILURE)
-        except SystemExit:
-            raise
-        except Exception as e:
-            err_console.print(format_error(f"Push to origin failed: {e}"))
-            raise SystemExit(ExitCode.FAILURE) from e
-
         # Mark workspace as ejected (not deleted)
         manager.set_state(WorkspaceState.EJECTED)
     else:
-        from maverick.library.actions.git import git_push
+        console.print(format_warning("No workspace found — nothing to eject."))
+        return
 
-        push_result = await git_push(set_upstream=True)
-        if not push_result["success"]:
-            err_console.print(format_error(f"Push failed: {push_result['error']}"))
-            raise SystemExit(ExitCode.FAILURE)
-
-    console.print(format_success(f"Ejected to branch: {preview_branch}"))
+    console.print(format_success(f"Ejected to local branch: {preview_branch}"))
     console.print(
         f"Run [bold]maverick land --finalize --branch {preview_branch}[/bold] "
-        "when ready."
+        "when ready, or merge manually with [bold]git merge {preview_branch}[/bold]."
     )
 
 
@@ -377,7 +359,8 @@ async def _finalize(
     base: str,
     branch: str | None,
 ) -> None:
-    """Finalize after eject: create PR from preview branch, cleanup."""
+    """Finalize after eject: merge preview branch into current branch, cleanup."""
+    from maverick.library.actions.git import git_merge
     from maverick.workspace.manager import WorkspaceManager
 
     user_repo = Path.cwd().resolve()
@@ -386,29 +369,33 @@ async def _finalize(
 
     console.print(f"Finalizing from branch [bold]{preview_branch}[/bold]...")
 
-    # Create PR if gh is available
-    try:
-        from maverick.library.actions.github import create_github_pr
-
-        pr_result = await create_github_pr(
-            base_branch=base,
-            draft=False,
-            generated_body=f"Automated PR from maverick fly for {project_name}.",
-            title=f"maverick: {project_name}",
-        )
-        if pr_result.success:
-            console.print(format_success(f"PR created: {pr_result.pr_url or ''}"))
-        else:
-            console.print(
-                format_warning(
-                    f"PR creation failed: {pr_result.error or 'unknown'}. "
-                    "You can create a PR manually."
-                )
-            )
-    except Exception as e:
+    # Merge preview branch into current branch
+    merge_result = await git_merge(preview_branch, cwd=user_repo)
+    if merge_result["success"]:
         console.print(
-            format_warning(f"Could not create PR: {e}. You can create one manually.")
+            format_success(f"Merged {preview_branch} into local repo.")
         )
+        # Clean up the preview branch
+        try:
+            from maverick.runners.command import CommandRunner
+
+            runner = CommandRunner(timeout=30.0)
+            await runner.run(
+                ["git", "branch", "-d", preview_branch],
+                cwd=user_repo,
+            )
+        except Exception:
+            logger.debug("preview_branch_cleanup_failed", branch=preview_branch)
+    else:
+        err_console.print(
+            format_error(
+                f"Merge failed: {merge_result['error']}",
+                suggestion=(
+                    f"You can merge manually with: git merge {preview_branch}"
+                ),
+            )
+        )
+        raise SystemExit(ExitCode.FAILURE)
 
     # Cleanup workspace if it still exists
     manager = WorkspaceManager(user_repo_path=user_repo)

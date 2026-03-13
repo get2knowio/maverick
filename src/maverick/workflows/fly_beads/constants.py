@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # Step names
 PREFLIGHT = "preflight"
+SNAPSHOT_UNCOMMITTED = "snapshot_uncommitted"
 CREATE_WORKSPACE = "create_workspace"
 SELECT_BEAD = "select_bead"
 IMPLEMENT = "implement"

@@ -110,6 +110,18 @@ def _make_mock_actions(
 
     return {
         "preflight_return": preflight,
+        "git_has_changes_return": {
+            "has_staged": False,
+            "has_unstaged": False,
+            "has_untracked": False,
+            "has_any": False,
+        },
+        "snapshot_uncommitted_return": {
+            "success": True,
+            "committed": False,
+            "commit_sha": None,
+            "error": None,
+        },
         "workspace_return": {
             "success": True,
             "workspace_path": "/tmp/test_ws",
@@ -165,6 +177,18 @@ _SE = "side_effect"
 _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     # (short_name, patch_target, mock_dict_key, patch_kwarg)
     ("preflight", f"{_WF_MOD}.run_preflight_checks", "preflight_return", _RV),
+    (
+        "git_has_changes",
+        f"{_WF_MOD}.git_has_changes",
+        "git_has_changes_return",
+        _RV,
+    ),
+    (
+        "snapshot_uncommitted",
+        f"{_WF_MOD}.snapshot_uncommitted_changes",
+        "snapshot_uncommitted_return",
+        _RV,
+    ),
     ("workspace", f"{_WF_MOD}.create_fly_workspace", "workspace_return", _RV),
     ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
     ("snapshot", f"{_STEPS_MOD}.jj_snapshot_operation", "snapshot_return", _RV),

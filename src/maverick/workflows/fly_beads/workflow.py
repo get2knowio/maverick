@@ -11,6 +11,7 @@ from maverick.library.actions.beads import (
     mark_bead_complete,
     select_next_bead,
 )
+from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
@@ -21,6 +22,7 @@ from maverick.workflows.fly_beads.constants import (
     MAX_BEADS,
     PREFLIGHT,
     SELECT_BEAD,
+    SNAPSHOT_UNCOMMITTED,
     WORKFLOW_NAME,
 )
 from maverick.workflows.fly_beads.models import BeadContext, FlyBeadsResult
@@ -76,6 +78,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         max_beads: int = int(inputs.get("max_beads", MAX_BEADS))
         dry_run: bool = bool(inputs.get("dry_run", False))
         skip_review: bool = bool(inputs.get("skip_review", False))
+        auto_commit: bool = bool(inputs.get("auto_commit", False))
 
         # Load checkpoint to get previously completed beads
         checkpoint = await self.load_checkpoint()
@@ -116,7 +119,59 @@ class FlyBeadsWorkflow(PythonWorkflow):
         await self.emit_step_completed(PREFLIGHT, preflight_result.to_dict())
 
         # ----------------------------------------------------------------
-        # Step 2: Create workspace (skipped in dry_run)
+        # Step 2: Snapshot uncommitted changes
+        # ----------------------------------------------------------------
+        # jj git clone only picks up committed state. If maverick init (or
+        # the user) left uncommitted files, we need to commit them first so
+        # the workspace clone includes everything.
+        if not dry_run:
+            await self.emit_step_started(SNAPSHOT_UNCOMMITTED)
+            try:
+                change_status = await git_has_changes()
+                if change_status["has_any"]:
+                    if auto_commit:
+                        snap = await snapshot_uncommitted_changes()
+                        if not snap["success"]:
+                            err = snap["error"] or "commit failed"
+                            await self.emit_step_failed(
+                                SNAPSHOT_UNCOMMITTED, err
+                            )
+                            raise WorkflowError(
+                                f"Snapshot failed: {err}",
+                                workflow_name=WORKFLOW_NAME,
+                            )
+                        await self.emit_output(
+                            SNAPSHOT_UNCOMMITTED,
+                            f"Committed uncommitted changes ({snap['commit_sha'][:8]})",
+                            level="info",
+                        )
+                    else:
+                        await self.emit_step_failed(
+                            SNAPSHOT_UNCOMMITTED,
+                            "Uncommitted changes detected. Commit them first "
+                            "or re-run with --auto-commit.",
+                        )
+                        raise WorkflowError(
+                            "Uncommitted changes detected in the working directory. "
+                            "The workspace clone will not include these changes. "
+                            "Please commit them first or re-run with --auto-commit.",
+                            workflow_name=WORKFLOW_NAME,
+                        )
+                else:
+                    await self.emit_output(
+                        SNAPSHOT_UNCOMMITTED,
+                        "Working directory clean — no snapshot needed",
+                        level="info",
+                    )
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, str(exc))
+                raise
+            await self.emit_step_completed(SNAPSHOT_UNCOMMITTED, change_status)
+
+        # ----------------------------------------------------------------
+        # Step 3: Create workspace (skipped in dry_run)
         # ----------------------------------------------------------------
         if not dry_run:
             await self.emit_step_started(CREATE_WORKSPACE)
