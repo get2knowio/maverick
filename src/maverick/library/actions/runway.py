@@ -146,13 +146,15 @@ async def record_review_findings(
             for finding in group.get("findings", []):
                 findings_data.append(finding)
 
-        # Try flat issues_fixed / issues_remaining format
-        for issue in review_result.get("issues_fixed", []):
-            if isinstance(issue, dict):
-                findings_data.append(issue)
-        for issue in review_result.get("issues_remaining", []):
-            if isinstance(issue, dict):
-                findings_data.append(issue)
+        # Try flat issues_fixed / issues_remaining format.
+        # These may be lists of dicts OR plain int counts — guard both.
+        for key in ("issues_fixed", "issues_remaining"):
+            items = review_result.get(key, [])
+            if not isinstance(items, list):
+                continue
+            for issue in items:
+                if isinstance(issue, dict):
+                    findings_data.append(issue)
 
         count = 0
         for fd in findings_data:
