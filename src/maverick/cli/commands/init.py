@@ -347,6 +347,17 @@ async def init(
 
             # Success message
             click.echo(f"✓ Configuration written to {result.config_path}")
+
+            # Suggest runway seed if runway initialized and providers available
+            if (
+                result.runway_initialized
+                and result.provider_discovery
+                and result.provider_discovery.found_providers
+            ):
+                click.echo("")
+                click.echo("Tip: Run 'maverick runway seed' to pre-populate the runway")
+                click.echo("     knowledge store with AI-generated codebase insights.")
+
             raise SystemExit(ExitCode.SUCCESS)
 
         except PrerequisiteError as e:

@@ -12,6 +12,7 @@ from maverick.cli.commands.runway._group import runway
 
 # Import subcommand modules to register commands on the group.
 from maverick.cli.commands.runway import init as _init  # noqa: F401
+from maverick.cli.commands.runway import seed as _seed  # noqa: F401
 from maverick.cli.commands.runway import status as _status  # noqa: F401
 
 # isort: on

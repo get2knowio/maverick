@@ -554,3 +554,121 @@ class TestSkipProvidersFlag:
         assert "ACP Providers" in result.output
         assert "Claude" in result.output
         assert "(default)" in result.output
+
+    def test_init_suggests_seed_when_runway_and_providers(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Post-init tip suggests 'maverick runway seed' when conditions met."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        from maverick.init.provider_discovery import (
+            ProviderDiscoveryResult,
+            ProviderProbeResult,
+        )
+
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
+            ),
+            default_provider="claude",
+        )
+
+        with (
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=discovery,
+            ),
+            patch(
+                "maverick.init._maybe_init_runway",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            result = cli_runner.invoke(cli, ["init", "--type", "python"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert "maverick runway seed" in result.output
+
+    def test_init_no_seed_suggestion_without_providers(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No seed suggestion when no providers found."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        with (
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = cli_runner.invoke(cli, ["init", "--type", "python"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert "maverick runway seed" not in result.output
+
+    def test_init_no_seed_suggestion_without_runway(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No seed suggestion when runway not initialized."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        from maverick.init.provider_discovery import (
+            ProviderDiscoveryResult,
+            ProviderProbeResult,
+        )
+
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
+            ),
+            default_provider="claude",
+        )
+
+        with (
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=discovery,
+            ),
+            patch(
+                "maverick.init._maybe_init_runway",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            result = cli_runner.invoke(cli, ["init", "--type", "python"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert "maverick runway seed" not in result.output

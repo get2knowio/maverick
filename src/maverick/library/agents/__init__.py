@@ -47,6 +47,7 @@ from maverick.agents.reviewers import (
     CorrectnessReviewerAgent,
     SimpleFixerAgent,
 )
+from maverick.agents.seed import RunwaySeedAgent
 
 __all__ = [
     "register_all_agents",
@@ -101,6 +102,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     registry.agents.register("codebase_analyst", CodebaseAnalystAgent)
     registry.agents.register("criteria_writer", CriteriaWriterAgent)
     registry.agents.register("preflight_contrarian", PreFlightContrarianAgent)
+
+    # Register runway seed agent (used in maverick runway seed).
+    registry.agents.register("runway_seed", RunwaySeedAgent)
 
     # Register curator agent (used in maverick land for history curation).
     # CuratorAgent extends GeneratorAgent (not MaverickAgent) — skip
