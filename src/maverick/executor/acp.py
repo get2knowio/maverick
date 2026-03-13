@@ -32,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from maverick.config import AgentProviderConfig
+from maverick.constants import get_model_type
 from maverick.exceptions.agent import (
     AgentError,
     CircuitBreakerError,
@@ -608,6 +609,12 @@ class AcpStepExecutor:
             # Thread model selection into the ACP session (Phase 3)
             resolved_model = effective_config.model_id or provider_config.default_model
             if resolved_model:
+                # Map semantic names (sonnet/opus/haiku or full IDs) to the
+                # provider's actual model IDs before validation.
+                resolved_model = _resolve_model_for_provider(
+                    resolved_model, session
+                )
+
                 # Validate against available models from the session
                 available_ids = _get_available_model_ids(session)
                 if available_ids and resolved_model not in available_ids:
@@ -773,6 +780,59 @@ async def _wait_for_process(proc: Any, timeout: float = 3.0) -> None:
             await asyncio.wait_for(proc.wait(), timeout=1.0)
     except Exception:
         pass
+
+
+def _resolve_model_for_provider(
+    requested_model: str,
+    session: Any,
+) -> str:
+    """Map a semantic model name to the ACP provider's actual model ID.
+
+    ACP providers (notably Claude Code) advertise models with short IDs like
+    ``"default"`` and ``"opus"`` (or ``"default"`` and ``"sonnet"``).  The
+    identity behind ``"default"`` changes between sessions.  This function
+    lets ``maverick.yaml`` use stable semantic names (``"sonnet"``,
+    ``"opus"``, or full model IDs like ``"claude-sonnet-4-5-20250929"``) and
+    resolves them to whatever ID the provider currently exposes.
+
+    Resolution steps:
+    1. If ``requested_model`` is already in the available IDs → return as-is.
+    2. Determine the *model type* (haiku / sonnet / opus) from the request.
+    3. Scan each available model's ``name`` field for a case-insensitive
+       match on the type (e.g. ``"Claude Sonnet 4.6"`` contains ``"sonnet"``).
+    4. If no match is found, return the original ``requested_model`` unchanged
+       (the caller's existing validation will raise if it's truly invalid).
+
+    Args:
+        requested_model: Model identifier from maverick.yaml / StepConfig.
+        session: ACP NewSessionResponse with ``models`` attribute.
+
+    Returns:
+        The provider model ID to pass to ``set_session_model``.
+    """
+    available_ids = _get_available_model_ids(session)
+    if not available_ids or requested_model in available_ids:
+        return requested_model
+
+    # Determine what model *type* the user is asking for.
+    model_type = get_model_type(requested_model)
+    if model_type is None:
+        # Not a recognised Claude model name — return as-is for the
+        # downstream validator to handle.
+        return requested_model
+
+    # Pass 1: Match by human-readable name (most reliable).
+    models_state = getattr(session, "models", None)
+    if models_state:
+        for m in getattr(models_state, "available_models", []):
+            mid = getattr(m, "model_id", None)
+            name = getattr(m, "name", None) or ""
+            if mid and model_type in name.lower():
+                return str(mid)
+
+    # Fallback: return the original so that the existing validation
+    # surfaces a clear error with the available model list.
+    return requested_model
 
 
 def _resolve_model_label(

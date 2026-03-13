@@ -20,7 +20,11 @@ from maverick.exceptions.agent import (
 )
 from maverick.exceptions.config import ConfigError
 from maverick.exceptions.workflow import ReferenceResolutionError
-from maverick.executor.acp import AcpStepExecutor, _get_available_model_ids
+from maverick.executor.acp import (
+    AcpStepExecutor,
+    _get_available_model_ids,
+    _resolve_model_for_provider,
+)
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
@@ -1406,6 +1410,156 @@ class TestGetAvailableModelIds:
         session.config_options = [config_opt]
 
         assert _get_available_model_ids(session) == set()
+
+
+# ---------------------------------------------------------------------------
+# Model resolution: _resolve_model_for_provider
+# ---------------------------------------------------------------------------
+
+
+class TestResolveModelForProvider:
+    """Tests for _resolve_model_for_provider semantic model mapping."""
+
+    @staticmethod
+    def _make_session(
+        available: list[tuple[str, str]] | None = None,
+    ) -> MagicMock:
+        """Build a mock ACP session with available_models.
+
+        Args:
+            available: List of (model_id, name) tuples, or None for no models.
+        """
+        session = MagicMock()
+        if available is None:
+            session.models = None
+            session.config_options = None
+            return session
+
+        model_mocks = []
+        for mid, name in available:
+            m = MagicMock()
+            m.model_id = mid
+            m.name = name
+            model_mocks.append(m)
+        models = MagicMock()
+        models.available_models = model_mocks
+        session.models = models
+        session.config_options = None
+        return session
+
+    def test_returns_as_is_when_already_available(self) -> None:
+        """Direct match — no remapping needed."""
+        session = self._make_session([("opus", "Claude Opus 4.6")])
+        assert _resolve_model_for_provider("opus", session) == "opus"
+
+    def test_maps_sonnet_to_default_when_default_is_sonnet(self) -> None:
+        """'sonnet' → 'default' when default's name contains 'Sonnet'."""
+        session = self._make_session([
+            ("default", "Claude Sonnet 4.6"),
+            ("opus", "Claude Opus 4.6"),
+        ])
+        assert _resolve_model_for_provider("sonnet", session) == "default"
+
+    def test_maps_opus_to_default_when_default_is_opus(self) -> None:
+        """'opus' → 'default' when default's name contains 'Opus'."""
+        session = self._make_session([
+            ("default", "Claude Opus 4.6"),
+            ("sonnet", "Claude Sonnet 4.6"),
+        ])
+        assert _resolve_model_for_provider("opus", session) == "default"
+
+    def test_maps_full_model_id_to_provider_id(self) -> None:
+        """Full model ID like 'claude-sonnet-4-5-20250929' maps correctly."""
+        session = self._make_session([
+            ("default", "Claude Sonnet 4.6"),
+            ("opus", "Claude Opus 4.6"),
+        ])
+        result = _resolve_model_for_provider(
+            "claude-sonnet-4-5-20250929", session
+        )
+        assert result == "default"
+
+    def test_maps_full_opus_model_id(self) -> None:
+        """Full opus model ID maps to the matching provider ID."""
+        session = self._make_session([
+            ("default", "Claude Sonnet 4.6"),
+            ("opus", "Claude Opus 4.6"),
+        ])
+        result = _resolve_model_for_provider(
+            "claude-opus-4-5-20251101", session
+        )
+        assert result == "opus"
+
+    def test_returns_unchanged_when_no_available_models(self) -> None:
+        """No available models → return original (no validation)."""
+        session = self._make_session(None)
+        assert (
+            _resolve_model_for_provider("sonnet", session) == "sonnet"
+        )
+
+    def test_returns_unchanged_for_unrecognised_model(self) -> None:
+        """Unknown model name passes through for downstream validation."""
+        session = self._make_session([
+            ("default", "Claude Sonnet 4.6"),
+        ])
+        assert (
+            _resolve_model_for_provider("gpt-4", session)
+            == "gpt-4"
+        )
+
+    def test_haiku_mapping(self) -> None:
+        """'haiku' maps to the provider ID whose name contains 'Haiku'."""
+        session = self._make_session([
+            ("default", "Claude Haiku 4.5"),
+            ("sonnet", "Claude Sonnet 4.6"),
+        ])
+        assert _resolve_model_for_provider("haiku", session) == "default"
+
+    def test_no_name_match_returns_original(self) -> None:
+        """When no available model name or ID matches the type, return original."""
+        # Provider has models but none whose names or IDs contain "opus"
+        session = self._make_session([
+            ("default", "Claude Sonnet 4.6"),
+            ("fast", "Claude Haiku 4.5"),
+        ])
+        assert _resolve_model_for_provider("opus", session) == "opus"
+
+    def test_does_not_match_extended_variants(self) -> None:
+        """'opus' must NOT match 'opus[1m]' — different cost profile."""
+        session = MagicMock()
+        m1 = MagicMock(model_id="default")
+        m1.name = None
+        m2 = MagicMock(model_id="opus[1m]")
+        m2.name = None
+        m3 = MagicMock(model_id="sonnet")
+        m3.name = None
+        models = MagicMock(available_models=[m1, m2, m3])
+        session.models = models
+        session.config_options = None
+
+        # "opus" is not available and no name matches → return original
+        assert _resolve_model_for_provider("opus", session) == "opus"
+
+    def test_real_claude_code_model_set(self) -> None:
+        """Simulates the real Claude Code scenario.
+
+        Available: default, haiku, opus[1m], sonnet, sonnet[1m]
+        Where "default" might be opus or sonnet depending on the session.
+        """
+        session = self._make_session([
+            ("default", "Claude Opus 4.6"),
+            ("haiku", "Claude Haiku 4.5"),
+            ("opus[1m]", ""),
+            ("sonnet", "Claude Sonnet 4.6"),
+            ("sonnet[1m]", ""),
+        ])
+
+        # "sonnet" → direct match
+        assert _resolve_model_for_provider("sonnet", session) == "sonnet"
+        # "opus" → name match on "default" (Claude Opus 4.6)
+        assert _resolve_model_for_provider("opus", session) == "default"
+        # "haiku" → direct match
+        assert _resolve_model_for_provider("haiku", session) == "haiku"
 
 
 # ---------------------------------------------------------------------------

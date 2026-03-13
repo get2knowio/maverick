@@ -169,12 +169,18 @@ class AcpProviderHealthCheck:
                     cwd=os.getcwd(),
                     mcp_servers=[],
                 )
-                from maverick.executor.acp import _get_available_model_ids
+                from maverick.executor.acp import (
+                    _get_available_model_ids,
+                    _resolve_model_for_provider,
+                )
 
                 available = _get_available_model_ids(session)
                 if available:
                     for model_id in sorted(self.models_to_validate):
-                        if model_id not in available:
+                        resolved = _resolve_model_for_provider(
+                            model_id, session
+                        )
+                        if resolved not in available:
                             available_list = ", ".join(sorted(available))
                             errors.append(
                                 f"Model '{model_id}' is not available "

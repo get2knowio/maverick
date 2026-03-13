@@ -459,3 +459,78 @@ class TestModelValidation:
 
         # Session failure is non-fatal — health check still passes
         assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_resolves_semantic_model_before_validation(self) -> None:
+        """Preflight resolves 'opus' to 'default' via name-based matching."""
+        m1 = MagicMock(model_id="default")
+        m1.name = "Claude Opus 4.6"
+        m2 = MagicMock(model_id="sonnet")
+        m2.name = "Claude Sonnet 4.6"
+        models = MagicMock(available_models=[m1, m2])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"opus"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        # "opus" resolves to "default" which IS available → pass
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_does_not_resolve_to_extended_variant(self) -> None:
+        """Preflight does NOT resolve 'opus' to 'opus[1m]' (different cost)."""
+        m1 = MagicMock(model_id="default")
+        m1.name = None
+        m2 = MagicMock(model_id="opus[1m]")
+        m2.name = None
+        m3 = MagicMock(model_id="sonnet")
+        m3.name = None
+        models = MagicMock(available_models=[m1, m2, m3])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"opus"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        # "opus" does NOT resolve to "opus[1m]" — different model → fail
+        assert result.success is False
+        assert "opus" in result.errors[0]

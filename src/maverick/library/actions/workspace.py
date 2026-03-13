@@ -110,6 +110,25 @@ async def _propagate_git_identity(user_repo: Path, workspace_path: Path) -> None
         logger.debug("propagated_git_identity", key=key, value=value)
 
 
+async def _ensure_runway(workspace_path: Path) -> None:
+    """Initialize runway store in the workspace if not already present.
+
+    Best-effort: errors are logged but never raised — a missing runway
+    store is non-fatal (recording simply becomes a no-op).
+    """
+    try:
+        from maverick.runway.store import RunwayStore
+
+        runway_path = workspace_path / ".maverick" / "runway"
+        store = RunwayStore(runway_path)
+        if store.is_initialized:
+            return
+        await store.initialize()
+        logger.debug("workspace_runway_initialized", path=str(runway_path))
+    except Exception as exc:
+        logger.debug("workspace_runway_init_skipped", error=str(exc))
+
+
 async def create_fly_workspace(
     setup_command: str | None = None,
 ) -> dict[str, Any]:
@@ -144,6 +163,11 @@ async def create_fly_workspace(
         # Propagate git identity so jj commits have author set
         ws_path = Path(info.workspace_path)
         await _propagate_git_identity(user_repo, ws_path)
+
+        # Ensure runway store exists in the workspace so fly steps can
+        # record outcomes.  The user repo may have runway initialized but
+        # it won't be in the clone if .maverick/ wasn't committed yet.
+        await _ensure_runway(ws_path)
 
         logger.info(
             "fly_workspace_ready",
