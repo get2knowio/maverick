@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 import yaml
 from pydantic import BaseModel, Field
@@ -588,16 +591,23 @@ class InitConfig(BaseModel):
     parallel: dict[str, int] = Field(
         default_factory=lambda: {"max_agents": 3, "max_tasks": 5}
     )
+    agent_providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     verbosity: str = "warning"
 
     def to_yaml(self) -> str:
         """Serialize configuration to YAML string.
 
+        Empty ``agent_providers`` is omitted from the output so that
+        zero-config behaviour is preserved when no providers are discovered.
+
         Returns:
             YAML-formatted configuration string.
         """
+        data = self.model_dump(exclude_none=True)
+        if not data.get("agent_providers"):
+            data.pop("agent_providers", None)
         return yaml.dump(
-            self.model_dump(exclude_none=True),
+            data,
             default_flow_style=False,
             sort_keys=False,
         )
@@ -628,6 +638,7 @@ class InitResult:
     findings_printed: bool = False
     beads_initialized: bool = False
     runway_initialized: bool = False
+    provider_discovery: ProviderDiscoveryResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -645,6 +656,9 @@ class InitResult:
             "findings_printed": self.findings_printed,
             "beads_initialized": self.beads_initialized,
             "runway_initialized": self.runway_initialized,
+            "provider_discovery": (
+                self.provider_discovery.to_dict() if self.provider_discovery else None
+            ),
         }
 
 

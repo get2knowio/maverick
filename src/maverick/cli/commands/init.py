@@ -21,6 +21,7 @@ from maverick.init import (
     resolve_model_id,
     run_init,
 )
+from maverick.init.provider_discovery import ProviderDiscoveryResult
 from maverick.logging import get_logger
 
 # Exit code for config exists (per CLI contract)
@@ -114,6 +115,34 @@ def _format_detection_output(
             lines.append(f"  • {finding}")
         lines.append("")
 
+    return lines
+
+
+def _format_provider_output(
+    discovery: ProviderDiscoveryResult | None,
+) -> list[str]:
+    """Format ACP provider discovery output.
+
+    Args:
+        discovery: Provider discovery result, or None if skipped.
+
+    Returns:
+        List of formatted output lines.
+    """
+    if discovery is None:
+        return []
+
+    lines: list[str] = ["ACP Providers"]
+
+    for probe in discovery.providers:
+        symbol = "✓" if probe.found else "✗"
+        suffix = " (default)" if probe.name == discovery.default_provider else ""
+        lines.append(f"  {symbol} {probe.display_name} ({probe.binary}){suffix}")
+
+    if not discovery.found_providers:
+        lines.append("  ⚠ No ACP providers found on PATH.")
+
+    lines.append("")
     return lines
 
 
@@ -217,6 +246,12 @@ PROJECT_TYPE_CHOICES = [
     help="Use marker-based heuristics instead of Claude.",
 )
 @click.option(
+    "--skip-providers",
+    is_flag=True,
+    default=False,
+    help="Skip ACP provider discovery.",
+)
+@click.option(
     "--force",
     is_flag=True,
     default=False,
@@ -236,6 +271,7 @@ async def init(
     project_type: str | None,
     model_name: str | None,
     no_detect: bool,
+    skip_providers: bool,
     force: bool,
     verbose: bool,
 ) -> None:
@@ -290,12 +326,14 @@ async def init(
                 force=force,
                 verbose=verbose,
                 model_id=model_id,
+                skip_providers=skip_providers,
             )
 
             # Format and display output
             lines: list[str] = []
             lines.extend(_format_preflight_output(result, verbose))
             lines.extend(_format_detection_output(result, verbose))
+            lines.extend(_format_provider_output(result.provider_discovery))
             lines.extend(_format_git_output(result, verbose))
             lines.extend(_format_config_output(result, verbose))
 

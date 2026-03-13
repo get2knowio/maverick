@@ -472,3 +472,85 @@ class TestCombinedFlags:
         # Verify Rust config was generated
         config = (git_repo / "maverick.yaml").read_text()
         assert "cargo" in config.lower()
+
+
+# =============================================================================
+# --skip-providers flag
+# =============================================================================
+
+
+class TestSkipProvidersFlag:
+    """Tests for --skip-providers CLI flag."""
+
+    def test_skip_providers_flag_omits_discovery(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--skip-providers prevents provider discovery from running."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        with (
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+            ) as mock_discover,
+        ):
+            result = cli_runner.invoke(
+                cli, ["init", "--type", "python", "--skip-providers"]
+            )
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        mock_discover.assert_not_called()
+
+    def test_provider_output_shown(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Provider discovery results are shown in CLI output."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        from maverick.init.provider_discovery import (
+            ProviderDiscoveryResult,
+            ProviderProbeResult,
+        )
+
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
+                ProviderProbeResult("copilot", "GitHub Copilot", "copilot", False),
+                ProviderProbeResult("gemini", "Gemini", "gemini", False),
+            ),
+            default_provider="claude",
+        )
+
+        with (
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=discovery,
+            ),
+        ):
+            result = cli_runner.invoke(cli, ["init", "--type", "python"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert "ACP Providers" in result.output
+        assert "Claude" in result.output
+        assert "(default)" in result.output

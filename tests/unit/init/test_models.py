@@ -1139,6 +1139,22 @@ class TestInitConfig:
         # format_cmd is None by default, should be excluded
         assert "format_cmd" not in parsed.get("validation", {})
 
+    def test_to_yaml_omits_empty_agent_providers(self) -> None:
+        """Empty agent_providers should not appear in YAML output."""
+        config = InitConfig()
+        yaml_output = config.to_yaml()
+        assert "agent_providers" not in yaml_output
+
+    def test_to_yaml_includes_agent_providers_when_populated(self) -> None:
+        """Non-empty agent_providers should appear in YAML output."""
+        config = InitConfig(
+            agent_providers={"claude": {"default": True}},
+        )
+        yaml_output = config.to_yaml()
+        parsed = yaml.safe_load(yaml_output)
+        assert "agent_providers" in parsed
+        assert parsed["agent_providers"]["claude"]["default"] is True
+
     def test_to_yaml_format(self) -> None:
         """Test that to_yaml uses block style (not flow style)."""
         config = InitConfig(
@@ -1301,6 +1317,51 @@ class TestInitResult:
         assert "github" in output["config"]
         assert "validation" in output["config"]
         assert "model" in output["config"]
+
+    def test_provider_discovery_default_none(self) -> None:
+        """provider_discovery defaults to None."""
+        preflight = InitPreflightResult(success=True)
+        git_info = GitRemoteInfo()
+        config = InitConfig()
+
+        result = InitResult(
+            success=True,
+            config_path="/test",
+            preflight=preflight,
+            git_info=git_info,
+            config=config,
+        )
+        assert result.provider_discovery is None
+        assert result.to_dict()["provider_discovery"] is None
+
+    def test_provider_discovery_in_to_dict(self) -> None:
+        """provider_discovery is serialized in to_dict when present."""
+        from maverick.init.provider_discovery import (
+            ProviderDiscoveryResult,
+            ProviderProbeResult,
+        )
+
+        preflight = InitPreflightResult(success=True)
+        git_info = GitRemoteInfo()
+        config = InitConfig()
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
+            ),
+            default_provider="claude",
+        )
+
+        result = InitResult(
+            success=True,
+            config_path="/test",
+            preflight=preflight,
+            git_info=git_info,
+            config=config,
+            provider_discovery=discovery,
+        )
+        output = result.to_dict()
+        assert output["provider_discovery"] is not None
+        assert output["provider_discovery"]["default_provider"] == "claude"
 
 
 # =============================================================================
