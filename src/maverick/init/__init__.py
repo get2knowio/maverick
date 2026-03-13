@@ -43,6 +43,11 @@ from maverick.init.models import (
     resolve_model_id,
 )
 from maverick.init.prereqs import verify_prerequisites
+from maverick.init.provider_discovery import (
+    PROVIDER_PREFERENCE_ORDER,
+    ProviderDiscoveryResult,
+    ProviderProbeResult,
+)
 from maverick.logging import get_logger
 
 __all__ = [
@@ -58,6 +63,7 @@ __all__ = [
     "MARKER_FILE_MAP",
     "VALIDATION_DEFAULTS",
     "PYTHON_DEFAULTS",
+    "PROVIDER_PREFERENCE_ORDER",
     # Dataclasses
     "ProjectMarker",
     "ValidationCommands",
@@ -66,6 +72,8 @@ __all__ = [
     "ProjectDetectionResult",
     "InitPreflightResult",
     "InitResult",
+    "ProviderProbeResult",
+    "ProviderDiscoveryResult",
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
@@ -177,6 +185,42 @@ async def _maybe_init_runway(project_path: Path, verbose: bool) -> bool:
 
 
 # =============================================================================
+# Provider Discovery (best-effort)
+# =============================================================================
+
+
+async def _maybe_discover_providers(
+    verbose: bool,
+) -> ProviderDiscoveryResult | None:
+    """Discover ACP providers on PATH.
+
+    Best-effort: errors are logged but never raised.
+
+    Args:
+        verbose: Whether to log progress.
+
+    Returns:
+        Discovery result, or None if discovery failed.
+    """
+    try:
+        from maverick.init.provider_discovery import discover_providers
+
+        result = await discover_providers()
+        if verbose:
+            found = [p.name for p in result.found_providers]
+            logger.info(
+                "providers_discovered",
+                found=found,
+                default=result.default_provider,
+                duration_ms=result.duration_ms,
+            )
+        return result
+    except Exception as exc:
+        logger.debug("provider_discovery_error", error=str(exc))
+        return None
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -189,6 +233,7 @@ async def run_init(
     force: bool = False,
     verbose: bool = False,
     model_id: str | None = None,
+    skip_providers: bool = False,
 ) -> InitResult:
     """Execute maverick init workflow.
 
@@ -206,6 +251,7 @@ async def run_init(
         force: Overwrite existing config file.
         verbose: Enable verbose output.
         model_id: Claude model ID to use in config. Defaults to latest sonnet.
+        skip_providers: Skip ACP provider discovery.
 
     Returns:
         InitResult with complete execution state.
@@ -320,12 +366,18 @@ async def run_init(
                 method=detection.detection_method,
             )
 
+    # Step 3.5: Discover ACP providers (best-effort)
+    provider_discovery: ProviderDiscoveryResult | None = None
+    if not skip_providers:
+        provider_discovery = await _maybe_discover_providers(verbose)
+
     # Step 4: Generate configuration
     config = generate_config(
         git_info=git_info,
         detection=detection,
         project_type=type_override,  # Pass override if specified
         model_id=model_id,  # Pass model ID if specified
+        provider_discovery=provider_discovery,
     )
 
     if verbose:
@@ -354,4 +406,5 @@ async def run_init(
         findings_printed=verbose,
         beads_initialized=beads_initialized,
         runway_initialized=runway_initialized,
+        provider_discovery=provider_discovery,
     )

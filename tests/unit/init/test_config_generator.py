@@ -15,6 +15,10 @@ from maverick.init.models import (
     ProjectDetectionResult,
     ProjectType,
 )
+from maverick.init.provider_discovery import (
+    ProviderDiscoveryResult,
+    ProviderProbeResult,
+)
 
 
 class TestGenerateConfig:
@@ -164,6 +168,52 @@ class TestGenerateConfig:
         assert config.model.model_id == "claude-sonnet-4-5-20250929"
         assert config.model.max_tokens == 64000
         assert config.model.temperature == 0.0
+
+    def test_generate_config_with_provider_discovery(self) -> None:
+        """Provider discovery populates agent_providers in config."""
+        git_info = GitRemoteInfo(owner="acme", repo="project")
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
+                ProviderProbeResult("copilot", "GitHub Copilot", "copilot", True),
+                ProviderProbeResult("gemini", "Gemini", "gemini", False),
+            ),
+            default_provider="claude",
+        )
+
+        config = generate_config(
+            git_info=git_info,
+            detection=None,
+            provider_discovery=discovery,
+        )
+
+        assert "claude" in config.agent_providers
+        assert config.agent_providers["claude"]["default"] is True
+        assert "copilot" in config.agent_providers
+        assert config.agent_providers["copilot"]["default"] is False
+        assert "gemini" not in config.agent_providers
+
+    def test_generate_config_no_discovery(self) -> None:
+        """No discovery result means empty agent_providers (backward compat)."""
+        git_info = GitRemoteInfo()
+        config = generate_config(git_info=git_info, detection=None)
+        assert config.agent_providers == {}
+
+    def test_generate_config_empty_discovery(self) -> None:
+        """Discovery with no found providers yields empty agent_providers."""
+        git_info = GitRemoteInfo()
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),
+            ),
+            default_provider=None,
+        )
+        config = generate_config(
+            git_info=git_info,
+            detection=None,
+            provider_discovery=discovery,
+        )
+        assert config.agent_providers == {}
 
     def test_generate_config_to_yaml(self) -> None:
         """Generated config should serialize to valid YAML."""

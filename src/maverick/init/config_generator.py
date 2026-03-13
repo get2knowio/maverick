@@ -7,6 +7,7 @@ and git information, and writing the configuration to disk.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from maverick.exceptions.init import ConfigExistsError, ConfigWriteError
 from maverick.init.models import (
@@ -19,6 +20,7 @@ from maverick.init.models import (
     ProjectType,
     ValidationCommands,
 )
+from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 __all__ = [
     "generate_config",
@@ -31,6 +33,7 @@ def generate_config(
     detection: ProjectDetectionResult | None,
     project_type: ProjectType | None = None,
     model_id: str | None = None,
+    provider_discovery: ProviderDiscoveryResult | None = None,
 ) -> InitConfig:
     """Generate InitConfig from detection results and git info.
 
@@ -43,6 +46,8 @@ def generate_config(
         project_type: Optional explicit project type override. If provided,
             this type's defaults are used instead of detection.primary_type.
         model_id: Optional Claude model ID to use. If not provided, uses default.
+        provider_discovery: Optional provider discovery result. If provided and
+            providers were found, populates the ``agent_providers`` config section.
 
     Returns:
         Complete InitConfig ready for serialization.
@@ -113,12 +118,21 @@ def generate_config(
     # Build model config with defaults or custom model_id
     model_config = InitModelConfig(model_id=model_id) if model_id else InitModelConfig()
 
+    # Build agent_providers from discovery result
+    agent_providers: dict[str, dict[str, Any]] = {}
+    if provider_discovery is not None:
+        for probe in provider_discovery.found_providers:
+            agent_providers[probe.name] = {
+                "default": probe.name == provider_discovery.default_provider,
+            }
+
     # Assemble complete config
     return InitConfig(
         project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
         model=model_config,
+        agent_providers=agent_providers,
     )
 
 
