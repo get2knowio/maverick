@@ -285,9 +285,7 @@ class TestRunSeed:
         )
         mock_exec = _mock_executor(seed_output=seed_output)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
 
         assert result.success
@@ -310,9 +308,7 @@ class TestRunSeed:
         # No .maverick/runway directory exists
         assert not (tmp_path / ".maverick" / "runway").exists()
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
 
         assert result.success
@@ -349,9 +345,7 @@ class TestRunSeed:
         )
         mock_exec = _mock_executor(seed_output=seed_output)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path, force=True)
 
         assert result.success
@@ -371,9 +365,7 @@ class TestRunSeed:
         )
         mock_exec = _mock_executor(seed_output=seed_output)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path, dry_run=True)
 
         assert result.success
@@ -389,9 +381,7 @@ class TestRunSeed:
         """Executor errors should not crash, return SeedResult with error."""
         mock_exec = _mock_executor(raise_error=RuntimeError("connection refused"))
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
 
         assert not result.success
@@ -402,9 +392,7 @@ class TestRunSeed:
         """Executor returning no output should report failure."""
         mock_exec = _mock_executor(seed_output=None, success=False)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
 
         assert not result.success
@@ -415,9 +403,7 @@ class TestRunSeed:
         seed_output = SeedOutput(files=[SeedFileEntry(filename="a.md", content="x")])
         mock_exec = _mock_executor(seed_output=seed_output)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             await run_seed(tmp_path, provider="copilot")
 
         # Verify StepConfig was passed with provider
@@ -430,9 +416,7 @@ class TestRunSeed:
         seed_output = SeedOutput(files=[SeedFileEntry(filename="a.md", content="x")])
         mock_exec = _mock_executor(seed_output=seed_output)
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             await run_seed(tmp_path)
 
         mock_exec.cleanup.assert_awaited_once()
@@ -442,9 +426,7 @@ class TestRunSeed:
         """Executor cleanup should be called even on error."""
         mock_exec = _mock_executor(raise_error=RuntimeError("boom"))
 
-        with patch(
-            "maverick.executor.create_default_executor", return_value=mock_exec
-        ):
+        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             await run_seed(tmp_path)
 
         mock_exec.cleanup.assert_awaited_once()
