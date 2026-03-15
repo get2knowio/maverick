@@ -11,12 +11,30 @@ from typing import Any
 
 __all__ = [
     "OutputFormat",
+    "format_bytes",
     "format_error",
     "format_success",
     "format_warning",
     "format_json",
     "format_table",
 ]
+
+
+def format_bytes(size: int) -> str:
+    """Format byte count as human-readable string.
+
+    Args:
+        size: Size in bytes.
+
+    Returns:
+        Formatted string (e.g. "1.5 KB", "3.2 MB").
+    """
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    else:
+        return f"{size / (1024 * 1024):.1f} MB"
 
 
 class OutputFormat(str, Enum):

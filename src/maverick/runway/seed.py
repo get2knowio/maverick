@@ -37,6 +37,9 @@ _MAX_TREE_ENTRIES = 200
 # Max directory tree depth
 _MAX_TREE_DEPTH = 3
 
+# Max depth for file-type counting (deeper than tree display)
+_MAX_COUNT_DEPTH = 5
+
 # Directories to exclude from tree walk
 _EXCLUDED_DIRS: frozenset[str] = frozenset(
     {
@@ -130,59 +133,48 @@ class SeedResult:
 # ---------------------------------------------------------------------------
 
 
-def _build_directory_tree(project_path: Path) -> str:
-    """Walk project directory and build indented tree string."""
-    lines: list[str] = []
+def _walk_project(
+    project_path: Path,
+) -> tuple[str, dict[str, int]]:
+    """Walk project directory once, producing both a tree string and file type counts.
+
+    The tree is built to ``_MAX_TREE_DEPTH`` / ``_MAX_TREE_ENTRIES``.
+    File type counts are collected to depth 5 (deeper than the tree).
+
+    Returns:
+        (directory_tree, file_type_counts)
+    """
+    tree_lines: list[str] = []
+    counts: dict[str, int] = {}
 
     def _walk(path: Path, prefix: str, depth: int) -> None:
-        if len(lines) >= _MAX_TREE_ENTRIES:
-            return
-        if depth > _MAX_TREE_DEPTH:
-            return
-
         try:
             entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
         except PermissionError:
             return
 
         for entry in entries:
-            if len(lines) >= _MAX_TREE_ENTRIES:
-                return
             if entry.name in _EXCLUDED_DIRS:
                 continue
             if entry.is_dir():
-                lines.append(f"{prefix}{entry.name}/")
-                _walk(entry, prefix + "  ", depth + 1)
+                # Tree display (capped by depth and entry count)
+                if depth <= _MAX_TREE_DEPTH and len(tree_lines) < _MAX_TREE_ENTRIES:
+                    tree_lines.append(f"{prefix}{entry.name}/")
+                # Always recurse for counts (up to count depth)
+                if depth < _MAX_COUNT_DEPTH:
+                    _walk(entry, prefix + "  ", depth + 1)
             else:
-                lines.append(f"{prefix}{entry.name}")
+                if depth <= _MAX_TREE_DEPTH and len(tree_lines) < _MAX_TREE_ENTRIES:
+                    tree_lines.append(f"{prefix}{entry.name}")
+                ext = entry.suffix or "(no extension)"
+                counts[ext] = counts.get(ext, 0) + 1
 
     _walk(project_path, "", 0)
-    if len(lines) >= _MAX_TREE_ENTRIES:
-        lines.append("... (truncated)")
-    return "\n".join(lines)
+    if len(tree_lines) >= _MAX_TREE_ENTRIES:
+        tree_lines.append("... (truncated)")
 
-
-def _count_file_types(project_path: Path) -> dict[str, int]:
-    """Count files by extension, walking up to depth 5."""
-    counts: dict[str, int] = {}
-
-    def _walk(path: Path, depth: int) -> None:
-        if depth > 5:
-            return
-        try:
-            for entry in path.iterdir():
-                if entry.name in _EXCLUDED_DIRS:
-                    continue
-                if entry.is_dir():
-                    _walk(entry, depth + 1)
-                elif entry.is_file():
-                    ext = entry.suffix or "(no extension)"
-                    counts[ext] = counts.get(ext, 0) + 1
-        except PermissionError:
-            pass
-
-    _walk(project_path, 0)
-    return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+    sorted_counts = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+    return "\n".join(tree_lines), sorted_counts
 
 
 async def _read_config_files(project_path: Path) -> dict[str, str]:
@@ -223,14 +215,11 @@ async def gather_seed_context(project_path: Path) -> SeedContext:
     except Exception as exc:
         logger.debug("seed_git_log_error", error=str(exc))
 
-    # Directory tree
-    directory_tree = _build_directory_tree(project_path)
+    # Directory tree + file type counts (single walk)
+    directory_tree, file_type_counts = _walk_project(project_path)
 
     # Config files
     config_files = await _read_config_files(project_path)
-
-    # File type counts
-    file_type_counts = _count_file_types(project_path)
 
     return SeedContext(
         git_log=git_log,
@@ -251,6 +240,7 @@ async def run_seed(
     provider: str | None = None,
     force: bool = False,
     dry_run: bool = False,
+    context: SeedContext | None = None,
 ) -> SeedResult:
     """Seed the runway with AI-generated codebase insights.
 
@@ -262,6 +252,7 @@ async def run_seed(
         provider: Optional ACP provider name override.
         force: Overwrite existing semantic files.
         dry_run: Show what would be generated without writing.
+        context: Pre-gathered seed context. If None, gathered automatically.
 
     Returns:
         SeedResult with success status and files written.
@@ -289,8 +280,9 @@ async def run_seed(
                 "Use --force to overwrite.",
             )
 
-    # Gather context
-    context = await gather_seed_context(project_path)
+    # Gather context if not provided
+    if context is None:
+        context = await gather_seed_context(project_path)
 
     # Execute LLM analysis
     executor = create_default_executor()

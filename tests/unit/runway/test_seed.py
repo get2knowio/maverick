@@ -17,6 +17,18 @@ from maverick.runway.seed import (
     run_seed,
 )
 
+
+@dataclass(frozen=True)
+class FakeCommit:
+    """Minimal commit-like object for testing seed context/agent."""
+
+    sha: str = "abc1234567890"
+    short_sha: str = "abc1234"
+    message: str = "initial commit"
+    author: str = "Test User"
+    date: str = "2025-01-01"
+
+
 # ---------------------------------------------------------------------------
 # SeedResult
 # ---------------------------------------------------------------------------
@@ -154,15 +166,6 @@ class TestGatherSeedContext:
     @pytest.mark.asyncio
     async def test_git_log_with_repo(self, tmp_path: Path) -> None:
         """Git repo with commits should populate git_log."""
-
-        @dataclass(frozen=True)
-        class FakeCommit:
-            sha: str = "abc1234567890"
-            short_sha: str = "abc1234"
-            message: str = "initial commit"
-            author: str = "Test User"
-            date: str = "2025-01-01"
-
         fake_commits = [FakeCommit()]
 
         with patch("maverick.runway.seed.AsyncGitRepository") as mock_repo_cls:
@@ -194,16 +197,9 @@ class TestRunwaySeedAgent:
     def test_build_prompt_includes_git_log(self) -> None:
         from maverick.agents.seed import RunwaySeedAgent
 
-        @dataclass(frozen=True)
-        class FakeCommit:
-            sha: str = "abc1234567890"
-            short_sha: str = "abc1234"
-            message: str = "feat: add login"
-            author: str = "Dev"
-            date: str = "2025-01-01"
-
         agent = RunwaySeedAgent()
-        context = SeedContext(git_log=(FakeCommit(),))  # type: ignore[arg-type]
+        commit = FakeCommit(message="feat: add login", author="Dev")
+        context = SeedContext(git_log=(commit,))  # type: ignore[arg-type]
         prompt = agent.build_prompt(context)
 
         assert "abc1234" in prompt

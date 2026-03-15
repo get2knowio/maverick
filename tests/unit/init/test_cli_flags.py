@@ -101,14 +101,27 @@ def mock_detection_python() -> ProjectDetectionResult:
 class TestTypeFlag:
     """Tests for --type CLI flag."""
 
-    def test_type_flag_accepts_python(
+    @pytest.mark.parametrize(
+        ("type_name", "config_marker"),
+        [
+            ("python", "ruff"),
+            ("nodejs", "npm"),
+            ("go", "go"),
+            ("rust", "cargo"),
+            ("ansible_collection", "ansible"),
+            ("ansible_playbook", "ansible"),
+        ],
+    )
+    def test_type_flag_accepted(
         self,
         cli_runner: CliRunner,
         git_repo: Path,
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
+        type_name: str,
+        config_marker: str,
     ) -> None:
-        """Test --type python is accepted."""
+        """Test --type <type_name> is accepted and produces expected config."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
@@ -117,123 +130,11 @@ class TestTypeFlag:
             new_callable=AsyncMock,
             return_value=mock_preflight_success,
         ):
-            result = cli_runner.invoke(cli, ["init", "--type", "python"])
+            result = cli_runner.invoke(cli, ["init", "--type", type_name])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "ruff" in config  # Python uses ruff
-
-    def test_type_flag_accepts_nodejs(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --type nodejs is accepted."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with patch(
-            "maverick.init.verify_prerequisites",
-            new_callable=AsyncMock,
-            return_value=mock_preflight_success,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "nodejs"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        # Node.js uses npm/npx commands
-        assert "npm" in config or "npx" in config
-
-    def test_type_flag_accepts_go(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --type go is accepted."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with patch(
-            "maverick.init.verify_prerequisites",
-            new_callable=AsyncMock,
-            return_value=mock_preflight_success,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "go"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "go" in config.lower()
-
-    def test_type_flag_accepts_rust(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --type rust is accepted."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with patch(
-            "maverick.init.verify_prerequisites",
-            new_callable=AsyncMock,
-            return_value=mock_preflight_success,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "rust"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "cargo" in config.lower()
-
-    def test_type_flag_accepts_ansible_collection(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --type ansible_collection is accepted."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with patch(
-            "maverick.init.verify_prerequisites",
-            new_callable=AsyncMock,
-            return_value=mock_preflight_success,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "ansible_collection"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "ansible" in config.lower() or "molecule" in config.lower()
-
-    def test_type_flag_accepts_ansible_playbook(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --type ansible_playbook is accepted."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with patch(
-            "maverick.init.verify_prerequisites",
-            new_callable=AsyncMock,
-            return_value=mock_preflight_success,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "ansible_playbook"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        config = (git_repo / "maverick.yaml").read_text()
-        # Ansible playbook uses yamllint and ansible-lint
-        assert "yaml" in config.lower() or "ansible" in config.lower()
+        config = (git_repo / "maverick.yaml").read_text().lower()
+        assert config_marker in config
 
     def test_type_flag_rejects_invalid_type(
         self,

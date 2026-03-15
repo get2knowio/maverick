@@ -7,6 +7,9 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+dist/
+build/
+*.egg-info/
 
 .coverage.*
 coverage.xml

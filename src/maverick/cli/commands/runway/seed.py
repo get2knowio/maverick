@@ -9,14 +9,7 @@ import click
 from maverick.cli.commands.runway._group import runway
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
-from maverick.cli.output import format_success, format_warning
-
-
-def _format_size(size_bytes: int) -> str:
-    """Format byte count as human-readable string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    return f"{size_bytes / 1024:.1f} KB"
+from maverick.cli.output import format_bytes, format_success, format_warning
 
 
 @runway.command()
@@ -72,12 +65,13 @@ async def seed(
         click.echo("Dry run — would analyze and generate semantic files.")
         raise SystemExit(ExitCode.SUCCESS)
 
-    # Run seed
+    # Run seed — pass pre-gathered context to avoid re-gathering
     click.echo("Analyzing codebase via ACP provider...")
     result = await run_seed(
         project_path,
         provider=provider,
         force=force,
+        context=context,
     )
 
     if not result.success:
@@ -102,7 +96,7 @@ async def seed(
         # Read back to show size
         fpath = project_path / ".maverick" / "runway" / "semantic" / filename
         size = fpath.stat().st_size if fpath.exists() else 0
-        click.echo(f"  ✓ {filename} ({_format_size(size)})")
+        click.echo(f"  ✓ {filename} ({format_bytes(size)})")
 
     click.echo("")
     console.print(

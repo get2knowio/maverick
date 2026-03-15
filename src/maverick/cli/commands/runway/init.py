@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import click
 
 from maverick.cli.commands.runway._group import runway
 from maverick.cli.console import console
+from maverick.cli.context import async_command
 from maverick.cli.output import format_success
 
 
 @runway.command()
 @click.pass_context
-def init(ctx: click.Context) -> None:
+@async_command
+async def init(ctx: click.Context) -> None:
     """Initialize the runway knowledge store in the current project."""
     from maverick.runway.store import RunwayStore
 
@@ -27,10 +28,7 @@ def init(ctx: click.Context) -> None:
         console.print(f"  Path: {runway_path}")
         return
 
-    try:
-        asyncio.get_event_loop().run_until_complete(store.initialize())
-    except RuntimeError:
-        asyncio.run(store.initialize())
+    await store.initialize()
 
     console.print(format_success("Runway initialized."))
     console.print(f"  Path: {runway_path}")

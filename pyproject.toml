@@ -18,9 +18,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -46,8 +46,13 @@ dependencies = [
     "rich>=13.0,<14",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
-    "agent-client-protocol>=0.8.1",
+    "agent-client-protocol>=0.8.1,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/get2knowio/maverick"
+Repository = "https://github.com/get2knowio/maverick"
+Issues = "https://github.com/get2knowio/maverick/issues"
 
 [project.scripts]
 maverick-cli = "maverick.main:cli"

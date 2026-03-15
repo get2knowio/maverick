@@ -906,7 +906,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-client-protocol", specifier = ">=0.8.1" },
+    { name = "agent-client-protocol", specifier = ">=0.8.1,<1" },
     { name = "aiofiles", specifier = ">=23.0.0,<25" },
     { name = "aiohttp", specifier = ">=3.9.0,<4" },
     { name = "aiolimiter", specifier = ">=1.2,<2" },
