@@ -79,9 +79,7 @@ async def test_consolidation_called_when_enabled() -> None:
             new_callable=AsyncMock,
             return_value=mock_result,
         ) as mock_consolidate,
-        patch(
-            "maverick.cli.commands.land._sync_runway_semantics"
-        ),
+        patch("maverick.cli.commands.land._sync_runway_semantics"),
     ):
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=False)
         mock_consolidate.assert_called_once()
@@ -133,9 +131,7 @@ async def test_force_when_workspace_differs_from_user_repo() -> None:
             new_callable=AsyncMock,
             return_value=mock_result,
         ) as mock_consolidate,
-        patch(
-            "maverick.cli.commands.land._sync_runway_semantics"
-        ) as mock_sync,
+        patch("maverick.cli.commands.land._sync_runway_semantics") as mock_sync,
     ):
         await _maybe_consolidate(
             Path("/tmp/workspace"),

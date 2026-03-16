@@ -403,12 +403,8 @@ async def _finalize(
 
         # Consolidate runway (best-effort, after merge, before teardown).
         # Runway data lives in the workspace (fly writes there).
-        consolidation_cwd = (
-            manager.workspace_path if manager.exists else user_repo
-        )
-        await _maybe_consolidate(
-            consolidation_cwd, no_consolidate, user_repo=user_repo
-        )
+        consolidation_cwd = manager.workspace_path if manager.exists else user_repo
+        await _maybe_consolidate(consolidation_cwd, no_consolidate, user_repo=user_repo)
     else:
         err_console.print(
             format_error(
@@ -475,9 +471,7 @@ async def _maybe_consolidate(
             force=force,
         )
         if result.skipped:
-            logger.debug(
-                "runway_consolidation_skipped", reason=result.skip_reason
-            )
+            logger.debug("runway_consolidation_skipped", reason=result.skip_reason)
         elif result.success:
             msg = f"  Pruned {result.records_pruned} old records."
             if result.summary_updated:
@@ -490,9 +484,7 @@ async def _maybe_consolidate(
                 _sync_runway_semantics(runway_cwd, user_repo)
         else:
             console.print(
-                format_warning(
-                    f"Runway consolidation failed: {result.error}"
-                )
+                format_warning(f"Runway consolidation failed: {result.error}")
             )
     except Exception as exc:
         # Best-effort — never block landing
