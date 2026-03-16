@@ -304,9 +304,14 @@ async def _approve(
 
     console.print(format_success(f"Landed {len(commits)} commit(s) into local repo."))
 
-    # Consolidate runway (best-effort, after merge, before teardown)
-    repo_for_consolidation = user_repo or Path.cwd().resolve()
-    await _maybe_consolidate(repo_for_consolidation, no_consolidate)
+    # Consolidate runway (best-effort, after merge, before teardown).
+    # Runway data lives in the workspace (fly writes there), so pass
+    # workspace cwd.  Fall back to user_repo when there's no workspace.
+    repo_path_resolved = user_repo or Path.cwd().resolve()
+    consolidation_cwd = cwd or repo_path_resolved
+    await _maybe_consolidate(
+        consolidation_cwd, no_consolidate, user_repo=repo_path_resolved
+    )
 
     # Teardown workspace
     if manager.exists:
@@ -376,6 +381,8 @@ async def _finalize(
     project_name = user_repo.name
     preview_branch = branch or f"maverick/preview/{project_name}"
 
+    manager = WorkspaceManager(user_repo_path=user_repo)
+
     console.print(f"Finalizing from branch [bold]{preview_branch}[/bold]...")
 
     # Merge preview branch into current branch
@@ -394,8 +401,14 @@ async def _finalize(
         except Exception:
             logger.debug("preview_branch_cleanup_failed", branch=preview_branch)
 
-        # Consolidate runway (best-effort, after merge, before teardown)
-        await _maybe_consolidate(user_repo, no_consolidate)
+        # Consolidate runway (best-effort, after merge, before teardown).
+        # Runway data lives in the workspace (fly writes there).
+        consolidation_cwd = (
+            manager.workspace_path if manager.exists else user_repo
+        )
+        await _maybe_consolidate(
+            consolidation_cwd, no_consolidate, user_repo=user_repo
+        )
     else:
         err_console.print(
             format_error(
@@ -404,9 +417,6 @@ async def _finalize(
             )
         )
         raise SystemExit(ExitCode.FAILURE)
-
-    # Cleanup workspace if it still exists
-    manager = WorkspaceManager(user_repo_path=user_repo)
     if manager.exists:
         await manager.teardown()
         console.print("Workspace cleaned up.")
@@ -419,12 +429,28 @@ async def _finalize(
 # =====================================================================
 
 
-async def _maybe_consolidate(user_repo: Path, no_consolidate: bool) -> None:
+async def _maybe_consolidate(
+    runway_cwd: Path,
+    no_consolidate: bool,
+    *,
+    user_repo: Path | None = None,
+) -> None:
     """Best-effort runway consolidation after merge.
 
+    Runs consolidation against ``runway_cwd`` (typically the workspace where
+    fly wrote runway data).  When ``user_repo`` is provided and has an
+    initialized runway, the consolidated semantic files are copied there so
+    they survive workspace teardown.
+
+    When the workspace is about to be torn down, consolidation is forced
+    (threshold checks skipped) because the data will be lost otherwise.
+
     Args:
-        user_repo: Path to the user's repository.
-        no_consolidate: If True, skip consolidation.
+        runway_cwd: Directory containing ``.maverick/runway/`` with data.
+        no_consolidate: If True, skip consolidation entirely.
+        user_repo: User's repository path.  If set and its runway is
+            initialized, semantic output is synced from workspace to
+            user repo after consolidation.
     """
     if no_consolidate:
         return
@@ -438,27 +464,75 @@ async def _maybe_consolidate(user_repo: Path, no_consolidate: bool) -> None:
 
         from maverick.library.actions.consolidation import consolidate_runway
 
+        # Force consolidation when workspace data would be lost on teardown.
+        force = user_repo is not None and runway_cwd != user_repo
+
         console.print("Consolidating runway knowledge store...")
         result = await consolidate_runway(
-            cwd=user_repo,
+            cwd=runway_cwd,
             max_age_days=config.runway.consolidation.max_episodic_age_days,
             max_records=config.runway.consolidation.max_episodic_records,
+            force=force,
         )
         if result.skipped:
-            logger.debug("runway_consolidation_skipped", reason=result.skip_reason)
+            logger.debug(
+                "runway_consolidation_skipped", reason=result.skip_reason
+            )
         elif result.success:
             msg = f"  Pruned {result.records_pruned} old records."
             if result.summary_updated:
                 msg += " Updated consolidated-insights.md."
             console.print(msg)
+
+            # Sync consolidated semantic files to user repo so they
+            # survive workspace teardown.
+            if user_repo is not None and runway_cwd != user_repo:
+                _sync_runway_semantics(runway_cwd, user_repo)
         else:
             console.print(
-                format_warning(f"Runway consolidation failed: {result.error}")
+                format_warning(
+                    f"Runway consolidation failed: {result.error}"
+                )
             )
     except Exception as exc:
         # Best-effort — never block landing
         console.print(format_warning(f"Runway consolidation failed: {exc}"))
         logger.debug("runway_consolidation_error", error=str(exc))
+
+
+def _sync_runway_semantics(src_cwd: Path, dst_cwd: Path) -> None:
+    """Copy semantic files from workspace runway to user repo runway.
+
+    Only copies if both runway directories exist.  Best-effort — errors
+    are logged and swallowed.
+
+    Args:
+        src_cwd: Workspace directory with ``.maverick/runway/semantic/``.
+        dst_cwd: User repo directory with ``.maverick/runway/semantic/``.
+    """
+    import shutil
+
+    src_semantic = src_cwd / ".maverick" / "runway" / "semantic"
+    dst_semantic = dst_cwd / ".maverick" / "runway" / "semantic"
+
+    if not src_semantic.is_dir():
+        return
+    if not (dst_cwd / ".maverick" / "runway").is_dir():
+        # User repo has no runway — nothing to sync into
+        return
+
+    try:
+        dst_semantic.mkdir(parents=True, exist_ok=True)
+        for src_file in src_semantic.iterdir():
+            if src_file.is_file():
+                shutil.copy2(src_file, dst_semantic / src_file.name)
+        logger.debug(
+            "runway_semantics_synced",
+            src=str(src_semantic),
+            dst=str(dst_semantic),
+        )
+    except Exception as exc:
+        logger.debug("runway_semantics_sync_failed", error=str(exc))
 
 
 # =====================================================================

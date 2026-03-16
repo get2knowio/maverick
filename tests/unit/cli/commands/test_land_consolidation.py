@@ -79,6 +79,9 @@ async def test_consolidation_called_when_enabled() -> None:
             new_callable=AsyncMock,
             return_value=mock_result,
         ) as mock_consolidate,
+        patch(
+            "maverick.cli.commands.land._sync_runway_semantics"
+        ),
     ):
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=False)
         mock_consolidate.assert_called_once()
@@ -103,3 +106,116 @@ async def test_consolidation_failure_doesnt_block_land() -> None:
     ):
         # Should not raise
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=False)
+
+
+@pytest.mark.asyncio()
+async def test_force_when_workspace_differs_from_user_repo() -> None:
+    """force=True when runway_cwd != user_repo (workspace about to be torn down)."""
+    mock_config = MagicMock()
+    mock_config.runway.enabled = True
+    mock_config.runway.consolidation.auto = True
+    mock_config.runway.consolidation.max_episodic_age_days = 90
+    mock_config.runway.consolidation.max_episodic_records = 500
+
+    mock_result = RunwayConsolidationResult(
+        success=True,
+        records_pruned=5,
+        summary_updated=True,
+        skipped=False,
+        skip_reason=None,
+        error=None,
+    )
+
+    with (
+        patch("maverick.config.load_config", return_value=mock_config),
+        patch(
+            "maverick.library.actions.consolidation.consolidate_runway",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_consolidate,
+        patch(
+            "maverick.cli.commands.land._sync_runway_semantics"
+        ) as mock_sync,
+    ):
+        await _maybe_consolidate(
+            Path("/tmp/workspace"),
+            no_consolidate=False,
+            user_repo=Path("/tmp/user-repo"),
+        )
+        mock_consolidate.assert_called_once()
+        call_kwargs = mock_consolidate.call_args[1]
+        assert call_kwargs["force"] is True
+        assert call_kwargs["cwd"] == Path("/tmp/workspace")
+        mock_sync.assert_called_once_with(
+            Path("/tmp/workspace"), Path("/tmp/user-repo")
+        )
+
+
+@pytest.mark.asyncio()
+async def test_no_force_when_same_path() -> None:
+    """force=False when runway_cwd == user_repo (no workspace)."""
+    mock_config = MagicMock()
+    mock_config.runway.enabled = True
+    mock_config.runway.consolidation.auto = True
+    mock_config.runway.consolidation.max_episodic_age_days = 90
+    mock_config.runway.consolidation.max_episodic_records = 500
+
+    mock_result = RunwayConsolidationResult(
+        success=True,
+        records_pruned=0,
+        summary_updated=False,
+        skipped=True,
+        skip_reason="Below thresholds",
+        error=None,
+    )
+
+    with (
+        patch("maverick.config.load_config", return_value=mock_config),
+        patch(
+            "maverick.library.actions.consolidation.consolidate_runway",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_consolidate,
+    ):
+        repo = Path("/tmp/repo")
+        await _maybe_consolidate(repo, no_consolidate=False, user_repo=repo)
+        call_kwargs = mock_consolidate.call_args[1]
+        assert call_kwargs["force"] is False
+
+
+def test_sync_runway_semantics(tmp_path: Path) -> None:
+    """Semantic files should be copied from workspace to user repo."""
+    from maverick.cli.commands.land import _sync_runway_semantics
+
+    # Set up source (workspace) runway with a semantic file
+    src = tmp_path / "workspace"
+    src_semantic = src / ".maverick" / "runway" / "semantic"
+    src_semantic.mkdir(parents=True)
+    (src_semantic / "consolidated-insights.md").write_text("# Insights")
+
+    # Set up destination (user repo) runway
+    dst = tmp_path / "user-repo"
+    (dst / ".maverick" / "runway").mkdir(parents=True)
+
+    _sync_runway_semantics(src, dst)
+
+    dst_file = dst / ".maverick" / "runway" / "semantic" / "consolidated-insights.md"
+    assert dst_file.exists()
+    assert dst_file.read_text() == "# Insights"
+
+
+def test_sync_runway_semantics_no_dst_runway(tmp_path: Path) -> None:
+    """Sync should be a no-op when user repo has no runway."""
+    from maverick.cli.commands.land import _sync_runway_semantics
+
+    src = tmp_path / "workspace"
+    src_semantic = src / ".maverick" / "runway" / "semantic"
+    src_semantic.mkdir(parents=True)
+    (src_semantic / "consolidated-insights.md").write_text("# Insights")
+
+    dst = tmp_path / "user-repo"
+    dst.mkdir()
+
+    _sync_runway_semantics(src, dst)
+
+    assert not (dst / ".maverick").exists()

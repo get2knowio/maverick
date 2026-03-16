@@ -235,6 +235,7 @@ Three modes of operation:
 | `--heuristic-only` | false | Use heuristic curation (no agent) |
 | `--eject` | false | Create local preview branch, keep workspace |
 | `--finalize` | false | Merge preview branch, cleanup workspace |
+| `--no-consolidate` | false | Skip runway consolidation |
 | `--branch <name>` | `maverick/<project>` | Custom branch name |
 
 ### `maverick brief` — Bead Dashboard
@@ -252,10 +253,18 @@ maverick runway init             # Initialize the runway store
 maverick runway status           # Show store status and metrics
 maverick runway seed             # AI-generated codebase analysis
 maverick runway seed --dry-run   # Preview what would be generated
+maverick runway consolidate      # Distill old records into summaries
+maverick runway consolidate --force  # Run even if below thresholds
 ```
 
 The `seed` command analyzes a brownfield codebase and pre-populates the runway
 with architectural insights, making agents more effective from the first bead.
+
+The `consolidate` command distills old episodic records into a semantic
+`consolidated-insights.md` summary using an AI agent, then prunes the JSONL
+files to keep only recent records. This runs automatically during
+`maverick land` (disable with `--no-consolidate`) and can also be triggered
+manually.
 
 ### `maverick init` — Project Setup
 
@@ -363,7 +372,10 @@ The runway records episodic data as beads are processed:
 This data is stored as JSONL files with BM25-based retrieval. Over time, agents
 can query the runway for context on past decisions, recurring patterns, and
 known pitfalls. The `maverick runway seed` command bootstraps this store by
-analyzing a brownfield codebase with an AI agent.
+analyzing a brownfield codebase with an AI agent. Periodic consolidation
+(automatic during `maverick land`, or manual via `maverick runway consolidate`)
+distills old episodic records into semantic summaries, keeping the store bounded
+in size and improving retrieval quality.
 
 ### Project Structure
 
