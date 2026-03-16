@@ -10,6 +10,7 @@ from maverick.library.actions.beads import (
     check_epic_done,
     mark_bead_complete,
     select_next_bead,
+    verify_bead_completion,
 )
 from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
@@ -28,12 +29,13 @@ from maverick.workflows.fly_beads.constants import (
 from maverick.workflows.fly_beads.models import BeadContext, FlyBeadsResult
 from maverick.workflows.fly_beads.steps import (
     commit_bead,
+    fetch_runway_context,
     load_briefing_context,
     rollback_bead,
-    run_implement,
-    run_sync_deps,
-    run_validate_and_fix,
-    run_verify_cycle,
+    run_gate_check,
+    run_gate_remediation,
+    run_implement_and_validate,
+    run_review_and_remediate,
     snapshot_and_describe,
 )
 from maverick.workspace.manager import WorkspaceManager
@@ -42,11 +44,13 @@ logger = get_logger(__name__)
 
 
 class FlyBeadsWorkflow(PythonWorkflow):
-    """Bead-driven development workflow.
+    """Bead-driven development workflow with invariant-based orchestration.
 
-    Iterates over ready beads, implementing each one in an isolated jj
-    workspace. For each bead: implement → sync deps → validate/fix →
-    review/fix → verify → commit/close (or rollback on failure).
+    For each bead: implement+validate (agent) → gate check (orchestrator) →
+    optional gate remediation → review+remediate → final gate → commit/rollback.
+
+    The agent owns implementation and validation internally. The workflow
+    enforces gates (independent validation) and structural invariants.
 
     Args:
         config: Project configuration.
@@ -275,11 +279,34 @@ class FlyBeadsWorkflow(PythonWorkflow):
             )
 
             try:
+                await fetch_runway_context(self, ctx)
                 await snapshot_and_describe(self, ctx)
-                await run_implement(self, ctx)
-                await run_sync_deps(self, ctx)
-                await run_validate_and_fix(self, ctx)
-                await run_verify_cycle(self, ctx, skip_review=skip_review)
+
+                # Agent implements + validates internally
+                await run_implement_and_validate(self, ctx)
+
+                # Orchestrator verifies independently (trust-but-verify)
+                await run_gate_check(self, ctx)
+
+                # One remediation attempt if gate failed
+                if ctx.gate_result and not ctx.gate_result.get("passed", False):
+                    await run_gate_remediation(self, ctx)
+                    await run_gate_check(self, ctx)
+
+                # Review only if validation gate passed
+                gate_passed = ctx.gate_result and ctx.gate_result.get("passed", False)
+                if gate_passed:
+                    await run_review_and_remediate(self, ctx, skip_review=skip_review)
+                    # Final gate after review fixes
+                    if not skip_review and ctx.review_result:
+                        await run_gate_check(self, ctx)
+
+                # Verify and decide
+                ctx.verify_result = await verify_bead_completion(
+                    validation_result=ctx.gate_result or {},
+                    review_result=ctx.review_result,
+                    skip_review=skip_review,
+                )
 
                 if ctx.verify_result and ctx.verify_result.passed:
                     await commit_bead(self, ctx)

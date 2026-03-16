@@ -37,6 +37,62 @@ DEFAULT_STAGE_COMMANDS: dict[str, tuple[str, ...]] = {
 }
 
 
+async def run_independent_gate(
+    stages: list[str],
+    cwd: str | Path | None = None,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
+) -> dict[str, Any]:
+    """Run validation stages independently as an orchestrator gate check.
+
+    This is the public interface for the orchestrator to verify code state
+    without involving any fixer agent. It runs validation commands as
+    subprocesses and returns structured results.
+
+    Args:
+        stages: Validation stage names to run (e.g. ["format", "lint", "test"]).
+        cwd: Working directory for validation commands.
+        validation_commands: Optional mapping of stage name to command tuple.
+            If None, defaults to DEFAULT_STAGE_COMMANDS.
+
+    Returns:
+        Dict with keys:
+            - passed: bool — True if all stages passed
+            - stage_results: dict — per-stage results keyed by stage name
+            - summary: str — human-readable summary of results
+    """
+    working_dir = Path(cwd) if cwd else Path.cwd()
+    commands = validation_commands or DEFAULT_STAGE_COMMANDS
+
+    result = await _run_validation(
+        stages=stages,
+        cwd=working_dir,
+        validation_commands=commands,
+    )
+
+    # Build a human-readable summary
+    passed = result.get("success", False)
+    stage_results = result.get("stage_results", {})
+    failed_stages = [
+        name
+        for name, sr in stage_results.items()
+        if not name.startswith("_") and not sr.get("passed", True)
+    ]
+
+    if passed:
+        summary = f"All {len(stages)} validation stages passed."
+    else:
+        summary = (
+            f"{len(failed_stages)} of {len(stages)} validation stage(s) failed: "
+            + ", ".join(failed_stages)
+        )
+
+    return {
+        "passed": passed,
+        "stage_results": stage_results,
+        "summary": summary,
+    }
+
+
 async def run_fix_retry_loop(
     stages: list[str],
     max_attempts: int,

@@ -19,6 +19,7 @@ import pytest
 from maverick.agents.implementer import (
     IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE,
     ImplementerAgent,
+    _coerce_implementer_context,
 )
 from maverick.agents.tools import IMPLEMENTER_TOOLS
 from maverick.exceptions import AgentError, TaskParseError
@@ -203,7 +204,7 @@ class TestImplementerAgentInitialization:
         """Test instructions mentions orchestration layer (T024).
 
         Agent should understand it operates within an orchestration context
-        and should not attempt to execute validation itself.
+        that handles git/branch operations.
         """
         prompt = agent.instructions
         assert "orchestration" in prompt.lower() or "orchestrated" in prompt.lower()
@@ -1074,3 +1075,125 @@ class TestSideEffectFree:
     # NOTE: test_task_result_has_empty_validation, test_task_result_has_no_commit_sha,
     # and test_implementation_result_has_empty_commits_list were removed because they
     # relied on agent.execute() and agent.query which no longer exist (ACP migration).
+
+
+# =============================================================================
+# Coercion Bug Fix Tests
+# =============================================================================
+
+
+class TestCoerceImplementerContext:
+    """Tests for _coerce_implementer_context preserving all fields."""
+
+    def test_coerce_includes_briefing_context(self) -> None:
+        """briefing_context is not discarded during coercion."""
+        data = {
+            "task_description": "Implement the auth module end to end",
+            "cwd": "/tmp/test",
+            "briefing_context": "## Project Briefing\nThis is the briefing.",
+        }
+        ctx = _coerce_implementer_context(data)
+        assert ctx.briefing_context == "## Project Briefing\nThis is the briefing."
+
+    def test_coerce_includes_previous_failures(self) -> None:
+        """previous_failures is not discarded during coercion."""
+        data = {
+            "task_description": "Implement the auth module end to end",
+            "cwd": "/tmp/test",
+            "previous_failures": "Attempt 1: lint failed\nAttempt 2: test failed",
+        }
+        ctx = _coerce_implementer_context(data)
+        assert "lint failed" in (ctx.previous_failures or "")
+
+    def test_coerce_includes_runway_context(self) -> None:
+        """runway_context is not discarded during coercion."""
+        data = {
+            "task_description": "Implement the auth module end to end",
+            "cwd": "/tmp/test",
+            "runway_context": "### Recent Outcomes\n- bead-1: passed",
+        }
+        ctx = _coerce_implementer_context(data)
+        assert ctx.runway_context == "### Recent Outcomes\n- bead-1: passed"
+
+    def test_coerce_none_when_not_provided(self) -> None:
+        """Optional fields default to None when not in dict."""
+        data = {
+            "task_description": "Implement the auth module end to end",
+        }
+        ctx = _coerce_implementer_context(data)
+        assert ctx.briefing_context is None
+        assert ctx.previous_failures is None
+        assert ctx.runway_context is None
+
+
+# =============================================================================
+# Prompt Section Injection Tests
+# =============================================================================
+
+
+class TestBuildTaskPromptSections:
+    """Tests for optional sections in _build_task_prompt."""
+
+    def test_includes_runway_section(self, agent: ImplementerAgent) -> None:
+        """'Historical Context' section appears when runway_context is set."""
+        context = ImplementerContext(
+            task_description="Implement the auth module end to end",
+            branch="feature/test",
+            runway_context="### Recent Outcomes\n- bead-1",
+        )
+        task = Task(id="T001", description="Test task")
+        prompt = agent._build_task_prompt(task, context)
+        assert "## Historical Context" in prompt
+        assert "Recent Outcomes" in prompt
+
+    def test_includes_briefing_section(self, agent: ImplementerAgent) -> None:
+        """'Project Briefing' section appears when briefing_context is set."""
+        context = ImplementerContext(
+            task_description="Implement the auth module end to end",
+            branch="feature/test",
+            briefing_context="Use JWT for all authentication.",
+        )
+        task = Task(id="T001", description="Test task")
+        prompt = agent._build_task_prompt(task, context)
+        assert "## Project Briefing" in prompt
+        assert "Use JWT" in prompt
+
+    def test_includes_previous_failures_section(self, agent: ImplementerAgent) -> None:
+        """'Previous Failures' section appears when set."""
+        context = ImplementerContext(
+            task_description="Implement the auth module end to end",
+            branch="feature/test",
+            previous_failures="Attempt 1: lint failed",
+        )
+        task = Task(id="T001", description="Test task")
+        prompt = agent._build_task_prompt(task, context)
+        assert "## Previous Failures" in prompt
+        assert "lint failed" in prompt
+
+    def test_omits_sections_when_none(self, agent: ImplementerAgent) -> None:
+        """No empty section headers when optional fields are None."""
+        context = ImplementerContext(
+            task_description="Implement the auth module end to end",
+            branch="feature/test",
+        )
+        task = Task(id="T001", description="Test task")
+        prompt = agent._build_task_prompt(task, context)
+        assert "## Historical Context" not in prompt
+        assert "## Project Briefing" not in prompt
+        assert "## Previous Failures" not in prompt
+
+    def test_section_order(self, agent: ImplementerAgent) -> None:
+        """Sections appear in order: runway → briefing → failures."""
+        context = ImplementerContext(
+            task_description="Implement the auth module end to end",
+            branch="feature/test",
+            runway_context="runway data",
+            briefing_context="briefing data",
+            previous_failures="failure data",
+        )
+        task = Task(id="T001", description="Test task")
+        prompt = agent._build_task_prompt(task, context)
+        runway_pos = prompt.index("## Historical Context")
+        briefing_pos = prompt.index("## Project Briefing")
+        failures_pos = prompt.index("## Previous Failures")
+        assert runway_pos < briefing_pos < failures_pos

@@ -288,6 +288,7 @@ class RunwayRetrievalConfig(BaseModel):
 
     max_passages: int = Field(default=10, ge=1, le=50)
     bm25_top_k: int = Field(default=20, ge=1, le=100)
+    max_context_chars: int = Field(default=4000, ge=500, le=20000)
 
 
 class RunwayConfig(BaseModel):

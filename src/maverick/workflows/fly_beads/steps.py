@@ -2,6 +2,9 @@
 
 Each function receives the workflow instance (for emit_* and _step_executor)
 and a BeadContext that threads mutable state through the pipeline.
+
+Invariant-based orchestration: the agent owns implementation + validation
+internally, the workflow enforces gates.
 """
 
 from __future__ import annotations
@@ -12,12 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 from maverick.executor.config import StepConfig
 from maverick.library.actions.beads import (
-    create_beads_from_failures,
     create_beads_from_findings,
     mark_bead_complete,
-    verify_bead_completion,
 )
-from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.jj import (
     jj_commit_bead,
     jj_describe,
@@ -28,21 +28,24 @@ from maverick.library.actions.review import (
     gather_local_review_context,
     run_review_fix_loop,
 )
-from maverick.library.actions.runway import record_bead_outcome, record_review_findings
-from maverick.library.actions.validation import run_fix_retry_loop
+from maverick.library.actions.runway import (
+    record_bead_outcome,
+    record_review_findings,
+    retrieve_runway_context,
+)
+from maverick.library.actions.validation import run_independent_gate
 from maverick.logging import get_logger
 from maverick.types import StepType
 from maverick.workflows.fly_beads.constants import (
     COMMIT,
     DEFAULT_BASE_BRANCH,
-    DEFAULT_MAX_FIX_ATTEMPTS,
-    DEFAULT_MAX_REVIEW_ATTEMPTS,
     DEFAULT_VALIDATION_STAGES,
-    IMPLEMENT,
-    MAX_VERIFY_CYCLES,
+    GATE_CHECK,
+    GATE_REMEDIATION,
+    GATE_REMEDIATION_TIMEOUT,
+    IMPLEMENT_AND_VALIDATE,
+    IMPLEMENT_AND_VALIDATE_TIMEOUT,
     REVIEW,
-    SYNC_DEPS,
-    VALIDATE,
 )
 from maverick.workflows.fly_beads.models import BeadContext
 
@@ -69,6 +72,52 @@ def load_briefing_context(flight_plan_name: str | None) -> str | None:
     return None
 
 
+async def fetch_runway_context(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Fetch runway context for the current bead (best-effort).
+
+    Queries the runway store for historical outcomes and semantically
+    relevant passages. Sets ctx.runway_context if data is found.
+    Never raises — logs a warning on failure.
+    """
+    try:
+        runway_cfg = getattr(wf._config, "runway", None)
+        if runway_cfg is None or not getattr(runway_cfg, "enabled", True):
+            return
+
+        retrieval_cfg = getattr(runway_cfg, "retrieval", None)
+        max_passages = (
+            getattr(retrieval_cfg, "max_passages", 10) if retrieval_cfg else 10
+        )
+        bm25_top_k = getattr(retrieval_cfg, "bm25_top_k", 20) if retrieval_cfg else 20
+        max_context_chars = (
+            getattr(retrieval_cfg, "max_context_chars", 4000) if retrieval_cfg else 4000
+        )
+
+        result = await retrieve_runway_context(
+            title=ctx.title,
+            description=ctx.description,
+            epic_id=ctx.epic_id,
+            max_passages=max_passages,
+            bm25_top_k=bm25_top_k,
+            max_context_chars=max_context_chars,
+            cwd=ctx.cwd,
+        )
+        if result.context_text:
+            ctx.runway_context = result.context_text
+            logger.info(
+                "runway_context_fetched",
+                bead_id=ctx.bead_id,
+                outcomes=result.outcomes_used,
+                passages=result.passages_used,
+            )
+    except Exception as exc:
+        logger.warning(
+            "fetch_runway_context_failed",
+            bead_id=ctx.bead_id,
+            error=str(exc),
+        )
+
+
 async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     """Snapshot jj operation and set WIP description."""
     snapshot_result = await jj_snapshot_operation(cwd=ctx.cwd)
@@ -79,20 +128,27 @@ async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     )
 
 
-async def run_implement(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Execute the implement agent step.
+async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Execute the implement-and-validate agent step.
+
+    The agent implements the bead AND runs validation internally, iterating
+    until validation passes or it determines the issue is unfixable.
 
     On failure: emits step_failed (not step_completed), logs warning.
-    Does NOT propagate — bead continues to validate.
+    Does NOT propagate — bead continues to gate check.
     """
     cwd_str = str(ctx.cwd) if ctx.cwd else None
-    await wf.emit_step_started(IMPLEMENT, step_type=StepType.AGENT)
+    await wf.emit_step_started(IMPLEMENT_AND_VALIDATE, step_type=StepType.AGENT)
 
     if wf._step_executor is not None:
         implement_prompt: dict[str, Any] = {
             "task_description": ctx.description,
             "cwd": cwd_str,
         }
+        if ctx.runway_context:
+            implement_prompt["runway_context"] = ctx.runway_context
+        if ctx.briefing_context:
+            implement_prompt["briefing_context"] = ctx.briefing_context
         if ctx.prior_failures:
             implement_prompt["previous_failures"] = (
                 "This bead failed in previous attempt(s). "
@@ -104,94 +160,171 @@ async def run_implement(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             )
         try:
             await wf._step_executor.execute(
-                step_name=IMPLEMENT,
+                step_name=IMPLEMENT_AND_VALIDATE,
                 agent_name="implementer",
                 prompt=implement_prompt,
                 cwd=ctx.cwd,
-                config=StepConfig(timeout=600),
+                config=StepConfig(timeout=IMPLEMENT_AND_VALIDATE_TIMEOUT),
             )
         except Exception as exc:
             logger.warning(
-                "implement_step_failed",
+                "implement_and_validate_step_failed",
                 bead_id=ctx.bead_id,
                 error=str(exc),
             )
-            await wf.emit_step_failed(IMPLEMENT, str(exc))
+            await wf.emit_step_failed(IMPLEMENT_AND_VALIDATE, str(exc))
             await wf.emit_output(
-                IMPLEMENT,
-                f"Implement step failed: {exc}",
+                IMPLEMENT_AND_VALIDATE,
+                f"Implement-and-validate step failed: {exc}",
                 level="warning",
             )
             return
     else:
         await wf.emit_output(
-            IMPLEMENT,
+            IMPLEMENT_AND_VALIDATE,
             "No step executor configured — skipping agent implement step",
             level="warning",
         )
 
-    await wf.emit_step_completed(IMPLEMENT)
+    await wf.emit_step_completed(IMPLEMENT_AND_VALIDATE)
 
 
-async def run_sync_deps(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Sync dependencies. Raises on failure (stops bead)."""
+async def run_gate_check(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Run independent validation gate check.
+
+    The orchestrator runs validation as subprocess — trust-but-verify.
+    Stores result in ctx.gate_result and ctx.validation_result.
+    Never raises — gate pass/fail handled by workflow loop.
+    """
     cwd_str = str(ctx.cwd) if ctx.cwd else None
-    await wf.emit_step_started(SYNC_DEPS)
-    try:
-        sync_result = await sync_dependencies(cwd=cwd_str)
-    except Exception as exc:
-        await wf.emit_step_failed(SYNC_DEPS, str(exc))
-        raise
-    await wf.emit_step_completed(SYNC_DEPS, sync_result.to_dict())
+    await wf.emit_step_started(GATE_CHECK)
 
-
-async def _run_validation(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Run validation fix-retry loop. Stores result in ctx.validation_result."""
-    cwd_str = str(ctx.cwd) if ctx.cwd else None
-    initial_validation: dict[str, Any] = {
-        "passed": False,
-        "stage_results": {},
-        "success": False,
-    }
-    await wf.emit_step_started(VALIDATE)
     try:
-        ctx.validation_result = await run_fix_retry_loop(
+        gate_result = await run_independent_gate(
             stages=list(DEFAULT_VALIDATION_STAGES),
-            max_attempts=DEFAULT_MAX_FIX_ATTEMPTS,
-            fixer_agent="fixer",
-            validation_result=initial_validation,
-            generate_report=True,
             cwd=cwd_str,
         )
+        ctx.gate_result = gate_result
+        # Also update validation_result for runway recording compatibility
+        ctx.validation_result = gate_result
     except Exception as exc:
-        await wf.emit_step_failed(VALIDATE, str(exc))
-        raise
-    await wf.emit_step_completed(VALIDATE, ctx.validation_result)
+        logger.warning(
+            "gate_check_failed",
+            bead_id=ctx.bead_id,
+            error=str(exc),
+        )
+        ctx.gate_result = {
+            "passed": False,
+            "stage_results": {},
+            "summary": f"Gate check error: {exc}",
+        }
+        ctx.validation_result = ctx.gate_result
+        await wf.emit_step_failed(GATE_CHECK, str(exc))
+        return
+
+    await wf.emit_step_completed(GATE_CHECK, gate_result)
 
 
-async def run_validate_and_fix(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Run validation and create fix beads for failures."""
-    await _run_validation(wf, ctx)
+async def run_gate_remediation(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+    """Run gate remediation agent to fix gate failures.
 
-    validation = ctx.validation_result or {}
-    if not validation.get("passed", False):
-        try:
-            await create_beads_from_failures(
-                epic_id=ctx.epic_id,
-                validation_result=validation,
-            )
-        except Exception as exc:
-            logger.warning(
-                "create_fix_beads_failed",
-                bead_id=ctx.bead_id,
-                error=str(exc),
-            )
+    Only called when gate_check failed. Invokes GateRemediationAgent with
+    gate failure output. Sets ctx.remediation_attempted = True.
+
+    Non-fatal on executor failure.
+    """
+    await wf.emit_step_started(GATE_REMEDIATION, step_type=StepType.AGENT)
+    ctx.remediation_attempted = True
+
+    if wf._step_executor is None:
+        await wf.emit_output(
+            GATE_REMEDIATION,
+            "No step executor configured — skipping gate remediation",
+            level="warning",
+        )
+        await wf.emit_step_completed(GATE_REMEDIATION)
+        return
+
+    # Build prompt from gate failure details
+    gate_summary = ""
+    if ctx.gate_result:
+        gate_summary = ctx.gate_result.get("summary", "")
+        stage_results = ctx.gate_result.get("stage_results", {})
+        failure_details = []
+        for stage_name, sr in stage_results.items():
+            if stage_name.startswith("_"):
+                continue
+            if not sr.get("passed", True):
+                output = sr.get("output", "")
+                errors = sr.get("errors", [])
+                if errors:
+                    error_msgs = [
+                        e.get("message", str(e)) if isinstance(e, dict) else str(e)
+                        for e in errors
+                    ]
+                    failure_details.append(f"- {stage_name}: {'; '.join(error_msgs)}")
+                elif output:
+                    failure_details.append(f"- {stage_name}: {output[:500]}")
+                else:
+                    failure_details.append(f"- {stage_name}: failed (no details)")
+
+        if failure_details:
+            gate_summary += "\n\nFailure details:\n" + "\n".join(failure_details)
+
+    remediation_prompt: dict[str, Any] = {
+        "prompt": (
+            "The orchestrator independently ran validation and found these failures. "
+            "Fix the issues and re-run validation to verify your fixes.\n\n"
+            f"{gate_summary}"
+        ),
+        "cwd": str(ctx.cwd) if ctx.cwd else None,
+    }
+
+    try:
+        await wf._step_executor.execute(
+            step_name=GATE_REMEDIATION,
+            agent_name="gate_remediator",
+            prompt=remediation_prompt,
+            cwd=ctx.cwd,
+            config=StepConfig(timeout=GATE_REMEDIATION_TIMEOUT),
+        )
+    except Exception as exc:
+        logger.warning(
+            "gate_remediation_step_failed",
+            bead_id=ctx.bead_id,
+            error=str(exc),
+        )
+        await wf.emit_step_failed(GATE_REMEDIATION, str(exc))
+        await wf.emit_output(
+            GATE_REMEDIATION,
+            f"Gate remediation failed: {exc}",
+            level="warning",
+        )
+        return
+
+    await wf.emit_step_completed(GATE_REMEDIATION)
 
 
-async def _run_review(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Run review and fix loop. Stores result in ctx.review_result."""
+async def run_review_and_remediate(
+    wf: FlyBeadsWorkflow,
+    ctx: BeadContext,
+    *,
+    skip_review: bool,
+) -> None:
+    """Run review and fix findings in a single pass.
+
+    If skip_review: return immediately.
+    Runs dual review (CompletenessReviewer + CorrectnessReviewer in parallel).
+    If critical/major findings: invokes SimpleFixerAgent (with Bash access).
+    Creates beads from remaining unresolved findings.
+    Records runway review data. Single pass — no retry loop.
+    """
+    if skip_review:
+        return
+
     cwd_str = str(ctx.cwd) if ctx.cwd else None
     await wf.emit_step_started(REVIEW, step_type=StepType.AGENT)
+
     try:
         review_context_result = await gather_local_review_context(
             base_branch=DEFAULT_BASE_BRANCH,
@@ -201,7 +334,7 @@ async def _run_review(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
         review_loop_result = await run_review_fix_loop(
             review_input=review_context_result.to_dict(),
             base_branch=DEFAULT_BASE_BRANCH,
-            max_attempts=DEFAULT_MAX_REVIEW_ATTEMPTS,
+            max_attempts=1,  # Single pass — no retry loop
             generate_report=True,
             cwd=cwd_str,
             briefing_context=ctx.briefing_context,
@@ -220,13 +353,10 @@ async def _run_review(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             level="warning",
         )
         ctx.review_result = None
+
     await wf.emit_step_completed(REVIEW, ctx.review_result)
 
-
-async def run_review_and_fix(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
-    """Run review, then create beads for remaining findings."""
-    await _run_review(wf, ctx)
-
+    # Create beads from unresolved findings
     if ctx.review_result is not None:
         try:
             await create_beads_from_findings(
@@ -238,44 +368,6 @@ async def run_review_and_fix(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
                 "create_review_beads_failed",
                 bead_id=ctx.bead_id,
                 error=str(exc),
-            )
-
-
-async def run_verify_cycle(
-    wf: FlyBeadsWorkflow,
-    ctx: BeadContext,
-    *,
-    skip_review: bool,
-) -> None:
-    """Run review → re-validate → verify cycle up to MAX_VERIFY_CYCLES times.
-
-    Sets ctx.verify_result with the final outcome.
-    """
-    for cycle in range(1, MAX_VERIFY_CYCLES + 1):
-        # Review (unless skipped)
-        if not skip_review:
-            await run_review_and_fix(wf, ctx)
-
-        # Re-validate after review fixer changes
-        await _run_validation(wf, ctx)
-
-        # Verify completion
-        ctx.verify_result = await verify_bead_completion(
-            validation_result=ctx.validation_result or {},
-            review_result=ctx.review_result,
-            skip_review=skip_review,
-        )
-
-        if ctx.verify_result.passed:
-            break
-
-        reasons_str = "; ".join(ctx.verify_result.reasons)
-        if cycle < MAX_VERIFY_CYCLES:
-            await wf.emit_output(
-                REVIEW,
-                f"Verify failed (cycle {cycle}/{MAX_VERIFY_CYCLES}): "
-                f"{reasons_str} — retrying review+validate",
-                level="warning",
             )
 
 

@@ -20,13 +20,13 @@ from maverick.workflows.fly_beads import FlyBeadsWorkflow
 from maverick.workflows.fly_beads.constants import (
     COMMIT,
     CREATE_WORKSPACE,
-    IMPLEMENT,
+    GATE_CHECK,
+    GATE_REMEDIATION,
+    IMPLEMENT_AND_VALIDATE,
     PREFLIGHT,
     REVIEW,
     SELECT_BEAD,
     SNAPSHOT_UNCOMMITTED,
-    SYNC_DEPS,
-    VALIDATE,
     WORKFLOW_NAME,
 )
 
@@ -36,9 +36,9 @@ _FLY_BEADS_STEPS = [
     SNAPSHOT_UNCOMMITTED,
     CREATE_WORKSPACE,
     SELECT_BEAD,
-    IMPLEMENT,
-    SYNC_DEPS,
-    VALIDATE,
+    IMPLEMENT_AND_VALIDATE,
+    GATE_CHECK,
+    GATE_REMEDIATION,
     REVIEW,
     COMMIT,
 ]

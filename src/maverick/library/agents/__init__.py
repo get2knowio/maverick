@@ -33,7 +33,7 @@ from maverick.agents.briefing import (
 )
 from maverick.agents.curator import CuratorAgent
 from maverick.agents.decomposer import DecomposerAgent
-from maverick.agents.fixer import FixerAgent
+from maverick.agents.fixer import FixerAgent, GateRemediationAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.preflight_briefing import (
@@ -84,6 +84,9 @@ def register_all_agents(registry: ComponentRegistry) -> None:
 
     # Register validation fixer agent (used in validate-and-fix fragment)
     registry.agents.register("validation_fixer", FixerAgent)
+
+    # Register gate remediation agent (used in fly-beads gate remediation step)
+    registry.agents.register("gate_remediator", GateRemediationAgent)
 
     # Register decomposer agent (used in refuel-maverick workflow)
     registry.agents.register("decomposer", DecomposerAgent)

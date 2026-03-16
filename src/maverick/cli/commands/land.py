@@ -70,6 +70,12 @@ logger = get_logger(__name__)
     help="Finalize after eject: merge preview branch, cleanup workspace.",
 )
 @click.option(
+    "--no-consolidate",
+    is_flag=True,
+    default=False,
+    help="Skip runway consolidation.",
+)
+@click.option(
     "--branch",
     default=None,
     help="Branch name for the local bookmark (default: maverick/<project>).",
@@ -85,6 +91,7 @@ async def land(
     heuristic_only: bool,
     eject: bool,
     finalize: bool,
+    no_consolidate: bool,
     branch: str | None,
 ) -> None:
     """Curate commit history and apply to local repo.
@@ -111,7 +118,7 @@ async def land(
         maverick land --yes
     """
     if finalize:
-        await _finalize(base=base, branch=branch)
+        await _finalize(base=base, branch=branch, no_consolidate=no_consolidate)
         return
 
     from maverick.library.actions.jj import (
@@ -202,6 +209,7 @@ async def land(
             yes=yes,
             cwd=cwd,
             user_repo=user_repo,
+            no_consolidate=no_consolidate,
         )
 
 
@@ -219,6 +227,7 @@ async def _approve(
     yes: bool,
     cwd: Path | None,
     user_repo: Path | None = None,
+    no_consolidate: bool = False,
 ) -> None:
     """Approve: push workspace commits to user repo and merge locally."""
     from maverick.jj.client import JjClient
@@ -295,6 +304,10 @@ async def _approve(
 
     console.print(format_success(f"Landed {len(commits)} commit(s) into local repo."))
 
+    # Consolidate runway (best-effort, after merge, before teardown)
+    repo_for_consolidation = user_repo or Path.cwd().resolve()
+    await _maybe_consolidate(repo_for_consolidation, no_consolidate)
+
     # Teardown workspace
     if manager.exists:
         await manager.teardown()
@@ -353,6 +366,7 @@ async def _eject(
 async def _finalize(
     base: str,
     branch: str | None,
+    no_consolidate: bool = False,
 ) -> None:
     """Finalize after eject: merge preview branch into current branch, cleanup."""
     from maverick.library.actions.git import git_merge
@@ -379,6 +393,9 @@ async def _finalize(
             )
         except Exception:
             logger.debug("preview_branch_cleanup_failed", branch=preview_branch)
+
+        # Consolidate runway (best-effort, after merge, before teardown)
+        await _maybe_consolidate(user_repo, no_consolidate)
     else:
         err_console.print(
             format_error(
@@ -395,6 +412,53 @@ async def _finalize(
         console.print("Workspace cleaned up.")
     else:
         console.print("No workspace to clean up.")
+
+
+# =====================================================================
+# Runway consolidation
+# =====================================================================
+
+
+async def _maybe_consolidate(user_repo: Path, no_consolidate: bool) -> None:
+    """Best-effort runway consolidation after merge.
+
+    Args:
+        user_repo: Path to the user's repository.
+        no_consolidate: If True, skip consolidation.
+    """
+    if no_consolidate:
+        return
+
+    try:
+        from maverick.config import load_config
+
+        config = load_config()
+        if not config.runway.enabled or not config.runway.consolidation.auto:
+            return
+
+        from maverick.library.actions.consolidation import consolidate_runway
+
+        console.print("Consolidating runway knowledge store...")
+        result = await consolidate_runway(
+            cwd=user_repo,
+            max_age_days=config.runway.consolidation.max_episodic_age_days,
+            max_records=config.runway.consolidation.max_episodic_records,
+        )
+        if result.skipped:
+            logger.debug("runway_consolidation_skipped", reason=result.skip_reason)
+        elif result.success:
+            msg = f"  Pruned {result.records_pruned} old records."
+            if result.summary_updated:
+                msg += " Updated consolidated-insights.md."
+            console.print(msg)
+        else:
+            console.print(
+                format_warning(f"Runway consolidation failed: {result.error}")
+            )
+    except Exception as exc:
+        # Best-effort — never block landing
+        console.print(format_warning(f"Runway consolidation failed: {exc}"))
+        logger.debug("runway_consolidation_error", error=str(exc))
 
 
 # =====================================================================

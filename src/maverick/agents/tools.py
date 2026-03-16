@@ -108,6 +108,7 @@ __all__: list[str] = [
     "IMPLEMENTER_TOOLS",
     "FIXER_TOOLS",
     "ISSUE_FIXER_TOOLS",
+    "AUTONOMOUS_FIXER_TOOLS",
     "GENERATOR_TOOLS",
     "CURATOR_TOOLS",
     "PLANNER_TOOLS",
@@ -143,6 +144,14 @@ FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit"})
 #: Issue fixers may need to search for relevant files when investigating
 #: GitHub issues. Identical to IMPLEMENTER_TOOLS.
 ISSUE_FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep"})
+
+#: Autonomous fixer tools with Bash access (GateRemediationAgent).
+#:
+#: Autonomous fixers can run validation commands via Bash to verify
+#: their fixes, in addition to reading, writing, and searching code.
+AUTONOMOUS_FIXER_TOOLS: frozenset[str] = frozenset(
+    {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
+)
 
 #: Empty set for text generation agents (GeneratorAgent and subclasses).
 #:

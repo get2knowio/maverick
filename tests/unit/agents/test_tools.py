@@ -396,6 +396,7 @@ class TestModuleImports:
             "IMPLEMENTER_TOOLS",
             "FIXER_TOOLS",
             "ISSUE_FIXER_TOOLS",
+            "AUTONOMOUS_FIXER_TOOLS",
             "GENERATOR_TOOLS",
             "CURATOR_TOOLS",
             "PLANNER_TOOLS",

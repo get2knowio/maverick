@@ -1,4 +1,4 @@
-"""Unit tests for fly_beads step functions."""
+"""Unit tests for fly_beads step functions (invariant-based orchestration)."""
 
 from __future__ import annotations
 
@@ -6,18 +6,16 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from maverick.library.actions.types import VerifyBeadCompletionResult
 from maverick.workflows.fly_beads.models import BeadContext
 from maverick.workflows.fly_beads.steps import (
     commit_bead,
     load_briefing_context,
     rollback_bead,
-    run_implement,
-    run_sync_deps,
-    run_validate_and_fix,
-    run_verify_cycle,
+    run_gate_check,
+    run_gate_remediation,
+    run_implement_and_validate,
+    run_review_and_remediate,
     snapshot_and_describe,
 )
 
@@ -86,21 +84,6 @@ class TestLoadBriefingContext:
         plan_dir.mkdir(parents=True)
         (plan_dir / "briefing.md").write_text("# Briefing", encoding="utf-8")
 
-        with patch(f"{_STEPS_MOD}.Path") as mock_path:
-            mock_path.cwd.return_value = tmp_path
-            # Allow Path() division to work normally
-            mock_path.__truediv__ = Path.__truediv__
-            mock_path.return_value = tmp_path
-            # Need the real Path for file operations
-            result = (
-                load_briefing_context.__wrapped__(  # type: ignore[attr-defined]
-                    "my-plan"
-                )
-                if hasattr(load_briefing_context, "__wrapped__")
-                else None
-            )
-
-        # Simpler approach: just call it with the real cwd set
         import os
 
         old_cwd = os.getcwd()
@@ -154,49 +137,75 @@ class TestSnapshotAndDescribe:
 
 
 # ---------------------------------------------------------------------------
-# run_implement
+# run_implement_and_validate
 # ---------------------------------------------------------------------------
 
 
-class TestRunImplement:
-    async def test_calls_executor(self) -> None:
+class TestRunImplementAndValidate:
+    async def test_calls_executor_with_correct_timeout(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
 
-        await run_implement(wf, ctx)
+        await run_implement_and_validate(wf, ctx)
 
         wf._step_executor.execute.assert_called_once()
+        call_kwargs = wf._step_executor.execute.call_args.kwargs
+        assert call_kwargs["step_name"] == "implement_and_validate"
+        assert call_kwargs["agent_name"] == "implementer"
+        assert call_kwargs["config"].timeout == 900
         wf.emit_step_completed.assert_called_once()
         wf.emit_step_failed.assert_not_called()
 
     async def test_failure_emits_step_failed(self) -> None:
-        """Bug class: implement failure must emit step_failed, not step_completed."""
+        """Implement failure must emit step_failed, not step_completed."""
         wf = _make_wf()
         wf._step_executor.execute.side_effect = RuntimeError("agent crash")
         ctx = _make_ctx()
 
-        await run_implement(wf, ctx)
+        await run_implement_and_validate(wf, ctx)
 
         wf.emit_step_failed.assert_called_once()
         wf.emit_step_completed.assert_not_called()
 
     async def test_prior_failures_included_in_prompt(self) -> None:
-        """Bug class: prior failure context must be passed to implementer."""
+        """Prior failure context must be passed to implementer."""
         wf = _make_wf()
         ctx = _make_ctx(prior_failures=["lint failed", "test failed"])
 
-        await run_implement(wf, ctx)
+        await run_implement_and_validate(wf, ctx)
 
         prompt_arg = wf._step_executor.execute.call_args.kwargs["prompt"]
         assert "previous_failures" in prompt_arg
         assert "lint failed" in prompt_arg["previous_failures"]
         assert "test failed" in prompt_arg["previous_failures"]
 
+    async def test_briefing_context_included_in_prompt(self) -> None:
+        """Briefing context must be passed to implementer when available."""
+        wf = _make_wf()
+        ctx = _make_ctx(briefing_context="## Context\nSome briefing text")
+
+        await run_implement_and_validate(wf, ctx)
+
+        prompt_arg = wf._step_executor.execute.call_args.kwargs["prompt"]
+        assert "briefing_context" in prompt_arg
+        assert "Some briefing text" in prompt_arg["briefing_context"]
+
+    async def test_runway_context_included_in_prompt(self) -> None:
+        """Runway context must be passed to implementer when available."""
+        wf = _make_wf()
+        ctx = _make_ctx(runway_context="### Recent Outcomes\n- bead-1: passed")
+
+        await run_implement_and_validate(wf, ctx)
+
+        prompt_arg = wf._step_executor.execute.call_args.kwargs["prompt"]
+        assert "runway_context" in prompt_arg
+        assert "Recent Outcomes" in prompt_arg["runway_context"]
+
     async def test_no_executor_emits_warning(self) -> None:
         wf = _make_wf(has_executor=False)
         ctx = _make_ctx()
 
-        await run_implement(wf, ctx)
+        await run_implement_and_validate(wf, ctx)
 
         wf.emit_output.assert_called_once()
         assert "skipping" in wf.emit_output.call_args.args[1].lower()
@@ -204,139 +213,147 @@ class TestRunImplement:
 
 
 # ---------------------------------------------------------------------------
-# run_sync_deps
+# run_gate_check
 # ---------------------------------------------------------------------------
 
 
-class TestRunSyncDeps:
-    async def test_raises_on_failure(self) -> None:
+class TestRunGateCheck:
+    async def test_runs_independent_validation(self) -> None:
+        wf = _make_wf()
+        ctx = _make_ctx()
+        gate_result = {
+            "passed": True,
+            "stage_results": {"format": {"passed": True}},
+            "summary": "All 4 validation stages passed.",
+        }
+
+        with patch(
+            f"{_STEPS_MOD}.run_independent_gate",
+            new_callable=AsyncMock,
+            return_value=gate_result,
+        ):
+            await run_gate_check(wf, ctx)
+
+        assert ctx.gate_result is gate_result
+        assert ctx.validation_result is gate_result
+        wf.emit_step_completed.assert_called_once()
+
+    async def test_stores_failure_in_ctx(self) -> None:
+        wf = _make_wf()
+        ctx = _make_ctx()
+        gate_result = {
+            "passed": False,
+            "stage_results": {"lint": {"passed": False, "output": "error"}},
+            "summary": "1 of 4 failed: lint",
+        }
+
+        with patch(
+            f"{_STEPS_MOD}.run_independent_gate",
+            new_callable=AsyncMock,
+            return_value=gate_result,
+        ):
+            await run_gate_check(wf, ctx)
+
+        assert ctx.gate_result is not None
+        assert ctx.gate_result["passed"] is False
+
+    async def test_handles_exception_gracefully(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
 
         with patch(
-            f"{_STEPS_MOD}.sync_dependencies",
+            f"{_STEPS_MOD}.run_independent_gate",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("uv sync failed"),
+            side_effect=RuntimeError("validation runner crashed"),
         ):
-            with pytest.raises(RuntimeError, match="uv sync failed"):
-                await run_sync_deps(wf, ctx)
+            await run_gate_check(wf, ctx)
 
+        assert ctx.gate_result is not None
+        assert ctx.gate_result["passed"] is False
         wf.emit_step_failed.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# run_validate_and_fix
+# run_gate_remediation
 # ---------------------------------------------------------------------------
 
 
-class TestRunValidateAndFix:
-    async def test_stores_result_in_ctx(self) -> None:
+class TestRunGateRemediation:
+    async def test_sets_remediation_attempted(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
-        validation_result = {"passed": True, "stages": []}
+        ctx.gate_result = {
+            "passed": False,
+            "stage_results": {"lint": {"passed": False, "output": "error"}},
+            "summary": "1 of 4 failed: lint",
+        }
 
-        with patch(
-            f"{_STEPS_MOD}.run_fix_retry_loop",
-            new_callable=AsyncMock,
-            return_value=validation_result,
-        ):
-            await run_validate_and_fix(wf, ctx)
+        await run_gate_remediation(wf, ctx)
 
-        assert ctx.validation_result is validation_result
+        assert ctx.remediation_attempted is True
+        wf._step_executor.execute.assert_called_once()
+        call_kwargs = wf._step_executor.execute.call_args.kwargs
+        assert call_kwargs["agent_name"] == "gate_remediator"
+        assert call_kwargs["config"].timeout == 600
 
-    async def test_creates_fix_beads_on_failure(self) -> None:
+    async def test_no_executor_skips_gracefully(self) -> None:
+        wf = _make_wf(has_executor=False)
+        ctx = _make_ctx()
+        ctx.gate_result = {"passed": False, "stage_results": {}, "summary": "failed"}
+
+        await run_gate_remediation(wf, ctx)
+
+        assert ctx.remediation_attempted is True
+        wf.emit_output.assert_called_once()
+
+    async def test_failure_emits_step_failed(self) -> None:
+        wf = _make_wf()
+        wf._step_executor.execute.side_effect = RuntimeError("agent crash")
+        ctx = _make_ctx()
+        ctx.gate_result = {"passed": False, "stage_results": {}, "summary": "failed"}
+
+        await run_gate_remediation(wf, ctx)
+
+        assert ctx.remediation_attempted is True
+        wf.emit_step_failed.assert_called_once()
+
+    async def test_prompt_includes_gate_failure_details(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
-        validation_result = {"passed": False, "stages": ["lint"]}
+        ctx.gate_result = {
+            "passed": False,
+            "stage_results": {
+                "lint": {
+                    "passed": False,
+                    "errors": [{"message": "undefined variable x"}],
+                },
+            },
+            "summary": "1 of 4 failed: lint",
+        }
 
-        with (
-            patch(
-                f"{_STEPS_MOD}.run_fix_retry_loop",
-                new_callable=AsyncMock,
-                return_value=validation_result,
-            ),
-            patch(
-                f"{_STEPS_MOD}.create_beads_from_failures",
-                new_callable=AsyncMock,
-            ) as mock_create,
-        ):
-            await run_validate_and_fix(wf, ctx)
+        await run_gate_remediation(wf, ctx)
 
-        mock_create.assert_called_once()
+        prompt_arg = wf._step_executor.execute.call_args.kwargs["prompt"]
+        assert "undefined variable x" in prompt_arg["prompt"]
 
 
 # ---------------------------------------------------------------------------
-# run_verify_cycle
+# run_review_and_remediate
 # ---------------------------------------------------------------------------
 
 
-class TestRunVerifyCycle:
-    async def test_revalidates_after_review(self) -> None:
-        """Bug class: validation must re-run AFTER review fixer changes."""
+class TestRunReviewAndRemediate:
+    async def test_skip_review_returns_immediately(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
 
-        call_order: list[str] = []
+        await run_review_and_remediate(wf, ctx, skip_review=True)
 
-        async def mock_review_fix_loop(**kwargs: Any) -> MagicMock:
-            call_order.append("review")
-            return MagicMock(to_dict=lambda: {"success": True, "issues_remaining": []})
+        wf.emit_step_started.assert_not_called()
 
-        async def mock_fix_retry_loop(**kwargs: Any) -> dict[str, Any]:
-            call_order.append("validate")
-            return {"passed": True, "stages": []}
-
-        with (
-            patch(
-                f"{_STEPS_MOD}.gather_local_review_context",
-                new_callable=AsyncMock,
-                return_value=MagicMock(to_dict=lambda: {}),
-            ),
-            patch(
-                f"{_STEPS_MOD}.run_review_fix_loop",
-                new_callable=AsyncMock,
-                side_effect=mock_review_fix_loop,
-            ),
-            patch(
-                f"{_STEPS_MOD}.run_fix_retry_loop",
-                new_callable=AsyncMock,
-                side_effect=mock_fix_retry_loop,
-            ),
-            patch(
-                f"{_STEPS_MOD}.verify_bead_completion",
-                new_callable=AsyncMock,
-                return_value=VerifyBeadCompletionResult(passed=True, reasons=()),
-            ),
-            patch(
-                f"{_STEPS_MOD}.create_beads_from_findings",
-                new_callable=AsyncMock,
-            ),
-        ):
-            await run_verify_cycle(wf, ctx, skip_review=False)
-
-        # review must come before validate in the cycle
-        assert call_order == ["review", "validate"]
-        assert ctx.verify_result is not None
-        assert ctx.verify_result.passed is True
-
-    async def test_retries_from_validate_on_failure(self) -> None:
-        """Bug class: on verify failure, retry from review+validate, NOT implement."""
+    async def test_runs_review_and_stores_result(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
-
-        verify_results = iter(
-            [
-                VerifyBeadCompletionResult(passed=False, reasons=("lint failed",)),
-                VerifyBeadCompletionResult(passed=True, reasons=()),
-            ]
-        )
-
-        validate_count = 0
-
-        async def mock_fix_retry_loop(**kwargs: Any) -> dict[str, Any]:
-            nonlocal validate_count
-            validate_count += 1
-            return {"passed": True, "stages": []}
 
         with (
             patch(
@@ -352,29 +369,20 @@ class TestRunVerifyCycle:
                 ),
             ),
             patch(
-                f"{_STEPS_MOD}.run_fix_retry_loop",
+                f"{_STEPS_MOD}.record_review_findings",
                 new_callable=AsyncMock,
-                side_effect=mock_fix_retry_loop,
-            ),
-            patch(
-                f"{_STEPS_MOD}.verify_bead_completion",
-                new_callable=AsyncMock,
-                side_effect=verify_results,
             ),
             patch(
                 f"{_STEPS_MOD}.create_beads_from_findings",
                 new_callable=AsyncMock,
             ),
         ):
-            await run_verify_cycle(wf, ctx, skip_review=False)
+            await run_review_and_remediate(wf, ctx, skip_review=False)
 
-        # validate called twice (once per cycle)
-        assert validate_count == 2
-        assert ctx.verify_result is not None
-        assert ctx.verify_result.passed is True
+        assert ctx.review_result is not None
+        wf.emit_step_completed.assert_called_once()
 
-    async def test_skip_review(self) -> None:
-        """Review step not called when skip_review=True."""
+    async def test_creates_beads_from_findings(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
 
@@ -382,50 +390,39 @@ class TestRunVerifyCycle:
             patch(
                 f"{_STEPS_MOD}.gather_local_review_context",
                 new_callable=AsyncMock,
-            ) as mock_gather,
+                return_value=MagicMock(to_dict=lambda: {}),
+            ),
             patch(
                 f"{_STEPS_MOD}.run_review_fix_loop",
                 new_callable=AsyncMock,
-            ) as mock_review,
-            patch(
-                f"{_STEPS_MOD}.run_fix_retry_loop",
-                new_callable=AsyncMock,
-                return_value={"passed": True, "stages": []},
+                return_value=MagicMock(
+                    to_dict=lambda: {"success": True, "issues_remaining": ["F001"]}
+                ),
             ),
             patch(
-                f"{_STEPS_MOD}.verify_bead_completion",
+                f"{_STEPS_MOD}.record_review_findings",
                 new_callable=AsyncMock,
-                return_value=VerifyBeadCompletionResult(passed=True, reasons=()),
             ),
+            patch(
+                f"{_STEPS_MOD}.create_beads_from_findings",
+                new_callable=AsyncMock,
+            ) as mock_create,
         ):
-            await run_verify_cycle(wf, ctx, skip_review=True)
+            await run_review_and_remediate(wf, ctx, skip_review=False)
 
-        mock_gather.assert_not_called()
-        mock_review.assert_not_called()
+        mock_create.assert_called_once()
 
     async def test_review_failure_sets_none_review_result(self) -> None:
-        """Bug class: review failure must propagate via ctx.review_result=None."""
+        """Review failure must propagate via ctx.review_result=None."""
         wf = _make_wf()
         ctx = _make_ctx()
 
-        with (
-            patch(
-                f"{_STEPS_MOD}.gather_local_review_context",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("review agent down"),
-            ),
-            patch(
-                f"{_STEPS_MOD}.run_fix_retry_loop",
-                new_callable=AsyncMock,
-                return_value={"passed": True, "stages": []},
-            ),
-            patch(
-                f"{_STEPS_MOD}.verify_bead_completion",
-                new_callable=AsyncMock,
-                return_value=VerifyBeadCompletionResult(passed=True, reasons=()),
-            ),
+        with patch(
+            f"{_STEPS_MOD}.gather_local_review_context",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("review agent down"),
         ):
-            await run_verify_cycle(wf, ctx, skip_review=False)
+            await run_review_and_remediate(wf, ctx, skip_review=False)
 
         assert ctx.review_result is None
 
@@ -466,7 +463,7 @@ class TestCommitBead:
 
 class TestRollbackBead:
     async def test_restores_jj_operation(self) -> None:
-        """Bug class: rollback must call jj_restore_operation with ctx.operation_id."""
+        """Rollback must call jj_restore_operation with ctx.operation_id."""
         wf = _make_wf()
         ctx = _make_ctx(operation_id="op99")
 

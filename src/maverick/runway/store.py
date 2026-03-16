@@ -23,7 +23,7 @@ from maverick.runway.models import (
     RunwayReviewFinding,
     RunwayStatus,
 )
-from maverick.utils.atomic import atomic_write_json
+from maverick.utils.atomic import atomic_write_json, atomic_write_text
 
 __all__ = ["RunwayStore"]
 
@@ -389,6 +389,58 @@ class RunwayStore:
             semantic_files=semantic_files,
             total_size_bytes=total_size,
             last_consolidated=index.last_consolidated,
+        )
+
+    # -----------------------------------------------------------------
+    # Episodic: Rewrite (for consolidation pruning)
+    # -----------------------------------------------------------------
+
+    async def rewrite_jsonl(self, path: Path, records: list[dict[str, Any]]) -> None:
+        """Atomically rewrite a JSONL file with the given records.
+
+        Used by consolidation to prune old episodic records after they have
+        been distilled into semantic summaries.
+
+        Args:
+            path: JSONL file path to rewrite.
+            records: Records to write (replaces entire file content).
+        """
+        content = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
+        atomic_write_text(path, content)
+
+    async def rewrite_bead_outcomes(self, outcomes: list[BeadOutcome]) -> None:
+        """Rewrite the bead-outcomes JSONL file with the given records.
+
+        Args:
+            outcomes: BeadOutcome records to keep.
+        """
+        await self.rewrite_jsonl(
+            self._path / _EPISODIC_DIR / _BEAD_OUTCOMES_FILE,
+            [o.to_dict() for o in outcomes],
+        )
+
+    async def rewrite_review_findings(
+        self, findings: list[RunwayReviewFinding]
+    ) -> None:
+        """Rewrite the review-findings JSONL file with the given records.
+
+        Args:
+            findings: RunwayReviewFinding records to keep.
+        """
+        await self.rewrite_jsonl(
+            self._path / _EPISODIC_DIR / _REVIEW_FINDINGS_FILE,
+            [f.to_dict() for f in findings],
+        )
+
+    async def rewrite_fix_attempts(self, attempts: list[FixAttemptRecord]) -> None:
+        """Rewrite the fix-attempts JSONL file with the given records.
+
+        Args:
+            attempts: FixAttemptRecord records to keep.
+        """
+        await self.rewrite_jsonl(
+            self._path / _EPISODIC_DIR / _FIX_ATTEMPTS_FILE,
+            [a.to_dict() for a in attempts],
         )
 
     # -----------------------------------------------------------------

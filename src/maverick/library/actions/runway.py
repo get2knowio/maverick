@@ -14,6 +14,7 @@ from maverick.library.actions.types import (
     RecordBeadOutcomeResult,
     RecordFixAttemptResult,
     RecordReviewFindingsResult,
+    RunwayRetrievalResult,
 )
 from maverick.logging import get_logger
 from maverick.runway.models import BeadOutcome, FixAttemptRecord, RunwayReviewFinding
@@ -23,6 +24,7 @@ __all__ = [
     "record_bead_outcome",
     "record_fix_attempt",
     "record_review_findings",
+    "retrieve_runway_context",
 ]
 
 logger = get_logger(__name__)
@@ -188,6 +190,135 @@ async def record_review_findings(
         return RecordReviewFindingsResult(
             success=False, findings_recorded=0, error=str(exc)
         )
+
+
+async def retrieve_runway_context(
+    *,
+    title: str,
+    description: str,
+    epic_id: str,
+    max_passages: int = 10,
+    bm25_top_k: int = 20,
+    max_context_chars: int = 4000,
+    cwd: str | Path | None = None,
+) -> RunwayRetrievalResult:
+    """Retrieve runway context for prompt injection before implementation.
+
+    Combines structured bead outcomes (same epic) with BM25 semantic search
+    across all runway content. Returns formatted markdown ready for injection.
+
+    Best-effort — catches all exceptions, returns empty result on failure.
+
+    Args:
+        title: Bead title for search query.
+        description: Bead description for search query.
+        epic_id: Epic ID to filter structured outcomes.
+        max_passages: Maximum BM25 passages to return.
+        bm25_top_k: BM25 candidate pool size.
+        max_context_chars: Maximum characters in output context_text.
+        cwd: Working directory for runway store resolution.
+
+    Returns:
+        RunwayRetrievalResult with formatted context text.
+    """
+    try:
+        store = _get_store(cwd)
+        if store is None:
+            return RunwayRetrievalResult(
+                success=True,
+                context_text="",
+                passages_used=0,
+                outcomes_used=0,
+                error=None,
+            )
+
+        # Structured: recent same-epic outcomes
+        outcomes = await store.get_bead_outcomes(epic_id=epic_id, limit=5)
+
+        # Semantic: BM25 search across all runway content
+        query_result = await store.query(
+            f"{title} {description}",
+            max_passages=max_passages,
+            bm25_top_k=bm25_top_k,
+        )
+
+        context_text = _format_runway_context(
+            outcomes, query_result.passages, max_context_chars
+        )
+
+        return RunwayRetrievalResult(
+            success=True,
+            context_text=context_text,
+            passages_used=len(query_result.passages),
+            outcomes_used=len(outcomes),
+            error=None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "runway_retrieval_failed",
+            error=str(exc),
+        )
+        return RunwayRetrievalResult(
+            success=True,
+            context_text="",
+            passages_used=0,
+            outcomes_used=0,
+            error=str(exc),
+        )
+
+
+def _format_runway_context(
+    outcomes: list[BeadOutcome],
+    passages: list[Any],
+    max_context_chars: int,
+) -> str:
+    """Render outcomes and passages into a markdown block.
+
+    Args:
+        outcomes: Structured bead outcomes (same epic).
+        passages: BM25 ranked passages.
+        max_context_chars: Maximum total characters.
+
+    Returns:
+        Formatted markdown string, possibly truncated.
+    """
+    sections: list[str] = []
+
+    if outcomes:
+        lines = ["### Recent Outcomes (same epic)"]
+        for o in outcomes:
+            validation = "passed" if o.validation_passed else "failed"
+            line = (
+                f'- **{o.bead_id}** "{o.title}": '
+                f"validation {validation}, "
+                f"{o.review_findings_count} findings "
+                f"({o.review_fixed_count} fixed)"
+            )
+            details: list[str] = []
+            if o.key_decisions:
+                details.append(f"Decisions: {'; '.join(o.key_decisions)}")
+            if o.mistakes_caught:
+                details.append(f"Mistakes caught: {'; '.join(o.mistakes_caught)}")
+            if details:
+                line += "\n  - " + "\n  - ".join(details)
+            lines.append(line)
+        sections.append("\n".join(lines))
+
+    if passages:
+        lines = ["### Relevant Past Context"]
+        for p in passages:
+            source = p.source_file if hasattr(p, "source_file") else "unknown"
+            content_preview = p.content[:200].replace("\n", " ")
+            lines.append(f"- [{source}] {content_preview}")
+        sections.append("\n".join(lines))
+
+    if not sections:
+        return ""
+
+    result = "\n\n".join(sections)
+    if len(result) > max_context_chars:
+        result = result[: max_context_chars - 3] + "..."
+    return result
 
 
 async def record_fix_attempt(

@@ -523,6 +523,67 @@ class RefuelSummaryResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RunwayRetrievalResult:
+    """Result of retrieving runway context for prompt injection.
+
+    Attributes:
+        success: Whether the retrieval completed without error.
+        context_text: Formatted markdown ready for prompt injection.
+        passages_used: Number of BM25 passages included.
+        outcomes_used: Number of structured outcomes included.
+        error: Error message if retrieval failed.
+    """
+
+    success: bool
+    context_text: str
+    passages_used: int
+    outcomes_used: int
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "context_text": self.context_text,
+            "passages_used": self.passages_used,
+            "outcomes_used": self.outcomes_used,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RunwayConsolidationResult:
+    """Result of consolidating runway episodic records.
+
+    Attributes:
+        success: Whether consolidation completed successfully.
+        records_pruned: Number of episodic records removed.
+        summary_updated: Whether consolidated-insights.md was updated.
+        skipped: Whether consolidation was skipped (below thresholds).
+        skip_reason: Reason for skipping, if applicable.
+        error: Error message if consolidation failed.
+    """
+
+    success: bool
+    records_pruned: int
+    summary_updated: bool
+    skipped: bool
+    skip_reason: str | None
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "success": self.success,
+            "records_pruned": self.records_pruned,
+            "summary_updated": self.summary_updated,
+            "skipped": self.skipped,
+            "skip_reason": self.skip_reason,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RecordBeadOutcomeResult:
     """Result of recording a bead outcome to the runway store.
 

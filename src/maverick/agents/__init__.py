@@ -31,6 +31,7 @@ from maverick.agents.context import AgentContext
 from maverick.agents.registry import AgentRegistry, register, registry
 from maverick.agents.result import AgentResult, AgentUsage
 from maverick.agents.tools import (
+    AUTONOMOUS_FIXER_TOOLS,
     CURATOR_TOOLS,
     FIXER_TOOLS,
     GENERATOR_TOOLS,
@@ -62,6 +63,7 @@ __all__: list[str] = [
     "DEFAULT_MODEL",
     "MaverickAgent",
     # Tool permission constants
+    "AUTONOMOUS_FIXER_TOOLS",
     "CURATOR_TOOLS",
     "FIXER_TOOLS",
     "GENERATOR_TOOLS",

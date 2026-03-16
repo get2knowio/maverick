@@ -635,6 +635,15 @@ class ImplementerContext(BaseModel):
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")
     dry_run: bool = Field(default=False, description="Don't create commits")
+    briefing_context: str | None = Field(
+        default=None, description="Project briefing text"
+    )
+    previous_failures: str | None = Field(
+        default=None, description="Previous failure context"
+    )
+    runway_context: str | None = Field(
+        default=None, description="Historical runway context"
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

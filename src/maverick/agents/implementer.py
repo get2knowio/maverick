@@ -45,9 +45,16 @@ $skill_guidance
 ## Your Role
 You implement beads — units of work that may be feature tasks, validation fixes,
 or review findings. The bead description tells you what to do; you do not need to
-know or care about the broader workflow context. The orchestration layer handles:
+know or care about the broader workflow context.
+
+You are responsible for:
+- Writing code to implement the bead's requirements
+- Running validation (format, lint, typecheck, test) via Bash and fixing failures
+- Iterating until validation passes or you determine the issue is unfixable
+- Syncing dependencies if you modify dependency files (pyproject.toml, etc.)
+
+The orchestration layer handles:
 - Git operations (commits are created after you complete your work)
-- Validation execution (format, lint, test pipelines run after implementation)
 - Branch management and PR creation
 - Bead lifecycle (selection, closing, creating follow-up beads)
 
@@ -64,7 +71,10 @@ You focus on:
 4. Write tests for every source file you create or modify — this is
    mandatory, not optional
 5. Make small, incremental changes
-6. Ensure code is ready for validation (will be run by orchestration)
+6. Sync dependencies if you changed dependency files
+7. Run validation commands via Bash (format, lint, typecheck, test)
+8. Fix any validation failures and re-run until clean
+9. If you cannot resolve a failure after genuine effort, stop and report what you tried
 
 ## Task Execution
 For each task:
@@ -298,6 +308,9 @@ def _coerce_implementer_context(data: dict[str, Any]) -> ImplementerContext:
         cwd=cwd,
         skip_validation=data.get("skip_validation", False),
         dry_run=data.get("dry_run", False),
+        briefing_context=data.get("briefing_context"),
+        previous_failures=data.get("previous_failures"),
+        runway_context=data.get("runway_context"),
     )
 
 
@@ -412,7 +425,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         Returns:
             Formatted prompt for Claude.
         """
-        return f"""Execute the following task:
+        base = f"""Execute the following task:
 
 **Task ID**: {task.id}
 **Description**: {task.description}
@@ -428,8 +441,21 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
 3. Implement the minimal code to satisfy the tests
 4. Verify your changes follow project conventions
 
-After completion, provide a summary of changes made.
+## After Implementation
+1. If you modified dependency files, sync dependencies via Bash
+2. Run all validation commands (see Project Commands in your system prompt)
+3. Fix any failures and re-run until clean
+4. Report completion only when all validation passes (or explain what's stuck)
 """
+
+        sections = [base]
+        if context.runway_context:
+            sections.append(f"## Historical Context\n{context.runway_context}")
+        if context.briefing_context:
+            sections.append(f"## Project Briefing\n{context.briefing_context}")
+        if context.previous_failures:
+            sections.append(f"## Previous Failures\n{context.previous_failures}")
+        return "\n\n".join(sections)
 
     def _build_phase_prompt(
         self,

@@ -15,7 +15,6 @@ from maverick.events import (
 )
 from maverick.library.actions.types import (
     CheckEpicDoneResult,
-    DependencySyncResult,
     MarkBeadCompleteResult,
     SelectNextBeadResult,
     VerifyBeadCompletionResult,
@@ -97,15 +96,6 @@ def _make_mock_actions(
             closed_children=1,
         )
 
-    sync = DependencySyncResult(
-        success=True,
-        command="uv sync",
-        output="",
-        skipped=False,
-        reason=None,
-        error=None,
-    )
-
     mark_complete = MarkBeadCompleteResult(success=True, bead_id="b1", error=None)
 
     return {
@@ -132,14 +122,10 @@ def _make_mock_actions(
         "select_side_effect": select_side_effect,
         "snapshot_return": {"operation_id": "op123", "success": True, "error": None},
         "describe_return": {"success": True, "error": None},
-        "sync_return": sync,
-        "validation_return": {
+        "gate_return": {
             "passed": True,
-            "stages": [],
-            "attempts": 0,
-            "fixes_applied": [],
-            "remaining_errors": [],
-            "suggestions": [],
+            "stage_results": {},
+            "summary": "All 4 validation stages passed.",
         },
         "review_context_return": MagicMock(to_dict=lambda: {}),
         "review_loop_return": MagicMock(
@@ -149,7 +135,6 @@ def _make_mock_actions(
                 "issues_remaining": [],
             }
         ),
-        "create_failures_return": MagicMock(created_count=0),
         "create_findings_return": MagicMock(created_count=0),
         "verify_return": verify_result,
         "commit_return": {
@@ -193,8 +178,7 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
     ("snapshot", f"{_STEPS_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
     ("describe", f"{_STEPS_MOD}.jj_describe", "describe_return", _RV),
-    ("sync_deps", f"{_STEPS_MOD}.sync_dependencies", "sync_return", _RV),
-    ("validation", f"{_STEPS_MOD}.run_fix_retry_loop", "validation_return", _RV),
+    ("gate", f"{_STEPS_MOD}.run_independent_gate", "gate_return", _RV),
     (
         "gather_ctx",
         f"{_STEPS_MOD}.gather_local_review_context",
@@ -203,18 +187,12 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     ("review_loop", f"{_STEPS_MOD}.run_review_fix_loop", "review_loop_return", _RV),
     (
-        "create_failures",
-        f"{_STEPS_MOD}.create_beads_from_failures",
-        "create_failures_return",
-        _RV,
-    ),
-    (
         "create_findings",
         f"{_STEPS_MOD}.create_beads_from_findings",
         "create_findings_return",
         _RV,
     ),
-    ("verify", f"{_STEPS_MOD}.verify_bead_completion", "verify_return", _RV),
+    ("verify", f"{_WF_MOD}.verify_bead_completion", "verify_return", _RV),
     ("commit", f"{_STEPS_MOD}.jj_commit_bead", "commit_return", _RV),
     (
         "mark_complete_steps",
@@ -226,6 +204,24 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ("check_done", f"{_WF_MOD}.check_epic_done", "check_done_return", _RV),
     ("restore", f"{_STEPS_MOD}.jj_restore_operation", None, _RV),
     ("ws_manager", "maverick.workspace.manager.WorkspaceManager", None, _RV),
+    (
+        "record_bead_outcome",
+        f"{_STEPS_MOD}.record_bead_outcome",
+        None,
+        _RV,
+    ),
+    (
+        "record_review_findings",
+        f"{_STEPS_MOD}.record_review_findings",
+        None,
+        _RV,
+    ),
+    (
+        "retrieve_runway_context",
+        f"{_STEPS_MOD}.retrieve_runway_context",
+        None,
+        _RV,
+    ),
 ]
 
 

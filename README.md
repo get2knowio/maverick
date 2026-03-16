@@ -29,6 +29,10 @@ description tells it what to do.
   analyst, criteria writer, contrarian) before plan generation and refueling
 - **Jujutsu (jj) VCS** — Write-path VCS operations use jj in colocated mode for
   snapshot/rollback safety; GitPython handles read-only operations
+- **Workspace isolation** — All fly work happens in a hidden
+  `~/.maverick/workspaces/` clone; your working directory stays untouched
+- **Runway knowledge store** — Episodic records of bead outcomes, review
+  findings, and fix attempts build project-specific context over time
 - **Resilient operation** — Automatic retries, validation-fix loops,
   review-fix cycles, and bead-level rollback on failure
 
@@ -36,19 +40,19 @@ description tells it what to do.
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - [uv](https://docs.astral.sh/uv/) — Fast Python package manager (recommended)
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PR and issue management
 - [Jujutsu](https://martinvonz.github.io/jj/) (`jj`) for VCS write operations
 - [bd](https://beads.dev/) for bead/work-item management
-- [claude-agent-acp](https://www.npmjs.com/package/@zed-industries/claude-agent-acp) — ACP agent subprocess (`npm install -g @zed-industries/claude-agent-acp`)
+- [claude-agent-acp](https://www.npmjs.com/package/@anthropic-ai/claude-agent-acp) — ACP agent subprocess
 - Claude API access (set `ANTHROPIC_API_KEY` environment variable)
 - Git repository with remote origin (jj runs in colocated mode)
 
 ### Installation
 
 ```bash
-uv tool install maverick
+uv tool install maverick-cli
 ```
 
 That's it. `maverick` lands on your PATH in its own isolated environment.
@@ -75,7 +79,7 @@ maverick refuel my-feature
 # 4. Implement beads (in isolated workspace)
 maverick fly --epic <epic-id> --max-beads 5
 
-# 5. Curate history and push
+# 5. Curate history and merge into local repo
 maverick land
 
 # Alternative: create beads from a SpecKit specification
@@ -86,6 +90,7 @@ maverick fly --skip-review --max-beads 5
 maverick land --dry-run
 maverick brief                  # Review queued beads
 maverick brief --watch          # Live polling while fly runs
+maverick runway seed            # Analyze codebase for runway context
 maverick init                   # Initialize a new project
 ```
 
@@ -93,7 +98,7 @@ maverick init                   # Initialize a new project
 
 Maverick uses a beads-only workflow model. All development is driven by beads
 (units of work managed by the `bd` CLI tool). Workflows are implemented as
-Python async classes (not YAML DSL) under `src/maverick/workflows/`.
+Python async classes under `src/maverick/workflows/`.
 
 ### The PRD-to-Code Pipeline
 
@@ -102,15 +107,13 @@ shipped code:
 
 ```
 PRD ──▶ plan generate ──▶ plan validate ──▶ refuel ──▶ fly ──▶ land
-            │                                                   │                 │       │
-            ├── Pre-Flight Briefing Room                        ├── Briefing      │       ├── Curate
-            │   (scopist, codebase analyst,                     │   Room           │       │   commits
-            │    criteria writer, contrarian)                    ├── Decompose     │       ├── Push
-            ├── AI-generated flight plan                        │   into work     │       └── Teardown
-            └── Markdown output                                 │   units          │
-                                                                └── Create beads  ├── Bead loop
-                                                                                  └── (see below)
 ```
+
+1. **Plan** — A Pre-Flight Briefing Room runs four parallel AI analysts, then a
+   generator synthesizes the output into a phased flight plan
+2. **Refuel** — Decomposes the plan into beads with dependencies wired up
+3. **Fly** — Bead loop: implement → validate → review → fix → commit → next
+4. **Land** — AI curator reorganizes commits, merges into your local repo
 
 ### `maverick plan generate` — Plan from PRD
 
@@ -135,6 +138,14 @@ Validates a generated flight plan for structural correctness.
 
 ```bash
 maverick plan validate my-feature
+```
+
+### `maverick plan create` — Create Plan from Template
+
+Creates a new flight plan file from a template for manual authoring.
+
+```bash
+maverick plan create my-feature
 ```
 
 ### `maverick refuel` — Decompose into Beads
@@ -170,11 +181,12 @@ preflight ──▶ create_workspace ──▶ bead loop
                                       ├── create review beads (for remaining findings)
                                       ├── verify completion gate
                                       ├── rollback on failure / commit on success
+                                      ├── record runway data (outcome, review findings)
                                       ├── close bead
                                       └── check_done (exit or next bead)
 ```
 
-After `fly` finishes, run `maverick land` to curate history and push.
+After `fly` finishes, run `maverick land` to curate history and merge.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -182,6 +194,7 @@ After `fly` finishes, run `maverick land` to curate history and push.
 | `--max-beads <n>` | 30 | Maximum beads to process |
 | `--dry-run` | false | Preview mode — skip git and bd mutations |
 | `--skip-review` | false | Skip code review step |
+| `--auto-commit` | false | Auto-commit uncommitted changes before cloning workspace |
 | `--list-steps` | false | List workflow steps and exit |
 | `--session-log <path>` | (none) | Write session journal (JSONL) |
 
@@ -191,38 +204,62 @@ The outer loop picks them up on the next iteration.
 
 ### `maverick land` — Finalize and Ship
 
-Curate commit history and push after `maverick fly` completes. Uses an AI agent
-to intelligently reorganize commits (squash fix commits, improve messages,
-reorder for logical flow), with user approval before applying changes.
+Curate commit history and merge into your local repo after `maverick fly`
+completes. Uses an AI agent to intelligently reorganize commits (squash fix
+commits, improve messages, reorder for logical flow), with user approval
+before applying changes.
 
 ```bash
-maverick land                    # Agent-curated history + push
+maverick land                    # Agent-curated history + merge
 maverick land --dry-run          # Show plan without applying
 maverick land --heuristic-only   # Heuristic curation (no agent)
-maverick land --no-curate        # Skip curation, just push
+maverick land --no-curate        # Skip curation, just merge
 maverick land --yes              # Auto-approve the plan
 maverick land --base develop     # Custom base revision
 ```
 
+Three modes of operation:
+
+| Mode | Command | Behavior |
+|------|---------|----------|
+| **Approve** (default) | `maverick land` | Curate → user approval → merge into local repo → cleanup workspace |
+| **Eject** | `maverick land --eject` | Curate → create local preview branch → keep workspace |
+| **Finalize** | `maverick land --finalize` | Merge preview branch → cleanup workspace |
+
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--no-curate` | false | Skip curation, just push |
+| `--no-curate` | false | Skip curation, just merge |
 | `--dry-run` | false | Show plan without executing |
 | `--yes` / `-y` | false | Auto-approve curation plan |
 | `--base <rev>` | main | Base revision for curation scope |
 | `--heuristic-only` | false | Use heuristic curation (no agent) |
-| `--eject` | false | Push to preview branch, keep workspace |
-| `--finalize` | false | Create PR from preview branch, teardown |
+| `--eject` | false | Create local preview branch, keep workspace |
+| `--finalize` | false | Merge preview branch, cleanup workspace |
 | `--branch <name>` | `maverick/<project>` | Custom branch name |
-
-### `maverick init` — Project Setup
-
-Initialize a new Maverick project with configuration files.
 
 ### `maverick brief` — Bead Dashboard
 
 Review ready and blocked beads before starting a fly session. Use `--watch` for
 live polling while `maverick fly` runs in another terminal.
+
+### `maverick runway` — Knowledge Store
+
+Manage the runway knowledge store — episodic records of bead outcomes, review
+findings, and fix attempts that build project-specific context over time.
+
+```bash
+maverick runway init             # Initialize the runway store
+maverick runway status           # Show store status and metrics
+maverick runway seed             # AI-generated codebase analysis
+maverick runway seed --dry-run   # Preview what would be generated
+```
+
+The `seed` command analyzes a brownfield codebase and pre-populates the runway
+with architectural insights, making agents more effective from the first bead.
+
+### `maverick init` — Project Setup
+
+Initialize a new Maverick project with configuration files.
 
 ### `maverick workspace` — Workspace Management
 
@@ -242,7 +279,7 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, plan, init, brief, land              │
+│  maverick fly, refuel, plan, init, brief, land, runway      │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -308,12 +345,25 @@ Maverick uses a dual-VCS approach in colocated mode (jj and git share the same
 
 | Operation | Tool | Module |
 |-----------|------|--------|
-| Commit, push, branch, snapshot, rollback | **jj** | `maverick.library.actions.jj` |
+| Commit, push, branch, snapshot, rollback | **jj** | `maverick.jj.client.JjClient` |
 | Diff, status, log, blame (read-only) | **GitPython** | `maverick.git` |
 
 **Why jj?** Jujutsu provides snapshot/restore operations that enable safe
-rollback when a bead fails verification. The `fly-beads` workflow snapshots
+rollback when a bead fails verification. The `fly` workflow snapshots
 before each bead, and restores to the snapshot if the verification gate fails.
+
+### Runway Knowledge Store
+
+The runway records episodic data as beads are processed:
+
+- **Bead outcomes** — Success/failure status, implementation details, error context
+- **Review findings** — What reviewers flagged, severity, resolution status
+- **Fix attempts** — What was tried, what worked, what didn't
+
+This data is stored as JSONL files with BM25-based retrieval. Over time, agents
+can query the runway for context on past decisions, recurring patterns, and
+known pitfalls. The `maverick runway seed` command bootstraps this store by
+analyzing a brownfield codebase with an AI agent.
 
 ### Project Structure
 
@@ -365,7 +415,7 @@ notifications:
   topic: maverick-notifications
 ```
 
-#### Agent Convention Injection
+### Agent Convention Injection
 
 Agents run as ACP subprocesses and do **not** see CLAUDE.md at runtime.
 Convention guidance is injected into prompts via a two-tier model:
@@ -383,20 +433,22 @@ See [Agent Prompts Reference](docs/agent-prompts.md) for details.
 
 | Category | Technology | Notes |
 |----------|-----------|-------|
-| Language | Python 3.10+ | `from __future__ import annotations` |
+| Language | Python 3.11+ | `from __future__ import annotations` |
 | Package Manager | uv | Fast, reproducible builds via `uv.lock` |
 | Build System | Make | AI-friendly commands with minimal output |
-| AI/Agents | Agent Client Protocol (ACP) | `acp` SDK + `claude-agent-acp` subprocess |
+| AI/Agents | Agent Client Protocol (ACP) | `agent-client-protocol` SDK + `claude-agent-acp` subprocess |
 | CLI | Click + Rich | Auto TTY detection for output |
 | Validation | Pydantic | Configuration and data models |
-| VCS (writes) | Jujutsu (jj) | Colocated mode; `maverick.library.actions.jj` |
+| VCS (writes) | Jujutsu (jj) | Colocated mode; `maverick.jj.client.JjClient` |
 | VCS (reads) | GitPython | `maverick.git` (read-only) |
 | GitHub API | PyGithub | `maverick.utils.github_client` |
 | Logging | structlog | `maverick.logging.get_logger()` |
 | Retry Logic | tenacity | `@retry` or `AsyncRetrying` |
+| Knowledge Store | rank-bm25 | BM25-based retrieval for runway queries |
+| Secret Detection | detect-secrets | Pre-commit secret scanning |
 | Testing | pytest + pytest-asyncio | Parallel via xdist (`-n auto`) |
 | Linting | Ruff | Fast, comprehensive Python linter |
-| Type Checking | MyPy | Strict mode recommended |
+| Type Checking | MyPy | Strict mode |
 
 ## Development
 
