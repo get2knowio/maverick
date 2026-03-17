@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -685,3 +686,47 @@ class TestFlyBeadsWorkflow:
         for c in calls:
             assert c.kwargs.get("bead_id") != ""
             assert c.kwargs.get("reason", "") != "All child beads completed"
+
+
+# =====================================================================
+# _init_workspace_runway
+# =====================================================================
+
+
+class TestInitWorkspaceRunway:
+    """Tests for _init_workspace_runway helper."""
+
+    async def test_initializes_runway_in_workspace(self, tmp_path: Any) -> None:
+        """Should create runway directory structure in workspace."""
+        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+
+        await _init_workspace_runway(ws)
+
+        runway = ws / ".maverick" / "runway"
+        assert runway.is_dir()
+        assert (runway / "episodic").is_dir()
+        assert (runway / "semantic").is_dir()
+        assert (runway / "index.json").is_file()
+
+    async def test_idempotent(self, tmp_path: Any) -> None:
+        """Should be safe to call multiple times."""
+        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+
+        await _init_workspace_runway(ws)
+        await _init_workspace_runway(ws)  # Should not raise
+
+        runway = ws / ".maverick" / "runway"
+        assert runway.is_dir()
+
+    async def test_best_effort_on_failure(self) -> None:
+        """Should not raise even if initialization fails."""
+        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
+
+        # Pass a path that can't be written to
+        await _init_workspace_runway(Path("/proc/nonexistent"))  # noqa: S108

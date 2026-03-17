@@ -493,38 +493,52 @@ async def _maybe_consolidate(
 
 
 def _sync_runway_semantics(src_cwd: Path, dst_cwd: Path) -> None:
-    """Copy semantic files from workspace runway to user repo runway.
+    """Copy runway data from workspace to user repo.
 
+    Syncs semantic files (consolidated summaries), episodic files
+    (pruned JSONL), and the index so data survives workspace teardown.
     Only copies if both runway directories exist.  Best-effort — errors
     are logged and swallowed.
 
     Args:
-        src_cwd: Workspace directory with ``.maverick/runway/semantic/``.
-        dst_cwd: User repo directory with ``.maverick/runway/semantic/``.
+        src_cwd: Workspace directory with ``.maverick/runway/``.
+        dst_cwd: User repo directory with ``.maverick/runway/``.
     """
     import shutil
 
-    src_semantic = src_cwd / ".maverick" / "runway" / "semantic"
-    dst_semantic = dst_cwd / ".maverick" / "runway" / "semantic"
+    src_runway = src_cwd / ".maverick" / "runway"
+    dst_runway = dst_cwd / ".maverick" / "runway"
 
-    if not src_semantic.is_dir():
+    if not src_runway.is_dir():
         return
-    if not (dst_cwd / ".maverick" / "runway").is_dir():
+    if not dst_runway.is_dir():
         # User repo has no runway — nothing to sync into
         return
 
     try:
-        dst_semantic.mkdir(parents=True, exist_ok=True)
-        for src_file in src_semantic.iterdir():
-            if src_file.is_file():
-                shutil.copy2(src_file, dst_semantic / src_file.name)
+        # Sync each subdirectory (semantic/, episodic/) and index.json
+        for subdir in ("semantic", "episodic"):
+            src_dir = src_runway / subdir
+            dst_dir = dst_runway / subdir
+            if not src_dir.is_dir():
+                continue
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            for src_file in src_dir.iterdir():
+                if src_file.is_file():
+                    shutil.copy2(src_file, dst_dir / src_file.name)
+
+        # Sync index.json
+        src_index = src_runway / "index.json"
+        if src_index.is_file():
+            shutil.copy2(src_index, dst_runway / "index.json")
+
         logger.debug(
-            "runway_semantics_synced",
-            src=str(src_semantic),
-            dst=str(dst_semantic),
+            "runway_data_synced",
+            src=str(src_runway),
+            dst=str(dst_runway),
         )
     except Exception as exc:
-        logger.debug("runway_semantics_sync_failed", error=str(exc))
+        logger.debug("runway_sync_failed", error=str(exc))
 
 
 # =====================================================================

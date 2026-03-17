@@ -179,15 +179,20 @@ async def test_no_force_when_same_path() -> None:
         assert call_kwargs["force"] is False
 
 
-def test_sync_runway_semantics(tmp_path: Path) -> None:
-    """Semantic files should be copied from workspace to user repo."""
+def test_sync_runway_data(tmp_path: Path) -> None:
+    """Semantic, episodic, and index files should be copied."""
     from maverick.cli.commands.land import _sync_runway_semantics
 
-    # Set up source (workspace) runway with a semantic file
+    # Set up source (workspace) runway
     src = tmp_path / "workspace"
-    src_semantic = src / ".maverick" / "runway" / "semantic"
+    src_runway = src / ".maverick" / "runway"
+    src_semantic = src_runway / "semantic"
+    src_episodic = src_runway / "episodic"
     src_semantic.mkdir(parents=True)
+    src_episodic.mkdir(parents=True)
     (src_semantic / "consolidated-insights.md").write_text("# Insights")
+    (src_episodic / "bead-outcomes.jsonl").write_text('{"bead_id":"b1"}\n')
+    (src_runway / "index.json").write_text('{"version": 1}')
 
     # Set up destination (user repo) runway
     dst = tmp_path / "user-repo"
@@ -195,9 +200,10 @@ def test_sync_runway_semantics(tmp_path: Path) -> None:
 
     _sync_runway_semantics(src, dst)
 
-    dst_file = dst / ".maverick" / "runway" / "semantic" / "consolidated-insights.md"
-    assert dst_file.exists()
-    assert dst_file.read_text() == "# Insights"
+    dst_runway = dst / ".maverick" / "runway"
+    assert (dst_runway / "semantic" / "consolidated-insights.md").read_text() == "# Insights"
+    assert (dst_runway / "episodic" / "bead-outcomes.jsonl").read_text() == '{"bead_id":"b1"}\n'
+    assert (dst_runway / "index.json").read_text() == '{"version": 1}'
 
 
 def test_sync_runway_semantics_no_dst_runway(tmp_path: Path) -> None:

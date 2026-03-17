@@ -194,6 +194,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
             workspace_path = Path(ws_result["workspace_path"])
             await self.emit_step_completed(CREATE_WORKSPACE, ws_result)
 
+            # Initialize runway in workspace so recording works
+            await _init_workspace_runway(workspace_path)
+
             # Register workspace teardown as rollback
             ws_manager = WorkspaceManager(user_repo_path=Path.cwd())
 
@@ -384,3 +387,32 @@ class FlyBeadsWorkflow(PythonWorkflow):
             beads_skipped=beads_skipped,
         )
         return result.to_dict()
+
+
+async def _init_workspace_runway(workspace_path: Path) -> None:
+    """Initialize runway store in the workspace (best-effort).
+
+    The workspace is a fresh jj clone without ``.maverick/runway/``.
+    Without initialization, all runway recording during fly silently
+    fails because ``_get_store()`` returns None.
+
+    Args:
+        workspace_path: Path to the hidden workspace directory.
+    """
+    from maverick.runway.store import RunwayStore
+
+    try:
+        runway_path = workspace_path / ".maverick" / "runway"
+        store = RunwayStore(runway_path)
+        if not store.is_initialized:
+            await store.initialize()
+            logger.info(
+                "workspace_runway_initialized",
+                path=str(runway_path),
+            )
+    except Exception as exc:
+        # Best-effort — don't block fly if runway init fails
+        logger.warning(
+            "workspace_runway_init_failed",
+            error=str(exc),
+        )
