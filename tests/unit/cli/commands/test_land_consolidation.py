@@ -201,8 +201,10 @@ def test_sync_runway_data(tmp_path: Path) -> None:
     _sync_runway_semantics(src, dst)
 
     dst_runway = dst / ".maverick" / "runway"
-    assert (dst_runway / "semantic" / "consolidated-insights.md").read_text() == "# Insights"
-    assert (dst_runway / "episodic" / "bead-outcomes.jsonl").read_text() == '{"bead_id":"b1"}\n'
+    insights = dst_runway / "semantic" / "consolidated-insights.md"
+    outcomes = dst_runway / "episodic" / "bead-outcomes.jsonl"
+    assert insights.read_text() == "# Insights"
+    assert outcomes.read_text() == '{"bead_id":"b1"}\n'
     assert (dst_runway / "index.json").read_text() == '{"version": 1}'
 
 
