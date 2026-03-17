@@ -94,6 +94,13 @@ class RunwayStore:
             if not fpath.exists():
                 fpath.touch()
 
+        # Place .gitkeep in semantic/ so git tracks the empty directory.
+        # Without this, jj/git clones omit semantic/ and is_initialized
+        # returns False in workspaces cloned from the user repo.
+        gitkeep = semantic / ".gitkeep"
+        if not gitkeep.exists():
+            gitkeep.touch()
+
         logger.info("runway_initialized", path=str(self._path))
 
     # -----------------------------------------------------------------
@@ -375,7 +382,11 @@ class RunwayStore:
         )
 
         semantic_dir = self._path / _SEMANTIC_DIR
-        semantic_files = [f.name for f in sorted(semantic_dir.iterdir()) if f.is_file()]
+        semantic_files = [
+            f.name
+            for f in sorted(semantic_dir.iterdir())
+            if f.is_file() and f.name != ".gitkeep"
+        ]
 
         total_size = sum(f.stat().st_size for f in self._path.rglob("*") if f.is_file())
 
