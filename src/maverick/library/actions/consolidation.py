@@ -294,30 +294,41 @@ async def consolidate_runway(
                 error=None,
             )
 
-        # Synthesize summary (best-effort)
+        # Synthesize summary (best-effort).
+        # When forced (e.g. workspace about to be torn down), synthesize
+        # from ALL records even if none are "old" — the data will be lost
+        # otherwise.  The summary captures the knowledge permanently.
         summary_updated = False
-        to_consolidate_dicts = (
-            [o.to_dict() for o in consolidate_outcomes] if consolidate_outcomes else []
-        )
-        to_consolidate_finding_dicts = (
-            [f.to_dict() for f in consolidate_findings] if consolidate_findings else []
-        )
-        to_consolidate_attempt_dicts = (
-            [a.to_dict() for a in consolidate_attempts] if consolidate_attempts else []
-        )
+        if force and records_pruned == 0:
+            # Nothing to prune, but synthesize from all records
+            synthesis_outcomes = [o.to_dict() for o in outcomes]
+            synthesis_findings = [f.to_dict() for f in findings]
+            synthesis_attempts = [a.to_dict() for a in attempts]
+        else:
+            synthesis_outcomes = (
+                [o.to_dict() for o in consolidate_outcomes]
+                if consolidate_outcomes
+                else []
+            )
+            synthesis_findings = (
+                [f.to_dict() for f in consolidate_findings]
+                if consolidate_findings
+                else []
+            )
+            synthesis_attempts = (
+                [a.to_dict() for a in consolidate_attempts]
+                if consolidate_attempts
+                else []
+            )
 
-        has_data = (
-            to_consolidate_dicts
-            or to_consolidate_finding_dicts
-            or to_consolidate_attempt_dicts
-        )
+        has_data = synthesis_outcomes or synthesis_findings or synthesis_attempts
         if has_data:
             try:
                 summary_updated = await _synthesize_summary(
                     store,
-                    to_consolidate_dicts,
-                    to_consolidate_finding_dicts,
-                    to_consolidate_attempt_dicts,
+                    synthesis_outcomes,
+                    synthesis_findings,
+                    synthesis_attempts,
                 )
             except Exception as exc:
                 logger.warning(
