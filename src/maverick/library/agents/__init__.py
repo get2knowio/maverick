@@ -32,6 +32,7 @@ from maverick.agents.briefing import (
     StructuralistAgent,
 )
 from maverick.agents.curator import CuratorAgent
+from maverick.agents.generators.consolidator import ConsolidatorAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.fixer import FixerAgent, GateRemediationAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
@@ -113,3 +114,8 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     # CuratorAgent extends GeneratorAgent (not MaverickAgent) — skip
     # inheritance validation; it satisfies the build_prompt/name interface.
     registry.agents.register("curator", CuratorAgent, validate=False)  # type: ignore[arg-type]
+
+    # Register consolidator agent (used in maverick land for runway consolidation).
+    # ConsolidatorAgent extends GeneratorAgent (not MaverickAgent) — skip
+    # inheritance validation; it satisfies the build_prompt/name interface.
+    registry.agents.register("consolidator", ConsolidatorAgent, validate=False)  # type: ignore[arg-type]
