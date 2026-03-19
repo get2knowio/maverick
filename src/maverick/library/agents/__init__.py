@@ -32,10 +32,10 @@ from maverick.agents.briefing import (
     StructuralistAgent,
 )
 from maverick.agents.curator import CuratorAgent
-from maverick.agents.generators.consolidator import ConsolidatorAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.fixer import FixerAgent, GateRemediationAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
+from maverick.agents.generators.consolidator import ConsolidatorAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.preflight_briefing import (
     CodebaseAnalystAgent,
