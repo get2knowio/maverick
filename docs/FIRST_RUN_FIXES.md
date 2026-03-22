@@ -56,9 +56,9 @@ field to `ReviewFixLoopResult` and populating it from the last
 
 ---
 
-## 2. Populate `files_changed` in Bead Outcomes
+## 2. Populate `files_changed` in Bead Outcomes — DONE
 
-**Priority:** High
+**Priority:** High — **COMPLETED 2026-03-22**
 **Observed:** Every bead outcome has `files_changed: []`. The outcome
 recorder never captures which files were modified.
 
@@ -289,7 +289,7 @@ to the review step.
 | 3 | Reviewer count fidelity | High | Low | Accurate failure signals | **DONE** (sentinel replaced with real count; falls back to 1 when no findings captured) |
 | 5 | Snapshot commit hygiene | High | Medium | Clean PR history | |
 | 8 | Scope reviewer to bead files | Medium | Medium | Fewer false-positive review failures | |
-| 2 | Populate files_changed | High | Low | Real hotspot analysis | |
+| 2 | Populate files_changed | High | Low | Real hotspot analysis | **DONE** |
 | 4 | Constrain verification beads | Medium | Medium | Prevent scope creep | |
 | 7 | Thread flight_plan_name | Low | Low | Cross-epic analysis | |
 | 6 | Re-seed runway | Medium | None | Richer agent context | |

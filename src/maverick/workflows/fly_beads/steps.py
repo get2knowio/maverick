@@ -492,8 +492,11 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     )
     await wf.emit_step_completed(COMMIT, commit_result)
 
+    # Capture files changed by this bead (jj colocated → git diff works)
+    files_changed = await _get_files_changed(ctx.cwd)
+
     await mark_bead_complete(bead_id=ctx.bead_id)
-    await record_runway_outcome(wf, ctx)
+    await record_runway_outcome(wf, ctx, files_changed=files_changed)
     await wf.emit_output(
         COMMIT,
         f"Bead {ctx.bead_id} completed: {ctx.title}",
@@ -501,7 +504,33 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     )
 
 
-async def record_runway_outcome(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
+async def _get_files_changed(cwd: Path | None) -> list[str]:
+    """Get the list of files changed by the most recent commit.
+
+    Uses ``git diff --name-only HEAD~1`` which works in jj colocated
+    mode (shared ``.git`` directory).
+    """
+    from maverick.runners.command import CommandRunner
+
+    try:
+        runner = CommandRunner(cwd=cwd or Path.cwd())
+        result = await runner.run(
+            ["git", "diff", "--name-only", "HEAD~1"],
+        )
+        if result.stdout:
+            return [
+                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
+            ]
+    except Exception as exc:
+        logger.debug("files_changed_capture_failed", error=str(exc))
+    return []
+
+
+async def record_runway_outcome(
+    wf: FlyBeadsWorkflow,
+    ctx: BeadContext,
+    files_changed: list[str] | None = None,
+) -> None:
     """Record bead outcome to runway store (best-effort)."""
     try:
         await record_bead_outcome(
@@ -510,6 +539,7 @@ async def record_runway_outcome(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             title=ctx.title,
             validation_result=ctx.validation_result,
             review_result=ctx.review_result,
+            files_changed=files_changed,
             cwd=ctx.cwd,
         )
     except Exception as exc:
