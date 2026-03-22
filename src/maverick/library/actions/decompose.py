@@ -588,6 +588,7 @@ def convert_specs_to_work_units(
 def validate_decomposition(
     specs: list[WorkUnitSpec],
     success_criteria_count: int,
+    expected_sc_refs: list[str] | None = None,
 ) -> list[str]:
     """Validate the decomposed work units.
 
@@ -600,6 +601,9 @@ def validate_decomposition(
     Args:
         specs: List of WorkUnitSpec from decomposition agent.
         success_criteria_count: Number of success criteria in flight plan.
+        expected_sc_refs: Actual SC ref IDs from the flight plan (e.g.,
+            ["SC-B1-default", "SC-B1-linux", ...]). When provided, coverage
+            is checked against these refs instead of sequential SC-001..N.
 
     Returns:
         List of SC coverage gap descriptions (empty if all covered).
@@ -627,10 +631,17 @@ def validate_decomposition(
         for spec in specs:
             for ac in spec.acceptance_criteria:
                 if ac.trace_ref:
-                    covered_refs.add(ac.trace_ref)
+                    # Handle comma-separated refs (e.g., "SC-B1-default, SC-B1-linux")
+                    for ref_part in ac.trace_ref.split(","):
+                        covered_refs.add(ref_part.strip())
 
-        for i in range(1, success_criteria_count + 1):
-            ref = f"SC-{i:03d}"
+        # Build expected refs: use expected_sc_refs if provided, else
+        # fall back to sequential SC-001..SC-NNN for backward compat.
+        expected_refs: list[str] = list(expected_sc_refs) if expected_sc_refs else [
+            f"SC-{i:03d}" for i in range(1, success_criteria_count + 1)
+        ]
+
+        for ref in expected_refs:
             if ref not in covered_refs:
                 gap = f"{ref} not explicitly covered by any work unit"
                 gaps.append(gap)

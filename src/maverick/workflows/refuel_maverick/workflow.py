@@ -499,9 +499,22 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # --- Step 4: Validate ---
             await self.emit_step_started(VALIDATE)
             try:
+                # Extract SC ref IDs from the flight plan text.
+                # Success criteria may use "SC-B1-default: ..." prefix
+                # format, which we extract via regex.
+                import re as _re
+
+                _sc_prefix_re = _re.compile(r"^(SC-[\w-]+):\s+")
+                sc_refs: list[str] = []
+                for sc in flight_plan.success_criteria:
+                    m = _sc_prefix_re.match(sc.text)
+                    if m:
+                        sc_refs.append(m.group(1))
+
                 coverage_warnings = validate_decomposition(
                     specs=decomposition.work_units,
                     success_criteria_count=len(flight_plan.success_criteria),
+                    expected_sc_refs=sc_refs if sc_refs else None,
                 )
             except SCCoverageError as exc:
                 if attempt < MAX_DECOMPOSE_ATTEMPTS:
