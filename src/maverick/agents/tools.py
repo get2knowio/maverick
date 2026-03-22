@@ -133,25 +133,16 @@ IMPLEMENTER_TOOLS: frozenset[str] = frozenset(
     {"Read", "Write", "Edit", "Glob", "Grep", "Task", "Bash"}
 )
 
-#: Minimal tools for targeted file fixes (FixerAgent).
+#: Fixer tools (FixerAgent, ReviewFixerAgent, GateRemediationAgent).
 #:
-#: Fixers receive explicit file paths and don't need search capabilities.
-#: This is the smallest viable tool set for code modification.
-FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit"})
+#: All fixers get the same base tool set: file operations, search, and Bash
+#: for running validation commands to verify fixes.
+#: ReviewFixerAgent adds Task on top of this set for subagent parallelization.
+FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep", "Bash"})
 
-#: Issue resolution with file search capability (SimpleFixerAgent).
-#:
-#: Issue fixers may need to search for relevant files when investigating
-#: GitHub issues. Identical to IMPLEMENTER_TOOLS.
-ISSUE_FIXER_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep"})
-
-#: Autonomous fixer tools with Bash access (GateRemediationAgent).
-#:
-#: Autonomous fixers can run validation commands via Bash to verify
-#: their fixes, in addition to reading, writing, and searching code.
-AUTONOMOUS_FIXER_TOOLS: frozenset[str] = frozenset(
-    {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
-)
+#: Aliases — kept for backward compatibility with workflow references.
+ISSUE_FIXER_TOOLS: frozenset[str] = FIXER_TOOLS
+AUTONOMOUS_FIXER_TOOLS: frozenset[str] = FIXER_TOOLS
 
 #: Empty set for text generation agents (GeneratorAgent and subclasses).
 #:

@@ -142,21 +142,29 @@ async def record_review_findings(
         # Extract findings from various review result formats
         findings_data: list[dict[str, Any]] = []
 
-        # Try grouped format (from GroupedReviewResult)
-        groups = review_result.get("groups", [])
-        for group in groups:
-            for finding in group.get("findings", []):
-                findings_data.append(finding)
+        # Preferred: structured Finding dicts threaded through the pipeline
+        review_findings = review_result.get("review_findings", [])
+        if isinstance(review_findings, (list, tuple)):
+            for f in review_findings:
+                if isinstance(f, dict):
+                    findings_data.append(f)
 
-        # Try flat issues_fixed / issues_remaining format.
-        # These may be lists of dicts OR plain int counts — guard both.
-        for key in ("issues_fixed", "issues_remaining"):
-            items = review_result.get(key, [])
-            if not isinstance(items, list):
-                continue
-            for issue in items:
-                if isinstance(issue, dict):
-                    findings_data.append(issue)
+        # Fallback: grouped format (from GroupedReviewResult directly)
+        if not findings_data:
+            groups = review_result.get("groups", [])
+            for group in groups:
+                for finding in group.get("findings", []):
+                    findings_data.append(finding)
+
+        # Fallback: flat issues_fixed / issues_remaining lists
+        if not findings_data:
+            for key in ("issues_fixed", "issues_remaining"):
+                items = review_result.get(key, [])
+                if not isinstance(items, list):
+                    continue
+                for issue in items:
+                    if isinstance(issue, dict):
+                        findings_data.append(issue)
 
         count = 0
         for fd in findings_data:

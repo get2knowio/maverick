@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
-from maverick.runway.seed import SeedContext, SeedOutput
+from maverick.runway.seed import SeedContext
 
 __all__ = ["RunwaySeedAgent"]
 
@@ -24,7 +24,8 @@ project's architecture, conventions, review patterns, and technology stack.
 
 ## Your Task
 
-Analyze the provided project context and produce exactly 4 markdown files.
+Analyze the provided project context and produce exactly 4 markdown files
+by writing them to the semantic output directory specified in the prompt.
 Each file should be concise, actionable, and useful for an AI agent that will
 later implement features and review code in this project.
 
@@ -64,6 +65,8 @@ later implement features and review code in this project.
 - Use markdown headers, bullet points, and code references
 - If git history is empty, focus on what you can infer from the tree and config files
 - If information is insufficient for a section, say so briefly rather than guessing
+- Use the Write tool to create each file in the output directory
+- You may use Read and Grep tools to explore the codebase for deeper analysis
 """
 
 
@@ -72,19 +75,18 @@ later implement features and review code in this project.
 # ---------------------------------------------------------------------------
 
 
-class RunwaySeedAgent(MaverickAgent[SeedContext, SeedOutput]):
+class RunwaySeedAgent(MaverickAgent[SeedContext, None]):
     """Agent that analyzes a codebase and produces runway seed files.
 
-    Uses no tools — all context is provided in the prompt. Returns structured
-    JSON matching the SeedOutput schema.
+    Uses Read/Grep/Write tools to explore the codebase and write semantic
+    markdown files directly to disk via ACP.
     """
 
     def __init__(self) -> None:
         super().__init__(
             name="runway_seed",
             instructions=_INSTRUCTIONS,
-            allowed_tools=[],
-            output_model=SeedOutput,
+            allowed_tools=["Read", "Glob", "Grep", "Write"],
         )
 
     def build_prompt(self, context: SeedContext | dict[str, Any]) -> str:
@@ -93,6 +95,14 @@ class RunwaySeedAgent(MaverickAgent[SeedContext, SeedOutput]):
             context = SeedContext(**context)
 
         sections: list[str] = []
+
+        # Output directory instruction
+        if context.output_dir:
+            sections.append(
+                f"## Output Directory\n\n"
+                f"Write each markdown file to: `{context.output_dir}`\n"
+                f"Create the directory if it does not exist."
+            )
 
         # Git log
         if context.git_log:
@@ -123,7 +133,7 @@ class RunwaySeedAgent(MaverickAgent[SeedContext, SeedOutput]):
             sections.append("## File Type Distribution\n\n" + "\n".join(lines))
 
         return (
-            "Analyze the following project context and produce the 4 semantic "
+            "Analyze the following project context and write the 4 semantic "
             "knowledge files as described in your instructions.\n\n"
             + "\n\n".join(sections)
         )

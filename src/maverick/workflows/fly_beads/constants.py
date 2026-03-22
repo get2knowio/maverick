@@ -26,3 +26,7 @@ GATE_REMEDIATION_TIMEOUT: int = 600  # 10 min — remediation agent fixes gate f
 # Bead execution defaults
 DEFAULT_BASE_BRANCH: str = "main"
 DEFAULT_VALIDATION_STAGES: tuple[str, ...] = ("format", "lint", "typecheck", "test")
+
+# Per-bead retry limit.  After this many failed attempts on a single bead,
+# the bead is deferred and the workflow moves on to the next one.
+MAX_RETRIES_PER_BEAD: int = 3

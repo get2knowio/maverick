@@ -26,6 +26,7 @@ class BeadContext:
     briefing_context: str | None = None
     runway_context: str | None = None
     prior_failures: list[str] = field(default_factory=list)
+    discovered_from_chain: list[str] = field(default_factory=list)
 
     # Populated by step functions as pipeline progresses
     validation_result: dict[str, Any] | None = None

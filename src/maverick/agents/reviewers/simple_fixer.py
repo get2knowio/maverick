@@ -1,4 +1,4 @@
-"""Simple Review Fixer Agent.
+"""ReviewFixerAgent for fixing code review findings.
 
 This agent fixes code review findings with parallel execution for independent
 issues. It receives grouped findings and spawns subagents to work on them
@@ -153,7 +153,7 @@ Every finding ID from the input MUST appear in the output.
 """
 
 
-class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
+class ReviewFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
     """Agent for fixing code review findings with parallel execution.
 
     This agent receives grouped findings and fixes them, spawning subagents
@@ -171,7 +171,7 @@ class SimpleFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> None:
-        """Initialize the SimpleFixerAgent.
+        """Initialize the ReviewFixerAgent.
 
         Args:
             model: Optional Claude model ID.

@@ -454,6 +454,20 @@ async def mark_bead_complete(
         )
 
 
+async def defer_bead(bead_id: str, reason: str = "") -> None:
+    """Defer a bead so it no longer appears in ``bd ready``.
+
+    Args:
+        bead_id: ID of the bead to defer.
+        reason: Reason for deferral (logged, not passed to bd).
+    """
+    from maverick.runners.command import CommandRunner
+
+    runner = CommandRunner(cwd=Path.cwd())
+    await runner.run(["bd", "defer", bead_id])
+    logger.info("bead_deferred", bead_id=bead_id, reason=reason)
+
+
 async def check_epic_done(epic_id: str = "") -> CheckEpicDoneResult:
     """Check if there are any remaining ready beads.
 

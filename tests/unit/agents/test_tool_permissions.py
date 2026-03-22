@@ -12,7 +12,7 @@ from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.reviewers import (
     CompletenessReviewerAgent,
     CorrectnessReviewerAgent,
-    SimpleFixerAgent,
+    ReviewFixerAgent,
 )
 from maverick.agents.tools import (
     IMPLEMENTER_TOOLS,
@@ -252,17 +252,17 @@ class TestAgentToolComparison:
         assert "Read" in correctness.allowed_tools
         assert "Read" in implementer.allowed_tools
 
-    def test_only_implementer_has_bash_tool(self) -> None:
-        """Test that only the implementer agent has Bash tool access."""
+    def test_bash_access_is_appropriate(self) -> None:
+        """Test that Bash is available to agents that fix code, not reviewers."""
         completeness = CompletenessReviewerAgent()
         correctness = CorrectnessReviewerAgent()
         implementer = ImplementerAgent()
-        fixer = SimpleFixerAgent()
+        fixer = ReviewFixerAgent()
 
         assert "Bash" not in completeness.allowed_tools
         assert "Bash" not in correctness.allowed_tools
         assert "Bash" in implementer.allowed_tools
-        assert "Bash" not in fixer.allowed_tools
+        assert "Bash" in fixer.allowed_tools
 
 
 # =============================================================================

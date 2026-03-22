@@ -30,8 +30,10 @@ __all__ = ["MaverickAcpClient"]
 
 logger = get_logger(__name__)
 
-#: Circuit breaker: max calls to the same tool before triggering
-MAX_SAME_TOOL_CALLS: int = 15
+#: Circuit breaker: max calls to the same tool before triggering.
+#: Set high enough for agents that thoroughly explore codebases
+#: (e.g., 50+ Grep calls across a Rust workspace is normal).
+MAX_SAME_TOOL_CALLS: int = 100
 
 #: Tools that are always denied in deny_dangerous mode
 _DANGEROUS_TOOL_PATTERNS: frozenset[str] = frozenset(

@@ -31,6 +31,7 @@ from maverick.workflows.fly_beads.steps import (
     commit_bead,
     fetch_runway_context,
     load_briefing_context,
+    resolve_provenance,
     rollback_bead,
     run_gate_check,
     run_gate_remediation,
@@ -102,6 +103,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         # Track failure reasons per bead for retry context
         bead_failure_history: dict[str, list[str]] = {}
+        # Track last review result per bead so we can reconstruct context
+        # when a bead exhausts retries (ctx is not yet built at that point)
+        bead_last_review: dict[str, dict[str, Any] | None] = {}
 
         # ----------------------------------------------------------------
         # Step 1: Preflight
@@ -209,7 +213,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Bead loop
         # ----------------------------------------------------------------
         # max_beads caps *successful* completions, not total iterations.
-        # Safety limit prevents infinite retries (2 retries per bead max).
+        # Global safety limit prevents runaway loops; per-bead retry limit
+        # (MAX_RETRIES_PER_BEAD) defers stuck beads after N failed attempts.
         max_iterations = max_beads * 3
         _iteration = 0
         while beads_succeeded < max_beads and _iteration < max_iterations:
@@ -255,6 +260,62 @@ class FlyBeadsWorkflow(PythonWorkflow):
             prior_failures = bead_failure_history.get(bead_id, [])
             if prior_failures:
                 attempt_num = len(prior_failures) + 1
+
+                # Per-bead retry limit — commit what we have and spin off
+                # a follow-up bead for unresolved review issues.
+                from maverick.workflows.fly_beads.constants import (
+                    MAX_RETRIES_PER_BEAD,
+                )
+
+                if len(prior_failures) >= MAX_RETRIES_PER_BEAD:
+                    reasons_summary = "; ".join(prior_failures[-3:])
+                    await self.emit_output(
+                        SELECT_BEAD,
+                        f"Bead {bead_id} exhausted"
+                        f" {MAX_RETRIES_PER_BEAD} attempts:"
+                        f" {reasons_summary}."
+                        " Escalating.",
+                        level="warning",
+                    )
+                    try:
+                        from maverick.workflows.fly_beads.steps import (
+                            commit_bead_with_followup,
+                        )
+
+                        # Build a fresh context — ctx hasn't been
+                        # constructed for this iteration yet.
+                        retry_ctx = BeadContext(
+                            bead_id=bead_id,
+                            title=bead_title,
+                            description=select_result.description,
+                            epic_id=select_result.epic_id,
+                            cwd=workspace_path,
+                            prior_failures=prior_failures,
+                            briefing_context=load_briefing_context(
+                                select_result.flight_plan_name
+                            ),
+                        )
+                        retry_ctx.review_result = bead_last_review.get(
+                            bead_id
+                        )
+
+                        # Populate discovered-from chain for escalation
+                        await resolve_provenance(retry_ctx)
+
+                        await commit_bead_with_followup(
+                            self, retry_ctx, prior_failures
+                        )
+                        completed_bead_ids.add(bead_id)
+                        beads_succeeded += 1
+                    except Exception as exc:
+                        logger.warning(
+                            "fly_beads_followup_failed",
+                            bead_id=bead_id,
+                            error=str(exc),
+                        )
+                        beads_failed += 1
+                    continue
+
                 prev_reason = prior_failures[-1]
                 await self.emit_output(
                     SELECT_BEAD,
@@ -282,6 +343,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             )
 
             try:
+                await resolve_provenance(ctx)
                 await fetch_runway_context(self, ctx)
                 await snapshot_and_describe(self, ctx)
 
@@ -324,6 +386,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         else "unknown"
                     )
                     bead_failure_history.setdefault(bead_id, []).append(reasons)
+                    bead_last_review[bead_id] = ctx.review_result
 
             except Exception as exc:
                 logger.warning(

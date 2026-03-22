@@ -1,8 +1,8 @@
 """Runway seed: brownfield codebase analysis for runway bootstrapping.
 
 Gathers project context (git log, directory tree, config files) and sends
-it to an ACP provider for analysis. The LLM produces semantic markdown
-files that pre-populate the runway knowledge store.
+it to an ACP provider for analysis. The agent uses filesystem tools to
+explore the codebase and writes semantic markdown files directly to disk.
 """
 
 from __future__ import annotations
@@ -76,6 +76,14 @@ _CONFIG_FILES: tuple[str, ...] = (
     "pom.xml",
 )
 
+# Expected semantic files produced by the seed agent
+_EXPECTED_FILES: tuple[str, ...] = (
+    "architecture.md",
+    "conventions.md",
+    "review-patterns.md",
+    "tech-stack.md",
+)
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -90,6 +98,7 @@ class SeedContext:
     directory_tree: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
     file_type_counts: dict[str, int] = field(default_factory=dict)
+    output_dir: str = ""
 
 
 class SeedFileEntry(BaseModel):
@@ -194,7 +203,10 @@ async def _read_config_files(project_path: Path) -> dict[str, str]:
     return result
 
 
-async def gather_seed_context(project_path: Path) -> SeedContext:
+async def gather_seed_context(
+    project_path: Path,
+    output_dir: Path | None = None,
+) -> SeedContext:
     """Gather project context for the seed agent.
 
     Collects git log, directory tree, config file contents, and file type
@@ -202,6 +214,7 @@ async def gather_seed_context(project_path: Path) -> SeedContext:
 
     Args:
         project_path: Root directory of the project.
+        output_dir: Directory where the agent should write semantic files.
 
     Returns:
         SeedContext with gathered data.
@@ -226,6 +239,7 @@ async def gather_seed_context(project_path: Path) -> SeedContext:
         directory_tree=directory_tree,
         config_files=config_files,
         file_type_counts=file_type_counts,
+        output_dir=str(output_dir) if output_dir else "",
     )
 
 
@@ -244,8 +258,8 @@ async def run_seed(
 ) -> SeedResult:
     """Seed the runway with AI-generated codebase insights.
 
-    Gathers repo context, sends it to an ACP provider for analysis, and
-    writes the resulting semantic files to the runway store.
+    The seed agent uses ACP with filesystem tools to explore the codebase
+    and write semantic markdown files directly to disk.
 
     Args:
         project_path: Root directory of the project.
@@ -280,43 +294,47 @@ async def run_seed(
                 "Use --force to overwrite.",
             )
 
+    # Ensure semantic output directory exists
+    semantic_dir = runway_path / "semantic"
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+
     # Gather context if not provided
     if context is None:
-        context = await gather_seed_context(project_path)
+        context = await gather_seed_context(
+            project_path, output_dir=semantic_dir
+        )
 
-    # Execute LLM analysis
+    # Execute via ACP — the agent writes files directly to semantic_dir
     executor = create_default_executor()
     try:
-        step_config = StepConfig(provider=provider) if provider else None
+        # Seed agent explores the codebase and writes files — needs more time
+        # than the default 300s timeout.
+        step_config = StepConfig(provider=provider, timeout=600)
 
-        result = await executor.execute(
+        await executor.execute(
             step_name="runway-seed",
             agent_name="runway_seed",
             prompt=context,
-            output_schema=SeedOutput,
             config=step_config,
+            cwd=project_path,
         )
 
-        if not result.success or result.output is None:
-            return SeedResult(success=False, error="ACP provider returned no output.")
-
-        seed_output: SeedOutput = result.output
-
-        if dry_run:
-            return SeedResult(
-                success=True,
-                files_written=tuple(f.filename for f in seed_output.files),
-            )
-
-        # Write semantic files
+        # Check which files the agent wrote
         files_written: list[str] = []
-        for entry in seed_output.files:
-            await store.write_semantic_file(entry.filename, entry.content)
-            files_written.append(entry.filename)
-            logger.info(
-                "seed_file_written",
-                filename=entry.filename,
-                size=len(entry.content),
+        for filename in _EXPECTED_FILES:
+            fpath = semantic_dir / filename
+            if fpath.is_file() and fpath.stat().st_size > 0:
+                files_written.append(filename)
+                logger.info(
+                    "seed_file_written",
+                    filename=filename,
+                    size=fpath.stat().st_size,
+                )
+
+        if not files_written:
+            return SeedResult(
+                success=False,
+                error="Agent completed but no semantic files were written.",
             )
 
         return SeedResult(success=True, files_written=tuple(files_written))

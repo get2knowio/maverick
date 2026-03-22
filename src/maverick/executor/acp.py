@@ -102,9 +102,11 @@ class AcpStepExecutor:
         self,
         provider_registry: AgentProviderRegistry,
         agent_registry: ComponentRegistry,
+        global_max_tokens: int | None = None,
     ) -> None:
         self._provider_registry = provider_registry
         self._agent_registry = agent_registry
+        self._global_max_tokens = global_max_tokens
         self._connections: dict[str, CachedConnection] = {}
         self._logger = get_logger(__name__)
 
@@ -200,6 +202,13 @@ class AcpStepExecutor:
 
         raw_prompt: str = agent_instance.build_prompt(prompt)
 
+        # Resolve allowed_tools: explicit caller value takes priority,
+        # then fall back to the agent's own allowed_tools property.
+        if allowed_tools is None:
+            agent_tools = getattr(agent_instance, "allowed_tools", None)
+            if isinstance(agent_tools, list):
+                allowed_tools = agent_tools
+
         # Resolve instructions: explicit caller instructions take priority,
         # then fall back to the agent's own instructions property.
         effective_instructions = instructions or getattr(
@@ -231,7 +240,10 @@ class AcpStepExecutor:
             prompt_text = raw_prompt
 
         # --- Get or create cached ACP connection ---
-        cached = await self._get_or_create_connection(provider_name, provider_config)
+        effective_max_tokens = effective_config.max_tokens or self._global_max_tokens
+        cached = await self._get_or_create_connection(
+            provider_name, provider_config, max_output_tokens=effective_max_tokens
+        )
 
         # --- Resolve effective retry ---
         max_attempts = 1
@@ -351,6 +363,7 @@ class AcpStepExecutor:
         self,
         provider_name: str,
         provider_config: AgentProviderConfig,
+        max_output_tokens: int | None = None,
     ) -> CachedConnection:
         """Return a cached ACP connection, spawning a new subprocess if needed.
 
@@ -387,6 +400,10 @@ class AcpStepExecutor:
         env.pop("CLAUDECODE", None)
         env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
+        # Thread max_tokens into the subprocess env for Claude Code.
+        if max_output_tokens is not None:
+            env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(max_output_tokens)
+
         self._logger.info(
             "acp_executor.subprocess_spawn",
             provider=provider_name,
@@ -404,7 +421,13 @@ class AcpStepExecutor:
         try:
             # spawn_agent_process is an async context manager; we enter it and
             # store the resources for the lifetime of this executor.
-            ctx = spawn_agent_process(client, command, *args, env=env)
+            # Raise the default 64KB stream buffer limit to 1MB to handle
+            # agents that produce large tool-call messages (e.g., Write tool
+            # with full file contents).
+            ctx = spawn_agent_process(
+                client, command, *args, env=env,
+                transport_kwargs={"limit": 1_048_576},
+            )
             conn, proc = await ctx.__aenter__()
         except FileNotFoundError as exc:
             raise CLINotFoundError(

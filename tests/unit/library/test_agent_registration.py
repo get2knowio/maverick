@@ -66,7 +66,7 @@ class TestRegisterAllAgents:
             "implementer",
             "completeness_reviewer",
             "correctness_reviewer",
-            "simple_fixer",
+            "review_fixer",
             "validation_fixer",
             "decomposer",
             "flight_plan_generator",

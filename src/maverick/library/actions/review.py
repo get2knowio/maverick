@@ -531,11 +531,22 @@ async def run_review_fix_loop(
             )
         return result
 
+    # Track the latest structured findings across review iterations
+    last_findings: tuple[dict[str, Any], ...] = ()
+
+    def _extract_findings(review_dict: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+        """Extract serialized Finding dicts from a _run_dual_review result."""
+        review_obj = review_dict.get("review_result")
+        if review_obj and hasattr(review_obj, "all_findings"):
+            return tuple(f.model_dump() for f in review_obj.all_findings)
+        return ()
+
     if max_attempts <= 0:
         # Just run review once, no fixing
         review_result = await _run_dual_review(
             review_input, base_branch, stream_callback
         )
+        last_findings = _extract_findings(review_result)
         return await _maybe_report(
             ReviewFixLoopResult(
                 success=True,
@@ -545,6 +556,7 @@ async def run_review_fix_loop(
                 final_recommendation=review_result.get("recommendation", "comment"),
                 skipped=True,
                 skip_reason="Fix attempts disabled (max_attempts=0)",
+                review_findings=last_findings,
             )
         )
 
@@ -561,6 +573,7 @@ async def run_review_fix_loop(
             review_input, base_branch, stream_callback
         )
         current_recommendation = review_result.get("recommendation", "request_changes")
+        last_findings = _extract_findings(review_result)
 
         # Step 1b: Handle reviewer errors — don't treat failures as clean reviews
         if current_recommendation == "error":
@@ -585,6 +598,7 @@ async def run_review_fix_loop(
                     final_recommendation=current_recommendation,
                     skipped=(attempt_num == 1 and skip_if_approved),
                     skip_reason="Initial review approved" if attempt_num == 1 else None,
+                    review_findings=last_findings,
                 )
             )
 
@@ -604,6 +618,7 @@ async def run_review_fix_loop(
                     final_recommendation=current_recommendation,
                     skipped=False,
                     skip_reason=None,
+                    review_findings=last_findings,
                 )
             )
 
@@ -637,6 +652,7 @@ async def run_review_fix_loop(
             final_recommendation=current_recommendation,
             skipped=False,
             skip_reason=None,
+            review_findings=last_findings,
         )
     )
 
@@ -845,7 +861,7 @@ async def _run_review_fixer(
         Fix result dict with outcomes for each finding
     """
     try:
-        from maverick.agents.reviewers import SimpleFixerAgent
+        from maverick.agents.reviewers import ReviewFixerAgent
 
         # Get the ReviewResult from parallel reviewers
         result_obj = review_result.get("review_result")
@@ -865,7 +881,7 @@ async def _run_review_fixer(
         # Run simple fixer via ACP executor; parse outcomes from raw text output
         from maverick.executor import create_default_executor
 
-        fixer = SimpleFixerAgent()
+        fixer = ReviewFixerAgent()
         _executor = create_default_executor()
         try:
             _fix_result = await _executor.execute(
@@ -895,7 +911,7 @@ async def _run_review_fixer(
         }
 
     except ImportError as e:
-        logger.warning("Failed to import SimpleFixerAgent: %s", e)
+        logger.warning("Failed to import ReviewFixerAgent: %s", e)
         return {"success": False, "error": str(e)}
     except Exception as e:
         logger.warning("Review fixer failed: %s", e)
@@ -1003,17 +1019,20 @@ async def generate_review_fix_report(
     else:
         effective_recommendation = final_recommendation
 
-    # When the loop failed (not approved), report issues_remaining > 0
-    # so verify_bead_completion correctly blocks the commit.
-    # We use 1 as a sentinel since we don't track individual counts.
-    effective_remaining = 0 if effective_recommendation == "approve" else 1
+    # Use real finding count when available, fall back to sentinel (1)
+    # when findings weren't captured (e.g., reviewer errored).
+    review_findings = tuple(loop_result.get("review_findings", ()))
+    finding_count = len(review_findings) if review_findings else 1
+    effective_remaining = 0 if effective_recommendation == "approve" else finding_count
+    effective_found = 0 if effective_recommendation == "approve" else finding_count
 
     return ReviewAndFixReport(
         review_report="\n".join(report_lines),
         recommendation=effective_recommendation,
-        issues_found=0 if effective_recommendation == "approve" else 1,
+        issues_found=effective_found,
         issues_fixed=0,
         issues_remaining=effective_remaining,
         attempts=attempts,
         fix_summary=tuple(fix_summary_lines),
+        review_findings=review_findings,
     )

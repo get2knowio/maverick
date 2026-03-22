@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -191,8 +192,8 @@ class TestRunwaySeedAgent:
         agent = RunwaySeedAgent()
 
         assert agent.name == "runway_seed"
-        assert agent.allowed_tools == []
-        assert agent._output_model is SeedOutput
+        assert "Write" in agent.allowed_tools
+        assert "Read" in agent.allowed_tools
 
     def test_build_prompt_includes_git_log(self) -> None:
         from maverick.agents.seed import RunwaySeedAgent
@@ -250,36 +251,51 @@ class TestRunwaySeedAgent:
 
 
 def _mock_executor(
-    seed_output: SeedOutput | None = None,
-    success: bool = True,
     raise_error: Exception | None = None,
 ) -> MagicMock:
-    """Create a mock executor that returns the given seed output."""
+    """Create a mock executor for seed tests.
+
+    The seed agent writes files directly to disk via tools, so the executor
+    does not return structured output.
+    """
     mock = MagicMock()
 
     if raise_error:
         mock.execute = AsyncMock(side_effect=raise_error)
     else:
         result = MagicMock()
-        result.success = success
-        result.output = seed_output
+        result.success = True
+        result.output = None
         mock.execute = AsyncMock(return_value=result)
 
     mock.cleanup = AsyncMock()
     return mock
 
 
+def _write_seed_files(tmp_path: Path) -> None:
+    """Simulate the agent writing seed files to the semantic directory."""
+    semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    (semantic_dir / "architecture.md").write_text("# Architecture")
+    (semantic_dir / "conventions.md").write_text("# Conventions")
+    (semantic_dir / "review-patterns.md").write_text("# Review Patterns")
+    (semantic_dir / "tech-stack.md").write_text("# Tech Stack")
+
+
 class TestRunSeed:
     @pytest.mark.asyncio
     async def test_writes_semantic_files(self, tmp_path: Path) -> None:
-        """Successful seed should write semantic files to store."""
-        seed_output = SeedOutput(
-            files=[
-                SeedFileEntry(filename="architecture.md", content="# Architecture"),
-                SeedFileEntry(filename="conventions.md", content="# Conventions"),
-            ]
-        )
-        mock_exec = _mock_executor(seed_output=seed_output)
+        """Successful seed should detect files written by the agent."""
+        mock_exec = _mock_executor()
+
+        async def _side_effect(**kwargs: Any) -> MagicMock:
+            _write_seed_files(tmp_path)
+            result = MagicMock()
+            result.success = True
+            result.output = None
+            return result
+
+        mock_exec.execute = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
@@ -287,21 +303,23 @@ class TestRunSeed:
         assert result.success
         assert "architecture.md" in result.files_written
         assert "conventions.md" in result.files_written
-
-        # Verify files exist on disk
-        semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
-        assert (semantic_dir / "architecture.md").read_text() == "# Architecture"
-        assert (semantic_dir / "conventions.md").read_text() == "# Conventions"
+        assert "review-patterns.md" in result.files_written
+        assert "tech-stack.md" in result.files_written
 
     @pytest.mark.asyncio
     async def test_auto_initializes_runway(self, tmp_path: Path) -> None:
         """If runway is not initialized, seed should auto-initialize it."""
-        seed_output = SeedOutput(
-            files=[SeedFileEntry(filename="tech.md", content="# Tech")]
-        )
-        mock_exec = _mock_executor(seed_output=seed_output)
+        mock_exec = _mock_executor()
 
-        # No .maverick/runway directory exists
+        async def _side_effect(**kwargs: Any) -> MagicMock:
+            _write_seed_files(tmp_path)
+            result = MagicMock()
+            result.success = True
+            result.output = None
+            return result
+
+        mock_exec.execute = AsyncMock(side_effect=_side_effect)
+
         assert not (tmp_path / ".maverick" / "runway").exists()
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
@@ -334,43 +352,23 @@ class TestRunSeed:
         await store.initialize()
         await store.write_semantic_file("architecture.md", "old content")
 
-        seed_output = SeedOutput(
-            files=[
-                SeedFileEntry(filename="architecture.md", content="# New Architecture")
-            ]
-        )
-        mock_exec = _mock_executor(seed_output=seed_output)
+        mock_exec = _mock_executor()
+
+        async def _side_effect(**kwargs: Any) -> MagicMock:
+            semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
+            (semantic_dir / "architecture.md").write_text("# New Architecture")
+            result = MagicMock()
+            result.success = True
+            result.output = None
+            return result
+
+        mock_exec.execute = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path, force=True)
 
         assert result.success
         assert "architecture.md" in result.files_written
-
-        semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
-        assert (semantic_dir / "architecture.md").read_text() == "# New Architecture"
-
-    @pytest.mark.asyncio
-    async def test_dry_run_no_writes(self, tmp_path: Path) -> None:
-        """Dry run should return file list but not write anything."""
-        seed_output = SeedOutput(
-            files=[
-                SeedFileEntry(filename="architecture.md", content="# Arch"),
-                SeedFileEntry(filename="conventions.md", content="# Conv"),
-            ]
-        )
-        mock_exec = _mock_executor(seed_output=seed_output)
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
-            result = await run_seed(tmp_path, dry_run=True)
-
-        assert result.success
-        assert "architecture.md" in result.files_written
-
-        # Files should NOT be written in dry run — but runway was auto-initialized
-        # so the semantic dir exists, but the file shouldn't
-        semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
-        assert not (semantic_dir / "architecture.md").exists()
 
     @pytest.mark.asyncio
     async def test_executor_error_returns_gracefully(self, tmp_path: Path) -> None:
@@ -384,33 +382,29 @@ class TestRunSeed:
         assert "connection refused" in (result.error or "")
 
     @pytest.mark.asyncio
-    async def test_executor_no_output(self, tmp_path: Path) -> None:
-        """Executor returning no output should report failure."""
-        mock_exec = _mock_executor(seed_output=None, success=False)
+    async def test_no_files_written_reports_failure(self, tmp_path: Path) -> None:
+        """If the agent completes but writes no files, report failure."""
+        mock_exec = _mock_executor()
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
 
         assert not result.success
-
-    @pytest.mark.asyncio
-    async def test_passes_provider_override(self, tmp_path: Path) -> None:
-        """Provider override should be passed to StepConfig."""
-        seed_output = SeedOutput(files=[SeedFileEntry(filename="a.md", content="x")])
-        mock_exec = _mock_executor(seed_output=seed_output)
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
-            await run_seed(tmp_path, provider="copilot")
-
-        # Verify StepConfig was passed with provider
-        call_kwargs = mock_exec.execute.call_args.kwargs
-        assert call_kwargs["config"].provider == "copilot"
+        assert "no semantic files" in (result.error or "").lower()
 
     @pytest.mark.asyncio
     async def test_cleanup_called_on_success(self, tmp_path: Path) -> None:
         """Executor cleanup should be called even on success."""
-        seed_output = SeedOutput(files=[SeedFileEntry(filename="a.md", content="x")])
-        mock_exec = _mock_executor(seed_output=seed_output)
+        mock_exec = _mock_executor()
+
+        async def _side_effect(**kwargs: Any) -> MagicMock:
+            _write_seed_files(tmp_path)
+            result = MagicMock()
+            result.success = True
+            result.output = None
+            return result
+
+        mock_exec.execute = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             await run_seed(tmp_path)

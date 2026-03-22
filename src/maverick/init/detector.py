@@ -569,6 +569,12 @@ async def _detect_with_claude(
         # Fall back to marker detection
         return _detect_from_markers(markers)
 
+    except NotImplementedError:
+        logger.warning(
+            "claude_agent_sdk not available, falling back to marker-based detection",
+        )
+        return _detect_from_markers(markers)
+
     except Exception as e:
         logger.error("Claude detection failed: %s", e)
         raise DetectionError(

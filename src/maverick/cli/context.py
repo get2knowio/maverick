@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import functools
 import signal
 import sys
@@ -157,6 +158,46 @@ def _shutdown_loop(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> Non
         try:
             with contextlib.suppress(Exception):
                 loop.run_until_complete(loop.shutdown_asyncgens())
+            with contextlib.suppress(Exception):
+                loop.run_until_complete(loop.shutdown_default_executor())
         finally:
             _root.setLevel(_prev)
+        # Force GC before closing the loop so subprocess transports
+        # are finalized while the loop is still open (prevents
+        # "Event loop is closed" RuntimeError in __del__).
+        gc.collect()
         loop.close()
+        # Suppress the "Event loop is closed" RuntimeError that CPython
+        # raises when subprocess transport __del__ fires at interpreter
+        # shutdown after the loop is already closed.
+        _install_loop_closed_suppressor()
+
+
+_loop_closed_suppressor_installed = False
+
+
+def _install_loop_closed_suppressor() -> None:
+    """Suppress 'Event loop is closed' RuntimeError from subprocess __del__.
+
+    CPython's asyncio subprocess transport calls ``loop.call_soon`` in its
+    ``__del__``, which raises RuntimeError if the loop is already closed.
+    This is a known CPython issue with no upstream fix in 3.12.  We install
+    a custom ``sys.unraisablehook`` that silences only this specific error,
+    forwarding everything else to the original hook.
+    """
+    global _loop_closed_suppressor_installed  # noqa: PLW0603
+    if _loop_closed_suppressor_installed:
+        return
+    _loop_closed_suppressor_installed = True
+
+    _orig_hook = sys.unraisablehook
+
+    def _hook(unraisable: sys.UnraisableHookArgs) -> None:
+        if (
+            isinstance(unraisable.exc_value, RuntimeError)
+            and "Event loop is closed" in str(unraisable.exc_value)
+        ):
+            return
+        _orig_hook(unraisable)
+
+    sys.unraisablehook = _hook

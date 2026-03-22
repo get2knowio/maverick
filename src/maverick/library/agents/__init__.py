@@ -11,8 +11,9 @@ Registered Agents:
     implementer: ImplementerAgent - Executes tasks from task files
     completeness_reviewer: CompletenessReviewerAgent - Reviews for requirement coverage
     correctness_reviewer: CorrectnessReviewerAgent - Reviews for technical correctness
-    simple_fixer: SimpleFixerAgent - Fixes review findings
-    validation_fixer: FixerAgent - Applies validation fixes
+    review_fixer: ReviewFixerAgent - Fixes review findings with accountability
+    validation_fixer: FixerAgent - Fixes validation and gate failures
+    gate_remediator: FixerAgent - Same agent, gate remediation context
     decomposer: DecomposerAgent - Decomposes flight plans into work units
     flight_plan_generator: FlightPlanGeneratorAgent - Generates flight plans from PRDs
 """
@@ -33,7 +34,7 @@ from maverick.agents.briefing import (
 )
 from maverick.agents.curator import CuratorAgent
 from maverick.agents.decomposer import DecomposerAgent
-from maverick.agents.fixer import FixerAgent, GateRemediationAgent
+from maverick.agents.fixer import FixerAgent
 from maverick.agents.flight_plan_generator import FlightPlanGeneratorAgent
 from maverick.agents.generators.consolidator import ConsolidatorAgent
 from maverick.agents.implementer import ImplementerAgent
@@ -46,7 +47,7 @@ from maverick.agents.preflight_briefing import (
 from maverick.agents.reviewers import (
     CompletenessReviewerAgent,
     CorrectnessReviewerAgent,
-    SimpleFixerAgent,
+    ReviewFixerAgent,
 )
 from maverick.agents.seed import RunwaySeedAgent
 
@@ -81,13 +82,12 @@ def register_all_agents(registry: ComponentRegistry) -> None:
     # Register parallel review agents
     registry.agents.register("completeness_reviewer", CompletenessReviewerAgent)
     registry.agents.register("correctness_reviewer", CorrectnessReviewerAgent)
-    registry.agents.register("simple_fixer", SimpleFixerAgent)
+    registry.agents.register("review_fixer", ReviewFixerAgent)
 
-    # Register validation fixer agent (used in validate-and-fix fragment)
+    # Register fixer agent — used for both validation fixes and gate remediation.
+    # Same class, two registry names for different workflow contexts.
     registry.agents.register("validation_fixer", FixerAgent)
-
-    # Register gate remediation agent (used in fly-beads gate remediation step)
-    registry.agents.register("gate_remediator", GateRemediationAgent)
+    registry.agents.register("gate_remediator", FixerAgent)
 
     # Register decomposer agent (used in refuel-maverick workflow)
     registry.agents.register("decomposer", DecomposerAgent)

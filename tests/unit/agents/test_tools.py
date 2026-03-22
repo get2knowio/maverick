@@ -6,6 +6,7 @@ import pytest
 
 from maverick.agents.base import BUILTIN_TOOLS
 from maverick.agents.tools import (
+    AUTONOMOUS_FIXER_TOOLS,
     FIXER_TOOLS,
     GENERATOR_TOOLS,
     IMPLEMENTER_TOOLS,
@@ -170,25 +171,17 @@ class TestFixerTools:
 
     def test_fixer_tools_exact_composition(self) -> None:
         """Test FIXER_TOOLS contains exactly the expected tools."""
-        expected = {"Read", "Write", "Edit"}
+        expected = {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
         assert expected == FIXER_TOOLS
 
-    def test_fixer_tools_is_minimal(self) -> None:
-        """Test FIXER_TOOLS is the minimal set for code modification."""
-        # Should have exactly 3 tools: Read, Write, Edit
-        assert len(FIXER_TOOLS) == 3
+    def test_fixer_tools_has_search(self) -> None:
+        """Test FIXER_TOOLS includes search tools for finding related files."""
+        assert "Glob" in FIXER_TOOLS
+        assert "Grep" in FIXER_TOOLS
 
-    def test_fixer_tools_has_no_search(self) -> None:
-        """Test FIXER_TOOLS does not include search tools."""
-        search_tools = {"Glob", "Grep"}
-        assert not FIXER_TOOLS.intersection(search_tools), (
-            f"FIXER_TOOLS should not have search but contains: "
-            f"{FIXER_TOOLS.intersection(search_tools)}"
-        )
-
-    def test_fixer_tools_has_no_bash(self) -> None:
-        """Test FIXER_TOOLS does not include Bash."""
-        assert "Bash" not in FIXER_TOOLS
+    def test_fixer_tools_has_bash(self) -> None:
+        """Test FIXER_TOOLS includes Bash for running validation."""
+        assert "Bash" in FIXER_TOOLS
 
     def test_fixer_tools_is_subset_of_implementer_tools(self) -> None:
         """Test FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS."""
@@ -200,16 +193,16 @@ class TestIssueFixerTools:
 
     def test_issue_fixer_tools_exact_composition(self) -> None:
         """Test ISSUE_FIXER_TOOLS contains exactly the expected tools."""
-        expected = {"Read", "Write", "Edit", "Glob", "Grep"}
+        expected = {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
         assert expected == ISSUE_FIXER_TOOLS
 
-    def test_issue_fixer_tools_identical_to_implementer_tools(self) -> None:
+    def test_issue_fixer_tools_is_subset_of_implementer_tools(self) -> None:
         """Test ISSUE_FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS."""
         assert ISSUE_FIXER_TOOLS.issubset(IMPLEMENTER_TOOLS)
 
-    def test_issue_fixer_tools_has_no_bash(self) -> None:
-        """Test ISSUE_FIXER_TOOLS does not include Bash."""
-        assert "Bash" not in ISSUE_FIXER_TOOLS
+    def test_issue_fixer_tools_has_bash(self) -> None:
+        """Test ISSUE_FIXER_TOOLS includes Bash for running validation."""
+        assert "Bash" in ISSUE_FIXER_TOOLS
 
     def test_issue_fixer_tools_has_search_capability(self) -> None:
         """Test ISSUE_FIXER_TOOLS includes search tools for finding issues."""
@@ -278,12 +271,13 @@ class TestToolSetRelationships:
         assert "Read" in ISSUE_FIXER_TOOLS
         # GENERATOR_TOOLS is empty, so it doesn't have Read
 
-    def test_only_implementer_tools_contain_bash(self) -> None:
-        """Test only IMPLEMENTER_TOOLS includes Bash for running commands."""
+    def test_bash_only_in_appropriate_tool_sets(self) -> None:
+        """Test Bash is available to agents that need to run commands."""
         assert "Bash" not in REVIEWER_TOOLS
         assert "Bash" in IMPLEMENTER_TOOLS
-        assert "Bash" not in FIXER_TOOLS
-        assert "Bash" not in ISSUE_FIXER_TOOLS
+        assert "Bash" in FIXER_TOOLS
+        assert "Bash" in ISSUE_FIXER_TOOLS
+        assert "Bash" in AUTONOMOUS_FIXER_TOOLS
         assert "Bash" not in GENERATOR_TOOLS
         assert "Bash" not in PLANNER_TOOLS
 
@@ -345,19 +339,19 @@ class TestToolSetOperations:
 
     def test_common_tools_across_all_non_empty_sets(self) -> None:
         """Test the intersection of all non-empty tool sets."""
-        # Only Read should be common to all non-empty sets
+        # Read, Glob, Grep are common to all non-empty tool sets
         common = REVIEWER_TOOLS & IMPLEMENTER_TOOLS & FIXER_TOOLS & ISSUE_FIXER_TOOLS
-        assert common == {"Read"}
+        assert common == {"Read", "Glob", "Grep"}
 
     def test_issue_fixer_is_subset_of_implementer(self) -> None:
         """Test ISSUE_FIXER_TOOLS is a subset of IMPLEMENTER_TOOLS.
 
-        The implementer has Task for subagent-based parallelization
-        and Bash for running validation commands; the issue fixer has neither.
+        The implementer has Task for subagent-based parallelization;
+        the issue fixer does not.
         """
         assert ISSUE_FIXER_TOOLS.issubset(IMPLEMENTER_TOOLS)
-        # The extra tools are Task and Bash
-        assert {"Task", "Bash"} == IMPLEMENTER_TOOLS - ISSUE_FIXER_TOOLS
+        # The only extra tool in IMPLEMENTER is Task (for subagent parallelization)
+        assert {"Task"} == IMPLEMENTER_TOOLS - ISSUE_FIXER_TOOLS
 
 
 # =============================================================================

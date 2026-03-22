@@ -425,6 +425,7 @@ class ReviewFixLoopResult:
     final_recommendation: str  # Final review recommendation after fixes
     skipped: bool  # True if fix loop was skipped
     skip_reason: str | None
+    review_findings: tuple[dict[str, Any], ...] = ()  # Structured Finding dicts from reviewers
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -436,6 +437,7 @@ class ReviewFixLoopResult:
             "final_recommendation": self.final_recommendation,
             "skipped": self.skipped,
             "skip_reason": self.skip_reason,
+            "review_findings": list(self.review_findings),
         }
 
 
@@ -450,6 +452,7 @@ class ReviewAndFixReport:
     issues_remaining: int
     attempts: int
     fix_summary: tuple[str, ...]  # Summary of fixes applied
+    review_findings: tuple[dict[str, Any], ...] = ()  # Structured Finding dicts
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -461,6 +464,7 @@ class ReviewAndFixReport:
             "issues_remaining": self.issues_remaining,
             "attempts": self.attempts,
             "fix_summary": list(self.fix_summary),
+            "review_findings": list(self.review_findings),
         }
 
 

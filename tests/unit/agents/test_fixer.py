@@ -1,10 +1,9 @@
-"""Unit tests for FixerAgent and GateRemediationAgent.
+"""Unit tests for FixerAgent.
 
-Tests the fixer agents' functionality including:
+Tests the fixer agent's functionality including:
 - Initialization and configuration (T031)
 - System prompt verification (T032)
 - build_prompt method (ACP-native interface, T033)
-- GateRemediationAgent tools and prompt
 """
 
 from __future__ import annotations
@@ -16,11 +15,9 @@ import pytest
 from maverick.agents.context import AgentContext
 from maverick.agents.fixer import (
     FIXER_SYSTEM_PROMPT,
-    GATE_REMEDIATION_SYSTEM_PROMPT,
     FixerAgent,
-    GateRemediationAgent,
 )
-from maverick.agents.tools import AUTONOMOUS_FIXER_TOOLS, FIXER_TOOLS
+from maverick.agents.tools import AUTONOMOUS_FIXER_TOOLS
 from maverick.config import MaverickConfig
 from maverick.models.fixer import FixerResult
 
@@ -66,36 +63,25 @@ class TestFixerAgentInitialization:
         """Test agent initializes with correct defaults."""
         assert agent.name == "fixer"
         assert agent.instructions == FIXER_SYSTEM_PROMPT
-        assert agent.allowed_tools == list(FIXER_TOOLS)
+        assert agent.allowed_tools == list(AUTONOMOUS_FIXER_TOOLS)
 
     def test_allowed_tools_matches_contract(self, agent: FixerAgent) -> None:
-        """Test allowed tools matches contract exactly (T031).
-
-        Contract: FixerAgent must have exactly Read, Write, Edit (minimal set).
-        """
-        expected_tools = {"Read", "Write", "Edit"}
+        """Test allowed tools matches AUTONOMOUS_FIXER_TOOLS exactly (T031)."""
+        expected_tools = set(AUTONOMOUS_FIXER_TOOLS)
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
             f"FixerAgent tools mismatch. "
             f"Expected: {expected_tools}, Got: {actual_tools}"
         )
 
-    def test_allowed_tools_is_minimal_set(self, agent: FixerAgent) -> None:
-        """Test allowed tools is the smallest viable set (T031)."""
-        # Fixer should have the smallest tool set of all agents
-        assert len(agent.allowed_tools) == 3
-        assert "Read" in agent.allowed_tools
-        assert "Write" in agent.allowed_tools
-        assert "Edit" in agent.allowed_tools
+    def test_allowed_tools_has_search(self, agent: FixerAgent) -> None:
+        """Test fixer has search tools to find related files (T031)."""
+        assert "Glob" in agent.allowed_tools
+        assert "Grep" in agent.allowed_tools
 
-    def test_allowed_tools_no_search_capabilities(self, agent: FixerAgent) -> None:
-        """Test fixer has no search tools (receives explicit paths) (T031)."""
-        assert "Glob" not in agent.allowed_tools
-        assert "Grep" not in agent.allowed_tools
-
-    def test_allowed_tools_no_bash(self, agent: FixerAgent) -> None:
-        """Test fixer cannot execute commands (T031)."""
-        assert "Bash" not in agent.allowed_tools
+    def test_allowed_tools_has_bash(self, agent: FixerAgent) -> None:
+        """Test fixer has Bash for running validation commands (T031)."""
+        assert "Bash" in agent.allowed_tools
 
     def test_custom_model(self) -> None:
         """Test agent accepts custom model parameter."""
@@ -142,8 +128,6 @@ class TestFixerInstructions:
     def test_instructions_specifies_constraints(self, agent: FixerAgent) -> None:
         """Test instructions specifies agent constraints (T032)."""
         prompt = agent.instructions
-        # Should not search for files
-        assert "explicit" in prompt.lower() or "receive" in prompt.lower()
         # Should make minimal changes
         assert "minimal" in prompt.lower() or "necessary" in prompt.lower()
 
@@ -216,72 +200,3 @@ class TestBuildPrompt:
 # =============================================================================
 # GateRemediationAgent Tests
 # =============================================================================
-
-
-@pytest.fixture
-def gate_agent() -> GateRemediationAgent:
-    """Create a GateRemediationAgent instance for testing."""
-    return GateRemediationAgent()
-
-
-class TestGateRemediationAgentInitialization:
-    """Tests for GateRemediationAgent initialization."""
-
-    def test_default_initialization(self, gate_agent: GateRemediationAgent) -> None:
-        """Test agent initializes with correct defaults."""
-        assert gate_agent.name == "gate-remediator"
-        assert gate_agent.instructions == GATE_REMEDIATION_SYSTEM_PROMPT
-
-    def test_allowed_tools_includes_bash(
-        self, gate_agent: GateRemediationAgent
-    ) -> None:
-        """Test agent has Bash access (autonomous fixer)."""
-        assert "Bash" in gate_agent.allowed_tools
-
-    def test_allowed_tools_matches_autonomous_fixer_tools(
-        self, gate_agent: GateRemediationAgent
-    ) -> None:
-        """Test allowed tools matches AUTONOMOUS_FIXER_TOOLS exactly."""
-        expected = set(AUTONOMOUS_FIXER_TOOLS)
-        actual = set(gate_agent.allowed_tools)
-        assert actual == expected
-
-    def test_temperature_is_zero(self, gate_agent: GateRemediationAgent) -> None:
-        """Test temperature is 0.0 for deterministic fixes."""
-        assert gate_agent._temperature == 0.0
-
-    def test_output_model_set(self, gate_agent: GateRemediationAgent) -> None:
-        """Test output_model is set to FixerResult."""
-        assert gate_agent._output_model is FixerResult
-
-
-class TestGateRemediationPrompt:
-    """Tests for GateRemediationAgent prompt."""
-
-    def test_prompt_mentions_validation(self, gate_agent: GateRemediationAgent) -> None:
-        """Test system prompt mentions validation failures."""
-        assert "validation" in gate_agent.instructions.lower()
-
-    def test_prompt_mentions_bash(self, gate_agent: GateRemediationAgent) -> None:
-        """Test system prompt mentions Bash access."""
-        assert "Bash" in gate_agent.instructions
-
-    def test_build_prompt_from_dict(self, gate_agent: GateRemediationAgent) -> None:
-        """Test build_prompt extracts prompt from dict context."""
-        prompt_text = "Fix lint errors: undefined variable x"
-        result = gate_agent.build_prompt({"prompt": prompt_text})
-        assert result == prompt_text
-
-    def test_build_prompt_from_agent_context(
-        self, gate_agent: GateRemediationAgent, tmp_path: Path
-    ) -> None:
-        """Test build_prompt extracts prompt from AgentContext."""
-        prompt_text = "Fix lint errors: undefined variable x"
-        context = AgentContext(
-            cwd=tmp_path,
-            branch="main",
-            config=MaverickConfig(),
-            extra={"prompt": prompt_text},
-        )
-        result = gate_agent.build_prompt(context)
-        assert result == prompt_text

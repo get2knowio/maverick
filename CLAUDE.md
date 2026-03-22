@@ -213,14 +213,40 @@ The default stance is full ownership of the repository state while you work. “
 - **No deferral by difficulty**: “Too hard” or “too far-reaching” is a signal to decompose the work, not to stop. Break the problem down and make real progress now.
 - **Only defer when truly blocked**: Defer work only when it is impossible in the current context (missing requirements, missing access, non-reproducible failures). If you must defer, document exactly what’s blocked and what the next concrete step is.
 
-## Claude Agent SDK Patterns
+## ACP Execution Model
 
-- Always specify `allowed_tools` explicitly (principle of least privilege)
-- Use `ClaudeSDKClient` for stateful/multi-turn interactions
-- Use `query()` for one-shot, stateless interactions
-- Custom tools use the `@tool` decorator and `create_sdk_mcp_server()`
-- Hooks are async functions matching the SDK's hook signature
-- Extract and structure agent outputs; do not return raw text
+All agent execution MUST go through the ACP executor (`maverick.executor.acp.AcpStepExecutor`).
+Do NOT bypass ACP with direct `claude -p` subprocess calls or other ad-hoc execution paths.
+ACP provides connection caching, retry, circuit breakers, event streaming, and provider
+abstraction that raw subprocess calls lack.
+
+### Tool-First Agent Design
+
+Agents should use Claude Code's built-in tools (Read, Write, Bash, Grep, etc.) to interact
+with the filesystem and produce artifacts — not try to return large structured outputs as
+JSON blobs. This aligns with how Claude Code naturally works and avoids output token budget
+issues.
+
+**Do**: Give agents Write access and have them create files directly on disk.
+**Don't**: Ask agents to return multi-KB content embedded in JSON `output_schema` responses.
+
+Small structured outputs (commit messages, PR titles, short analysis results) work fine with
+`output_schema`. Large content (documentation, seed files, code generation) should be written
+to disk by the agent.
+
+### ACP Stream Buffer
+
+The ACP transport uses newline-delimited JSON over stdio. The default asyncio
+`StreamReader` limit (64KB) can overflow when agents produce large tool-call
+messages (e.g., Write tool with full file contents). The executor sets a 1MB
+buffer limit via `transport_kwargs={"limit": 1_048_576}` to handle this.
+
+### Agent Tool Configuration
+
+- Specify `allowed_tools` explicitly (principle of least privilege)
+- For agents that only need to read: `allowed_tools=["Read", "Glob", "Grep"]`
+- For agents that produce file artifacts: add `"Write"` to allowed_tools
+- Only include `"Bash"` when the agent needs to run commands
 
 ## Code Style
 

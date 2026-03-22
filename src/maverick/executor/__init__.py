@@ -61,4 +61,5 @@ def create_default_executor() -> AcpStepExecutor:
     return AcpStepExecutor(
         provider_registry=provider_registry,
         agent_registry=registry,
+        global_max_tokens=config.model.max_tokens,
     )

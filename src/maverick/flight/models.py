@@ -26,7 +26,7 @@ from maverick.logging import get_logger
 logger = get_logger(__name__)
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-_TRACE_REF_RE = re.compile(r"^SC-\d+(,\s*SC-\d+)*$")
+_TRACE_REF_RE = re.compile(r"^SC-[\w-]+(,\s*SC-[\w-]+)*$")
 _TRACE_REF_RANGE_RE = re.compile(r"^SC-(\d+)\s+through\s+SC-(\d+)$", re.IGNORECASE)
 
 
@@ -254,7 +254,7 @@ class AcceptanceCriterion(BaseModel):
             return v
         v = _normalize_trace_ref(v)
         if not _TRACE_REF_RE.match(v):
-            raise ValueError(f"trace_ref must match SC-\\d+ format, got: {v!r}")
+            raise ValueError(f"trace_ref must match SC-<id> format, got: {v!r}")
         return v
 
 
