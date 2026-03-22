@@ -120,9 +120,9 @@ severity or count.
 
 ---
 
-## 4. Constrain Verification and Quality-Gate Beads
+## 4. Constrain Verification and Quality-Gate Beads — DONE
 
-**Priority:** Medium
+**Priority:** Medium — **COMPLETED 2026-03-22**
 **Observed:** Bead .9 (described as "verification-only, no code changes
 expected") modified Python files: `conftest.py`,
 `create_tech_debt_issue.py`, example scripts, `pyproject.toml`. Bead .10
@@ -290,6 +290,6 @@ to the review step.
 | 5 | Snapshot commit hygiene | High | Medium | Clean PR history | |
 | 8 | Scope reviewer to bead files | Medium | Medium | Fewer false-positive review failures | |
 | 2 | Populate files_changed | High | Low | Real hotspot analysis | **DONE** |
-| 4 | Constrain verification beads | Medium | Medium | Prevent scope creep | |
+| 4 | Constrain verification beads | Medium | Medium | Prevent scope creep | **DONE** |
 | 7 | Thread flight_plan_name | Low | Low | Cross-epic analysis | |
 | 6 | Re-seed runway | Medium | None | Richer agent context | |

@@ -240,11 +240,32 @@ async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     )
 
 
+def _is_verification_only(ctx: BeadContext) -> bool:
+    """Detect verification-only beads that should not modify files.
+
+    Checks the bead title and description for keywords that indicate a
+    read-only verification task.
+    """
+    text = f"{ctx.title} {ctx.description}".lower()
+    verification_signals = (
+        "verification-only",
+        "verification only",
+        "no code changes expected",
+        "no code changes needed",
+        "no implementation work",
+        "confirm only",
+    )
+    return any(signal in text for signal in verification_signals)
+
+
 async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     """Execute the implement-and-validate agent step.
 
     The agent implements the bead AND runs validation internally, iterating
     until validation passes or it determines the issue is unfixable.
+
+    Verification-only beads (detected by keywords in the description) are
+    constrained to read-only tools to prevent accidental modifications.
 
     On failure: emits step_failed (not step_completed), logs warning.
     Does NOT propagate — bead continues to gate check.
@@ -270,6 +291,18 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                     for i, reason in enumerate(ctx.prior_failures)
                 )
             )
+
+        # Constrain verification-only beads to read-only tools
+        verification_mode = _is_verification_only(ctx)
+        extra_kwargs: dict[str, Any] = {}
+        if verification_mode:
+            extra_kwargs["allowed_tools"] = ["Read", "Glob", "Grep"]
+            implement_prompt["task_description"] = (
+                "IMPORTANT: This is a VERIFICATION-ONLY bead. "
+                "Do NOT modify any files. Only read, search, and report "
+                "your findings.\n\n" + implement_prompt["task_description"]
+            )
+
         try:
             await wf._step_executor.execute(
                 step_name=IMPLEMENT_AND_VALIDATE,
@@ -277,6 +310,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 prompt=implement_prompt,
                 cwd=ctx.cwd,
                 config=StepConfig(timeout=IMPLEMENT_AND_VALIDATE_TIMEOUT),
+                **extra_kwargs,
             )
         except Exception as exc:
             logger.warning(
