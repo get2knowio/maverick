@@ -531,6 +531,73 @@ async def git_merge(
         }
 
 
+# Snapshot commits exceeding this many changed files get a warning
+# appended to their commit message so the curator can flag them.
+_SNAPSHOT_FILE_THRESHOLD = 10
+
+
+async def _get_snapshot_diff_stats(
+    cwd: str | Path | None = None,
+) -> dict[str, Any]:
+    """Get diff stats for uncommitted changes (files, insertions, deletions).
+
+    Returns dict with file_count, insertions, deletions, files list.
+    """
+    resolved = _resolve_cwd(cwd)
+    stats: dict[str, Any] = {
+        "file_count": 0,
+        "insertions": 0,
+        "deletions": 0,
+        "files": [],
+    }
+
+    try:
+        # Get file list (staged + unstaged + untracked)
+        proc = await asyncio.create_subprocess_exec(
+            "git", "diff", "--stat", "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=resolved,
+        )
+        stdout, _ = await proc.communicate()
+        if stdout:
+            lines = stdout.decode("utf-8", errors="replace").strip().splitlines()
+            # Last line is summary: " N files changed, M insertions(+), K deletions(-)"
+            if lines:
+                summary = lines[-1]
+                import re
+
+                m = re.search(r"(\d+) files? changed", summary)
+                if m:
+                    stats["file_count"] = int(m.group(1))
+                m = re.search(r"(\d+) insertions?", summary)
+                if m:
+                    stats["insertions"] = int(m.group(1))
+                m = re.search(r"(\d+) deletions?", summary)
+                if m:
+                    stats["deletions"] = int(m.group(1))
+
+        # Get file names
+        proc2 = await asyncio.create_subprocess_exec(
+            "git", "diff", "--name-only", "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=resolved,
+        )
+        stdout2, _ = await proc2.communicate()
+        if stdout2:
+            stats["files"] = [
+                f.strip() for f in stdout2.decode().strip().splitlines() if f.strip()
+            ]
+            # Update count from name-only if stat didn't produce one
+            if not stats["file_count"]:
+                stats["file_count"] = len(stats["files"])
+    except Exception:
+        pass
+
+    return stats
+
+
 async def snapshot_uncommitted_changes(
     message: str = "chore: snapshot uncommitted changes before fly",
     cwd: str | Path | None = None,
@@ -539,6 +606,10 @@ async def snapshot_uncommitted_changes(
 
     Used by ``maverick fly`` to ensure ``jj git clone`` picks up all local
     state (e.g. files created by ``maverick init``).
+
+    When the snapshot exceeds ``_SNAPSHOT_FILE_THRESHOLD`` files, a warning
+    with diff stats is appended to the commit message so the curator can
+    flag large snapshots during curation.
 
     Args:
         message: Commit message for the snapshot.
@@ -549,6 +620,8 @@ async def snapshot_uncommitted_changes(
         - success: True if a commit was created or there was nothing to commit
         - committed: True if a new commit was created
         - commit_sha: SHA of the new commit (if created)
+        - diff_stats: Dict with file_count, insertions, deletions
+        - warning: Human-readable warning if snapshot is large
         - error: Error message on failure
     """
     status = await git_has_changes(cwd=cwd)
@@ -557,11 +630,32 @@ async def snapshot_uncommitted_changes(
             "success": True,
             "committed": False,
             "commit_sha": None,
+            "diff_stats": None,
+            "warning": None,
             "error": None,
         }
 
+    # Check diff size before committing
+    diff_stats = await _get_snapshot_diff_stats(cwd=cwd)
+    warning = None
+
+    # Annotate commit message if the snapshot is large
+    effective_message = message
+    if diff_stats["file_count"] > _SNAPSHOT_FILE_THRESHOLD:
+        warning = (
+            f"Large snapshot: {diff_stats['file_count']} files, "
+            f"+{diff_stats['insertions']}/-{diff_stats['deletions']} lines. "
+            "Review before merging — may contain unrelated changes."
+        )
+        effective_message = (
+            f"{message}\n\n"
+            f"WARNING: {warning}\n\n"
+            f"Files ({diff_stats['file_count']}):\n"
+            + "\n".join(f"  {f}" for f in diff_stats.get("files", [])[:30])
+        )
+
     result = await git_commit(
-        message=message,
+        message=effective_message,
         add_all=True,
         include_attribution=False,
         cwd=cwd,
@@ -571,6 +665,8 @@ async def snapshot_uncommitted_changes(
             "success": False,
             "committed": False,
             "commit_sha": None,
+            "diff_stats": diff_stats,
+            "warning": warning,
             "error": result.get("error", "commit failed"),
         }
 
@@ -578,6 +674,8 @@ async def snapshot_uncommitted_changes(
         "success": True,
         "committed": True,
         "commit_sha": result.get("commit_sha"),
+        "diff_stats": diff_stats,
+        "warning": warning,
         "error": None,
     }
 

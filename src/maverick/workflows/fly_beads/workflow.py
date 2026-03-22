@@ -151,6 +151,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             f"Committed uncommitted changes ({snap['commit_sha'][:8]})",
                             level="info",
                         )
+                        if snap.get("warning"):
+                            await self.emit_output(
+                                SNAPSHOT_UNCOMMITTED,
+                                snap["warning"],
+                                level="warning",
+                            )
                     else:
                         await self.emit_step_failed(
                             SNAPSHOT_UNCOMMITTED,

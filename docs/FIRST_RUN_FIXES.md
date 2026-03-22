@@ -157,9 +157,9 @@ by the decomposer.
 
 ---
 
-## 5. Exclude or Flag Snapshot Commits During Curation
+## 5. Exclude or Flag Snapshot Commits During Curation — DONE
 
-**Priority:** High
+**Priority:** High — **COMPLETED 2026-03-22**
 **Observed:** The `--auto-commit` flag creates snapshot commits
 containing all uncommitted changes in the working directory. In this
 run, the first snapshot included ~16K lines of feature-authoring code
@@ -287,7 +287,7 @@ to the review step.
 |---|-----|----------|--------|--------|--------|
 | 1 | Persist review findings | Critical | Medium | Unlocks runway learning | **DONE** |
 | 3 | Reviewer count fidelity | High | Low | Accurate failure signals | **DONE** (sentinel replaced with real count; falls back to 1 when no findings captured) |
-| 5 | Snapshot commit hygiene | High | Medium | Clean PR history | |
+| 5 | Snapshot commit hygiene | High | Medium | Clean PR history | **DONE** |
 | 8 | Scope reviewer to bead files | Medium | Medium | Fewer false-positive review failures | |
 | 2 | Populate files_changed | High | Low | Real hotspot analysis | **DONE** |
 | 4 | Constrain verification beads | Medium | Medium | Prevent scope creep | **DONE** |
