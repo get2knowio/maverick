@@ -29,7 +29,9 @@ logger = get_logger(__name__)
 
 _CHECKBOX_RE = re.compile(r"^-\s+\[([xX ])\]\s+(.+)$")
 _BULLET_RE = re.compile(r"^-\s+(.+)$")
+# Match [SC-NNN] suffix OR SC-XXX: prefix (both formats used by generators)
 _TRACE_REF_RE = re.compile(r"\[SC-(\d+)\]\s*$")
+_TRACE_REF_PREFIX_RE = re.compile(r"^(SC-[\w-]+):\s+")
 
 
 # ---------------------------------------------------------------------------
@@ -268,13 +270,20 @@ def _parse_acceptance_criteria_line(line: str) -> tuple[str, str | None] | None:
     if not m:
         return None
     raw_text = m.group(1).strip()
+    # Try [SC-NNN] suffix first (e.g., "Some criterion [SC-001]")
     trace_m = _TRACE_REF_RE.search(raw_text)
     if trace_m:
         trace_ref: str | None = f"SC-{trace_m.group(1)}"
         text = raw_text[: trace_m.start()].strip()
     else:
-        trace_ref = None
-        text = raw_text
+        # Try SC-XXX: prefix (e.g., "SC-B1-default: Some criterion")
+        prefix_m = _TRACE_REF_PREFIX_RE.match(raw_text)
+        if prefix_m:
+            trace_ref = prefix_m.group(1)
+            text = raw_text[prefix_m.end():].strip()
+        else:
+            trace_ref = None
+            text = raw_text
     return text, trace_ref
 
 

@@ -800,12 +800,12 @@ class TestAcceptanceCriterionTraceRef:
         with pytest.raises(ValidationError):
             AcceptanceCriterion(text="criterion", trace_ref="SC001")
 
-    def test_invalid_trace_ref_trailing_text(self) -> None:
-        """trace_ref with trailing text raises ValidationError."""
+    def test_valid_trace_ref_with_suffix(self) -> None:
+        """trace_ref with alphanumeric suffix is valid (e.g., SC-B1-default)."""
         from maverick.flight.models import AcceptanceCriterion
 
-        with pytest.raises(ValidationError):
-            AcceptanceCriterion(text="criterion", trace_ref="SC-001-extra")
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC-001-extra")
+        assert ac.trace_ref == "SC-001-extra"
 
     def test_valid_trace_ref_comma_separated(self) -> None:
         """Comma-separated SC refs are valid (agent may reference multiple)."""
