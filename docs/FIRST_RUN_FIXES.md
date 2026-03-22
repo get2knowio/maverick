@@ -224,9 +224,9 @@ is a reminder to re-seed existing projects.
 
 ---
 
-## 7. Thread `flight_plan_name` Through Bead Outcomes
+## 7. Thread `flight_plan_name` Through Bead Outcomes — DONE
 
-**Priority:** Low
+**Priority:** Low — **COMPLETED 2026-03-22**
 **Observed:** Every bead outcome has `flight_plan: ""`. The link
 between outcomes and the plan that generated them is broken.
 
@@ -250,9 +250,9 @@ from the briefing context path. Pass it to `record_bead_outcome()`.
 
 ---
 
-## 8. Scope Reviewer to Bead-Relevant Files Only
+## 8. Scope Reviewer to Bead-Relevant Files Only — DONE
 
-**Priority:** Medium
+**Priority:** Medium — **COMPLETED 2026-03-22**
 **Observed:** The reviewer examines the full workspace diff, which
 accumulates changes from all beads processed in the same fly run.
 When bead .4 is reviewed, the reviewer may flag something from
@@ -288,8 +288,8 @@ to the review step.
 | 1 | Persist review findings | Critical | Medium | Unlocks runway learning | **DONE** |
 | 3 | Reviewer count fidelity | High | Low | Accurate failure signals | **DONE** (sentinel replaced with real count; falls back to 1 when no findings captured) |
 | 5 | Snapshot commit hygiene | High | Medium | Clean PR history | **DONE** |
-| 8 | Scope reviewer to bead files | Medium | Medium | Fewer false-positive review failures | |
+| 8 | Scope reviewer to bead files | Medium | Medium | Fewer false-positive review failures | **DONE** |
 | 2 | Populate files_changed | High | Low | Real hotspot analysis | **DONE** |
 | 4 | Constrain verification beads | Medium | Medium | Prevent scope creep | **DONE** |
-| 7 | Thread flight_plan_name | Low | Low | Cross-epic analysis | |
+| 7 | Thread flight_plan_name | Low | Low | Cross-epic analysis | **DONE** |
 | 6 | Re-seed runway | Medium | None | Richer agent context | |

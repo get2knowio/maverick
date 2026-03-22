@@ -113,11 +113,40 @@ def _filter_diff(diff: str, exclude_patterns: tuple[str, ...]) -> str:
     return "".join(filtered_sections)
 
 
+def _filter_diff_to_files(diff: str, include_files: set[str]) -> str:
+    """Filter diff to ONLY include hunks for the specified files.
+
+    Args:
+        diff: Full diff string.
+        include_files: Set of file paths to include.
+
+    Returns:
+        Filtered diff containing only the specified files.
+    """
+    if not include_files or not diff:
+        return diff
+
+    sections = re.split(r"(?=^diff --git )", diff, flags=re.MULTILINE)
+    filtered = []
+    for section in sections:
+        if not section.strip():
+            continue
+        match = re.match(r"diff --git a/(.+?) b/", section)
+        if match:
+            file_path = match.group(1)
+            if file_path not in include_files:
+                continue
+        filtered.append(section)
+
+    return "".join(filtered)
+
+
 async def gather_local_review_context(
     base_branch: str = "main",
     include_spec_files: bool = False,
     spec_dir: str | None = None,
     exclude_patterns: tuple[str, ...] | list[str] | None = None,
+    include_files: tuple[str, ...] | list[str] | None = None,
     cwd: str | None = None,
 ) -> ReviewContextResult:
     """Gather local review context including uncommitted changes.
@@ -132,6 +161,9 @@ async def gather_local_review_context(
         spec_dir: Directory containing spec files (auto-detect if None).
         exclude_patterns: Glob patterns for files to exclude from review scope.
             Defaults to DEFAULT_EXCLUDE_PATTERNS.
+        include_files: When set, scope the review to ONLY these files.
+            The diff and changed_files will be filtered to this set.
+            Used to scope reviews to a single bead's changes.
         cwd: Working directory for git operations (defaults to current directory).
 
     Returns:
@@ -175,6 +207,12 @@ async def gather_local_review_context(
         else:
             changed_files = all_changed
             diff = raw_diff
+
+        # Scope to include_files if specified (per-bead scoping)
+        if include_files:
+            include_set = set(include_files)
+            changed_files = tuple(f for f in changed_files if f in include_set)
+            diff = _filter_diff_to_files(diff, include_set)
 
         # Get commit messages since base branch
         commit_messages = await repo.commit_messages_since(ref=base_branch)

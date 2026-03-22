@@ -471,10 +471,17 @@ async def run_review_and_remediate(
     cwd_str = str(ctx.cwd) if ctx.cwd else None
     await wf.emit_step_started(REVIEW, step_type=StepType.AGENT)
 
+    # Scope the review to files this bead actually changed (not the
+    # full workspace diff which includes prior beads' commits).
+    # At review time the bead is not yet committed, so we use the
+    # uncommitted diff (jj working copy changes).
+    bead_files = await _get_uncommitted_files(ctx.cwd)
+
     try:
         review_context_result = await gather_local_review_context(
             base_branch=DEFAULT_BASE_BRANCH,
             include_spec_files=True,
+            include_files=tuple(bead_files) if bead_files else None,
             cwd=cwd_str,
         )
         review_loop_result = await run_review_fix_loop(
@@ -538,6 +545,29 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     )
 
 
+async def _get_uncommitted_files(cwd: Path | None) -> list[str]:
+    """Get files changed in the working copy (uncommitted changes).
+
+    In jj colocated mode, ``git diff --name-only HEAD`` shows the
+    working copy changes that haven't been committed yet — i.e., what
+    the current bead's agent wrote.
+    """
+    from maverick.runners.command import CommandRunner
+
+    try:
+        runner = CommandRunner(cwd=cwd or Path.cwd())
+        result = await runner.run(
+            ["git", "diff", "--name-only", "HEAD"],
+        )
+        if result.stdout:
+            return [
+                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
+            ]
+    except Exception as exc:
+        logger.debug("uncommitted_files_capture_failed", error=str(exc))
+    return []
+
+
 async def _get_files_changed(cwd: Path | None) -> list[str]:
     """Get the list of files changed by the most recent commit.
 
@@ -571,6 +601,7 @@ async def record_runway_outcome(
             bead_id=ctx.bead_id,
             epic_id=ctx.epic_id,
             title=ctx.title,
+            flight_plan=ctx.flight_plan_name,
             validation_result=ctx.validation_result,
             review_result=ctx.review_result,
             files_changed=files_changed,

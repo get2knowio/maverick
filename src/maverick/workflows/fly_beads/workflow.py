@@ -296,6 +296,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             description=select_result.description,
                             epic_id=select_result.epic_id,
                             cwd=workspace_path,
+                            flight_plan_name=select_result.flight_plan_name or "",
                             prior_failures=prior_failures,
                             briefing_context=load_briefing_context(
                                 select_result.flight_plan_name
@@ -337,6 +338,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 description=select_result.description,
                 epic_id=select_result.epic_id,
                 cwd=workspace_path,
+                flight_plan_name=select_result.flight_plan_name or "",
                 prior_failures=prior_failures,
                 briefing_context=load_briefing_context(select_result.flight_plan_name),
             )
