@@ -46,6 +46,7 @@ from maverick.workflows.fly_beads.constants import (
     GATE_REMEDIATION_TIMEOUT,
     IMPLEMENT_AND_VALIDATE,
     IMPLEMENT_AND_VALIDATE_TIMEOUT,
+    MAX_ESCALATION_DEPTH,
     REVIEW,
 )
 from maverick.workflows.fly_beads.models import BeadContext
@@ -184,6 +185,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
 
     chain = await walk_discovered_from_chain(ctx.bead_id)
     ctx.discovered_from_chain = chain
+    ctx.escalation_depth = len(chain)
 
     if not chain:
         return
@@ -258,6 +260,16 @@ def _is_verification_only(ctx: BeadContext) -> bool:
     return any(signal in text for signal in verification_signals)
 
 
+def _is_research_only(ctx: BeadContext) -> bool:
+    """Detect research-only beads that extract patterns to context files.
+
+    Research beads can read the codebase and write findings to
+    ``.maverick/context/{bead-id}.md`` for dependent beads to consume.
+    """
+    text = f"{ctx.title} {ctx.description}".lower()
+    return "research-only" in text
+
+
 async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     """Execute the implement-and-validate agent step.
 
@@ -291,9 +303,18 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                     for i, reason in enumerate(ctx.prior_failures)
                 )
             )
+            # Inject detailed review findings so implementer knows WHAT to fix
+            if ctx.review_result:
+                review_report = ctx.review_result.get("review_report", "")
+                if review_report:
+                    implement_prompt["review_findings_to_address"] = (
+                        "The reviewer identified these specific issues that "
+                        "MUST be addressed in this attempt:\n\n" + review_report
+                    )
 
         # Constrain verification-only beads to read-only tools
         verification_mode = _is_verification_only(ctx)
+        research_mode = _is_research_only(ctx)
         extra_kwargs: dict[str, Any] = {}
         if verification_mode:
             extra_kwargs["allowed_tools"] = ["Read", "Glob", "Grep"]
@@ -301,6 +322,19 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 "IMPORTANT: This is a VERIFICATION-ONLY bead. "
                 "Do NOT modify any files. Only read, search, and report "
                 "your findings.\n\n" + implement_prompt["task_description"]
+            )
+        elif research_mode:
+            # Research beads can read and write to .maverick/context/
+            extra_kwargs["allowed_tools"] = ["Read", "Glob", "Grep", "Write"]
+            if ctx.cwd:
+                context_dir = ctx.cwd / ".maverick" / "context"
+                context_dir.mkdir(parents=True, exist_ok=True)
+            implement_prompt["task_description"] = (
+                "IMPORTANT: This is a RESEARCH-ONLY bead. "
+                "Read the codebase to extract patterns and write your "
+                f"findings to `.maverick/context/{ctx.bead_id}.md`. "
+                "Do NOT modify any source code files.\n\n"
+                + implement_prompt["task_description"]
             )
 
         try:
@@ -484,8 +518,13 @@ async def run_review_and_remediate(
             include_files=tuple(bead_files) if bead_files else None,
             cwd=cwd_str,
         )
+        review_input_dict = review_context_result.to_dict()
+        # Inject bead file scope so reviewers can distinguish in-scope
+        # vs out-of-scope findings (files this bead is responsible for)
+        if bead_files:
+            review_input_dict["bead_file_scope"] = list(bead_files)
         review_loop_result = await run_review_fix_loop(
-            review_input=review_context_result.to_dict(),
+            review_input=review_input_dict,
             base_branch=DEFAULT_BASE_BRANCH,
             max_attempts=1,  # Single pass — no retry loop
             generate_report=True,
@@ -669,6 +708,19 @@ async def commit_bead_with_followup(
     """
     # Commit the implementation work (it passed validation)
     await commit_bead(wf, ctx)
+
+    # Circuit breaker: stop escalating when chain is too deep
+    if ctx.escalation_depth >= MAX_ESCALATION_DEPTH:
+        ctx.human_review_tag = "needs-human-review"
+        await wf.emit_output(
+            COMMIT,
+            f"Bead {ctx.bead_id} committed with needs-human-review tag: "
+            f"escalation depth {ctx.escalation_depth} exceeds max "
+            f"{MAX_ESCALATION_DEPTH}. No further follow-up beads will be "
+            f"created for this chain.",
+            level="warning",
+        )
+        return
 
     if ctx.discovered_from_chain:
         # Tier 2: This is already a follow-up — escalate to re-planning

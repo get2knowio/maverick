@@ -426,6 +426,7 @@ class ReviewFixLoopResult:
     skipped: bool  # True if fix loop was skipped
     skip_reason: str | None
     review_findings: tuple[dict[str, Any], ...] = ()  # Structured Finding dicts from reviewers
+    fixed_count: int = 0  # Count of findings addressed by the fixer agent
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -438,6 +439,7 @@ class ReviewFixLoopResult:
             "skipped": self.skipped,
             "skip_reason": self.skip_reason,
             "review_findings": list(self.review_findings),
+            "fixed_count": self.fixed_count,
         }
 
 

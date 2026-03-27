@@ -601,6 +601,7 @@ async def run_review_fix_loop(
     attempts = 0
     current_recommendation = "request_changes"
     review_errors: list[str] = []
+    total_fixed = 0
 
     for attempt_num in range(1, max_attempts + 1):
         attempts = attempt_num
@@ -667,7 +668,16 @@ async def run_review_fix_loop(
             fix_result = await _run_review_fixer(
                 review_result, review_input, stream_callback
             )
-            if not fix_result.get("success", False):
+            if fix_result.get("success", False):
+                # Count findings the fixer addressed (files it modified)
+                fixer_files = set(fix_result.get("files_modified", []))
+                if fixer_files and last_findings:
+                    total_fixed += sum(
+                        1
+                        for f in last_findings
+                        if f.get("file_path", f.get("file", "")) in fixer_files
+                    )
+            else:
                 fix_error = fix_result.get("error", "unknown")
                 logger.warning(
                     "Review fixer failed on attempt %d: %s", attempt_num, fix_error
@@ -691,6 +701,7 @@ async def run_review_fix_loop(
             skipped=False,
             skip_reason=None,
             review_findings=last_findings,
+            fixed_count=total_fixed,
         )
     )
 
@@ -740,6 +751,18 @@ async def _run_dual_review(
         briefing = review_input.get("briefing_context")
         if briefing:
             review_context["briefing_context"] = briefing
+
+        # Thread bead file scope so reviewers focus on in-scope files
+        bead_scope = review_input.get("bead_file_scope")
+        if bead_scope:
+            review_context["bead_file_scope"] = bead_scope
+            review_context["scope_instruction"] = (
+                "This review covers a single bead (work unit). Only flag "
+                "actionable issues in files listed in bead_file_scope. "
+                "Issues in other files should use severity: minor and "
+                "prefix '[out-of-scope]' in the description — the "
+                "implementer cannot modify files outside this bead's scope."
+            )
 
         # Run both reviewers in parallel via ACP executor
         from maverick.executor import create_default_executor
@@ -1068,7 +1091,7 @@ async def generate_review_fix_report(
         review_report="\n".join(report_lines),
         recommendation=effective_recommendation,
         issues_found=effective_found,
-        issues_fixed=0,
+        issues_fixed=loop_result.get("fixed_count", 0),
         issues_remaining=effective_remaining,
         attempts=attempts,
         fix_summary=tuple(fix_summary_lines),

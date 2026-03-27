@@ -384,12 +384,33 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         coverage_warnings: list[str] = []
         validation_feedback: str | None = None
 
+        # Retrieve runway context so the decomposer can learn from past runs
+        runway_context_text: str | None = None
+        try:
+            from maverick.library.actions.runway import retrieve_runway_context
+
+            runway_result = await retrieve_runway_context(
+                title=flight_plan_name,
+                description=raw_content[:500],
+                epic_id="",
+                max_passages=5,
+                max_context_chars=3000,
+                cwd=str(Path.cwd()),
+            )
+            if runway_result.context_text:
+                runway_context_text = runway_result.context_text
+        except Exception as exc:
+            logger.warning("refuel_runway_context_failed", error=str(exc))
+
         for attempt in range(1, MAX_DECOMPOSE_ATTEMPTS + 1):
             await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
             # --- 3a: Outline pass ---
             outline_prompt = build_outline_prompt(
-                raw_content, codebase_context, briefing=briefing_doc
+                raw_content,
+                codebase_context,
+                briefing=briefing_doc,
+                runway_context=runway_context_text,
             )
             if validation_feedback:
                 outline_prompt += (
@@ -437,35 +458,60 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             outline_json = outline.model_dump_json(indent=2)
 
             detail_outputs: list[DetailBatchOutput] = []
-            for batch_idx, batch_ids in enumerate(batches):
+
+            async def _run_detail_batch(
+                batch_ids: list[str], label_prefix: str
+            ) -> list[DetailBatchOutput]:
+                """Run a detail batch with binary-split retry on truncation."""
+                from maverick.exceptions.agent import MalformedResponseError
+
                 detail_prompt = build_detail_prompt(
                     raw_content, outline_json, batch_ids
                 )
-                batch_label = f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
                 try:
                     detail_result = await self.execute_agent(
                         step_name=DECOMPOSE_DETAIL,
                         agent_name="decomposer",
-                        label=batch_label,
+                        label=label_prefix,
                         prompt=detail_prompt,
                         output_schema=DetailBatchOutput,
                         timeout=600,
                     )
-                except OutputSchemaValidationError:
-                    await self.emit_step_failed(
+                    if detail_result.output is None:
+                        raise WorkflowError(
+                            f"{label_prefix} completed but produced no output"
+                        )
+                    return [detail_result.output]
+                except (OutputSchemaValidationError, MalformedResponseError):
+                    if len(batch_ids) <= 1:
+                        raise  # Can't split a single unit further
+                    # Binary split: retry each half separately
+                    mid = len(batch_ids) // 2
+                    left_ids, right_ids = batch_ids[:mid], batch_ids[mid:]
+                    await self.emit_output(
                         DECOMPOSE,
-                        f"Detail batch {batch_idx + 1} failed schema validation",
+                        f"Detail batch truncated ({len(batch_ids)} units),"
+                        f" splitting into {len(left_ids)}+{len(right_ids)}",
+                        level="warning",
                     )
-                    raise
+                    left = await _run_detail_batch(
+                        left_ids, f"{label_prefix} [L]"
+                    )
+                    right = await _run_detail_batch(
+                        right_ids, f"{label_prefix} [R]"
+                    )
+                    return left + right
+
+            for batch_idx, batch_ids in enumerate(batches):
+                batch_label = f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
+                try:
+                    batch_results = await _run_detail_batch(
+                        batch_ids, batch_label
+                    )
+                    detail_outputs.extend(batch_results)
                 except Exception as exc:
                     await self.emit_step_failed(DECOMPOSE, str(exc))
                     raise
-
-                if detail_result.output is None:
-                    raise WorkflowError(
-                        f"Detail batch {batch_idx + 1} completed but produced no output"
-                    )
-                detail_outputs.append(detail_result.output)
 
             # --- Merge outline + details ---
             try:

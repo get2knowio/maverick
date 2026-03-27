@@ -155,6 +155,9 @@ async def land(
 
     console.print(f"Found {len(commits)} commit(s) above [bold]{base}[/bold].")
 
+    # ── 1b. Display human review manifest if present ─────────────
+    _display_human_review_manifest(cwd or user_repo)
+
     # ── 2. Curation ────────────────────────────────────────────────
     if no_curate:
         console.print("Skipping curation (--no-curate).")
@@ -667,3 +670,57 @@ def _display_plan(plan: list[dict[str, Any]]) -> None:
         border_style="cyan",
     )
     console.print(panel)
+
+
+def _display_human_review_manifest(cwd: Path) -> None:
+    """Display human review manifest if one exists from the fly phase."""
+    import json as _json
+
+    # Search for manifest in .maverick/plans/
+    plans_dir = cwd / ".maverick" / "plans"
+    if not plans_dir.is_dir():
+        return
+
+    manifest_path = plans_dir / "human-review-manifest.json"
+    if not manifest_path.is_file():
+        return
+
+    try:
+        items = _json.loads(manifest_path.read_text())
+    except Exception:
+        return
+
+    if not items:
+        return
+
+    needs_review = [i for i in items if i.get("status") == "needs-human-review"]
+    if not needs_review:
+        console.print(
+            format_success("All beads passed review cleanly.")
+        )
+        return
+
+    console.print()
+    table = Table(show_header=True, header_style="bold yellow")
+    table.add_column("Bead", width=20)
+    table.add_column("Title", width=40)
+    table.add_column("Key Findings")
+
+    for item in needs_review:
+        findings_str = "\n".join(
+            f"  - {f[:100]}..." if len(f) > 100 else f"  - {f}"
+            for f in item.get("key_findings", [])
+        ) or "(no findings captured)"
+        table.add_row(
+            item.get("bead_id", "?"),
+            item.get("title", "?")[:40],
+            findings_str,
+        )
+
+    panel = Panel(
+        table,
+        title=f"Human Review Required ({len(needs_review)} bead{'s' if len(needs_review) != 1 else ''})",
+        border_style="yellow",
+    )
+    console.print(panel)
+    console.print()

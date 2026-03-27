@@ -365,6 +365,7 @@ def build_outline_prompt(
     flight_plan_content: str,
     context: CodebaseContext,
     briefing: BriefingDocument | None = None,
+    runway_context: str | None = None,
 ) -> str:
     """Build the outline pass prompt for chunked decomposition.
 
@@ -395,6 +396,11 @@ def build_outline_prompt(
             " concurrently within the same dependency tier",
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
+            "- You may create research-only prerequisite beads that extract"
+            " patterns from existing code and write findings to"
+            " `.maverick/context/{bead-id}.md`. Mark these with"
+            " 'research-only' in the task description. Dependent beads"
+            " should reference the output file in their instructions.",
             "",
             "## CRITICAL: Output Format",
             "This is the OUTLINE pass. Output ONLY structural information — NO"
@@ -423,6 +429,17 @@ def build_outline_prompt(
 
     if briefing is not None:
         prompt += f"\n\n{_format_briefing_section(briefing)}"
+
+    if runway_context:
+        prompt += (
+            "\n\n## Historical Context (Runway)\n\n"
+            f"{runway_context}\n\n"
+            "Use this context to avoid repeating past mistakes and to "
+            "create prerequisite beads for known gaps (e.g., if past "
+            "reviews repeatedly flagged inadequate test mocks, create a "
+            "dedicated bead for building proper test infrastructure "
+            "before the test beads)."
+        )
 
     prompt += f"\n\n## Instructions\n{instructions}"
 
@@ -455,7 +472,12 @@ def build_detail_prompt(
             f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
-            "- Instructions: concise implementation steps (2-5 bullet points)",
+            "- Instructions: implementation guidance. For work units that wire"
+            " into existing code patterns, include a 10-30 line code sketch"
+            " showing the function signature, the integration point"
+            " (file:line ref), and a reference to the existing pattern to"
+            " mirror. For simple changes (config, renaming, docs), 2-5"
+            " bullet points suffice",
             "- Acceptance criteria must trace to flight plan success criteria"
             " (SC-### where ### is the 1-based index)",
             "- Verification commands must be concrete and runnable",

@@ -36,6 +36,10 @@ class BeadContext:
     gate_result: dict[str, Any] | None = None
     remediation_attempted: bool = False
 
+    # Escalation tracking (set by resolve_provenance)
+    escalation_depth: int = 0
+    human_review_tag: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class FlyBeadsResult:
@@ -56,6 +60,7 @@ class FlyBeadsResult:
     beads_succeeded: int
     beads_failed: int
     beads_skipped: int = 0
+    human_review_items: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dict suitable for DSL output.
@@ -70,4 +75,5 @@ class FlyBeadsResult:
             "beads_succeeded": self.beads_succeeded,
             "beads_failed": self.beads_failed,
             "beads_skipped": self.beads_skipped,
+            "human_review_items": list(self.human_review_items),
         }

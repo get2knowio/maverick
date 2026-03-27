@@ -106,6 +106,11 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Track last review result per bead so we can reconstruct context
         # when a bead exhausts retries (ctx is not yet built at that point)
         bead_last_review: dict[str, dict[str, Any] | None] = {}
+        # Track review issue counts per escalation chain root for
+        # non-convergence detection
+        chain_issue_trajectory: dict[str, list[int]] = {}
+        # Accumulate items that need human review at land phase
+        human_review_items: list[dict[str, Any]] = []
 
         # ----------------------------------------------------------------
         # Step 1: Preflight
@@ -314,6 +319,23 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         )
                         completed_bead_ids.add(bead_id)
                         beads_succeeded += 1
+                        # Record for human review manifest if tagged
+                        if retry_ctx.human_review_tag:
+                            key_findings: list[str] = []
+                            if retry_ctx.review_result:
+                                for f in retry_ctx.review_result.get(
+                                    "review_findings", []
+                                )[:3]:
+                                    key_findings.append(
+                                        f.get("description", "")[:200]
+                                    )
+                            human_review_items.append({
+                                "bead_id": bead_id,
+                                "title": bead_title,
+                                "status": "needs-human-review",
+                                "escalation_depth": retry_ctx.escalation_depth,
+                                "key_findings": key_findings,
+                            })
                     except Exception as exc:
                         logger.warning(
                             "fly_beads_followup_failed",
@@ -395,6 +417,20 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     )
                     bead_failure_history.setdefault(bead_id, []).append(reasons)
                     bead_last_review[bead_id] = ctx.review_result
+                    # Track issue count for non-convergence detection
+                    if ctx.review_result:
+                        issue_count = ctx.review_result.get(
+                            "issues_remaining",
+                            ctx.review_result.get("issues_found", 0),
+                        )
+                        chain_root = (
+                            ctx.discovered_from_chain[0]
+                            if ctx.discovered_from_chain
+                            else bead_id
+                        )
+                        chain_issue_trajectory.setdefault(
+                            chain_root, []
+                        ).append(issue_count)
 
             except Exception as exc:
                 logger.warning(
@@ -448,6 +484,27 @@ class FlyBeadsWorkflow(PythonWorkflow):
             except Exception as exc:
                 logger.warning("check_epic_done_failed", error=str(exc))
 
+        # Write human review manifest for the land phase
+        if human_review_items:
+            import json as _json
+
+            manifest_dir = Path.cwd() / ".maverick" / "plans"
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = manifest_dir / "human-review-manifest.json"
+            try:
+                manifest_path.write_text(
+                    _json.dumps(human_review_items, indent=2)
+                )
+                logger.info(
+                    "human_review_manifest_written",
+                    path=str(manifest_path),
+                    count=len(human_review_items),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "human_review_manifest_write_failed", error=str(exc)
+                )
+
         beads_processed = beads_succeeded + beads_failed + beads_skipped
         result = FlyBeadsResult(
             epic_id=epic_id,
@@ -456,6 +513,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             beads_succeeded=beads_succeeded,
             beads_failed=beads_failed,
             beads_skipped=beads_skipped,
+            human_review_items=tuple(human_review_items),
         )
         return result.to_dict()
 
