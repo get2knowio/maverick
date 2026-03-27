@@ -472,12 +472,9 @@ def build_detail_prompt(
             f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
-            "- Instructions: implementation guidance. For work units that wire"
-            " into existing code patterns, include a 10-30 line code sketch"
-            " showing the function signature, the integration point"
-            " (file:line ref), and a reference to the existing pattern to"
-            " mirror. For simple changes (config, renaming, docs), 2-5"
-            " bullet points suffice",
+            "- Instructions: concise implementation steps (2-5 bullet points)."
+            " Reference existing patterns by file:line but do NOT include"
+            " inline code blocks — keep instructions brief to fit output limits",
             "- Acceptance criteria must trace to flight plan success criteria"
             " (SC-### where ### is the 1-based index)",
             "- Verification commands must be concrete and runnable",

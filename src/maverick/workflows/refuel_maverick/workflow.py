@@ -390,7 +390,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             from maverick.library.actions.runway import retrieve_runway_context
 
             runway_result = await retrieve_runway_context(
-                title=flight_plan_name,
+                title=flight_plan.name,
                 description=raw_content[:500],
                 epic_id="",
                 max_passages=5,
