@@ -111,6 +111,13 @@ class FlyBeadsWorkflow(PythonWorkflow):
         chain_issue_trajectory: dict[str, list[int]] = {}
         # Accumulate items that need human review at land phase
         human_review_items: list[dict[str, Any]] = []
+        # Track escalation depth per root bead across checkpoint boundaries.
+        # Key: root bead ID, Value: number of follow-up tiers created.
+        # Persisted in checkpoint so it survives session restarts.
+        chain_depth: dict[str, int] = {}
+
+        if checkpoint:
+            chain_depth = checkpoint.get("chain_depth", {})
 
         # ----------------------------------------------------------------
         # Step 1: Preflight
@@ -314,6 +321,17 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         # Populate discovered-from chain for escalation
                         await resolve_provenance(retry_ctx)
 
+                        # Track escalation depth from workflow state
+                        # (survives checkpoint boundaries, unlike chain walk)
+                        chain_root = (
+                            retry_ctx.discovered_from_chain[0]
+                            if retry_ctx.discovered_from_chain
+                            else bead_id
+                        )
+                        current_depth = chain_depth.get(chain_root, 0) + 1
+                        chain_depth[chain_root] = current_depth
+                        retry_ctx.escalation_depth = current_depth
+
                         await commit_bead_with_followup(
                             self, retry_ctx, prior_failures
                         )
@@ -447,6 +465,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     "completed_bead_ids": list(completed_bead_ids),
                     "workspace_path": str(workspace_path) if workspace_path else None,
                     "epic_id": epic_id,
+                    "chain_depth": chain_depth,
                 }
             )
 

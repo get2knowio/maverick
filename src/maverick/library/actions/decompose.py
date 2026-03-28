@@ -312,6 +312,13 @@ def build_decomposition_prompt(
         [
             "- Produce 3-15 work units (exceed only with justification)",
             "- Each work unit = one logical change",
+            "- CRITICAL: Each work unit should cover at most 2-3 success"
+            " criteria. If a single feature area spans 4+ SC items, split it"
+            " into smaller units with depends_on links. For example, split"
+            " 'implement module with skip conditions + Dockerfile build +"
+            " cleanup + tests' into separate beads: one for the module"
+            " skeleton, one for skip logic, one for the build mechanism,"
+            " one for wiring/cleanup, one for tests.",
             "- File scopes must include ALL protect boundaries from the flight"  # noqa: E501
             " plan's scope.boundaries in every work unit's file_scope.protect",
             "- Every acceptance criterion should trace to a flight plan success"  # noqa: E501
@@ -388,6 +395,14 @@ def build_outline_prompt(
         [
             "- Produce 3-15 work units (exceed only with justification)",
             "- Each work unit = one logical change",
+            "- CRITICAL: Each work unit should cover at most 2-3 success"
+            " criteria. If a single feature area spans 4+ SC items, split it"
+            " into smaller units with depends_on links. For example, split"
+            " 'implement module with skip conditions + Dockerfile build +"
+            " cleanup + tests' into separate beads: one for the module"
+            " skeleton, one for skip logic, one for the build mechanism,"
+            " one for wiring/cleanup, one for tests. A bead covering SC-002"
+            " through SC-009 is too large for a single agent pass.",
             "- File scopes must include ALL protect boundaries from the flight"
             " plan's scope.boundaries in every work unit's file_scope.protect",
             "- Use depends_on to express ordering constraints"
