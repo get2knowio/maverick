@@ -706,11 +706,12 @@ def validate_decomposition(
             )
 
     if overloaded:
-        raise ValueError(
+        raise SCCoverageError(
             f"Overloaded work units: {len(overloaded)} work unit(s) cover"
             f" more than {MAX_SC_PER_BEAD} success criteria — "
             + "; ".join(overloaded)
-            + ". Split into smaller units with depends_on links."
+            + ". Split into smaller units with depends_on links.",
+            gaps=overloaded,
         )
 
     return gaps
