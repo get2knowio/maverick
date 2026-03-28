@@ -688,6 +688,31 @@ def validate_decomposition(
             gaps=gaps,
         )
 
+    # Check max SC per work unit — beads covering too many criteria
+    # are too large for a single agent pass and cause review oscillation.
+    MAX_SC_PER_BEAD = 3
+    overloaded: list[str] = []
+    for spec in specs:
+        sc_refs = set()
+        for ac in spec.acceptance_criteria:
+            if ac.trace_ref:
+                for ref_part in ac.trace_ref.split(","):
+                    sc_refs.add(ref_part.strip())
+        if len(sc_refs) > MAX_SC_PER_BEAD:
+            overloaded.append(
+                f"{spec.id} covers {len(sc_refs)} SC refs"
+                f" ({', '.join(sorted(sc_refs))})"
+                f" — max is {MAX_SC_PER_BEAD}"
+            )
+
+    if overloaded:
+        raise ValueError(
+            f"Overloaded work units: {len(overloaded)} work unit(s) cover"
+            f" more than {MAX_SC_PER_BEAD} success criteria — "
+            + "; ".join(overloaded)
+            + ". Split into smaller units with depends_on links."
+        )
+
     return gaps
 
 
