@@ -79,6 +79,11 @@ is required. Do not include markdown formatting or code fences in your output.
 - **Success criteria**: Each criterion must be independently verifiable.
   Use specific, measurable language (e.g., "Unit tests achieve >= 80% coverage
   for new code" not "Good test coverage").
+  Do NOT include build-green / CI-passing criteria as success criteria (e.g.,
+  "cargo fmt exits 0", "cargo clippy exits 0", "all tests pass"). These are
+  enforced automatically by the validation gate on every bead and belong in the
+  Constraints section instead. Success criteria should describe *feature*
+  outcomes, not toolchain hygiene.
 - **Scope**: Reference actual project paths and modules, not abstract concepts.
 - **Constraints**: Include real technical constraints (language version, framework
   version, existing API contracts to preserve).

@@ -395,14 +395,20 @@ def build_outline_prompt(
         [
             "- Produce 3-15 work units (exceed only with justification)",
             "- Each work unit = one logical change",
-            "- CRITICAL: Each work unit should cover at most 2-3 success"
-            " criteria. If a single feature area spans 4+ SC items, split it"
-            " into smaller units with depends_on links. For example, split"
-            " 'implement module with skip conditions + Dockerfile build +"
-            " cleanup + tests' into separate beads: one for the module"
-            " skeleton, one for skip logic, one for the build mechanism,"
-            " one for wiring/cleanup, one for tests. A bead covering SC-002"
-            " through SC-009 is too large for a single agent pass.",
+            "- CRITICAL CONSTRAINT — INDEPENDENT IMPLEMENTABILITY: Each work"
+            " unit must be implementable in a single agent session without"
+            " depending on uncommitted work from another bead. A bead that"
+            " creates a module AND wires it into the call site AND adds its"
+            " tests is better than three separate beads where the second"
+            " can't compile without the first's uncommitted code. In compiled"
+            " languages (Rust, Go, Java), if bead A creates a new file and"
+            " bead B imports from it, bead B cannot compile until bead A is"
+            " committed. Keep them in one bead unless there's a clean"
+            " compilation boundary.",
+            "- Aim for 2-5 SCs per bead. The constraint is not SC count —"
+            " it's independent implementability. 4-5 SCs in one coherent"
+            " bead is better than 2 SCs each in beads that can't compile"
+            " independently.",
             "- File scopes must include ALL protect boundaries from the flight"
             " plan's scope.boundaries in every work unit's file_scope.protect",
             "- Use depends_on to express ordering constraints"
@@ -688,9 +694,9 @@ def validate_decomposition(
             gaps=gaps,
         )
 
-    # Check max SC per work unit — beads covering too many criteria
-    # are too large for a single agent pass and cause review oscillation.
-    MAX_SC_PER_BEAD = 3
+    # --- Hard check: grossly overloaded beads (>6 SCs) ---
+    # This is a hard error. 6+ SCs in one bead is always too large.
+    hard_sc_limit = 6
     overloaded: list[str] = []
     for spec in specs:
         sc_refs = set()
@@ -698,21 +704,68 @@ def validate_decomposition(
             if ac.trace_ref:
                 for ref_part in ac.trace_ref.split(","):
                     sc_refs.add(ref_part.strip())
-        if len(sc_refs) > MAX_SC_PER_BEAD:
+        if len(sc_refs) > hard_sc_limit:
             overloaded.append(
                 f"{spec.id} covers {len(sc_refs)} SC refs"
                 f" ({', '.join(sorted(sc_refs))})"
-                f" — max is {MAX_SC_PER_BEAD}"
+                f" — max is {hard_sc_limit}"
             )
 
     if overloaded:
         raise SCCoverageError(
             f"Overloaded work units: {len(overloaded)} work unit(s) cover"
-            f" more than {MAX_SC_PER_BEAD} success criteria — "
+            f" more than {hard_sc_limit} success criteria — "
             + "; ".join(overloaded)
             + ". Split into smaller units with depends_on links.",
             gaps=overloaded,
         )
+
+    # --- Soft checks: advisory warnings fed back to decomposer ---
+    warnings: list[str] = []
+
+    # Soft SC count warning (>5 is a yellow flag, not a hard error)
+    soft_sc_warn = 5
+    for spec in specs:
+        sc_refs = set()
+        for ac in spec.acceptance_criteria:
+            if ac.trace_ref:
+                for ref_part in ac.trace_ref.split(","):
+                    sc_refs.add(ref_part.strip())
+        if len(sc_refs) > soft_sc_warn:
+            warnings.append(
+                f"Advisory: {spec.id} covers {len(sc_refs)} SCs"
+                f" — consider splitting if these aren't all part"
+                f" of one compilation unit"
+            )
+
+    # Dependency coherence: if bead B depends on bead A and both
+    # list the same file under Modify, they should probably be merged.
+    spec_map = {s.id: s for s in specs}
+    for spec in specs:
+        if not spec.depends_on:
+            continue
+        spec_modify = set()
+        if hasattr(spec, "file_scope") and spec.file_scope:
+            for f in getattr(spec.file_scope, "modify", []) or []:
+                spec_modify.add(f)
+        for dep_id in spec.depends_on:
+            dep = spec_map.get(dep_id)
+            if not dep:
+                continue
+            dep_modify = set()
+            if hasattr(dep, "file_scope") and dep.file_scope:
+                for f in getattr(dep.file_scope, "modify", []) or []:
+                    dep_modify.add(f)
+            overlap = spec_modify & dep_modify
+            if overlap:
+                warnings.append(
+                    f"Advisory: {spec.id} depends on {dep_id}"
+                    f" and both modify {', '.join(sorted(overlap))}"
+                    f" — consider merging for compilation coherence"
+                )
+
+    for w in warnings:
+        logger.warning("decompose_advisory", message=w)
 
     return gaps
 

@@ -48,6 +48,10 @@ You have access to: **Read, Glob, Grep**
 - Use measurable language: "X exists", "Y passes", "Z returns N".
 - Explore the codebase to ground criteria in reality (existing tests,
   validation commands, CI checks).
+- Do NOT include build-green / CI-passing criteria (e.g., "cargo fmt exits 0",
+  "linter passes", "all tests pass"). These are enforced automatically by the
+  validation pipeline on every work unit. Success criteria must describe
+  *feature* outcomes, not toolchain hygiene.
 - The objective should be one paragraph, action-oriented, and specific.
 
 ## Constraints

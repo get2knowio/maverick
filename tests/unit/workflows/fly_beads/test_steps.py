@@ -44,11 +44,23 @@ def _make_wf(
     has_executor: bool = True,
 ) -> MagicMock:
     """Build a mock workflow with emit_* helpers and optional step executor."""
+    from maverick.config import MaverickConfig, ValidationConfig
+    from maverick.executor.config import StepConfig
+
     wf = MagicMock()
     wf.emit_step_started = AsyncMock()
     wf.emit_step_completed = AsyncMock()
     wf.emit_step_failed = AsyncMock()
     wf.emit_output = AsyncMock()
+
+    # Provide a real config so steps can read validation commands, etc.
+    wf._config = MaverickConfig()
+
+    # resolve_step_config returns a StepConfig with no overrides (timeout=None),
+    # so the step falls back to its default constant.
+    wf.resolve_step_config = MagicMock(
+        return_value=StepConfig(),
+    )
 
     if has_executor:
         from maverick.executor.result import ExecutorResult
@@ -142,7 +154,7 @@ class TestSnapshotAndDescribe:
 
 
 class TestRunImplementAndValidate:
-    async def test_calls_executor_with_correct_timeout(self) -> None:
+    async def test_calls_executor_with_resolved_config(self) -> None:
         wf = _make_wf()
         ctx = _make_ctx()
 
@@ -152,7 +164,12 @@ class TestRunImplementAndValidate:
         call_kwargs = wf._step_executor.execute.call_args.kwargs
         assert call_kwargs["step_name"] == "implement_and_validate"
         assert call_kwargs["agent_name"] == "implementer"
+        # Config should come from resolve_step_config, with timeout
+        # falling back to IMPLEMENT_AND_VALIDATE_TIMEOUT (900)
         assert call_kwargs["config"].timeout == 900
+        # Validation commands should be passed as agent_kwargs
+        assert "agent_kwargs" in call_kwargs
+        assert "validation_commands" in call_kwargs["agent_kwargs"]
         wf.emit_step_completed.assert_called_once()
         wf.emit_step_failed.assert_not_called()
 

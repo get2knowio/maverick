@@ -513,6 +513,8 @@ async def run_review_fix_loop(
     stream_callback: StreamCallback | None = None,
     cwd: str | None = None,
     briefing_context: str | None = None,
+    executor: Any | None = None,
+    review_step_configs: dict[str, Any] | None = None,
 ) -> ReviewFixLoopResult | ReviewAndFixReport:
     """Execute review-fix loop with dual-agent review and single fixer.
 
@@ -582,7 +584,9 @@ async def run_review_fix_loop(
     if max_attempts <= 0:
         # Just run review once, no fixing
         review_result = await _run_dual_review(
-            review_input, base_branch, stream_callback
+            review_input, base_branch, stream_callback,
+            executor=executor,
+            review_step_configs=review_step_configs,
         )
         last_findings = _extract_findings(review_result)
         return await _maybe_report(
@@ -609,7 +613,9 @@ async def run_review_fix_loop(
 
         # Step 1: Run dual review (spec + technical in parallel)
         review_result = await _run_dual_review(
-            review_input, base_branch, stream_callback
+            review_input, base_branch, stream_callback,
+            executor=executor,
+            review_step_configs=review_step_configs,
         )
         current_recommendation = review_result.get("recommendation", "request_changes")
         last_findings = _extract_findings(review_result)
@@ -710,6 +716,8 @@ async def _run_dual_review(
     review_input: dict[str, Any],
     base_branch: str,
     stream_callback: StreamCallback | None = None,
+    executor: Any | None = None,
+    review_step_configs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run completeness and correctness reviewers in parallel.
 
@@ -747,6 +755,12 @@ async def _run_dual_review(
             "cwd": review_input.get("cwd"),
         }
 
+        # Thread bead description so completeness reviewer can compare
+        # the diff against acceptance criteria and SC trace references.
+        bead_description = review_input.get("bead_description")
+        if bead_description:
+            review_context["bead_description"] = bead_description
+
         # Thread briefing context for completeness reviewer
         briefing = review_input.get("briefing_context")
         if briefing:
@@ -770,19 +784,22 @@ async def _run_dual_review(
 
         completeness = CompletenessReviewerAgent()
         correctness = CorrectnessReviewerAgent()
-        _executor = create_default_executor()
+        _executor = executor or create_default_executor()
+        _configs = review_step_configs or {}
         try:
             completeness_task = _executor.execute(
                 step_name="completeness_review",
                 agent_name=completeness.name,
                 prompt=review_context,
                 output_schema=GroupedReviewResult,
+                config=_configs.get("completeness_review"),
             )
             correctness_task = _executor.execute(
                 step_name="correctness_review",
                 agent_name=correctness.name,
                 prompt=review_context,
                 output_schema=GroupedReviewResult,
+                config=_configs.get("correctness_review"),
             )
             completeness_result, correctness_result = await asyncio.gather(
                 completeness_task, correctness_task, return_exceptions=True

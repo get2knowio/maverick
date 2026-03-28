@@ -53,6 +53,7 @@ class StepExecutor(Protocol):
         output_schema: type[BaseModel] | None = None,
         config: StepConfig | None = None,
         event_callback: EventCallback | None = None,
+        agent_kwargs: dict[str, Any] | None = None,
     ) -> ExecutorResult:
         """Execute an agent step and return a typed result.
 

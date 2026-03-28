@@ -13,6 +13,8 @@ GATE_REMEDIATION = "gate_remediation"
 REVIEW = "review"
 COMMIT = "commit"
 RECORD_RUNWAY = "record_runway"
+BASELINE_GATE = "baseline_gate"
+ACCEPTANCE_CHECK = "acceptance_check"
 
 # Default config values
 MAX_BEADS: int = 30

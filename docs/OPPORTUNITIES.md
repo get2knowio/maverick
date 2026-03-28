@@ -211,6 +211,123 @@ installation dependency most developers don't have.
 
 ---
 
+## Opportunity 8: Supervisor Agent for Adaptive Orchestration
+
+**Signal strength:** Strong (observed across 4 end-to-end runs against Deacon)
+
+**Current state:** The fly workflow loop in `workflow.py` makes decisions with
+hardcoded rules — fixed timeouts, fixed retry counts, fixed escalation
+thresholds. When these don't fit the project (e.g., Rust compilation needing
+longer timeouts than Python linting), a human must manually kill the run,
+adjust `maverick.yaml`, and restart. No agent has cross-bead situational
+awareness.
+
+**Observed problems (Deacon runs 1-4):**
+- Gate remediation timed out at 600s because `cargo build -j2` is slow — a
+  human had to bump the timeout to 1200s
+- The implementer had a 600s timeout but needed 5+ build-fix cycles at ~90s
+  each — a human bumped to 1800s
+- Review oscillation (10-16 issues, never converging) ran for 7 escalation
+  tiers before a human diagnosed the circuit breaker field-name bug
+- The decomposer produced beads covering 4-7 SCs but the validator limit
+  was 3 — required 3 decompose attempts to converge
+- Build-green SCs (cargo fmt, clippy, test) were included in the flight plan
+  but are enforced by the gate check — a human had to trim them
+
+In every case, a supervisor with access to the checkpoint trajectory could
+have detected and corrected the issue without human intervention.
+
+**Design direction:**
+- A lightweight agent that runs between bead iterations (not during)
+- Reads: checkpoint data, issue count trajectory, timeout/duration history,
+  gate check results, chain depth
+- Writes: config adjustments (timeouts, retry limits), context injections
+  for the next bead, skip/escalate decisions
+- Does NOT replace the workflow loop — advises it
+- Does NOT run during agent steps — only in the orchestration gaps
+
+**Example interventions:**
+- "Gate remediation timed out twice on cargo build. Bumping timeout to 1200s."
+- "Bead .1 has failed gate check 3 times with the same clippy error. Injecting
+  the error text into the implementer prompt for the next attempt."
+- "Review issue count has oscillated between 10-14 for 4 attempts. Firing
+  circuit breaker."
+- "Implement step used 850/900s on last attempt. Bumping timeout to 1800s."
+
+**Tradeoffs:**
+- Pro: Single point of situational awareness, can make cross-cutting decisions
+  that individual agents can't
+- Pro: Eliminates the most common reason for human intervention during fly
+- Con: Another agent to pay for (though lightweight — reads JSON, emits small
+  config patches)
+- Con: Risk of bad interventions (mitigated by conservative defaults and
+  audit logging)
+
+**Alternative considered:** Give each agent access to maverick.yaml and the
+checkpoint so they can self-adjust. Rejected because agents modifying their
+own orchestration config is dangerous — one bad write could break the pipeline,
+and there's no single point of awareness across beads.
+
+**Expected impact:** Reduce human intervention during fly from ~5 manual
+adjustments per run to near-zero. Enable truly unattended multi-hour runs.
+
+---
+
+## Opportunity 9: Supervisor-Driven Resource Tuning
+
+**Signal strength:** Strong (observed across 4 end-to-end runs against Deacon)
+
+**Current state:** Resource parameters (`-j2` parallelism, per-step timeouts,
+`parallel.max_agents`) are static values in `maverick.yaml`, chosen by a human
+before the run starts. They don't adapt to actual workload. A bead touching
+one file compiles in 40s; a bead touching `compose.rs` with deep dependency
+chains takes 180s. The same `-j2` and `timeout: 600` applies to both.
+
+**Observed problems (Deacon runs):**
+- Gate remediation timed out at 600s because `cargo build -j2` is slow on
+  this codebase — a human had to bump to 1200s
+- The implementer had a 600s timeout that allowed only 2 build-fix cycles
+  before being killed — a human bumped to 1800s
+- `-j2` was a conservative guess for OrbStack constraints; actual utilization
+  was unknown
+- After timeout bumps, some steps completed in 15-160s — the budget was
+  10x what was needed, wasting wall-clock time on other steps that could
+  have run sooner
+
+**Design direction (extends Opportunity 8 supervisor):**
+The supervisor agent already reads checkpoint data between bead iterations.
+Extend it to monitor resource utilization and adjust parameters:
+
+**Data already available in checkpoints:**
+- `duration_ms` per gate check stage (proxy for build/test time)
+- `timeout` vs actual duration (utilization ratio)
+- Step failures with `MaverickTimeoutError` (overload signal)
+- Total step count and wall-clock time per bead
+
+**Knobs the supervisor could adjust:**
+- `-j` flags in `validation.sync_cmd`, `lint_cmd`, `test_cmd`
+- `parallel.max_agents` and `parallel.max_tasks`
+- Per-step `timeout` values in `steps.*`
+- `validation.timeout_seconds` (per-command gate timeout)
+
+**Example interventions:**
+- "Last 3 gate checks completed `cargo build` in 45s avg. Bumping `-j2` to
+  `-j4` and reducing build timeout from 600s to 120s."
+- "Gate remediation used 1150/1200s. Bumping timeout to 1800s for next bead."
+- "Implement step completed in 160/1800s. Reducing to 600s to free up time
+  budget."
+- "System load average >4.0 during last build. Reducing `-j4` back to `-j2`."
+
+**Architecture:** Same thermostat pattern as Opportunity 8 — read checkpoint
+metrics, emit config patches, let the deterministic workflow loop execute with
+updated parameters. The workflow shape never changes; only the resource
+envelope does.
+
+**Expected impact:** Better resource utilization, fewer timeout-induced
+failures, adaptive performance without human tuning between runs.
+
+---
+
 ## Patterns to Watch
 
 These are emerging but not yet mature enough for immediate adoption:

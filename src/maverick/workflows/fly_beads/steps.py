@@ -13,7 +13,6 @@ import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from maverick.executor.config import StepConfig
 from maverick.library.actions.beads import (
     create_beads_from_findings,
     defer_bead,
@@ -52,9 +51,198 @@ from maverick.workflows.fly_beads.constants import (
 from maverick.workflows.fly_beads.models import BeadContext
 
 if TYPE_CHECKING:
+    from maverick.config import ValidationConfig
     from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 
 logger = get_logger(__name__)
+
+
+def _build_validation_commands(
+    vc: ValidationConfig,
+) -> dict[str, tuple[str, ...]]:
+    """Convert ValidationConfig to the dict for run_independent_gate."""
+    commands: dict[str, tuple[str, ...]] = {}
+    if vc.format_cmd:
+        commands["format"] = tuple(vc.format_cmd)
+    if vc.lint_cmd:
+        commands["lint"] = tuple(vc.lint_cmd)
+    if vc.typecheck_cmd:
+        commands["typecheck"] = tuple(vc.typecheck_cmd)
+    if vc.test_cmd:
+        commands["test"] = tuple(vc.test_cmd)
+    return commands
+
+
+def _parse_work_unit_sections(
+    description: str,
+) -> dict[str, str]:
+    """Parse a work-unit markdown description into named sections.
+
+    Splits on ``## `` headings and returns a dict keyed by
+    lower-cased heading (e.g. ``"task"``, ``"acceptance criteria"``,
+    ``"file scope"``, ``"instructions"``, ``"verification"``).
+    """
+    sections: dict[str, str] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+
+    for line in description.split("\n"):
+        if line.startswith("## "):
+            if current_key is not None:
+                sections[current_key] = "\n".join(current_lines).strip()
+            current_key = line[3:].strip().lower()
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    if current_key is not None:
+        sections[current_key] = "\n".join(current_lines).strip()
+
+    return sections
+
+
+def _parse_file_scope(
+    file_scope_text: str,
+) -> tuple[list[str], list[str], list[str]]:
+    """Parse ``## File Scope`` into create, modify, protect lists."""
+    create: list[str] = []
+    modify: list[str] = []
+    protect: list[str] = []
+
+    current = None
+    for line in file_scope_text.split("\n"):
+        stripped = line.strip()
+        low = stripped.lower()
+        if low.startswith("### create"):
+            current = create
+        elif low.startswith("### modify"):
+            current = modify
+        elif low.startswith("### protect"):
+            current = protect
+        elif stripped.startswith("- ") and current is not None:
+            current.append(stripped[2:].strip())
+
+    return create, modify, protect
+
+
+def _parse_verification_commands(
+    verification_text: str,
+) -> list[str]:
+    """Extract shell commands from ``## Verification``."""
+    commands: list[str] = []
+    for line in verification_text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
+        # Skip empty lines and prose (commands start with a tool name)
+        if not stripped or stripped[0].isupper():
+            continue
+        commands.append(stripped)
+    return commands
+
+
+async def run_acceptance_check(
+    wf: FlyBeadsWorkflow,
+    ctx: BeadContext,
+) -> tuple[bool, list[str]]:
+    """Deterministic acceptance-criteria check after gate passes.
+
+    Parses the bead's work-unit markdown to extract File Scope and
+    Verification sections, then runs structural checks:
+
+    1. Files listed under Create must exist in the workspace.
+    2. Files under Protect must NOT appear in the uncommitted diff.
+    3. The diff must overlap with at least one Create/Modify file.
+    4. Verification commands (grep/rg) from the decomposer are run.
+
+    Returns ``(passed, reasons)`` where *reasons* lists failures.
+    """
+    from maverick.workflows.fly_beads.constants import ACCEPTANCE_CHECK
+
+    await wf.emit_step_started(ACCEPTANCE_CHECK)
+    reasons: list[str] = []
+
+    sections = _parse_work_unit_sections(ctx.description)
+    file_scope_text = sections.get("file scope", "")
+    verification_text = sections.get("verification", "")
+
+    # Skip if the bead has no structured sections (follow-up beads)
+    if not file_scope_text and not verification_text:
+        await wf.emit_step_completed(ACCEPTANCE_CHECK)
+        return True, []
+
+    create, modify, protect = _parse_file_scope(file_scope_text)
+
+    # Get files the agent actually changed
+    changed = set(await _get_uncommitted_files(ctx.cwd))
+
+    # Check 1: Files under Create must exist
+    if create:
+        for f in create:
+            fpath = ctx.cwd / f if ctx.cwd else Path(f)
+            if not fpath.exists():
+                reasons.append(
+                    f"File scope requires creating '{f}' but "
+                    f"it does not exist"
+                )
+
+    # Check 2: Protected files must not be in the diff
+    if protect and changed:
+        for f in protect:
+            if f in changed:
+                reasons.append(
+                    f"File '{f}' is marked as protected but was "
+                    f"modified by the implementation"
+                )
+
+    # Check 3: Diff must overlap with Create+Modify scope
+    expected = set(create + modify)
+    if expected and changed:
+        overlap = expected & changed
+        if not overlap:
+            reasons.append(
+                "Implementation did not modify any files from "
+                "the bead's file scope. Changed: "
+                + ", ".join(sorted(changed)[:5])
+                + f". Expected: {', '.join(sorted(expected)[:5])}"
+            )
+    elif expected and not changed:
+        reasons.append(
+            "Implementation produced no file changes but "
+            "the bead's file scope lists files to create/modify"
+        )
+
+    # Check 4: Run verification commands
+    if verification_text and ctx.cwd:
+        from maverick.runners.command import CommandRunner
+
+        runner = CommandRunner(cwd=ctx.cwd)
+        for cmd_str in _parse_verification_commands(verification_text):
+            # Only run safe read-only commands (rg, grep, cargo build/clippy)
+            first_word = cmd_str.split()[0] if cmd_str.split() else ""
+            if first_word not in ("rg", "grep", "cargo", "make"):
+                continue
+            try:
+                result = await runner.run(cmd_str.split())
+                if result.returncode != 0:
+                    reasons.append(
+                        f"Verification command failed: `{cmd_str}`"
+                    )
+            except Exception as exc:
+                reasons.append(
+                    f"Verification command error: `{cmd_str}`: {exc}"
+                )
+
+    passed = len(reasons) == 0
+    if passed:
+        await wf.emit_step_completed(ACCEPTANCE_CHECK)
+    else:
+        await wf.emit_step_failed(
+            ACCEPTANCE_CHECK,
+            "; ".join(reasons),
+        )
+
+    return passed, reasons
 
 
 def load_briefing_context(flight_plan_name: str | None) -> str | None:
@@ -156,9 +344,9 @@ async def walk_discovered_from_chain(bead_id: str) -> list[str]:
                 for dep in deps:
                     if (
                         isinstance(dep, dict)
-                        and dep.get("type") == "discovered-from"
+                        and dep.get("dependency_type") == "discovered-from"
                     ):
-                        origin_id = dep.get("depends_on_id", "")
+                        origin_id = dep.get("id", "")
                         break
 
         if not origin_id or origin_id in seen:
@@ -286,10 +474,31 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
     await wf.emit_step_started(IMPLEMENT_AND_VALIDATE, step_type=StepType.AGENT)
 
     if wf._step_executor is not None:
+        # Parse work-unit markdown into structured sections so the
+        # implementer sees explicit acceptance criteria, file scope,
+        # and verification commands rather than one raw blob.
+        parsed = _parse_work_unit_sections(ctx.description)
         implement_prompt: dict[str, Any] = {
-            "task_description": ctx.description,
+            "task_description": parsed.get("task", ctx.description),
             "cwd": cwd_str,
         }
+        if parsed.get("acceptance criteria"):
+            implement_prompt["acceptance_criteria"] = (
+                "You MUST satisfy ALL of these acceptance criteria:\n\n"
+                + parsed["acceptance criteria"]
+            )
+        if parsed.get("file scope"):
+            implement_prompt["file_scope"] = (
+                "File scope for this bead (Create/Modify/Protect):\n\n"
+                + parsed["file scope"]
+            )
+        if parsed.get("instructions"):
+            implement_prompt["instructions"] = parsed["instructions"]
+        if parsed.get("verification"):
+            implement_prompt["verification_commands"] = (
+                "After implementation, run these commands to verify "
+                "your work:\n\n" + parsed["verification"]
+            )
         if ctx.runway_context:
             implement_prompt["runway_context"] = ctx.runway_context
         if ctx.briefing_context:
@@ -338,12 +547,37 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
             )
 
         try:
+            # Resolve step config from maverick.yaml's steps.implement section
+            # (provider, model_id, timeout, etc.) via the 5-layer precedence chain.
+            resolved = wf.resolve_step_config(
+                step_name="implement",
+                step_type=StepType.PYTHON,
+                agent_name="implementer",
+            )
+            effective_timeout = resolved.timeout or IMPLEMENT_AND_VALIDATE_TIMEOUT
+            resolved = resolved.model_copy(update={"timeout": effective_timeout})
+
+            # Build agent kwargs so ImplementerAgent receives validation
+            # commands and project type in its system prompt.
+            vc = wf._config.validation
+            impl_agent_kwargs: dict[str, Any] = {
+                "validation_commands": {
+                    "sync_cmd": vc.sync_cmd,
+                    "format_cmd": vc.format_cmd,
+                    "lint_cmd": vc.lint_cmd,
+                    "typecheck_cmd": vc.typecheck_cmd,
+                    "test_cmd": vc.test_cmd,
+                },
+                "project_type": wf._config.project_type,
+            }
+
             await wf._step_executor.execute(
                 step_name=IMPLEMENT_AND_VALIDATE,
                 agent_name="implementer",
                 prompt=implement_prompt,
                 cwd=ctx.cwd,
-                config=StepConfig(timeout=IMPLEMENT_AND_VALIDATE_TIMEOUT),
+                config=resolved,
+                agent_kwargs=impl_agent_kwargs,
                 **extra_kwargs,
             )
         except Exception as exc:
@@ -380,9 +614,12 @@ async def run_gate_check(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     await wf.emit_step_started(GATE_CHECK)
 
     try:
+        validation_commands = _build_validation_commands(wf._config.validation)
         gate_result = await run_independent_gate(
             stages=list(DEFAULT_VALIDATION_STAGES),
             cwd=cwd_str,
+            validation_commands=validation_commands or None,
+            timeout_seconds=float(wf._config.validation.timeout_seconds),
         )
         ctx.gate_result = gate_result
         # Also update validation_result for runway recording compatibility
@@ -461,12 +698,20 @@ async def run_gate_remediation(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     }
 
     try:
+        resolved = wf.resolve_step_config(
+            step_name="gate_remediation",
+            step_type=StepType.PYTHON,
+            agent_name="gate_remediator",
+        )
+        effective_timeout = resolved.timeout or GATE_REMEDIATION_TIMEOUT
+        resolved = resolved.model_copy(update={"timeout": effective_timeout})
+
         await wf._step_executor.execute(
             step_name=GATE_REMEDIATION,
             agent_name="gate_remediator",
             prompt=remediation_prompt,
             cwd=ctx.cwd,
-            config=StepConfig(timeout=GATE_REMEDIATION_TIMEOUT),
+            config=resolved,
         )
     except Exception as exc:
         logger.warning(
@@ -519,10 +764,24 @@ async def run_review_and_remediate(
             cwd=cwd_str,
         )
         review_input_dict = review_context_result.to_dict()
+        # Inject bead description so completeness reviewer can compare
+        # the diff against acceptance criteria and SC trace references.
+        review_input_dict["bead_description"] = ctx.description
         # Inject bead file scope so reviewers can distinguish in-scope
         # vs out-of-scope findings (files this bead is responsible for)
         if bead_files:
             review_input_dict["bead_file_scope"] = list(bead_files)
+        # Resolve review step configs so provider/model from maverick.yaml
+        # is honoured (e.g. completeness_review → copilot, correctness → claude)
+        _review_configs: dict[str, Any] = {}
+        if wf._step_executor is not None:
+            for _rname in ("completeness_review", "correctness_review"):
+                _review_configs[_rname] = wf.resolve_step_config(
+                    step_name=_rname,
+                    step_type=StepType.PYTHON,
+                    agent_name=_rname.replace("_review", "_reviewer"),
+                )
+
         review_loop_result = await run_review_fix_loop(
             review_input=review_input_dict,
             base_branch=DEFAULT_BASE_BRANCH,
@@ -530,6 +789,8 @@ async def run_review_and_remediate(
             generate_report=True,
             cwd=cwd_str,
             briefing_context=ctx.briefing_context,
+            executor=wf._step_executor,
+            review_step_configs=_review_configs or None,
         )
         ctx.review_result = review_loop_result.to_dict()
         await record_runway_review(wf, ctx)

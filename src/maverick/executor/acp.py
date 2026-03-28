@@ -122,6 +122,7 @@ class AcpStepExecutor:
         output_schema: type[BaseModel] | None = None,
         config: StepConfig | None = None,
         event_callback: EventCallback | None = None,
+        agent_kwargs: dict[str, Any] | None = None,
     ) -> ExecutorResult:
         """Execute an agent step via ACP and return a typed ExecutorResult.
 
@@ -188,7 +189,7 @@ class AcpStepExecutor:
 
         agent_class = self._agent_registry.agents.get(agent_name)
         try:
-            agent_instance = agent_class()  # type: ignore[call-arg]
+            agent_instance = agent_class(**(agent_kwargs or {}))
         except TypeError as exc:
             self._logger.error(
                 "acp_executor.agent_instantiation_failed",

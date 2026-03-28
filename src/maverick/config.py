@@ -394,6 +394,10 @@ class MaverickConfig(BaseSettings):
         default_factory=dict,
         description="Prompt overrides keyed by step name.",
     )
+    project_type: str = Field(
+        default="unknown",
+        description="Project type (python, rust, go, nodejs, etc.).",
+    )
     project_conventions: str = ""
 
     def __init__(self, **data: Any) -> None:

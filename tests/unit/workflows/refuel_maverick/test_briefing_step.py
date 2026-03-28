@@ -89,6 +89,7 @@ def _make_executor_with_briefing() -> AsyncMock:
         output_schema: Any,
         event_callback: Any = None,
         config: Any = None,
+        **kwargs: Any,
     ) -> ExecutorResult:
         if agent_name == "decomposer":
             return next(decomp_iter)

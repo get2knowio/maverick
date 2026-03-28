@@ -410,6 +410,7 @@ class PythonWorkflow(ABC):
         parent_step: str | None = None,
         timeout: int = 300,
         max_retries: int = 3,
+        agent_kwargs: dict[str, Any] | None = None,
     ) -> Any:
         """Execute an agent with retry, progress messaging, and timing.
 
@@ -507,6 +508,7 @@ class PythonWorkflow(ABC):
                     output_schema=output_schema,
                     event_callback=_event_cb,
                     config=resolved,
+                    agent_kwargs=agent_kwargs,
                 )
 
         elapsed = time.monotonic() - t0

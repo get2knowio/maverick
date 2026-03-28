@@ -14,10 +14,12 @@ from maverick.library.actions.beads import (
 )
 from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
+from maverick.library.actions.validation import run_independent_gate
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.fly_beads.constants import (
+    BASELINE_GATE,
     COMMIT,
     CREATE_WORKSPACE,
     MAX_BEADS,
@@ -33,6 +35,7 @@ from maverick.workflows.fly_beads.steps import (
     load_briefing_context,
     resolve_provenance,
     rollback_bead,
+    run_acceptance_check,
     run_gate_check,
     run_gate_remediation,
     run_implement_and_validate,
@@ -228,6 +231,59 @@ class FlyBeadsWorkflow(PythonWorkflow):
             self.register_rollback("workspace_teardown", _teardown)
 
         # ----------------------------------------------------------------
+        # Step 3.5: Baseline validation gate
+        # ----------------------------------------------------------------
+        # Fail fast if the codebase isn't green before any bead work starts.
+        # Pre-existing test/lint failures waste agent budget on unrelated fixes.
+        if not dry_run:
+            await self.emit_step_started(BASELINE_GATE)
+            try:
+                from maverick.workflows.fly_beads.steps import (
+                    _build_validation_commands,
+                )
+
+                baseline_cmds = _build_validation_commands(
+                    self._config.validation
+                )
+                baseline_result = await run_independent_gate(
+                    stages=["format", "lint", "typecheck", "test"],
+                    cwd=str(workspace_path),
+                    validation_commands=baseline_cmds or None,
+                    timeout_seconds=float(
+                        self._config.validation.timeout_seconds
+                    ),
+                )
+                if not baseline_result.get("passed"):
+                    summary = baseline_result.get(
+                        "summary", "unknown failures"
+                    )
+                    await self.emit_step_failed(BASELINE_GATE, summary)
+                    raise WorkflowError(
+                        f"Baseline validation failed — codebase is not "
+                        f"green before bead processing. Fix these issues "
+                        f"first: {summary}",
+                        workflow_name=WORKFLOW_NAME,
+                    )
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                # Non-fatal: if baseline check itself errors, warn and
+                # continue — don't block the entire fly on infra issues.
+                logger.warning(
+                    "baseline_gate_error",
+                    error=str(exc),
+                )
+                await self.emit_output(
+                    BASELINE_GATE,
+                    f"Baseline gate check error (continuing): {exc}",
+                    level="warning",
+                )
+            else:
+                await self.emit_step_completed(
+                    BASELINE_GATE, baseline_result
+                )
+
+        # ----------------------------------------------------------------
         # Bead loop
         # ----------------------------------------------------------------
         # max_beads caps *successful* completions, not total iterations.
@@ -406,10 +462,43 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     await run_gate_remediation(self, ctx)
                     await run_gate_check(self, ctx)
 
-                # Review only if validation gate passed
-                gate_passed = ctx.gate_result and ctx.gate_result.get("passed", False)
+                # Acceptance criteria check — verify the agent touched
+                # the right files and met structural requirements before
+                # spending tokens on review.
+                gate_passed = ctx.gate_result and ctx.gate_result.get(
+                    "passed", False
+                )
+                ac_passed = True
                 if gate_passed:
-                    await run_review_and_remediate(self, ctx, skip_review=skip_review)
+                    ac_passed, ac_reasons = await run_acceptance_check(
+                        self, ctx
+                    )
+                    if not ac_reasons:
+                        ac_reasons = []
+                    if not ac_passed:
+                        # Treat AC failure as a bead failure — skip review,
+                        # feed reasons back via prior_failures on retry.
+                        from maverick.library.actions.beads import (
+                            VerifyBeadCompletionResult,
+                        )
+
+                        ctx.verify_result = VerifyBeadCompletionResult(
+                            passed=False,
+                            reasons=tuple(ac_reasons),
+                        )
+                        await rollback_bead(self, ctx)
+                        beads_failed += 1
+                        bead_failure_history.setdefault(
+                            bead_id, []
+                        ).append("; ".join(ac_reasons))
+                        bead_last_review[bead_id] = ctx.review_result
+                        continue
+
+                # Review only if validation gate passed
+                if gate_passed and ac_passed:
+                    await run_review_and_remediate(
+                        self, ctx, skip_review=skip_review
+                    )
                     # Final gate after review fixes
                     if not skip_review and ctx.review_result:
                         await run_gate_check(self, ctx)

@@ -41,6 +41,7 @@ async def run_independent_gate(
     stages: list[str],
     cwd: str | Path | None = None,
     validation_commands: dict[str, tuple[str, ...]] | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Run validation stages independently as an orchestrator gate check.
 
@@ -53,6 +54,9 @@ async def run_independent_gate(
         cwd: Working directory for validation commands.
         validation_commands: Optional mapping of stage name to command tuple.
             If None, defaults to DEFAULT_STAGE_COMMANDS.
+        timeout_seconds: Per-stage timeout in seconds.  If None, defaults to
+            300s.  Pass from ``ValidationConfig.timeout_seconds`` to honour the
+            project config.
 
     Returns:
         Dict with keys:
@@ -67,6 +71,7 @@ async def run_independent_gate(
         stages=stages,
         cwd=working_dir,
         validation_commands=commands,
+        timeout_seconds=timeout_seconds,
     )
 
     # Build a human-readable summary
@@ -103,6 +108,7 @@ async def run_fix_retry_loop(
     cwd: str | None = None,
     stream_callback: Any | None = None,
     validation_commands: dict[str, tuple[str, ...]] | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Execute fix-and-retry loop for validation failures.
 
@@ -242,6 +248,7 @@ async def run_fix_retry_loop(
                         stages=stages,
                         cwd=working_dir,
                         validation_commands=resolved_commands,
+                        timeout_seconds=timeout_seconds,
                     )
 
                     if current_result.get("success", False):
@@ -372,6 +379,7 @@ async def _run_validation(
     stages: list[str],
     cwd: Path,
     validation_commands: dict[str, tuple[str, ...]] | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Re-run validation stages after fix attempts.
 
@@ -380,6 +388,7 @@ async def _run_validation(
         cwd: Working directory for validation commands
         validation_commands: Optional mapping of stage name to command tuple.
             If None, defaults to DEFAULT_STAGE_COMMANDS.
+        timeout_seconds: Per-stage timeout in seconds.  Defaults to 300s.
 
     Returns:
         Validation result dict with success status and per-stage results
@@ -401,7 +410,7 @@ async def _run_validation(
                         name=stage_name,
                         command=command,
                         fixable=False,  # Don't auto-fix during re-run
-                        timeout_seconds=300.0,
+                        timeout_seconds=timeout_seconds or 300.0,
                     )
                 )
             else:
@@ -432,7 +441,7 @@ async def _run_validation(
             stage_results[stage_result.stage_name] = {
                 "passed": stage_result.passed,
                 "duration_ms": stage_result.duration_ms,
-                "output": stage_result.output[:1000] if stage_result.output else None,
+                "output": stage_result.output[-16000:] if stage_result.output else None,
                 "errors": [
                     {"file": e.file, "line": e.line, "message": e.message}
                     for e in stage_result.errors
@@ -776,6 +785,7 @@ def _generate_fix_suggestions(
     attempts: int,
     max_attempts: int,
     passed: bool,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> list[str]:
     """Generate suggestions for manual fixes based on validation results.
 
@@ -784,12 +794,20 @@ def _generate_fix_suggestions(
         attempts: Number of fix attempts made
         max_attempts: Maximum attempts configured
         passed: Whether validation ultimately passed
+        validation_commands: Optional mapping of stage name → command tuple.
+            Used to generate accurate command suggestions.
 
     Returns:
         List of suggestion strings for manual intervention
     """
     if passed:
         return []
+
+    commands = validation_commands or DEFAULT_STAGE_COMMANDS
+
+    def _cmd_str(stage: str) -> str:
+        cmd = commands.get(stage)
+        return " ".join(cmd) if cmd else stage
 
     suggestions = []
 
@@ -806,25 +824,25 @@ def _generate_fix_suggestions(
     if any(s.get("name") == "format" for s in failed_stages):
         suggestions.append(
             "Format errors detected. Try running the formatter manually: "
-            "`ruff format .` or your project's format command."
+            f"`{_cmd_str('format')}`."
         )
 
     if any(s.get("name") == "lint" for s in failed_stages):
         suggestions.append(
             "Linting errors detected. Review the errors above and fix manually, "
-            "or try `ruff check --fix .` for auto-fixable issues."
+            f"or try `{_cmd_str('lint')}`."
         )
 
     if any(s.get("name") == "typecheck" for s in failed_stages):
         suggestions.append(
-            "Type checking errors detected. Review mypy output and add type hints "
-            "or type: ignore comments as needed."
+            "Type checking errors detected. Review output and fix: "
+            f"`{_cmd_str('typecheck')}`."
         )
 
     if any(s.get("name") == "test" for s in failed_stages):
         suggestions.append(
             "Test failures detected. Review test output, fix failing tests, "
-            "and re-run: `pytest` or your project's test command."
+            f"and re-run: `{_cmd_str('test')}`."
         )
 
     # If no specific suggestions, provide generic guidance
