@@ -273,6 +273,9 @@ class WorkUnitFile:
                 acceptance_criteria=acceptance_criteria,
                 file_scope=file_scope,
                 instructions=sections["instructions"],
+                test_specification=sections.get(
+                    "test_specification", ""
+                ),
                 verification=tuple(sections["verification"]),
                 provider_hints=sections["provider_hints"],
                 source_path=path,

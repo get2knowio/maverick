@@ -129,9 +129,12 @@ Output the following JSON at the END of your response:
 - **line**: Line number or range (e.g., "45" or "45-67")
 - **issue**: Clear, actionable description of the problem
 - **severity**: One of:
-  - "critical": Security issues, data corruption, crashes
-  - "major": Bugs, significant problems, library standard violations
-  - "minor": Style issues, suggestions, minor improvements
+  - "critical": ONLY for runtime crashes, security vulnerabilities
+    (injection, hardcoded secrets, auth bypass), data corruption, or type
+    errors the compiler would miss. NOT for performance or style.
+  - "major": Bugs that degrade but don't crash, library standard
+    violations, performance concerns, missing edge-case error handling
+  - "minor": Style issues, suggestions, alternative approaches
 - **category**: One of:
   - "clean_code" - Code quality, maintainability issues
   - "type_hints" - Missing or incorrect type hints
@@ -155,6 +158,11 @@ If no issues are found, return: `{{"groups": []}}`
 - Prioritize by impact: critical > major > minor
 - Every finding should be actionable — include enough context to fix
 - Focus on technical quality, not requirement completeness (another reviewer handles that)
+- SEVERITY CALIBRATION: "critical" triggers automatic rejection
+  (request_changes). Reserve it for defects that would cause runtime
+  crashes, security vulnerabilities, or data corruption. Performance
+  concerns, style preferences, and "better way to do this" suggestions
+  are MAJOR at most.
 """
 
 

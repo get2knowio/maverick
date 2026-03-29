@@ -319,9 +319,17 @@ def build_decomposition_prompt(
             " cleanup + tests' into separate beads: one for the module"
             " skeleton, one for skip logic, one for the build mechanism,"
             " one for wiring/cleanup, one for tests.",
-            "- File scopes must include ALL protect boundaries from the flight"  # noqa: E501
-            " plan's scope.boundaries in every work unit's file_scope.protect",
-            "- Every acceptance criterion should trace to a flight plan success"  # noqa: E501
+            "- SCAFFOLD-THEN-FILL: For work units that create new modules"
+            " AND wire them into existing code, consider splitting into:"
+            " (1) SCAFFOLD bead (create module with signatures + todo!()"
+            " bodies + add to mod.rs, verify compilation); (2) FILL bead"
+            " (implement bodies, wire into call site). Scaffold = pure"
+            " additive. Fill = modify on a compiling foundation.",
+            "- File scopes must include ALL protect boundaries from the"
+            " flight plan's scope.boundaries in every work unit's"
+            " file_scope.protect",
+            "- Every acceptance criterion should trace to a flight plan"
+            " success"
             " criterion (SC-### where ### is the 1-based index of the criterion)",
             "- Verification commands must be concrete and runnable",
             "- Use depends_on to express ordering constraints"
@@ -330,9 +338,14 @@ def build_decomposition_prompt(
             " concurrently within the same dependency tier",
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
-            "- instructions field should contain detailed implementation guidance",
-            "- Keep the instructions field concise: key implementation steps"
-            " only, no background or rationale (aim for 2-5 short bullet points)",
+            "- instructions field should contain detailed implementation"
+            " guidance. For work units that MODIFY existing files, include"
+            " the exact code at the integration point (10-30 lines) in a"
+            " fenced code block with file path and line numbers. The"
+            " implementer needs to see the exact code it must change.",
+            "- Keep the instructions field concise: key implementation"
+            " steps only, no background or rationale (2-5 bullet points"
+            " plus integration-point code blocks for modify targets)",
             "",
             "## CRITICAL: Output Format",
             "Output ONLY a single JSON object in a ```json fenced code block."
@@ -409,6 +422,14 @@ def build_outline_prompt(
             " it's independent implementability. 4-5 SCs in one coherent"
             " bead is better than 2 SCs each in beads that can't compile"
             " independently.",
+            "- SCAFFOLD-THEN-FILL: For complex work units that create new"
+            " modules AND wire them into existing code, consider splitting"
+            " into: (1) a SCAFFOLD bead that creates the module with"
+            " function signatures + todo!()/unimplemented!() bodies + adds"
+            " to mod.rs, verifies compilation; (2) a FILL bead that"
+            " implements bodies to pass tests and wires into the call site."
+            " Scaffold = pure additive (agents excel). Fill = modify on a"
+            " compiling foundation. Use depends_on to link them.",
             "- File scopes must include ALL protect boundaries from the flight"
             " plan's scope.boundaries in every work unit's file_scope.protect",
             "- Use depends_on to express ordering constraints"
@@ -494,19 +515,37 @@ def build_detail_prompt(
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
             "- Instructions: concise implementation steps (2-5 bullet points)."
-            " Reference existing patterns by file:line but do NOT include"
-            " inline code blocks — keep instructions brief to fit output limits",
-            "- Acceptance criteria must trace to flight plan success criteria"
-            " (SC-### where ### is the 1-based index)",
+            " For work units that MODIFY existing files, you MUST include"
+            " the exact code at the integration point (10-30 lines) in a"
+            " fenced code block with file path and line numbers. Show the"
+            " before-code and describe what the after-code should look"
+            " like. For work units that CREATE new files, include a"
+            " function signature scaffold. The implementer cannot"
+            " efficiently search the codebase — it needs to see the"
+            " exact integration point.",
+            "- CRITICAL: For every file in file_scope.modify, use the"
+            " codebase context to find the exact code at the modification"
+            " point. Include 10-30 lines of existing code in a fenced"
+            " code block labeled with file path and line numbers.",
+            "- test_specification: For each work unit, write a concrete"
+            " test function (with assertions) that would FAIL before"
+            " implementation and PASS after. This gives the implementer"
+            " a machine-checkable target. Include the full test body with"
+            " assertions. If the work unit is pure config/doc, use empty"
+            " string.",
+            "- Acceptance criteria must trace to flight plan success"
+            " criteria (SC-### where ### is the 1-based index)",
             "- Verification commands must be concrete and runnable",
             "",
             "## CRITICAL: Output Format",
-            "Output ONLY a single JSON object in a ```json fenced code block."
-            " No analysis, preamble, or commentary before or after the JSON."
-            " Do NOT write any files. The JSON must match this schema exactly:",
+            "Output ONLY a single JSON object in a ```json fenced code"
+            " block. No analysis, preamble, or commentary before or after"
+            " the JSON. Do NOT write any files. The JSON must match this"
+            " schema exactly:",
             '{"details": [{"id": "kebab-id",'
             ' "instructions": "step-by-step guidance",'
-            ' "acceptance_criteria": [{"text": "criterion", "trace_ref": "SC-001"}],'
+            ' "test_specification": "#[test] fn test_foo() { ... }",'
+            ' "acceptance_criteria": [{"text": "...", "trace_ref": "SC-001"}],'
             ' "verification": ["cmd1"]}]}',
         ]
     )
@@ -569,6 +608,7 @@ def merge_outline_and_details(
                 task=wu.task,
                 file_scope=wu.file_scope,
                 instructions=detail.instructions,
+                test_specification=detail.test_specification,
                 acceptance_criteria=detail.acceptance_criteria,
                 verification=detail.verification,
             )
@@ -618,6 +658,7 @@ def convert_specs_to_work_units(
                 protect=tuple(spec.file_scope.protect),
             ),
             instructions=spec.instructions,
+            test_specification=spec.test_specification,
             verification=tuple(spec.verification),
             source_path=source_path,
         )

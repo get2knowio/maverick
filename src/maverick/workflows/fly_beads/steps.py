@@ -499,6 +499,13 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 "After implementation, run these commands to verify "
                 "your work:\n\n" + parsed["verification"]
             )
+        if parsed.get("test specification"):
+            implement_prompt["test_to_pass"] = (
+                "PRIORITY: Make this test pass FIRST, then implement "
+                "remaining acceptance criteria. This test defines the "
+                "minimum viable implementation target:\n\n"
+                + parsed["test specification"]
+            )
         if ctx.runway_context:
             implement_prompt["runway_context"] = ctx.runway_context
         if ctx.briefing_context:

@@ -209,6 +209,13 @@ def serialize_work_unit(unit: WorkUnit) -> str:
     lines.append(unit.instructions)
     lines.append("")
 
+    # --- Test Specification (optional) ---
+    if unit.test_specification:
+        lines.append("## Test Specification")
+        lines.append("")
+        lines.append(unit.test_specification)
+        lines.append("")
+
     # --- Verification ---
     lines.append("## Verification")
     lines.append("")

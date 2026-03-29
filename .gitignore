@@ -46,3 +46,4 @@ Thumbs.db
 # Beads (local issue tracking state)
 .beads/
 test_bd.sh
+.claude/worktrees/

@@ -329,6 +329,8 @@ def parse_work_unit_sections(body: str) -> dict[str, Any]:
     instructions = h2.get("Instructions", "").strip()
     verification = parse_bullet_list(h2.get("Verification", ""))
 
+    test_specification = h2.get("Test Specification", "").strip()
+
     raw_hints = h2.get("Provider Hints", None)
     provider_hints: str | None = raw_hints.strip() if raw_hints is not None else None
     # Treat empty-string hints as None (section absent)
@@ -340,6 +342,7 @@ def parse_work_unit_sections(body: str) -> dict[str, Any]:
         "acceptance_criteria": acceptance_criteria,
         "file_scope": file_scope,
         "instructions": instructions,
+        "test_specification": test_specification,
         "verification": verification,
         "provider_hints": provider_hints,
     }

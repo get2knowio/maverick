@@ -116,9 +116,12 @@ Output the following JSON at the END of your response:
 - **line**: Line number or range (e.g., "45" or "45-67")
 - **issue**: Clear, actionable description of the problem
 - **severity**: One of:
-  - "critical": Requirement violations, missing acceptance criteria, unaddressed risks
-  - "major": Incomplete handling, missing tests for required behavior
-  - "minor": Minor gaps, suggestions for better coverage
+  - "critical": ONLY for missing acceptance criteria that are EXPLICITLY
+    listed in the bead description, or code that would cause data loss /
+    security vulnerability. Architectural preferences are MAJOR at most.
+  - "major": Incomplete edge-case handling, missing tests for required
+    behavior, alternative approaches, architectural preferences
+  - "minor": Minor gaps, suggestions, style preferences
 - **category**: One of:
   - "requirements_gap" - Missing or incomplete requirement from the task description
   - "testing" - Missing tests, test quality issues
@@ -141,6 +144,11 @@ If no issues are found, return: `{{"groups": []}}`
 - Cross-reference the task description with what was actually built
 - Focus on completeness gaps, not code style or technical quality (another reviewer handles that)
 - When briefing context is available, verify architecture decisions are followed
+- SEVERITY CALIBRATION: "critical" triggers automatic rejection
+  (request_changes). Use it ONLY when an explicitly-listed acceptance
+  criterion is completely missing from the implementation. "I would have
+  done it differently" is MAJOR at most, even if you strongly prefer a
+  different approach. The implementer works within single-bead scope.
 """
 
 

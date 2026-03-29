@@ -100,6 +100,71 @@ into `consolidated-insights.md` semantic summaries.
 **Expected impact:** Better agent context quality, simpler retrieval path,
 reduced token cost from raw JSONL passages.
 
+### Extension: Two-Layer Learning (Code + Process)
+
+The current consolidator captures **code-level learning** — which files are
+tricky, which patterns work, what reviewers flag. This feeds back into agent
+prompts and is working as designed.
+
+There is a second layer the consolidator doesn't capture: **process-level
+learning.** These are observations about the orchestration itself:
+- "This project needs 1800s implement timeouts because cargo builds are slow"
+- "Beads with >5 SCs consistently exhaust retries"
+- "The implementer rewrites from scratch on retry — prior attempt context
+  reduces review issues from 11 to 3"
+- "The gate remediation agent can fix clippy errors but not test failures
+  because test output was truncated"
+
+This process-level knowledge currently lives only in the human's head (or
+in this opportunities document). The supervisor agent (Opportunity 8) would
+observe these patterns in real time. But even without a supervisor, the
+consolidator could be extended to read checkpoint data (timing, retry
+counts, escalation depths) alongside the episodic JSONL files and produce
+a second section in `consolidated-insights.md`:
+
+```markdown
+### Process Observations
+- Average gate check time: 18s (warm cache), 400s (cold cache)
+- Beads exceeding 1500s implement time: 60% pass gate, 20% pass review
+- Escalation chains deeper than 1 tier: 0% converged via review alone
+- Prior-attempt context reduced review issues by 40% on retry
+```
+
+### Extension: Self-Improving Project Conventions
+
+The `project_conventions` field in `maverick.yaml` is currently static —
+written once during `maverick init` and never updated. But the consolidated
+insights contain exactly the kind of project-specific knowledge that
+belongs in conventions:
+
+- "Always run `cargo check` before `cargo build` — it's 3x faster for
+  catching type errors" (learned from validation timing data)
+- "Use `#[cfg(target_os = \"linux\")]` compile-time gates, not runtime OS
+  checks — the reviewer flags runtime checks every time" (learned from
+  recurring review findings)
+- "The `compose.rs` file has deep dependency chains — budget 90s per
+  build when modifying it" (learned from problematic files data)
+
+The consolidator could propose additions to `project_conventions` based on
+patterns it observes. The human reviews these proposals during `land`
+(or via `maverick review` from Opportunity 10), and approved conventions
+are appended to `maverick.yaml`. Over time, the project's conventions
+evolve based on what actually works — a feedback loop from execution
+data to agent instructions.
+
+**Implementation path:**
+1. Extend consolidator prompt to output a `### Proposed Convention Updates`
+   section alongside the four existing sections
+2. During `land`, display proposed updates for human approval
+3. Approved updates are appended to `maverick.yaml`'s `project_conventions`
+4. Next fly run, all agents receive the updated conventions via
+   `$project_conventions` in their system prompts
+
+This creates a self-improving cycle: agents execute → runway records
+outcomes → consolidator identifies patterns → patterns become conventions
+→ agents execute better. The human stays in the loop as the approver
+of convention changes, not the discoverer of patterns.
+
 ---
 
 ## Opportunity 4: Cap Review Retries to Reduce Thrashing
@@ -207,7 +272,29 @@ installation dependency most developers don't have.
 - Use `git stash` + `git worktree` as a degraded alternative for
   snapshot/restore
 
-**Expected impact:** Lower barrier to adoption for new users.
+**Important: jj enables retroactive human corrections (Opportunity 10).**
+When a human answers a question about bead 3's approach after beads 4-6
+have already built on top of it, jj's automatic rebasing makes the fix
+trivial:
+
+1. `jj edit` to bead 3's revision
+2. Agent applies the human's correction
+3. `jj new` to return to the working copy
+4. jj automatically rebases beads 4, 5, 6 on top of the amended bead 3
+5. Conflicts show up as markers in affected files — the next agent pass
+   resolves them naturally
+
+In git, this same operation requires manual `git rebase -i` with conflict
+resolution at each step — destructive, error-prone, and not automatable.
+This retroactive correction capability is a strong argument for keeping jj
+as the primary VCS even if a git fallback is offered. A git-only fallback
+would need to either reject retroactive corrections entirely or implement
+a fragile rebase-and-resolve loop.
+
+**Expected impact:** Lower barrier to adoption for new users (git fallback),
+while preserving jj's unique value for retroactive corrections and
+human-agent collaboration during the asynchronous review queue
+(Opportunity 10).
 
 ---
 
@@ -325,6 +412,139 @@ envelope does.
 
 **Expected impact:** Better resource utilization, fewer timeout-induced
 failures, adaptive performance without human tuning between runs.
+
+---
+
+## Opportunity 10: Asynchronous Human Review Queue
+
+**Signal strength:** Strong (observed need across all end-to-end runs)
+
+**Current state:** The fly phase runs unattended until completion, then the
+human reviews everything during `land`. There is no mechanism for agents to
+flag questions, surface assumptions, or request human input during execution.
+When an agent encounters ambiguity (e.g., "should this be a compile-time
+`#[cfg]` gate or a runtime OS check?"), it makes an assumption and proceeds.
+The human only discovers these assumptions during final review — often too
+late, since subsequent beads may have built on top of the wrong choice.
+
+Conversely, when a bead exhausts retries and gets tagged `needs-human-review`,
+the human doesn't find out until the entire fly completes. On a 2-hour run,
+a question that arose in minute 20 sits unanswered for 100 minutes while
+dependent work proceeds on assumptions.
+
+**Observed problems (Deacon runs):**
+- Agents chose runtime OS checks vs compile-time `#[cfg]` gates without
+  asking — reviewer flagged this 3 times across retries
+- The circuit breaker tagged beads as `needs-human-review` but the human
+  couldn't act until land phase
+- Review findings accumulated assumptions ("assumed Alpine shadow-utils
+  available") that a 30-second human answer could have resolved
+
+**Design direction — two complementary mechanisms:**
+
+### 1. Question queue (agent → human)
+
+Agents can write structured questions to a queue during any phase:
+
+```
+.maverick/runs/{run_id}/questions/
+  q-001.json   {"bead_id": "...", "question": "...", "context": "...",
+                 "severity": "blocking|advisory", "status": "pending"}
+  q-002.json   ...
+```
+
+- **Blocking questions** pause the bead (skip to next, come back later)
+- **Advisory questions** record the assumption made and continue
+- Questions are JSONL or individual files for easy concurrent access
+
+The implementer and reviewer agents would need a tool or convention to
+write questions. The simplest path: a `.maverick/context/questions.jsonl`
+file that agents append to via their existing Write tool.
+
+### 2. Human review CLI (`maverick review`)
+
+A new subcommand (or addition to `maverick brief`) that a human can run
+at any time during a fly session:
+
+```bash
+# See pending questions
+maverick review --questions
+
+# Answer a specific question
+maverick review --answer q-001 "Use #[cfg(target_os)] compile-time gate"
+
+# See beads tagged needs-human-review
+maverick review --flagged
+
+# Approve a flagged bead to continue processing
+maverick review --approve deacon-uh1.7
+```
+
+The fly workflow checks the question queue between bead iterations
+(in the supervisor gap between beads, not during agent execution).
+If a blocking question has been answered, the paused bead becomes
+eligible for retry with the human's answer injected into its context.
+
+### 3. Interaction model
+
+The key design constraint: **the human and the agents never block each
+other.** The fly continues processing other beads while questions queue
+up. The human can pop in at any time (or not at all — unanswered
+questions surface during land). The two operate on independent cadences:
+
+```
+Agent timeline:   [bead1]──[bead2]──[bead3]──[bead4]──...
+                      ↓         ↓
+                   q-001     q-002
+                   (advisory) (blocking → skip, come back)
+
+Human timeline:      ·····[review q-001]·····[review q-002]····
+                           ↓                  ↓
+                        answer recorded     bead retried with answer
+```
+
+**Storage:** Questions and answers live in `.maverick/runs/{run_id}/`
+alongside bead snapshots, keeping all per-run output organized together.
+
+**Land integration:** During `maverick land --eject`, the curation step
+displays unanswered questions alongside the human-review manifest:
+
+```
+Landing consumer-core-completion (6 beads)
+
+  ✓ 4 beads passed review cleanly
+  ⚠ 1 bead needs human review:
+     deacon-uh1.7: ephemeral Dockerfile UID sync
+       → 11 review issues after 3 attempts
+
+  ? 2 unanswered questions:
+     q-001: Should UID sync use #[cfg] or runtime check? (advisory)
+       Agent assumed: runtime check via std::env::consts::OS
+     q-002: Should Alpine images get shadow-utils auto-install? (blocking)
+       Bead deacon-uh1.2 skipped — awaiting answer
+```
+
+**Tradeoffs:**
+- Pro: Human and agents collaborate without blocking each other
+- Pro: Questions are answered with full context (the human sees the bead
+  description, the agent's assumption, and the review findings)
+- Pro: Works with any cadence — check every 10 minutes or only at land
+- Con: Adds complexity to the fly loop (question queue checking)
+- Con: Blocking questions reduce parallelism (bead is skipped until answered)
+- Con: Requires a new CLI subcommand and agent tooling
+
+**Implementation phases:**
+1. **MVP:** Advisory-only questions via file convention (agents write to
+   `.maverick/runs/{run_id}/questions/`). Display during land. No blocking.
+2. **V2:** `maverick review` CLI for answering questions mid-flight.
+   Blocking question support with bead skip/retry.
+3. **V3:** Notification integration (ntfy, Slack) when blocking questions
+   arise. Human gets a push notification instead of polling.
+
+**Expected impact:** Reduce assumption-driven rework. Enable longer
+unattended runs by letting humans address critical questions asynchronously.
+Move the human-in-the-loop from a synchronous gate (land) to an
+asynchronous collaboration channel.
 
 ---
 

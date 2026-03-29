@@ -309,6 +309,9 @@ class WorkUnit(BaseModel):
     )
     file_scope: FileScope = Field(description="File scope definition")
     instructions: str = Field(description="Implementation instructions")
+    test_specification: str = Field(
+        default="", description="Failing test the implementer must make pass"
+    )
     verification: tuple[str, ...] = Field(description="Verification commands")
     provider_hints: str | None = Field(
         default=None, description="Optional hints for the implementation agent"

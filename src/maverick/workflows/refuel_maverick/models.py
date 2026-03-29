@@ -47,6 +47,7 @@ class WorkUnitSpec(BaseModel):
     acceptance_criteria: list[AcceptanceCriterionSpec] = Field(default_factory=list)
     file_scope: FileScopeSpec = Field(default_factory=FileScopeSpec)
     instructions: str = Field(default="")
+    test_specification: str = Field(default="")
     verification: list[str] = Field(default_factory=list)
 
     @field_validator("id")
@@ -191,6 +192,7 @@ class WorkUnitDetail(BaseModel):
 
     id: str = Field(description="Must match a WorkUnitOutline.id")
     instructions: str = Field(description="Implementation guidance")
+    test_specification: str = Field(default="")
     acceptance_criteria: list[AcceptanceCriterionSpec] = Field(default_factory=list)
     verification: list[str] = Field(default_factory=list)
 
