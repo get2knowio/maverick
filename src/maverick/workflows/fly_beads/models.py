@@ -27,6 +27,7 @@ class BeadContext:
     briefing_context: str | None = None
     runway_context: str | None = None
     prior_failures: list[str] = field(default_factory=list)
+    prior_attempt_context: str | None = None
     discovered_from_chain: list[str] = field(default_factory=list)
 
     # Populated by step functions as pipeline progresses

@@ -521,6 +521,16 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                         "MUST be addressed in this attempt:\n\n" + review_report
                     )
 
+        # Inject prior attempt context so the implementer can iterate
+        # on what it produced last time rather than starting from scratch.
+        if ctx.prior_attempt_context:
+            implement_prompt["prior_attempt"] = (
+                "Your PREVIOUS attempt produced the code below. "
+                "Do NOT start from scratch — iterate on this code "
+                "and fix the specific issues identified above.\n\n"
+                + ctx.prior_attempt_context
+            )
+
         # Constrain verification-only beads to read-only tools
         verification_mode = _is_verification_only(ctx)
         research_mode = _is_research_only(ctx)
@@ -866,6 +876,121 @@ async def _get_uncommitted_files(cwd: Path | None) -> list[str]:
     except Exception as exc:
         logger.debug("uncommitted_files_capture_failed", error=str(exc))
     return []
+
+
+async def snapshot_prior_attempt(
+    run_dir: Path,
+    ctx: BeadContext,
+    attempt: int,
+) -> Path | None:
+    """Snapshot changed files before rollback so the next attempt can see them.
+
+    Writes to ``.maverick/runs/{run_id}/beads/{bead_id}/attempt-{n}/``
+    alongside a summary markdown with the review findings.
+
+    Returns the snapshot directory path, or None on failure.
+    """
+    import shutil
+
+    snapshot_dir = (
+        run_dir / "beads" / ctx.bead_id / f"attempt-{attempt}"
+    )
+    try:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy changed files into snapshot
+        changed = await _get_uncommitted_files(ctx.cwd)
+        if changed and ctx.cwd:
+            for relpath in changed:
+                src = ctx.cwd / relpath
+                if src.exists() and src.is_file():
+                    dest = snapshot_dir / relpath
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dest))
+
+        # Write summary with review findings
+        summary_lines = [
+            f"# Attempt {attempt} — {ctx.bead_id}",
+            "",
+            f"**Files changed:** {', '.join(changed) if changed else 'none'}",
+            "",
+        ]
+        if ctx.review_result:
+            report = ctx.review_result.get("review_report", "")
+            if report:
+                summary_lines.append("## Review Findings")
+                summary_lines.append("")
+                summary_lines.append(report)
+        if ctx.gate_result and not ctx.gate_result.get("passed"):
+            summary_lines.append("## Gate Failures")
+            summary_lines.append("")
+            summary_lines.append(
+                ctx.gate_result.get("summary", "unknown")
+            )
+
+        (snapshot_dir / "summary.md").write_text(
+            "\n".join(summary_lines), encoding="utf-8"
+        )
+
+        logger.info(
+            "prior_attempt_snapshot",
+            bead_id=ctx.bead_id,
+            attempt=attempt,
+            files=len(changed),
+            path=str(snapshot_dir),
+        )
+        return snapshot_dir
+
+    except Exception as exc:
+        logger.warning(
+            "prior_attempt_snapshot_failed",
+            bead_id=ctx.bead_id,
+            attempt=attempt,
+            error=str(exc),
+        )
+        return None
+
+
+def load_prior_attempt_context(
+    run_dir: Path,
+    bead_id: str,
+    attempt: int,
+) -> str | None:
+    """Load the prior attempt's code and review findings as context.
+
+    Returns a formatted string with the prior attempt's changed files
+    and review summary, or None if no snapshot exists.
+    """
+    snapshot_dir = (
+        run_dir / "beads" / bead_id / f"attempt-{attempt}"
+    )
+    if not snapshot_dir.exists():
+        return None
+
+    parts: list[str] = []
+
+    # Load summary
+    summary_path = snapshot_dir / "summary.md"
+    if summary_path.exists():
+        parts.append(summary_path.read_text(encoding="utf-8"))
+
+    # Load changed source files (skip summary.md)
+    source_files = sorted(
+        f
+        for f in snapshot_dir.rglob("*")
+        if f.is_file() and f.name != "summary.md"
+    )
+    if source_files:
+        parts.append("\n## Prior Attempt Code\n")
+        for src_file in source_files[:10]:  # Cap at 10 files
+            relpath = src_file.relative_to(snapshot_dir)
+            content = src_file.read_text(encoding="utf-8", errors="replace")
+            # Truncate large files
+            if len(content) > 4000:
+                content = content[:4000] + "\n... (truncated)"
+            parts.append(f"### {relpath}\n```\n{content}\n```\n")
+
+    return "\n".join(parts) if parts else None
 
 
 async def _get_files_changed(cwd: Path | None) -> list[str]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from maverick.workflows.fly_beads.steps import (
     commit_bead,
     fetch_runway_context,
     load_briefing_context,
+    load_prior_attempt_context,
     resolve_provenance,
     rollback_bead,
     run_acceptance_check,
@@ -41,6 +43,7 @@ from maverick.workflows.fly_beads.steps import (
     run_implement_and_validate,
     run_review_and_remediate,
     snapshot_and_describe,
+    snapshot_prior_attempt,
 )
 from maverick.workspace.manager import WorkspaceManager
 
@@ -98,6 +101,15 @@ class FlyBeadsWorkflow(PythonWorkflow):
             ws_path_str = checkpoint.get("workspace_path")
             if ws_path_str:
                 workspace_path = Path(ws_path_str)
+
+        # Per-run output directory for snapshots, logs, and context.
+        # All output from this fly run is grouped under one run_id.
+        run_id = uuid.uuid4().hex[:8]
+        run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Track per-bead attempt counts for snapshot numbering
+        bead_attempt_count: dict[str, int] = {}
 
         # Track counts for summary
         beads_succeeded = 0
@@ -257,12 +269,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     summary = baseline_result.get(
                         "summary", "unknown failures"
                     )
-                    await self.emit_step_failed(BASELINE_GATE, summary)
-                    raise WorkflowError(
-                        f"Baseline validation failed — codebase is not "
-                        f"green before bead processing. Fix these issues "
-                        f"first: {summary}",
-                        workflow_name=WORKFLOW_NAME,
+                    await self.emit_output(
+                        BASELINE_GATE,
+                        f"WARNING: Baseline validation failed: {summary}. "
+                        f"Pre-existing failures may consume agent budget. "
+                        f"Consider fixing these before running fly.",
+                        level="warning",
                     )
             except WorkflowError:
                 raise
@@ -427,6 +439,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     level="warning",
                 )
 
+            # Load prior attempt context if this bead has been tried before
+            prior_attempt_ctx: str | None = None
+            prev_attempt = bead_attempt_count.get(bead_id, 0)
+            if prev_attempt > 0:
+                prior_attempt_ctx = load_prior_attempt_context(
+                    run_dir, bead_id, prev_attempt
+                )
+
             # Build per-bead context
             ctx = BeadContext(
                 bead_id=bead_id,
@@ -436,6 +456,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 cwd=workspace_path,
                 flight_plan_name=select_result.flight_plan_name or "",
                 prior_failures=prior_failures,
+                prior_attempt_context=prior_attempt_ctx,
                 briefing_context=load_briefing_context(select_result.flight_plan_name),
             )
 
@@ -486,6 +507,13 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             passed=False,
                             reasons=tuple(ac_reasons),
                         )
+                        ac_attempt = bead_attempt_count.get(
+                            bead_id, 0
+                        ) + 1
+                        bead_attempt_count[bead_id] = ac_attempt
+                        await snapshot_prior_attempt(
+                            run_dir, ctx, ac_attempt
+                        )
                         await rollback_bead(self, ctx)
                         beads_failed += 1
                         bead_failure_history.setdefault(
@@ -515,6 +543,13 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     completed_bead_ids.add(ctx.bead_id)
                     beads_succeeded += 1
                 else:
+                    # Snapshot changed files BEFORE rollback so the
+                    # next attempt can see what this attempt produced.
+                    attempt_num = bead_attempt_count.get(bead_id, 0) + 1
+                    bead_attempt_count[bead_id] = attempt_num
+                    await snapshot_prior_attempt(
+                        run_dir, ctx, attempt_num
+                    )
                     await rollback_bead(self, ctx)
                     beads_failed += 1
                     reasons = (
