@@ -218,12 +218,13 @@ async def run_acceptance_check(
 
         runner = CommandRunner(cwd=ctx.cwd)
         for cmd_str in _parse_verification_commands(verification_text):
-            # Only run safe read-only commands (rg, grep, cargo build/clippy)
+            # Only run safe read-only commands
             first_word = cmd_str.split()[0] if cmd_str.split() else ""
             if first_word not in ("rg", "grep", "cargo", "make"):
                 continue
             try:
-                result = await runner.run(cmd_str.split())
+                # Run through shell to support pipes, redirects
+                result = await runner.run(["sh", "-c", cmd_str])
                 if result.returncode != 0:
                     reasons.append(
                         f"Verification command failed: `{cmd_str}`"
