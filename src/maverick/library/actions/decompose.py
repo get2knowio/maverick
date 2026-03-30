@@ -339,10 +339,10 @@ def build_decomposition_prompt(
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
             "- instructions field should contain detailed implementation"
-            " guidance. For work units that MODIFY existing files, include"
-            " the exact code at the integration point (10-30 lines) in a"
-            " fenced code block with file path and line numbers. The"
-            " implementer needs to see the exact code it must change.",
+            " guidance. For work units that MODIFY existing source code"
+            " files, include a SHORT code snippet (5-15 lines max) at"
+            " the integration point. For trivial config/metadata changes,"
+            " a one-line description suffices. Keep instructions concise.",
             "- Keep the instructions field concise: key implementation"
             " steps only, no background or rationale (2-5 bullet points"
             " plus integration-point code blocks for modify targets)",
@@ -514,19 +514,15 @@ def build_detail_prompt(
             f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
-            "- Instructions: concise implementation steps (2-5 bullet points)."
-            " For work units that MODIFY existing files, you MUST include"
-            " the exact code at the integration point (10-30 lines) in a"
-            " fenced code block with file path and line numbers. Show the"
-            " before-code and describe what the after-code should look"
-            " like. For work units that CREATE new files, include a"
-            " function signature scaffold. The implementer cannot"
-            " efficiently search the codebase — it needs to see the"
-            " exact integration point.",
-            "- CRITICAL: For every file in file_scope.modify, use the"
-            " codebase context to find the exact code at the modification"
-            " point. Include 10-30 lines of existing code in a fenced"
-            " code block labeled with file path and line numbers.",
+            "- Instructions: concise implementation steps (2-5 bullet"
+            " points). For work units that MODIFY existing source code"
+            " files, include a SHORT code snippet (5-15 lines max) at"
+            " the integration point showing the before-state. For"
+            " trivial config/metadata changes (license fields, version"
+            " bumps), a one-line description suffices — do NOT include"
+            " full file contents. For CREATE units, include a function"
+            " signature scaffold. Keep total instructions under 50 lines"
+            " to avoid output truncation.",
             "- test_specification: For each work unit, write a concrete"
             " test function (with assertions) that would FAIL before"
             " implementation and PASS after. This gives the implementer"
