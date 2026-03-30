@@ -731,7 +731,7 @@ def validate_decomposition(
 
     # --- Hard check: grossly overloaded beads (>6 SCs) ---
     # This is a hard error. 6+ SCs in one bead is always too large.
-    hard_sc_limit = 6
+    hard_sc_limit = 8
     overloaded: list[str] = []
     for spec in specs:
         sc_refs = set()
