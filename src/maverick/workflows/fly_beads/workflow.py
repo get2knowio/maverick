@@ -467,6 +467,19 @@ class FlyBeadsWorkflow(PythonWorkflow):
             # unit files have structured sections the implementer and
             # AC checker need (File Scope, Instructions, Test Spec, etc.)
             fp_name = select_result.flight_plan_name or ""
+
+            # Fallback: if flight_plan_name isn't on the bead, try
+            # to discover it from .maverick/plans/ directory or epic
+            if not fp_name and not _work_unit_bodies:
+                plans_dir = Path.cwd() / ".maverick" / "plans"
+                if plans_dir.is_dir():
+                    for candidate in plans_dir.iterdir():
+                        if candidate.is_dir() and (
+                            candidate / "flight-plan.md"
+                        ).exists():
+                            fp_name = candidate.name
+                            break
+
             if fp_name and not _work_unit_bodies:
                 _work_unit_bodies.update(load_work_unit_files(fp_name))
 
