@@ -493,7 +493,13 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 + parsed["file scope"]
             )
         if parsed.get("instructions"):
-            implement_prompt["instructions"] = parsed["instructions"]
+            implement_prompt["instructions"] = (
+                parsed["instructions"]
+                + "\n\nIMPORTANT: Before modifying any file, use the Read"
+                " tool to examine the actual code at the integration"
+                " points mentioned above. Do not guess what the code"
+                " looks like — read it first, then make targeted edits."
+            )
         if parsed.get("verification"):
             implement_prompt["verification_commands"] = (
                 "After implementation, run these commands to verify "

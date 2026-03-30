@@ -515,14 +515,12 @@ def build_detail_prompt(
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
             "- Instructions: concise implementation steps (2-5 bullet"
-            " points). For work units that MODIFY existing source code"
-            " files, include a SHORT code snippet (5-15 lines max) at"
-            " the integration point showing the before-state. For"
-            " trivial config/metadata changes (license fields, version"
-            " bumps), a one-line description suffices — do NOT include"
-            " full file contents. For CREATE units, include a function"
-            " signature scaffold. Keep total instructions under 50 lines"
-            " to avoid output truncation.",
+            " points). Reference integration points by file path and"
+            " line number (e.g. 'Replace the TODO at container.rs:478')."
+            " Do NOT embed code blocks in the instructions — the JSON"
+            " output will truncate. The implementer has Read/Grep tools"
+            " and will read the code directly. For CREATE units, include"
+            " a function signature (one line).",
             "- test_specification: For each work unit, write a concrete"
             " test function (with assertions) that would FAIL before"
             " implementation and PASS after. This gives the implementer"
