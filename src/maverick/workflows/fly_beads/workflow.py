@@ -35,6 +35,8 @@ from maverick.workflows.fly_beads.steps import (
     fetch_runway_context,
     load_briefing_context,
     load_prior_attempt_context,
+    load_work_unit_files,
+    match_bead_to_work_unit,
     resolve_provenance,
     rollback_bead,
     run_acceptance_check,
@@ -296,6 +298,19 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
 
         # ----------------------------------------------------------------
+        # Load work unit files once for bead description enrichment
+        # ----------------------------------------------------------------
+        # The bead database stores truncated plain-text descriptions.
+        # The full structured markdown (File Scope, Acceptance Criteria,
+        # Instructions, Test Specification, Verification) lives in the
+        # work unit files on disk. Load them once and match to beads.
+        _work_unit_bodies: dict[str, str] = {}
+        if not dry_run:
+            # Try all known flight plan names from the first bead
+            # (we'll populate on first bead selection)
+            pass
+
+        # ----------------------------------------------------------------
         # Bead loop
         # ----------------------------------------------------------------
         # max_beads caps *successful* completions, not total iterations.
@@ -447,17 +462,33 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     run_dir, bead_id, prev_attempt
                 )
 
+            # Enrich bead description with full work unit markdown.
+            # The bead database stores truncated plain-text; the work
+            # unit files have structured sections the implementer and
+            # AC checker need (File Scope, Instructions, Test Spec, etc.)
+            fp_name = select_result.flight_plan_name or ""
+            if fp_name and not _work_unit_bodies:
+                _work_unit_bodies.update(load_work_unit_files(fp_name))
+
+            enriched_description = select_result.description
+            if _work_unit_bodies:
+                wu_body = match_bead_to_work_unit(
+                    bead_title, _work_unit_bodies
+                )
+                if wu_body:
+                    enriched_description = wu_body
+
             # Build per-bead context
             ctx = BeadContext(
                 bead_id=bead_id,
                 title=bead_title,
-                description=select_result.description,
+                description=enriched_description,
                 epic_id=select_result.epic_id,
                 cwd=workspace_path,
-                flight_plan_name=select_result.flight_plan_name or "",
+                flight_plan_name=fp_name,
                 prior_failures=prior_failures,
                 prior_attempt_context=prior_attempt_ctx,
-                briefing_context=load_briefing_context(select_result.flight_plan_name),
+                briefing_context=load_briefing_context(fp_name),
             )
 
             logger.info(
