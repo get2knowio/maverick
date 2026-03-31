@@ -496,14 +496,21 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 except (
                     OutputSchemaValidationError,
                     MalformedResponseError,
-                ):
-                    # Try reading from file before giving up
+                    WorkflowError,
+                    Exception,
+                ) as exc:
+                    # Try reading from file FIRST — the agent may have
+                    # written valid JSON to disk even though text
+                    # extraction failed (execute_agent retries exhaust
+                    # before our except block runs).
                     if batch_file.exists():
                         try:
                             data = _json.loads(
                                 batch_file.read_text(encoding="utf-8")
                             )
-                            parsed = DetailBatchOutput.model_validate(data)
+                            parsed = DetailBatchOutput.model_validate(
+                                data
+                            )
                             logger.info(
                                 "detail_batch_recovered_from_file",
                                 path=str(batch_file),
@@ -517,6 +524,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                                 error=str(file_exc),
                             )
                     # File fallback failed — proceed with binary split
+                    # only for parse errors, not quota/network errors
+                    if not isinstance(
+                        exc,
+                        (
+                            OutputSchemaValidationError,
+                            MalformedResponseError,
+                        ),
+                    ):
+                        raise
                     if len(batch_ids) <= 1:
                         raise  # Can't split a single unit further
                     # Binary split: retry each half separately
