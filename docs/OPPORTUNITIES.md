@@ -560,10 +560,16 @@ retries 3 times against the same broken provider. Each retry fails in
 sub-second time, wasting the retry budget. The actual quota error message
 is buried in `raw_response` and never surfaced to the user.
 
+**Known error strings:**
+- Copilot quota: `"402 You have no quota (Request ID: [id])"`
+- Claude quota: `"You're out of extra usage · resets 3pm (UTC)"`
+
 **Observed symptoms:**
-- Copilot gpt-5.3-codex returned empty responses in ~800ms for all detail
-  and implement steps. Binary split retried down to single units, all
-  failed. 20+ minutes of retries against a dead provider.
+- Copilot gpt-5.3-codex returned `402 You have no quota` in ~800ms for
+  all detail and implement steps. The executor classified these as
+  `MalformedResponseError` ("no JSON block found") because the 402
+  error body isn't JSON. Binary split retried down to single units,
+  all failed. 20+ minutes of wasted retries.
 - Claude sonnet hit "out of extra usage" and failed with `NetworkError`
   after the first retry. Error message was clear but not classified as
   a quota issue.
@@ -575,8 +581,8 @@ is buried in `raw_response` and never surfaced to the user.
 1. **Error classification:** In `AcpStepExecutor.execute()`, check
    `MalformedResponseError.raw_response` and `NetworkError` messages for
    quota patterns: "rate limit", "quota", "plan limit", "usage limit",
-   "out of extra usage", "exceeded", "resets". Classify as a new
-   `ProviderQuotaError` (non-retryable).
+   "out of extra usage", "exceeded", "resets", "You have no quota",
+   "402". Classify as a new `ProviderQuotaError` (non-retryable).
 
 2. **Automatic failover:** When a provider quota error is detected, the
    executor should try the next available provider from the registry
