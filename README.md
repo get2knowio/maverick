@@ -21,6 +21,15 @@ description tells it what to do.
 
 - **Full PRD-to-code pipeline** — Generate flight plans from PRDs, decompose
   into work units, create beads, implement, review, and ship
+- **Spec-derived verification properties** — Executable test assertions are
+  derived from acceptance criteria at plan time and locked before implementation.
+  A deterministic spec compliance gate verifies correctness mechanically —
+  no reviewer opinion needed for functional correctness
+- **SOP-driven decomposition** — Work units contain step-by-step procedures
+  with RFC 2119 keywords (MUST, SHOULD, MAY), not abstract goal descriptions.
+  Agents follow procedures rather than interpreting goals
+- **Multi-provider routing** — Distribute work across Claude, Copilot, and
+  Gemini with per-step provider/model configuration in `maverick.yaml`
 - **Bead-driven workflows** — All work is tracked as beads with dependencies,
   priorities, and lifecycle management via `bd`
 - **Autonomous AI agents** — Agents make decisions, implement code, review
@@ -34,7 +43,8 @@ description tells it what to do.
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context over time
 - **Resilient operation** — Automatic retries, validation-fix loops,
-  review-fix cycles, and bead-level rollback on failure
+  escalation chains with circuit breakers, prior-attempt snapshots for
+  iterative retry, and bead-level rollback on failure
 
 ## Quick Start
 
@@ -106,13 +116,19 @@ The full pipeline takes a product requirements document and turns it into
 shipped code:
 
 ```
-PRD ──▶ plan generate ──▶ plan validate ──▶ refuel ──▶ fly ──▶ land
+PRD ──▶ plan generate ──▶ refuel ──▶ fly ──▶ land
+         (+ derive          (SOP-style     (spec compliance
+          verification       procedures)     replaces review
+          properties)                        for correctness)
 ```
 
-1. **Plan** — A Pre-Flight Briefing Room runs four parallel AI analysts, then a
-   generator synthesizes the output into a phased flight plan
-2. **Refuel** — Decomposes the plan into beads with dependencies wired up
-3. **Fly** — Bead loop: implement → validate → review → fix → commit → next
+1. **Plan** — A Pre-Flight Briefing Room runs parallel AI analysts, then a
+   generator synthesizes the output into a flight plan with verification
+   properties (executable test assertions derived from acceptance criteria)
+2. **Refuel** — Decomposes the plan into beads with SOP-style procedures
+   (MUST/SHOULD/MAY steps) and threads verification properties
+3. **Fly** — Bead loop: implement → gate check → acceptance check →
+   spec compliance → [review if no properties] → commit → next
 4. **Land** — AI curator reorganizes commits, merges into your local repo
 
 ### `maverick plan generate` — Plan from PRD
@@ -168,22 +184,23 @@ maverick refuel --from speckit 001-my-feature
 The primary execution command. Iterates over ready beads until done:
 
 ```
-preflight ──▶ create_workspace ──▶ bead loop
-                                      │
-                                      ├── select next ready bead
-                                      ├── snapshot (jj operation for rollback)
-                                      ├── describe_change (bead → change description)
-                                      ├── implement (ImplementerAgent via ACP)
-                                      ├── sync_deps (install/update dependencies)
-                                      ├── validate & fix (format/lint/typecheck/test, 3 attempts)
-                                      ├── create fix beads (for remaining failures)
-                                      ├── review & fix (UnifiedReviewerAgent, 2 cycles)
-                                      ├── create review beads (for remaining findings)
-                                      ├── verify completion gate
-                                      ├── rollback on failure / commit on success
-                                      ├── record runway data (outcome, review findings)
-                                      ├── close bead
-                                      └── check_done (exit or next bead)
+preflight ──▶ baseline_gate ──▶ create_workspace ──▶ bead loop
+                                                        │
+  ┌── select next ready bead ◄──────────────────────────┘
+  ├── snapshot (jj operation for rollback)
+  ├── implement (ImplementerAgent via ACP, SOP procedure)
+  ├── gate check (format/lint/typecheck/test)
+  │   └── gate remediation if failed (1 attempt)
+  ├── acceptance check (file scope, verification commands)
+  ├── spec compliance (deterministic verification properties)
+  │   └── if failed → exact assertion error fed to implementer
+  ├── review (dual: completeness + correctness, advisory)
+  │   └── skipped when spec compliance passes
+  ├── verify completion gate
+  ├── rollback + snapshot on failure / commit on success
+  ├── escalation chain (follow-up → re-plan → circuit breaker)
+  ├── record runway data (outcome, review findings)
+  └── check_done (exit or next bead)
 ```
 
 After `fly` finishes, run `maverick land` to curate history and merge.
@@ -307,9 +324,9 @@ Maverick follows a clean separation of concerns:
                           |
 ┌─────────────────────────────────────────────────────────────┐
 │  Agent Layer                                                │
-│  ImplementerAgent, UnifiedReviewerAgent, FixerAgent,        │
-│  CuratorAgent, PreFlight Briefing agents, Generators        │
-│  (system prompts, tool selection, autonomous decisions)      │
+│  ImplementerAgent, CompletenessReviewer, CorrectnessReviewer│
+│  FixerAgent, DecomposerAgent, CuratorAgent, Briefing agents │
+│  (system prompts, tool selection, file-based JSON output)    │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -340,12 +357,12 @@ The executor handles:
 - **Prompt construction** — Merges agent instructions, context, and output
   schema directives into a single prompt
 - **Streaming output** — Agent text is streamed to the console in real-time
-- **Structured extraction** — The last JSON block in the agent's conversational
-  output is extracted and validated against a Pydantic schema
-- **Schema coercion** — When agents produce rich objects where the schema
-  expects strings, a recursive coercion pass converts mismatched types
-- **Truncation repair** — When agents hit token limits mid-JSON, unclosed
-  strings, arrays, and objects are automatically closed
+- **File-based structured output** — Reviewer and decomposer agents write
+  JSON findings to disk files, avoiding text-stream truncation. The executor
+  reads files first, falling back to text extraction if no file exists
+- **Text extraction fallback** — When agents don't write files, the last
+  JSON block in conversational output is extracted and validated against
+  a Pydantic schema with schema coercion and truncation repair
 
 ### VCS: Jujutsu + Git
 
@@ -425,6 +442,31 @@ notifications:
   enabled: false
   server: https://ntfy.sh
   topic: maverick-notifications
+
+# Multi-provider routing — distribute work across providers
+agent_providers:
+  claude:
+    default: true
+    default_model: sonnet
+  copilot:
+    default: false
+    default_model: gpt-5.3-codex
+  gemini:
+    default: false
+    default_model: gemini-3.1-pro-preview
+
+# Per-step provider/model overrides
+steps:
+  implement:
+    provider: claude
+    model_id: sonnet
+    timeout: 1800
+  completeness_review:
+    provider: gemini
+    model_id: gemini-3.1-pro-preview
+  gate_remediation:
+    provider: copilot
+    model_id: gpt-5.3-codex
 ```
 
 ### Agent Convention Injection
