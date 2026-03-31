@@ -82,25 +82,27 @@ class TestImplementerAgentToolPermissions:
 class TestCompletenessReviewerToolPermissions:
     """Tests for CompletenessReviewerAgent tool permissions."""
 
-    def test_completeness_reviewer_uses_reviewer_tools(self) -> None:
-        """Test CompletenessReviewerAgent initializes with REVIEWER_TOOLS."""
+    def test_completeness_reviewer_uses_reviewer_tools_plus_write(
+        self,
+    ) -> None:
+        """Test CompletenessReviewerAgent has REVIEWER_TOOLS + Write."""
         agent = CompletenessReviewerAgent()
 
-        assert set(agent.allowed_tools) == REVIEWER_TOOLS
+        assert set(agent.allowed_tools) == REVIEWER_TOOLS | {"Write"}
 
-    def test_completeness_reviewer_has_read_glob_grep(self) -> None:
-        """Test CompletenessReviewerAgent has exactly Read, Glob, Grep."""
+    def test_completeness_reviewer_has_read_glob_grep_write(self) -> None:
+        """Test CompletenessReviewerAgent has Read, Glob, Grep, Write."""
         agent = CompletenessReviewerAgent()
 
-        expected_tools = {"Read", "Glob", "Grep"}
+        expected_tools = {"Read", "Glob", "Grep", "Write"}
         assert set(agent.allowed_tools) == expected_tools
 
-    def test_completeness_reviewer_is_read_only(self) -> None:
-        """Test CompletenessReviewerAgent has no write tools."""
+    def test_completeness_reviewer_no_edit_tools(self) -> None:
+        """Test CompletenessReviewerAgent has no Edit/NotebookEdit."""
         agent = CompletenessReviewerAgent()
 
-        write_tools = {"Write", "Edit", "NotebookEdit"}
-        assert not set(agent.allowed_tools).intersection(write_tools)
+        edit_tools = {"Edit", "NotebookEdit"}
+        assert not set(agent.allowed_tools).intersection(edit_tools)
 
     def test_completeness_reviewer_has_no_bash(self) -> None:
         """Test CompletenessReviewerAgent does not have Bash tool."""
@@ -112,18 +114,20 @@ class TestCompletenessReviewerToolPermissions:
 class TestCorrectnessReviewerToolPermissions:
     """Tests for CorrectnessReviewerAgent tool permissions."""
 
-    def test_correctness_reviewer_uses_reviewer_tools(self) -> None:
-        """Test CorrectnessReviewerAgent initializes with REVIEWER_TOOLS."""
+    def test_correctness_reviewer_uses_reviewer_tools_plus_write(
+        self,
+    ) -> None:
+        """Test CorrectnessReviewerAgent has REVIEWER_TOOLS + Write."""
         agent = CorrectnessReviewerAgent()
 
-        assert set(agent.allowed_tools) == REVIEWER_TOOLS
+        assert set(agent.allowed_tools) == REVIEWER_TOOLS | {"Write"}
 
-    def test_correctness_reviewer_is_read_only(self) -> None:
-        """Test CorrectnessReviewerAgent has no write tools."""
+    def test_correctness_reviewer_no_edit_tools(self) -> None:
+        """Test CorrectnessReviewerAgent has no Edit/NotebookEdit."""
         agent = CorrectnessReviewerAgent()
 
-        write_tools = {"Write", "Edit", "NotebookEdit"}
-        assert not set(agent.allowed_tools).intersection(write_tools)
+        edit_tools = {"Edit", "NotebookEdit"}
+        assert not set(agent.allowed_tools).intersection(edit_tools)
 
     def test_correctness_reviewer_has_no_bash(self) -> None:
         """Test CorrectnessReviewerAgent does not have Bash tool."""
@@ -287,6 +291,6 @@ class TestAgentToolImmutability:
         agent = CompletenessReviewerAgent()
 
         tools = agent.allowed_tools
-        tools.append("Write")
+        tools.append("Bash")
 
-        assert "Write" not in agent.allowed_tools
+        assert "Bash" not in agent.allowed_tools

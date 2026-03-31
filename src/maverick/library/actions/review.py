@@ -778,7 +778,11 @@ async def _run_dual_review(
                 "implementer cannot modify files outside this bead's scope."
             )
 
-        # Run both reviewers in parallel via ACP executor
+        # Run both reviewers in parallel via ACP executor.
+        # Reviewers write findings to files to avoid JSON truncation
+        # in text output. Fall back to text extraction if file missing.
+        import json as _json
+
         from maverick.executor import create_default_executor
         from maverick.models.review_models import GroupedReviewResult
 
@@ -786,18 +790,35 @@ async def _run_dual_review(
         correctness = CorrectnessReviewerAgent()
         _executor = executor or create_default_executor()
         _configs = review_step_configs or {}
+
+        # Create temp files for reviewer output
+        cwd = review_input.get("cwd") or str(Path.cwd())
+        review_dir = Path(cwd) / ".maverick" / "review-output"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        comp_path = review_dir / "completeness.json"
+        corr_path = review_dir / "correctness.json"
+        # Clean previous output
+        comp_path.unlink(missing_ok=True)
+        corr_path.unlink(missing_ok=True)
+
+        # Inject file paths into review context
+        comp_context = dict(review_context)
+        comp_context["findings_output_path"] = str(comp_path)
+        corr_context = dict(review_context)
+        corr_context["findings_output_path"] = str(corr_path)
+
         try:
             completeness_task = _executor.execute(
                 step_name="completeness_review",
                 agent_name=completeness.name,
-                prompt=review_context,
+                prompt=comp_context,
                 output_schema=GroupedReviewResult,
                 config=_configs.get("completeness_review"),
             )
             correctness_task = _executor.execute(
                 step_name="correctness_review",
                 agent_name=correctness.name,
-                prompt=review_context,
+                prompt=corr_context,
                 output_schema=GroupedReviewResult,
                 config=_configs.get("correctness_review"),
             )
@@ -805,25 +826,74 @@ async def _run_dual_review(
                 completeness_task, correctness_task, return_exceptions=True
             )
 
-            # Handle individual reviewer failures gracefully
+            # Handle results — try file-based output first, fall back
+            # to text extraction via ExecutorResult.output
             completeness_groups: list[Any] = []
             correctness_groups: list[Any] = []
-            completeness_failed = isinstance(completeness_result, Exception)
-            correctness_failed = isinstance(correctness_result, Exception)
+            completeness_failed = isinstance(
+                completeness_result, Exception
+            )
+            correctness_failed = isinstance(
+                correctness_result, Exception
+            )
+
+            def _load_from_file(
+                path: Path,
+            ) -> GroupedReviewResult | None:
+                if not path.exists():
+                    return None
+                try:
+                    data = _json.loads(
+                        path.read_text(encoding="utf-8")
+                    )
+                    return GroupedReviewResult.model_validate(data)
+                except Exception as exc:
+                    logger.debug(
+                        "review_file_parse_failed",
+                        path=str(path),
+                        error=str(exc),
+                    )
+                    return None
 
             if completeness_failed:
-                logger.warning("Completeness reviewer failed: %s", completeness_result)
+                # Try file fallback before giving up
+                file_result = _load_from_file(comp_path)
+                if file_result:
+                    completeness_groups = list(file_result.groups)
+                    completeness_failed = False
+                else:
+                    logger.warning(
+                        "Completeness reviewer failed: %s",
+                        completeness_result,
+                    )
             elif not isinstance(completeness_result, BaseException):
-                output = completeness_result.output
-                if isinstance(output, GroupedReviewResult):
-                    completeness_groups = list(output.groups)
+                # Try file first, then executor output
+                file_result = _load_from_file(comp_path)
+                if file_result:
+                    completeness_groups = list(file_result.groups)
+                else:
+                    output = completeness_result.output
+                    if isinstance(output, GroupedReviewResult):
+                        completeness_groups = list(output.groups)
 
             if correctness_failed:
-                logger.warning("Correctness reviewer failed: %s", correctness_result)
+                file_result = _load_from_file(corr_path)
+                if file_result:
+                    correctness_groups = list(file_result.groups)
+                    correctness_failed = False
+                else:
+                    logger.warning(
+                        "Correctness reviewer failed: %s",
+                        correctness_result,
+                    )
             elif not isinstance(correctness_result, BaseException):
-                output = correctness_result.output
-                if isinstance(output, GroupedReviewResult):
-                    correctness_groups = list(output.groups)
+                file_result = _load_from_file(corr_path)
+                if file_result:
+                    correctness_groups = list(file_result.groups)
+                else:
+                    output = correctness_result.output
+                    if isinstance(output, GroupedReviewResult):
+                        correctness_groups = list(output.groups)
 
             # If both reviewers failed, report as error — don't
             # masquerade as "no issues found"

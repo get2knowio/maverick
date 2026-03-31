@@ -86,7 +86,13 @@ $project_conventions
 
 ## Output Format
 
-Output the following JSON at the END of your response:
+IMPORTANT: Write your findings as JSON to the file path specified in
+the review context field `findings_output_path` using the Write tool.
+Do NOT embed JSON in your text response — write it to the file.
+If no `findings_output_path` is provided, output JSON at the END of
+your response as a ```json code block.
+
+The JSON schema:
 
 ```json
 {{
@@ -182,7 +188,7 @@ class CompletenessReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResul
             temperature: Optional sampling temperature 0.0-1.0.
             project_type: Project type for convention guidance (auto-detected if None).
         """
-        tools = list(REVIEWER_TOOLS)
+        tools = list(REVIEWER_TOOLS) + ["Write"]
 
         rendered_instructions = render_prompt(
             COMPLETENESS_REVIEWER_PROMPT_TEMPLATE,

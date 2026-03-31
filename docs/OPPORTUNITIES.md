@@ -548,6 +548,62 @@ asynchronous collaboration channel.
 
 ---
 
+## Opportunity 11: Provider Quota Detection and Automatic Failover
+
+**Signal strength:** Strong (observed in Deacon runs 8-9)
+
+**Current state:** When a provider hits its usage quota (e.g., "You're out
+of extra usage · resets 3pm UTC" or copilot plan limits), the ACP subprocess
+returns an error message or empty response. The executor classifies this as
+`MalformedResponseError` ("no JSON block found") or `NetworkError` and
+retries 3 times against the same broken provider. Each retry fails in
+sub-second time, wasting the retry budget. The actual quota error message
+is buried in `raw_response` and never surfaced to the user.
+
+**Observed symptoms:**
+- Copilot gpt-5.3-codex returned empty responses in ~800ms for all detail
+  and implement steps. Binary split retried down to single units, all
+  failed. 20+ minutes of retries against a dead provider.
+- Claude sonnet hit "out of extra usage" and failed with `NetworkError`
+  after the first retry. Error message was clear but not classified as
+  a quota issue.
+- The supervisor agent (Opportunity 8) would detect this pattern (sub-second
+  failures, same error repeated) but currently doesn't exist.
+
+**Design direction:**
+
+1. **Error classification:** In `AcpStepExecutor.execute()`, check
+   `MalformedResponseError.raw_response` and `NetworkError` messages for
+   quota patterns: "rate limit", "quota", "plan limit", "usage limit",
+   "out of extra usage", "exceeded", "resets". Classify as a new
+   `ProviderQuotaError` (non-retryable).
+
+2. **Automatic failover:** When a provider quota error is detected, the
+   executor should try the next available provider from the registry
+   rather than retrying the same one. The `agent_providers` config
+   already defines multiple providers — the failover just needs to
+   iterate through them.
+
+3. **Sub-second failure detection:** If 3 consecutive responses from
+   the same provider complete in <2 seconds, treat it as a provider
+   degradation signal regardless of the error type. Real LLM responses
+   take 10+ seconds minimum.
+
+4. **User notification:** Surface quota errors clearly in the workflow
+   output: "Provider 'copilot' hit usage quota (resets 3pm UTC).
+   Switching to provider 'claude'." Don't bury it in retry noise.
+
+**Implementation phases:**
+1. **MVP:** Classify quota errors as non-retryable. Log clearly.
+2. **V2:** Automatic failover to next available provider.
+3. **V3:** Sub-second degradation detection + supervisor integration.
+
+**Expected impact:** Eliminate 20+ minutes of wasted retries against
+dead providers. Enable truly unattended runs that survive provider
+outages by failing over automatically.
+
+---
+
 ## Patterns to Watch
 
 These are emerging but not yet mature enough for immediate adoption:

@@ -12,13 +12,14 @@ class TestCorrectnessReviewerInit:
         agent = CorrectnessReviewerAgent()
         assert agent.name == "correctness-reviewer"
 
-    def test_tools_are_read_only(self) -> None:
+    def test_tools_include_write_for_file_output(self) -> None:
         agent = CorrectnessReviewerAgent()
         assert "Read" in agent.allowed_tools
         assert "Glob" in agent.allowed_tools
         assert "Grep" in agent.allowed_tools
-        # No write tools, no Task
-        assert "Write" not in agent.allowed_tools
+        # Write allowed for file-based findings output
+        assert "Write" in agent.allowed_tools
+        # No Edit or Task
         assert "Edit" not in agent.allowed_tools
         assert "Task" not in agent.allowed_tools
 
