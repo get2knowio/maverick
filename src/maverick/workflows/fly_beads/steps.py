@@ -562,13 +562,17 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 "File scope for this bead (Create/Modify/Protect):\n\n"
                 + parsed["file scope"]
             )
-        if parsed.get("instructions"):
-            implement_prompt["instructions"] = (
-                parsed["instructions"]
-                + "\n\nIMPORTANT: Before modifying any file, use the Read"
-                " tool to examine the actual code at the integration"
-                " points mentioned above. Do not guess what the code"
-                " looks like — read it first, then make targeted edits."
+        procedure_text = parsed.get("procedure") or parsed.get(
+            "instructions"
+        )
+        if procedure_text:
+            implement_prompt["procedure"] = (
+                "Follow this procedure STEP BY STEP. Complete each"
+                " step before moving to the next. MUST steps are"
+                " mandatory — do not skip them. Use the Read tool to"
+                " examine files at the specified line ranges before"
+                " making changes. Verify after each step.\n\n"
+                + procedure_text
             )
         if parsed.get("verification"):
             implement_prompt["verification_commands"] = (

@@ -338,14 +338,11 @@ def build_decomposition_prompt(
             " concurrently within the same dependency tier",
             "- IDs must be kebab-case (lowercase letters, digits, and hyphens only)",
             "- Sequence numbers must be sequential starting from 1",
-            "- instructions field should contain detailed implementation"
-            " guidance. For work units that MODIFY existing source code"
-            " files, include a SHORT code snippet (5-15 lines max) at"
-            " the integration point. For trivial config/metadata changes,"
-            " a one-line description suffices. Keep instructions concise.",
-            "- Keep the instructions field concise: key implementation"
-            " steps only, no background or rationale (2-5 bullet points"
-            " plus integration-point code blocks for modify targets)",
+            "- instructions field: write a PROCEDURE with numbered"
+            " steps using MUST/SHOULD/MAY keywords. Each step specifies"
+            " the file:line to act on and what to do. Reference by"
+            " file path and line number, not code blocks. End each"
+            " step group with a verification command.",
             "",
             "## CRITICAL: Output Format",
             "Output ONLY a single JSON object in a ```json fenced code block."
@@ -515,13 +512,20 @@ def build_detail_prompt(
             f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
             "- Each detail entry must include: instructions, acceptance_criteria,"
             " verification",
-            "- Instructions: concise implementation steps (2-5 bullet"
-            " points). Reference integration points by file path and"
-            " line number (e.g. 'Replace the TODO at container.rs:478')."
-            " Do NOT embed code blocks in the instructions — the JSON"
-            " output will truncate. The implementer has Read/Grep tools"
-            " and will read the code directly. For CREATE units, include"
-            " a function signature (one line).",
+            "- Instructions: write a PROCEDURE with numbered steps"
+            " using RFC 2119 keywords (MUST, SHOULD, MAY). Each step"
+            " MUST specify: (a) the exact file and line range to read"
+            " or modify, (b) what action to take (Read, Create, Edit,"
+            " Verify), (c) for conditional logic, use IF/ELSE decision"
+            " points, (d) end each multi-step group with an inline"
+            " verification command. Example:\n"
+            "  ### Step 1: Read integration point\n"
+            "  - MUST Read src/foo.rs lines 130-145\n"
+            "  ### Step 2: Replace the stub\n"
+            "  - MUST replace lines 136-140 with a call to bar()\n"
+            "  - MUST verify: cargo build --quiet\n"
+            " Do NOT embed large code blocks — reference by file:line."
+            " The implementer has Read/Grep tools.",
             "- test_specification: For each work unit, write a concrete"
             " test function (with assertions) that would FAIL before"
             " implementation and PASS after. This gives the implementer"

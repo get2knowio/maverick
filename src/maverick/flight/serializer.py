@@ -204,7 +204,7 @@ def serialize_work_unit(unit: WorkUnit) -> str:
     lines.append("")
 
     # --- Instructions ---
-    lines.append("## Instructions")
+    lines.append("## Procedure")
     lines.append("")
     lines.append(unit.instructions)
     lines.append("")

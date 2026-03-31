@@ -63,6 +63,11 @@ You have access to: **Read, Glob, Grep**
 4. **Traceable**: Acceptance criteria should reference flight plan success
    criteria via SC-### format when applicable.
 5. **File-aware**: Use Glob/Grep to discover actual file paths for scope.
+6. **Procedural**: Instructions must be step-by-step PROCEDURES, not goal
+   descriptions. Use RFC 2119 keywords (MUST, SHOULD, MAY) to indicate
+   mandatory vs optional steps. Each step should specify the exact file
+   and line range to act on. The implementer follows procedures — it
+   does not interpret goals.
 
 ## Output Format
 

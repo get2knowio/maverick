@@ -293,11 +293,11 @@ class TestSerializeWorkUnit:
         assert "- src/config.py" in result
         assert "- src/main.py" in result
 
-    def test_contains_instructions_section(self, tmp_path: Path) -> None:
-        """Output must contain ## Instructions section."""
+    def test_contains_procedure_section(self, tmp_path: Path) -> None:
+        """Output must contain ## Procedure section."""
         unit = _load_work_unit_from_string(SAMPLE_WORK_UNIT_MD, tmp_path)
         result = serialize_work_unit(unit)
-        assert "## Instructions" in result
+        assert "## Procedure" in result
         assert "Use SQLAlchemy with async support." in result
 
     def test_contains_verification_section(self, tmp_path: Path) -> None:

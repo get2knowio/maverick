@@ -326,7 +326,9 @@ def parse_work_unit_sections(body: str) -> dict[str, Any]:
         "protect": parse_bullet_list(h3_scope.get("Protect", "")),
     }
 
-    instructions = h2.get("Instructions", "").strip()
+    instructions = (
+        h2.get("Procedure", "") or h2.get("Instructions", "")
+    ).strip()
     verification = parse_bullet_list(h2.get("Verification", ""))
 
     test_specification = h2.get("Test Specification", "").strip()
