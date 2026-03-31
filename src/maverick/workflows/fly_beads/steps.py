@@ -272,56 +272,84 @@ async def run_spec_compliance_check(
 
     # Extract expected assertions from verification properties.
     # Format: "verify_NAME: assert_eq!(expr, "expected")"
-    expected_tests: list[str] = []
+    expected_tests: dict[str, str] = {}
     for line in verification_properties.split("\n"):
         stripped = line.strip()
-        if stripped.startswith("verify_"):
-            test_name = stripped.split(":")[0].strip()
-            expected_tests.append(test_name)
+        if stripped.startswith("verify_") and ":" in stripped:
+            parts = stripped.split(":", 1)
+            test_name = parts[0].strip()
+            assertion = parts[1].strip()
+            expected_tests[test_name] = assertion
+
+    if not expected_tests:
+        await wf.emit_step_completed(SPEC_COMPLIANCE)
+        return True, []
 
     try:
         from maverick.runners.command import CommandRunner
 
         runner = CommandRunner(cwd=ctx.cwd)
 
-        # Run tests matching verify_ prefix
+        # Step 1: Run tests matching verify_ prefix
         result = await runner.run(
             ["sh", "-c", "cargo test verify_ 2>&1 || true"]
         )
 
         output = (result.stdout or "") + (result.stderr or "")
 
-        # Check each expected test exists and passes
+        # Step 2: Check each expected test exists and passes
         for test_name in expected_tests:
             if f"{test_name} ..." not in output:
                 reasons.append(
                     f"Required test '{test_name}' not found. "
-                    f"The implementer MUST add this test."
+                    f"The implementer MUST add this test with"
+                    f" the exact assertion from the flight plan."
                 )
             elif f"{test_name} ... FAILED" in output:
-                # Extract the assertion failure
-                for line in output.split("\n"):
-                    if "panicked" in line and test_name in line:
-                        reasons.append(
-                            f"Test {test_name} failed: "
-                            + line.strip()[:200]
-                        )
-                        break
-                    if (
-                        "left" in line
-                        and "right" in line
-                        and "assert" in output[
-                            max(0, output.index(line) - 200):
-                            output.index(line)
-                        ]
-                    ):
-                        reasons.append(
-                            f"Test {test_name}: {line.strip()[:200]}"
-                        )
-                        break
-                else:
+                reasons.append(
+                    f"Test {test_name} FAILED. Expected: "
+                    + expected_tests[test_name][:150]
+                )
+
+        # Step 3: Verify assertion VALUES match the spec.
+        # Grep the source for each verify_ test and check the
+        # expected string matches what the flight plan specifies.
+        if not reasons:
+            for test_name, expected_assertion in (
+                expected_tests.items()
+            ):
+                # Extract expected string from assertion
+                # e.g.: assert_eq!(greet("Alice", ...), "Good day")
+                # We look for the quoted expected value
+                import re
+
+                expected_strings = re.findall(
+                    r'"([^"]*)"', expected_assertion
+                )
+                if len(expected_strings) < 2:
+                    continue  # Can't extract expected value
+
+                # The last quoted string is the expected output
+                expected_value = expected_strings[-1]
+
+                # Find the test in source and check assertion
+                test_source = await runner.run(
+                    [
+                        "sh",
+                        "-c",
+                        f"grep -A5 'fn {test_name}' src/ -r"
+                        " 2>/dev/null || true",
+                    ]
+                )
+                test_code = test_source.stdout or ""
+
+                if expected_value not in test_code:
                     reasons.append(
-                        f"Test {test_name} FAILED"
+                        f"Test {test_name} does not assert the"
+                        f" exact expected value from the spec."
+                        f" Expected: \"{expected_value}\"."
+                        f" The test MUST use the exact string"
+                        f" from the Verification Properties."
                     )
 
         # If no expected tests defined, just check overall pass
