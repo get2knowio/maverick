@@ -492,6 +492,7 @@ def build_detail_prompt(
     flight_plan_content: str,
     outline_json: str,
     unit_ids: list[str],
+    output_file_path: str | None = None,
 ) -> str:
     """Build a detail pass prompt for a batch of work units.
 
@@ -532,10 +533,12 @@ def build_detail_prompt(
             "- Verification commands must be concrete and runnable",
             "",
             "## CRITICAL: Output Format",
-            "Output ONLY a single JSON object in a ```json fenced code"
-            " block. No analysis, preamble, or commentary before or after"
-            " the JSON. Do NOT write any files. The JSON must match this"
-            " schema exactly:",
+            "Write the JSON to the file path specified in the"
+            " DETAIL_OUTPUT_PATH below using the Write tool. Do NOT"
+            " embed JSON in your text response — write it to the file."
+            " If no DETAIL_OUTPUT_PATH is provided, output JSON in a"
+            " ```json code block instead."
+            " The JSON must match this schema exactly:",
             '{"details": [{"id": "kebab-id",'
             ' "instructions": "step-by-step guidance",'
             ' "test_specification": "#[test] fn test_foo() { ... }",'
@@ -543,6 +546,12 @@ def build_detail_prompt(
             ' "verification": ["cmd1"]}]}',
         ]
     )
+
+    detail_output_section = ""
+    if output_file_path:
+        detail_output_section = (
+            f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
+        )
 
     prompt = (
         "You are a software decomposition expert. This is the DETAIL pass"
@@ -552,6 +561,7 @@ def build_detail_prompt(
         f"\n\n## Flight Plan\n\n{flight_plan_content}"
         f"\n\n## Full Outline\n\n```json\n{outline_json}\n```"
         f"\n\n## Instructions\n{instructions}"
+        f"{detail_output_section}"
     )
 
     return prompt

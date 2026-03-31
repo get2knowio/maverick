@@ -72,12 +72,12 @@ class TestDecomposerAgentInit:
         agent = DecomposerAgent()
         assert agent.name == "decomposer"
 
-    def test_allowed_tools_match_planner_tools(self) -> None:
-        """Agent's allowed_tools match the PLANNER_TOOLS constant."""
+    def test_allowed_tools_include_planner_plus_write(self) -> None:
+        """Agent's allowed_tools include PLANNER_TOOLS + Write."""
         from maverick.agents.decomposer import DecomposerAgent
 
         agent = DecomposerAgent()
-        assert set(agent.allowed_tools) == set(PLANNER_TOOLS)
+        assert set(agent.allowed_tools) == set(PLANNER_TOOLS) | {"Write"}
 
     def test_tools_are_valid_builtins(self) -> None:
         """All agent tools are valid builtins."""

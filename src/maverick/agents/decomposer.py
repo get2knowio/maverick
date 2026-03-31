@@ -116,7 +116,7 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
         super().__init__(
             name="decomposer",
             instructions=DECOMPOSER_SYSTEM_PROMPT,
-            allowed_tools=list(PLANNER_TOOLS),
+            allowed_tools=list(PLANNER_TOOLS) + ["Write"],
             model=model,
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,

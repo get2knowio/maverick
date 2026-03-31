@@ -462,11 +462,22 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             async def _run_detail_batch(
                 batch_ids: list[str], label_prefix: str
             ) -> list[DetailBatchOutput]:
-                """Run a detail batch with binary-split retry on truncation."""
+                """Run a detail batch with file-based output + binary-split retry."""
+                import json as _json
+
                 from maverick.exceptions.agent import MalformedResponseError
 
+                # Create file path for decomposer to write JSON to
+                detail_dir = Path.cwd() / ".maverick" / "decompose-output"
+                detail_dir.mkdir(parents=True, exist_ok=True)
+                batch_file = detail_dir / f"detail-{'_'.join(batch_ids[:3])}.json"
+                batch_file.unlink(missing_ok=True)
+
                 detail_prompt = build_detail_prompt(
-                    raw_content, outline_json, batch_ids
+                    raw_content,
+                    outline_json,
+                    batch_ids,
+                    output_file_path=str(batch_file),
                 )
                 try:
                     detail_result = await self.execute_agent(
@@ -482,7 +493,30 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                             f"{label_prefix} completed but produced no output"
                         )
                     return [detail_result.output]
-                except (OutputSchemaValidationError, MalformedResponseError):
+                except (
+                    OutputSchemaValidationError,
+                    MalformedResponseError,
+                ):
+                    # Try reading from file before giving up
+                    if batch_file.exists():
+                        try:
+                            data = _json.loads(
+                                batch_file.read_text(encoding="utf-8")
+                            )
+                            parsed = DetailBatchOutput.model_validate(data)
+                            logger.info(
+                                "detail_batch_recovered_from_file",
+                                path=str(batch_file),
+                                units=len(parsed.details),
+                            )
+                            return [parsed]
+                        except Exception as file_exc:
+                            logger.debug(
+                                "detail_file_parse_failed",
+                                path=str(batch_file),
+                                error=str(file_exc),
+                            )
+                    # File fallback failed — proceed with binary split
                     if len(batch_ids) <= 1:
                         raise  # Can't split a single unit further
                     # Binary split: retry each half separately
