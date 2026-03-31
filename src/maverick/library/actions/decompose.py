@@ -490,6 +490,7 @@ def build_detail_prompt(
     outline_json: str,
     unit_ids: list[str],
     output_file_path: str | None = None,
+    verification_properties: str = "",
 ) -> str:
     """Build a detail pass prompt for a batch of work units.
 
@@ -557,6 +558,17 @@ def build_detail_prompt(
             f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
         )
 
+    vp_section = ""
+    if verification_properties:
+        vp_section = (
+            "\n\n## Flight Plan Verification Properties\n\n"
+            "These are deterministic verification tests derived from "
+            "the flight plan's success criteria. Copy the relevant "
+            "tests into each work unit's test_specification field. "
+            "Do NOT modify them — they are the immutable acceptance "
+            f"gate.\n\n{verification_properties}"
+        )
+
     prompt = (
         "You are a software decomposition expert. This is the DETAIL pass"
         " of a two-pass decomposition. You have already produced the structural"
@@ -565,6 +577,7 @@ def build_detail_prompt(
         f"\n\n## Flight Plan\n\n{flight_plan_content}"
         f"\n\n## Full Outline\n\n```json\n{outline_json}\n```"
         f"\n\n## Instructions\n{instructions}"
+        f"{vp_section}"
         f"{detail_output_section}"
     )
 

@@ -44,6 +44,7 @@ from maverick.workflows.fly_beads.steps import (
     run_gate_remediation,
     run_implement_and_validate,
     run_review_and_remediate,
+    run_spec_compliance_check,
     snapshot_and_describe,
     snapshot_prior_attempt,
 )
@@ -305,6 +306,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Instructions, Test Specification, Verification) lives in the
         # work unit files on disk. Load them once and match to beads.
         _work_unit_bodies: dict[str, str] = {}
+        _verification_properties: str = ""
         if not dry_run:
             # Try all known flight plan names from the first bead
             # (we'll populate on first bead selection)
@@ -482,6 +484,25 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
             if fp_name and not _work_unit_bodies:
                 _work_unit_bodies.update(load_work_unit_files(fp_name))
+                # Load verification properties from flight plan
+                if not _verification_properties:
+                    fp_path = (
+                        Path.cwd()
+                        / ".maverick"
+                        / "plans"
+                        / fp_name
+                        / "flight-plan.md"
+                    )
+                    if fp_path.exists():
+                        content = fp_path.read_text(encoding="utf-8")
+                        from maverick.flight.parser import (
+                            _split_h2_sections,
+                        )
+
+                        h2 = _split_h2_sections(content)
+                        _verification_properties = h2.get(
+                            "Verification Properties", ""
+                        ).strip()
 
             enriched_description = select_result.description
             if _work_unit_bodies:
@@ -566,13 +587,49 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         bead_last_review[bead_id] = ctx.review_result
                         continue
 
-                # Review only if validation gate passed
+                # Spec compliance: deterministic verification properties
+                spec_passed = True
+                if (
+                    gate_passed
+                    and ac_passed
+                    and _verification_properties
+                ):
+                    spec_passed, spec_reasons = (
+                        await run_spec_compliance_check(
+                            self, ctx, _verification_properties
+                        )
+                    )
+                    if not spec_passed:
+                        ctx.verify_result = VerifyBeadCompletionResult(
+                            passed=False,
+                            reasons=tuple(spec_reasons),
+                        )
+                        sp_attempt = (
+                            bead_attempt_count.get(bead_id, 0) + 1
+                        )
+                        bead_attempt_count[bead_id] = sp_attempt
+                        await snapshot_prior_attempt(
+                            run_dir, ctx, sp_attempt
+                        )
+                        await rollback_bead(self, ctx)
+                        beads_failed += 1
+                        bead_failure_history.setdefault(
+                            bead_id, []
+                        ).append("; ".join(spec_reasons))
+                        bead_last_review[bead_id] = ctx.review_result
+                        continue
+
+                # Review: skip when spec compliance passed (deterministic
+                # verification already confirmed correctness)
+                skip_this_review = skip_review or (
+                    spec_passed and bool(_verification_properties)
+                )
                 if gate_passed and ac_passed:
                     await run_review_and_remediate(
-                        self, ctx, skip_review=skip_review
+                        self, ctx, skip_review=skip_this_review
                     )
                     # Final gate after review fixes
-                    if not skip_review and ctx.review_result:
+                    if not skip_this_review and ctx.review_result:
                         await run_gate_check(self, ctx)
 
                 # Verify and decide

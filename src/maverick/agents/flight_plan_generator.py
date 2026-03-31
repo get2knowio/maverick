@@ -84,6 +84,15 @@ is required. Do not include markdown formatting or code fences in your output.
   enforced automatically by the validation gate on every bead and belong in the
   Constraints section instead. Success criteria should describe *feature*
   outcomes, not toolchain hygiene.
+- **Verification Properties**: For each success criterion that specifies an
+  exact output, return value, or observable behavior, write an executable test
+  assertion in the project's language. Place these in a ## Verification
+  Properties section as a fenced code block. These are locked at plan time
+  and become the deterministic acceptance gate — the implementer MUST make
+  them pass. Only derive properties for criteria with exact, testable
+  outcomes. Skip structural criteria ("module exists") or subjective ones.
+  Example for a Rust project:
+  #[test] fn verify_sc001() {{ assert_eq!(greet("Alice", Formal), "..."); }}
 - **Scope**: Reference actual project paths and modules, not abstract concepts.
 - **Constraints**: Include real technical constraints (language version, framework
   version, existing API contracts to preserve).

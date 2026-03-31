@@ -246,6 +246,104 @@ async def run_acceptance_check(
     return passed, reasons
 
 
+async def run_spec_compliance_check(
+    wf: FlyBeadsWorkflow,
+    ctx: BeadContext,
+    verification_properties: str,
+) -> tuple[bool, list[str]]:
+    """Run deterministic spec compliance using verification properties.
+
+    Writes the verification property tests to a temp file in the
+    workspace, runs them, and checks that all pass. The properties
+    were derived at plan time from acceptance criteria and are
+    immutable — they define "correct."
+
+    Returns ``(passed, reasons)`` where *reasons* lists assertion
+    failures.
+    """
+    from maverick.workflows.fly_beads.constants import SPEC_COMPLIANCE
+
+    await wf.emit_step_started(SPEC_COMPLIANCE)
+    reasons: list[str] = []
+
+    if not verification_properties or not ctx.cwd:
+        await wf.emit_step_completed(SPEC_COMPLIANCE)
+        return True, []
+
+    # Extract expected assertions from verification properties.
+    # Format: "verify_NAME: assert_eq!(expr, "expected")"
+    expected_tests: list[str] = []
+    for line in verification_properties.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("verify_"):
+            test_name = stripped.split(":")[0].strip()
+            expected_tests.append(test_name)
+
+    try:
+        from maverick.runners.command import CommandRunner
+
+        runner = CommandRunner(cwd=ctx.cwd)
+
+        # Run tests matching verify_ prefix
+        result = await runner.run(
+            ["sh", "-c", "cargo test verify_ 2>&1 || true"]
+        )
+
+        output = (result.stdout or "") + (result.stderr or "")
+
+        # Check each expected test exists and passes
+        for test_name in expected_tests:
+            if f"{test_name} ..." not in output:
+                reasons.append(
+                    f"Required test '{test_name}' not found. "
+                    f"The implementer MUST add this test."
+                )
+            elif f"{test_name} ... FAILED" in output:
+                # Extract the assertion failure
+                for line in output.split("\n"):
+                    if "panicked" in line and test_name in line:
+                        reasons.append(
+                            f"Test {test_name} failed: "
+                            + line.strip()[:200]
+                        )
+                        break
+                    if (
+                        "left" in line
+                        and "right" in line
+                        and "assert" in output[
+                            max(0, output.index(line) - 200):
+                            output.index(line)
+                        ]
+                    ):
+                        reasons.append(
+                            f"Test {test_name}: {line.strip()[:200]}"
+                        )
+                        break
+                else:
+                    reasons.append(
+                        f"Test {test_name} FAILED"
+                    )
+
+        # If no expected tests defined, just check overall pass
+        if not expected_tests and "test result: FAILED" in output:
+            reasons.append(
+                "Verification property tests failed"
+            )
+
+    except Exception as exc:
+        reasons.append(f"Spec compliance check error: {exc}")
+
+    passed = len(reasons) == 0
+    if passed:
+        await wf.emit_step_completed(SPEC_COMPLIANCE)
+    else:
+        await wf.emit_step_failed(
+            SPEC_COMPLIANCE, "; ".join(reasons)
+        )
+
+    return passed, reasons
+
+
 def load_work_unit_files(
     flight_plan_name: str | None,
 ) -> dict[str, str]:

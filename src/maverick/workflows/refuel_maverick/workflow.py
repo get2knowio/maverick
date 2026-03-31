@@ -478,6 +478,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     outline_json,
                     batch_ids,
                     output_file_path=str(batch_file),
+                    verification_properties=getattr(
+                        flight_plan, "verification_properties", ""
+                    ),
                 )
                 try:
                     detail_result = await self.execute_agent(

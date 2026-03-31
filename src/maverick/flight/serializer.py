@@ -110,6 +110,13 @@ def serialize_flight_plan(plan: FlightPlan) -> str:
             lines.append(f"- {constraint}")
         lines.append("")
 
+    # --- Verification Properties (optional) ---
+    if plan.verification_properties:
+        lines.append("## Verification Properties")
+        lines.append("")
+        lines.append(plan.verification_properties)
+        lines.append("")
+
     # --- Notes (optional) ---
     if plan.notes:
         lines.append("## Notes")

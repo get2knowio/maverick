@@ -15,6 +15,7 @@ COMMIT = "commit"
 RECORD_RUNWAY = "record_runway"
 BASELINE_GATE = "baseline_gate"
 ACCEPTANCE_CHECK = "acceptance_check"
+SPEC_COMPLIANCE = "spec_compliance"
 
 # Default config values
 MAX_BEADS: int = 30

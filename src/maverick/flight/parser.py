@@ -239,6 +239,9 @@ def parse_flight_plan_sections(body: str) -> dict[str, Any]:
 
     context = h2.get("Context", "").strip()
     constraints = parse_bullet_list(h2.get("Constraints", ""))
+    verification_properties = h2.get(
+        "Verification Properties", ""
+    ).strip()
     notes = h2.get("Notes", "").strip()
 
     return {
@@ -247,6 +250,7 @@ def parse_flight_plan_sections(body: str) -> dict[str, Any]:
         "scope": scope,
         "context": context,
         "constraints": constraints,
+        "verification_properties": verification_properties,
         "notes": notes,
     }
 

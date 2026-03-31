@@ -128,6 +128,9 @@ class FlightPlanFile:
                 scope=scope,
                 context=sections["context"],
                 constraints=tuple(sections["constraints"]),
+                verification_properties=sections.get(
+                    "verification_properties", ""
+                ),
                 notes=sections["notes"],
                 source_path=path,
             )

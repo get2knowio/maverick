@@ -146,6 +146,10 @@ class FlightPlan(BaseModel):
     scope: Scope = Field(description="Scope definition")
     context: str = Field(default="", description="Background context")
     constraints: tuple[str, ...] = Field(default=(), description="Constraints")
+    verification_properties: str = Field(
+        default="",
+        description="Executable test code derived from success criteria",
+    )
     notes: str = Field(default="", description="Additional notes")
     source_path: Path | None = Field(default=None, description="Source file path")
 
