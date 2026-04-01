@@ -791,15 +791,23 @@ async def _run_dual_review(
         _executor = executor or create_default_executor()
         _configs = review_step_configs or {}
 
-        # Create temp files for reviewer output
-        cwd = review_input.get("cwd") or str(Path.cwd())
-        review_dir = Path(cwd) / ".maverick" / "review-output"
+        # Create reviewer output files. If run_dir and bead_id are
+        # available, write per-bead under the run directory (preserved
+        # across attempts). Otherwise fall back to global review-output.
+        _run_dir = review_input.get("run_dir")
+        _bead_id = review_input.get("bead_id")
+        if _run_dir and _bead_id:
+            review_dir = Path(_run_dir) / "beads" / _bead_id / "review"
+        else:
+            cwd = review_input.get("cwd") or str(Path.cwd())
+            review_dir = Path(cwd) / ".maverick" / "review-output"
         review_dir.mkdir(parents=True, exist_ok=True)
         comp_path = review_dir / "completeness.json"
         corr_path = review_dir / "correctness.json"
-        # Clean previous output
-        comp_path.unlink(missing_ok=True)
-        corr_path.unlink(missing_ok=True)
+        # Clean previous output (for global path; per-bead accumulates)
+        if not (_run_dir and _bead_id):
+            comp_path.unlink(missing_ok=True)
+            corr_path.unlink(missing_ok=True)
 
         # Inject file paths into review context
         comp_context = dict(review_context)

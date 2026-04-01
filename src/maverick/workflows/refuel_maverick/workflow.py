@@ -117,6 +117,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         flight_plan_path = Path(flight_plan_path_str)
 
+        # Generate run_id and create run directory
+        import uuid as _uuid
+
+        from maverick.runway.run_metadata import RunMetadata, write_metadata
+
+        run_id = _uuid.uuid4().hex[:8]
+        run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
         # ------------------------------------------------------------------
         # Step 1: Parse flight plan
         # ------------------------------------------------------------------
@@ -133,6 +142,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             f"{len(flight_plan.scope.in_scope)} in-scope files)",
         )
         await self.emit_step_completed(PARSE_FLIGHT_PLAN, output=flight_plan.to_dict())
+
+        # Write initial run metadata
+        run_meta = RunMetadata(
+            run_id=run_id,
+            plan_name=flight_plan.name,
+            status="refueling",
+        )
+        write_metadata(run_dir, run_meta)
 
         # ------------------------------------------------------------------
         # Step 2: Gather codebase context
@@ -468,7 +485,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 from maverick.exceptions.agent import MalformedResponseError
 
                 # Create file path for decomposer to write JSON to
-                detail_dir = Path.cwd() / ".maverick" / "decompose-output"
+                detail_dir = run_dir / "decompose-output"
                 detail_dir.mkdir(parents=True, exist_ok=True)
                 batch_file = detail_dir / f"detail-{'_'.join(batch_ids[:3])}.json"
                 batch_file.unlink(missing_ok=True)
@@ -702,11 +719,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 existing.unlink()
 
             # Write work unit files using {sequence:03d}-{id}.md naming
+            # Write to BOTH plans/ (reusable) and runs/ (execution context)
+            run_wu_dir = run_dir / "work-units"
+            await asyncio.to_thread(
+                run_wu_dir.mkdir, parents=True, exist_ok=True
+            )
             for wu in work_units:
                 filename = f"{wu.sequence:03d}-{wu.id}.md"
-                file_path = work_units_dir / filename
                 content = serialize_work_unit(wu)
-                await asyncio.to_thread(file_path.write_text, content, "utf-8")
+                # Plans directory (reusable artifact)
+                file_path = work_units_dir / filename
+                await asyncio.to_thread(
+                    file_path.write_text, content, "utf-8"
+                )
+                # Run directory (execution context)
+                run_file_path = run_wu_dir / filename
+                await asyncio.to_thread(
+                    run_file_path.write_text, content, "utf-8"
+                )
                 written += 1
         except Exception as exc:
             await self.emit_step_failed(WRITE_WORK_UNITS, str(exc))
@@ -768,6 +798,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(CREATE_BEADS, str(exc))
                 raise
+
+            # Update run metadata with epic ID
+            if bead_result.epic:
+                run_meta.epic_id = bead_result.epic["bd_id"]
+                run_meta.status = "refueled"
+                write_metadata(run_dir, run_meta)
 
             # Attach flight_plan_name to the epic for downstream lookup
             if bead_result.epic:
@@ -898,6 +934,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         result = RefuelMaverickResult(
             work_units_written=written,
             work_units_dir=str(work_units_dir),
+            run_id=run_id,
             epic=bead_result.epic if bead_result else None,
             work_beads=bead_result.work_beads if bead_result else (),
             dependencies=wire_result.dependencies if wire_result else (),

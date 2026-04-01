@@ -22,6 +22,7 @@ class BeadContext:
     description: str
     epic_id: str
     cwd: Path | None
+    run_dir: Path | None = None
     flight_plan_name: str = ""
     operation_id: str | None = None
     briefing_context: str | None = None

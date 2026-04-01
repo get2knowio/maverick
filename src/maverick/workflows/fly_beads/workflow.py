@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -106,10 +107,40 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 workspace_path = Path(ws_path_str)
 
         # Per-run output directory for snapshots, logs, and context.
-        # All output from this fly run is grouped under one run_id.
-        run_id = uuid.uuid4().hex[:8]
-        run_dir = Path.cwd() / ".maverick" / "runs" / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
+        # Try to find an existing run for the epic (created by refuel).
+        # Fall back to generating a new run_id if none found.
+        from maverick.runway.run_metadata import (
+            RunMetadata as _RunMeta,  # noqa: N814
+        )
+        from maverick.runway.run_metadata import (
+            find_run_for_epic,
+            read_metadata,
+            write_metadata,
+        )
+
+        run_id = ""
+        run_dir: Path | None = None
+        if epic_id:
+            run_meta = find_run_for_epic(epic_id)
+            if run_meta:
+                run_id = run_meta.run_id
+                run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+                run_meta.status = "flying"
+                write_metadata(run_dir, run_meta)
+
+        if not run_id:
+            run_id = uuid.uuid4().hex[:8]
+            run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+            run_dir.mkdir(parents=True, exist_ok=True)
+            write_metadata(
+                run_dir,
+                _RunMeta(
+                    run_id=run_id,
+                    plan_name="",
+                    epic_id=epic_id,
+                    status="flying",
+                ),
+            )
 
         # Track per-bead attempt counts for snapshot numbering
         bead_attempt_count: dict[str, int] = {}
@@ -393,6 +424,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             description=select_result.description,
                             epic_id=select_result.epic_id,
                             cwd=workspace_path,
+                            run_dir=run_dir,
                             flight_plan_name=select_result.flight_plan_name or "",
                             prior_failures=prior_failures,
                             briefing_context=load_briefing_context(
@@ -519,6 +551,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 description=enriched_description,
                 epic_id=select_result.epic_id,
                 cwd=workspace_path,
+                run_dir=run_dir,
                 flight_plan_name=fp_name,
                 prior_failures=prior_failures,
                 prior_attempt_context=prior_attempt_ctx,
@@ -750,6 +783,21 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
 
         beads_processed = beads_succeeded + beads_failed + beads_skipped
+
+        # Update run metadata with final status
+        if run_dir:
+            final_meta = read_metadata(run_dir)
+            if final_meta:
+                from datetime import datetime as _dt
+
+                final_meta.status = (
+                    "completed" if beads_failed == 0 else "failed"
+                )
+                final_meta.completed_at = (
+                    _dt.now(tz=UTC).isoformat()
+                )
+                write_metadata(run_dir, final_meta)
+
         result = FlyBeadsResult(
             epic_id=epic_id,
             workspace_path=str(workspace_path) if workspace_path else None,

@@ -56,6 +56,22 @@ Note effective strategies, tools used well, and good decision patterns.
 Identify files that appear repeatedly in failures, findings, or fix attempts. \
 Note hotspots where extra care is warranted.
 
+### Implementation Timing Patterns
+Analyze average bead implementation time, trends across runs, and correlation \
+between bead complexity (SC count, file scope size) and duration. Identify \
+beads that consistently take longer than average.
+
+### Retry and Convergence Patterns
+Analyze retry rates per bead, issue count trajectories across attempts \
+(converging vs oscillating), escalation chain depths, and which bead types \
+exhaust retries most often. Note whether prior-attempt context improves \
+convergence.
+
+### Spec Compliance Patterns
+Identify which verification properties pass/fail most often, common assertion \
+mismatches (e.g., exact string differences), and whether spec compliance \
+reduces overall retry count compared to reviewer-gated runs.
+
 ## Guidelines
 
 - If an existing summary is provided, UPDATE it with new information rather \

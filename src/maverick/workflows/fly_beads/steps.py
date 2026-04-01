@@ -990,6 +990,10 @@ async def run_review_and_remediate(
         # Inject bead description so completeness reviewer can compare
         # the diff against acceptance criteria and SC trace references.
         review_input_dict["bead_description"] = ctx.description
+        # Thread run_dir and bead_id for per-bead review output
+        if ctx.run_dir:
+            review_input_dict["run_dir"] = str(ctx.run_dir)
+            review_input_dict["bead_id"] = ctx.bead_id
         # Inject bead file scope so reviewers can distinguish in-scope
         # vs out-of-scope findings (files this bead is responsible for)
         if bead_files:

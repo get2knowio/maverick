@@ -238,6 +238,7 @@ class RefuelMaverickResult:
     errors: tuple[str, ...]
     coverage_warnings: tuple[str, ...]
     dry_run: bool
+    run_id: str = ""
     briefing_path: str | None = None
     cross_plan_deps: tuple[dict[str, Any], ...] = ()
     cross_plan_dep_errors: tuple[str, ...] = ()
@@ -255,6 +256,7 @@ class RefuelMaverickResult:
             "errors": list(self.errors),
             "coverage_warnings": list(self.coverage_warnings),
             "dry_run": self.dry_run,
+            "run_id": self.run_id,
             "briefing_path": self.briefing_path,
             "cross_plan_deps": list(self.cross_plan_deps),
             "cross_plan_dep_errors": list(self.cross_plan_dep_errors),

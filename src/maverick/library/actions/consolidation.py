@@ -17,7 +17,7 @@ from maverick.logging import get_logger
 from maverick.runway.models import BeadOutcome, FixAttemptRecord, RunwayReviewFinding
 from maverick.runway.store import RunwayStore
 
-__all__ = ["consolidate_runway"]
+__all__ = ["consolidate_from_runs", "consolidate_runway"]
 
 logger = get_logger(__name__)
 
@@ -375,3 +375,115 @@ async def consolidate_runway(
             skip_reason=None,
             error=str(exc),
         )
+
+
+async def consolidate_from_runs(
+    *,
+    cwd: str | Path | None = None,
+) -> dict[str, Any]:
+    """Aggregate process-level data from all run directories.
+
+    Reads ``.maverick/runs/*/`` and aggregates:
+    - Episodic records (bead outcomes, review findings, fix attempts)
+    - Per-bead review JSON (``beads/*/review/*.json``)
+    - Attempt snapshot summaries (``beads/*/attempt-*/summary.md``)
+    - Checkpoint data (timing, retry counts, escalation depths)
+
+    Returns a dict with aggregated process metrics that the enhanced
+    consolidator agent can use for process-level learning.
+    """
+    import json as _json
+
+    from maverick.runway.run_metadata import read_metadata
+
+    base = Path(cwd) if cwd else Path.cwd()
+    runs_dir = base / ".maverick" / "runs"
+
+    if not runs_dir.is_dir():
+        return {"runs": [], "process_metrics": {}}
+
+    runs_data: list[dict[str, Any]] = []
+    total_beads = 0
+    total_retries = 0
+    total_escalations = 0
+    impl_times: list[int] = []
+
+    for run_path in sorted(runs_dir.iterdir()):
+        meta = read_metadata(run_path)
+        if not meta:
+            continue
+
+        run_info: dict[str, Any] = {
+            "run_id": meta.run_id,
+            "plan_name": meta.plan_name,
+            "status": meta.status,
+        }
+
+        # Read checkpoint for timing and escalation data
+        checkpoint_path = run_path / "checkpoint.json"
+        if checkpoint_path.exists():
+            try:
+                cp = _json.loads(
+                    checkpoint_path.read_text(encoding="utf-8")
+                )
+                steps = cp.get("step_results", [])
+                for s in steps:
+                    if s.get("name") == "implement_and_validate":
+                        dur = s.get("duration_ms", 0)
+                        if dur > 0:
+                            impl_times.append(dur // 1000)
+                    if s.get("name") == "select_bead":
+                        total_beads += 1
+
+                ud = cp.get("user_data", {})
+                chain_depth = ud.get("chain_depth", {})
+                total_escalations += sum(chain_depth.values())
+                run_info["chain_depth"] = chain_depth
+                run_info["completed_beads"] = len(
+                    ud.get("completed_bead_ids", [])
+                )
+            except Exception:
+                pass
+
+        # Read per-bead review summaries
+        beads_dir = run_path / "beads"
+        review_findings_count = 0
+        if beads_dir.is_dir():
+            for bead_dir in beads_dir.iterdir():
+                review_dir = bead_dir / "review"
+                if review_dir.is_dir():
+                    for rfile in review_dir.glob("*.json"):
+                        try:
+                            data = _json.loads(
+                                rfile.read_text(encoding="utf-8")
+                            )
+                            for g in data.get("groups", []):
+                                review_findings_count += len(
+                                    g.get("findings", [])
+                                )
+                        except Exception:
+                            pass
+
+                # Count retry attempts
+                for _attempt_dir in bead_dir.glob("attempt-*"):
+                    total_retries += 1
+
+        run_info["review_findings_count"] = review_findings_count
+        runs_data.append(run_info)
+
+    # Compute process metrics
+    process_metrics: dict[str, Any] = {
+        "total_runs": len(runs_data),
+        "total_beads_processed": total_beads,
+        "total_retries": total_retries,
+        "total_escalations": total_escalations,
+        "avg_impl_time_seconds": (
+            sum(impl_times) // len(impl_times) if impl_times else 0
+        ),
+        "max_impl_time_seconds": max(impl_times) if impl_times else 0,
+    }
+
+    return {
+        "runs": runs_data,
+        "process_metrics": process_metrics,
+    }

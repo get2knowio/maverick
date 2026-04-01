@@ -40,6 +40,18 @@ def _get_store(cwd: str | Path | None) -> RunwayStore | None:
     return store
 
 
+def _get_run_store(run_dir: str | Path) -> RunwayStore | None:
+    """Get or initialize a runway store under a run directory."""
+    runway_path = Path(run_dir) / "runway"
+    store = RunwayStore(runway_path)
+    if not store.is_initialized:
+        try:
+            store.initialize()
+        except Exception:
+            return None
+    return store
+
+
 async def record_bead_outcome(
     *,
     bead_id: str,
@@ -52,6 +64,7 @@ async def record_bead_outcome(
     key_decisions: list[str] | None = None,
     mistakes_caught: list[str] | None = None,
     cwd: str | Path | None = None,
+    run_dir: str | Path | None = None,
 ) -> RecordBeadOutcomeResult:
     """Record a bead outcome to the runway store.
 
@@ -102,6 +115,13 @@ async def record_bead_outcome(
             mistakes_caught=mistakes_caught or [],
         )
         await store.append_bead_outcome(outcome)
+
+        # Dual-write to per-run directory if available
+        if run_dir:
+            run_store = _get_run_store(run_dir)
+            if run_store:
+                await run_store.append_bead_outcome(outcome)
+
         logger.info("runway_bead_outcome_recorded", bead_id=bead_id)
         return RecordBeadOutcomeResult(success=True, bead_id=bead_id, error=None)
     except Exception as exc:
@@ -118,6 +138,7 @@ async def record_review_findings(
     bead_id: str,
     review_result: dict[str, Any],
     cwd: str | Path | None = None,
+    run_dir: str | Path | None = None,
 ) -> RecordReviewFindingsResult:
     """Record review findings to the runway store.
 
@@ -179,6 +200,10 @@ async def record_review_findings(
                 resolution=fd.get("outcome", fd.get("resolution", "")),
             )
             await store.append_review_finding(finding)
+            if run_dir:
+                rs = _get_run_store(run_dir)
+                if rs:
+                    await rs.append_review_finding(finding)
             count += 1
 
         logger.info(
