@@ -536,6 +536,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             "Verification Properties", ""
                         ).strip()
 
+                # Fallback: read from run dir VP file
+                if not _verification_properties and run_dir:
+                    vp_file = run_dir / "verification-properties.txt"
+                    if vp_file.exists():
+                        _verification_properties = vp_file.read_text(
+                            encoding="utf-8"
+                        ).strip()
+
             enriched_description = select_result.description
             if _work_unit_bodies:
                 wu_body = match_bead_to_work_unit(

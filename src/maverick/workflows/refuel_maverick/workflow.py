@@ -318,7 +318,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         fp_text = await asyncio.to_thread(
                             flight_plan_path.read_text, "utf-8"
                         )
-                        if "## Verification Properties" not in fp_text:
+                        if "\n## Verification Properties" not in fp_text:
                             fp_text += (
                                 "\n\n## Verification Properties\n\n"
                                 + verification_properties
