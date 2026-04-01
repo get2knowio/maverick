@@ -286,29 +286,91 @@ async def run_spec_compliance_check(
         await wf.emit_step_completed(SPEC_COMPLIANCE)
         return True, []
 
-    # Write the VP tests to a temp file and run them directly
-    # against the agent's code. This verifies the implementation
-    # produces the right output without requiring the agent to
-    # copy verify_ test functions into its source.
-    spec_test_dir = ctx.cwd / "tests"
-    spec_test_dir.mkdir(parents=True, exist_ok=True)
-    spec_test_path = spec_test_dir / "spec_compliance_check.rs"
+    # Append VP tests to the main source file's test module, run
+    # them, then remove the appended code. This avoids the Rust
+    # visibility issue where integration tests can't access
+    # private functions in binary crates.
+    #
+    # Strip any mod/use wrapper from the VP code — we just need
+    # the #[test] fn blocks.
+    import re as _re
+
+    # Extract individual test functions from the VP code
+    test_fns: list[str] = []
+    in_fn = False
+    fn_lines: list[str] = []
+    brace_depth = 0
+    for line in code.split("\n"):
+        stripped = line.strip()
+        if _re.match(r"#\[test\]", stripped):
+            in_fn = True
+            fn_lines = [stripped]
+            brace_depth = 0
+        elif in_fn:
+            fn_lines.append(stripped)
+            brace_depth += stripped.count("{") - stripped.count("}")
+            if brace_depth <= 0 and "}" in stripped:
+                test_fns.append("\n    ".join(fn_lines))
+                in_fn = False
+                fn_lines = []
+
+    if not test_fns:
+        await wf.emit_step_completed(SPEC_COMPLIANCE)
+        return True, []
+
+    # Find the main source file (look for the test module)
+    src_candidates = list((ctx.cwd / "src").rglob("main.rs"))
+    if not src_candidates:
+        src_candidates = list((ctx.cwd / "src").rglob("lib.rs"))
+    if not src_candidates:
+        await wf.emit_step_completed(SPEC_COMPLIANCE)
+        return True, []
+
+    src_path = src_candidates[0]
+    original_content = src_path.read_text(encoding="utf-8")
+
+    # Append VP tests inside the existing test module
+    marker = "// --- SPEC_COMPLIANCE_MARKER ---"
+    vp_block = (
+        f"\n{marker}\n"
+        + "\n".join(f"    {fn}" for fn in test_fns)
+        + f"\n{marker}\n"
+    )
+
+    # Insert before the last closing brace of the test module
+    # (or append at end if no test module found)
+    if "#[cfg(test)]" in original_content:
+        # Find the last } in the file (closing the test module)
+        last_brace = original_content.rfind("}")
+        if last_brace > 0:
+            modified = (
+                original_content[:last_brace]
+                + vp_block
+                + original_content[last_brace:]
+            )
+        else:
+            modified = original_content + vp_block
+    else:
+        # No test module — create one
+        modified = (
+            original_content
+            + "\n#[cfg(test)]\nmod spec_verify {\n"
+            + "    use super::*;\n"
+            + vp_block
+            + "}\n"
+        )
 
     try:
         from maverick.runners.command import CommandRunner
 
         runner = CommandRunner(cwd=ctx.cwd)
 
-        # Write VP test code to temp file
-        spec_test_path.write_text(code, encoding="utf-8")
+        # Write modified source with VP tests
+        src_path.write_text(modified, encoding="utf-8")
 
-        # Run the spec compliance tests
+        # Run only the verify_ tests
         result = await runner.run(
-            [
-                "sh",
-                "-c",
-                "cargo test --test spec_compliance_check 2>&1",
-            ]
+            ["sh", "-c", "cargo test verify_ 2>&1"]
         )
 
         output = (result.stdout or "") + (result.stderr or "")
@@ -349,7 +411,8 @@ async def run_spec_compliance_check(
     except Exception as exc:
         reasons.append(f"Spec compliance check error: {exc}")
     finally:
-        spec_test_path.unlink(missing_ok=True)
+        # Restore original source (remove VP tests)
+        src_path.write_text(original_content, encoding="utf-8")
 
     passed = len(reasons) == 0
     if passed:
