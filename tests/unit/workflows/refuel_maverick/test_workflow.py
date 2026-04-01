@@ -17,6 +17,7 @@ from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
     DECOMPOSE,
     DECOMPOSE_OUTLINE,
+    DERIVE_VERIFICATION,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     VALIDATE,

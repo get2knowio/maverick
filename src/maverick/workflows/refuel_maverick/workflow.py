@@ -51,6 +51,7 @@ from maverick.workflows.refuel_maverick.constants import (
     DECOMPOSE,
     DECOMPOSE_DETAIL,
     DECOMPOSE_OUTLINE,
+    DERIVE_VERIFICATION,
     DETAIL_BATCH_SIZE,
     GATHER_CONTEXT,
     MAX_DECOMPOSE_ATTEMPTS,
@@ -256,6 +257,109 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 2b: Briefing Room (optional)
         # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Step 2.8: Derive verification properties from acceptance criteria
+        # ------------------------------------------------------------------
+        # A dedicated agent reads the flight plan's success criteria plus
+        # the codebase context and produces executable test assertions.
+        # These become the deterministic spec compliance gate during fly.
+        verification_properties = getattr(
+            flight_plan, "verification_properties", ""
+        )
+        _derive_vp = (
+            not verification_properties
+            and self._step_executor is not None
+            and not dry_run
+            and len(flight_plan.success_criteria) > 0
+            and len(codebase_context.files) > 0
+        )
+        if _derive_vp:
+            await self.emit_step_started(DERIVE_VERIFICATION)
+            try:
+                sc_text = "\n".join(
+                    f"SC-{i + 1:03d}: {sc.text}"
+                    for i, sc in enumerate(flight_plan.success_criteria)
+                )
+                vp_prompt = (
+                    "You are a verification property writer. Read the "
+                    "success criteria below and the codebase context, "
+                    "then write executable test assertions for each "
+                    "criterion that specifies a testable behavior.\n\n"
+                    "RULES:\n"
+                    "- Reference actual types/functions from the codebase\n"
+                    "- Use exact expected values from the criteria\n"
+                    "- Each test function must be named verify_scNNN\n"
+                    "- Skip structural or subjective criteria\n"
+                    "- Output ONE fenced code block with all tests\n\n"
+                    f"## Success Criteria\n\n{sc_text}\n\n"
+                    f"## Codebase Files\n\n"
+                    + "\n".join(
+                        f"- {f.path}" for f in codebase_context.files
+                    )
+                    + "\n"
+                )
+                try:
+                    vp_result = await self._step_executor.execute(
+                        step_name=DERIVE_VERIFICATION,
+                        agent_name="flight_plan_generator",
+                        prompt=vp_prompt,
+                    )
+                except Exception as vp_exec_err:
+                    logger.debug(
+                        "vp_executor_failed",
+                        error=str(vp_exec_err),
+                    )
+                    vp_result = None
+                if vp_result and vp_result.output:
+                    vp_text = str(vp_result.output)
+                    if "verify_" in vp_text:
+                        verification_properties = vp_text
+                        # Write to flight plan file
+                        fp_text = await asyncio.to_thread(
+                            flight_plan_path.read_text, "utf-8"
+                        )
+                        if "## Verification Properties" not in fp_text:
+                            fp_text += (
+                                "\n\n## Verification Properties\n\n"
+                                + verification_properties
+                            )
+                            await asyncio.to_thread(
+                                flight_plan_path.write_text,
+                                fp_text,
+                                "utf-8",
+                            )
+                        # Also save to run dir
+                        vp_path = run_dir / "verification-properties.txt"
+                        await asyncio.to_thread(
+                            vp_path.write_text,
+                            verification_properties,
+                            "utf-8",
+                        )
+                        await self.emit_output(
+                            DERIVE_VERIFICATION,
+                            f"Derived verification properties "
+                            f"({verification_properties.count('verify_')}"
+                            f" tests)",
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "derive_verification_failed", error=str(exc)
+                )
+                await self.emit_output(
+                    DERIVE_VERIFICATION,
+                    f"Verification derivation failed (non-fatal): {exc}",
+                    level="warning",
+                )
+            await self.emit_step_completed(DERIVE_VERIFICATION)
+
+        # Re-read raw content in case VP was appended
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            raw_content = await asyncio.to_thread(
+                flight_plan_path.read_text, "utf-8"
+            )
+
         briefing_doc = None
         briefing_path_str: str | None = None
 
