@@ -26,6 +26,7 @@ from maverick.workflows.fly_beads.constants import (
     COMMIT,
     CREATE_WORKSPACE,
     MAX_BEADS,
+    MAX_RETRIES_PER_BEAD,
     PREFLIGHT,
     SELECT_BEAD,
     SNAPSHOT_UNCOMMITTED,
@@ -398,10 +399,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
                 # Per-bead retry limit — commit what we have and spin off
                 # a follow-up bead for unresolved review issues.
-                from maverick.workflows.fly_beads.constants import (
-                    MAX_RETRIES_PER_BEAD,
-                )
-
                 if len(prior_failures) >= MAX_RETRIES_PER_BEAD:
                     reasons_summary = "; ".join(prior_failures[-3:])
                     await self.emit_output(
@@ -617,7 +614,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         await snapshot_prior_attempt(
                             run_dir, ctx, ac_attempt
                         )
-                        await rollback_bead(self, ctx)
+                        if ac_attempt < MAX_RETRIES_PER_BEAD:
+                            await rollback_bead(self, ctx)
                         beads_failed += 1
                         bead_failure_history.setdefault(
                             bead_id, []
@@ -649,7 +647,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         await snapshot_prior_attempt(
                             run_dir, ctx, sp_attempt
                         )
-                        await rollback_bead(self, ctx)
+                        if sp_attempt < MAX_RETRIES_PER_BEAD:
+                            await rollback_bead(self, ctx)
                         beads_failed += 1
                         bead_failure_history.setdefault(
                             bead_id, []
@@ -689,7 +688,19 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     await snapshot_prior_attempt(
                         run_dir, ctx, attempt_num
                     )
-                    await rollback_bead(self, ctx)
+
+                    # On the LAST attempt, skip rollback so the code
+                    # stays in the working copy. The next iteration
+                    # detects exhaustion and commits what we have via
+                    # commit_bead_with_followup. Without this, the
+                    # rollback erases the agent's code and the commit
+                    # captures only metadata.
+                    is_last_attempt = (
+                        attempt_num >= MAX_RETRIES_PER_BEAD
+                    )
+                    if not is_last_attempt:
+                        await rollback_bead(self, ctx)
+
                     beads_failed += 1
                     reasons = (
                         "; ".join(ctx.verify_result.reasons)
