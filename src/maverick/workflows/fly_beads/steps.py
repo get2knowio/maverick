@@ -271,15 +271,42 @@ async def run_spec_compliance_check(
         return True, []
 
     # Extract expected assertions from verification properties.
-    # Format: "verify_NAME: assert_eq!(expr, "expected")"
+    # Supports two formats:
+    #   Simple: "verify_NAME: assert_eq!(expr, "expected")"
+    #   Rust:   "fn verify_NAME() { assert_eq!(...); }"
+    import re as _re
+
     expected_tests: dict[str, str] = {}
-    for line in verification_properties.split("\n"):
+    lines = verification_properties.split("\n")
+
+    for line in lines:
         stripped = line.strip()
+        # Simple format: verify_NAME: assert_eq!(...)
         if stripped.startswith("verify_") and ":" in stripped:
             parts = stripped.split(":", 1)
             test_name = parts[0].strip()
             assertion = parts[1].strip()
             expected_tests[test_name] = assertion
+
+    # Rust format: fn verify_NAME() { ... }
+    if not expected_tests:
+        current_fn: str | None = None
+        current_body: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            fn_match = _re.match(r"fn\s+(verify_\w+)\s*\(", stripped)
+            if fn_match:
+                current_fn = fn_match.group(1)
+                current_body = []
+            elif current_fn and "assert" in stripped:
+                current_body.append(stripped)
+            elif current_fn and stripped == "}":
+                if current_body:
+                    expected_tests[current_fn] = " ".join(
+                        current_body
+                    )
+                current_fn = None
+                current_body = []
 
     if not expected_tests:
         await wf.emit_step_completed(SPEC_COMPLIANCE)
