@@ -270,123 +270,86 @@ async def run_spec_compliance_check(
         await wf.emit_step_completed(SPEC_COMPLIANCE)
         return True, []
 
-    # Extract expected assertions from verification properties.
-    # Supports two formats:
-    #   Simple: "verify_NAME: assert_eq!(expr, "expected")"
-    #   Rust:   "fn verify_NAME() { assert_eq!(...); }"
-    import re as _re
+    # Extract test code from verification properties.
+    # The VP is either a fenced code block or raw test code.
+    code = verification_properties
+    if "```" in code:
+        parts = code.split("```")
+        if len(parts) >= 3:
+            block = parts[1]
+            # Strip language identifier (e.g., "rust\n")
+            if "\n" in block:
+                block = block.split("\n", 1)[1]
+            code = block.strip()
 
-    expected_tests: dict[str, str] = {}
-    lines = verification_properties.split("\n")
-
-    for line in lines:
-        stripped = line.strip()
-        # Simple format: verify_NAME: assert_eq!(...)
-        if stripped.startswith("verify_") and ":" in stripped:
-            parts = stripped.split(":", 1)
-            test_name = parts[0].strip()
-            assertion = parts[1].strip()
-            expected_tests[test_name] = assertion
-
-    # Rust format: fn verify_NAME() { ... }
-    if not expected_tests:
-        current_fn: str | None = None
-        current_body: list[str] = []
-        for line in lines:
-            stripped = line.strip()
-            fn_match = _re.match(r"fn\s+(verify_\w+)\s*\(", stripped)
-            if fn_match:
-                current_fn = fn_match.group(1)
-                current_body = []
-            elif current_fn and "assert" in stripped:
-                current_body.append(stripped)
-            elif current_fn and stripped == "}":
-                if current_body:
-                    expected_tests[current_fn] = " ".join(
-                        current_body
-                    )
-                current_fn = None
-                current_body = []
-
-    if not expected_tests:
+    if "verify_" not in code:
         await wf.emit_step_completed(SPEC_COMPLIANCE)
         return True, []
+
+    # Write the VP tests to a temp file and run them directly
+    # against the agent's code. This verifies the implementation
+    # produces the right output without requiring the agent to
+    # copy verify_ test functions into its source.
+    spec_test_dir = ctx.cwd / "tests"
+    spec_test_dir.mkdir(parents=True, exist_ok=True)
+    spec_test_path = spec_test_dir / "spec_compliance_check.rs"
 
     try:
         from maverick.runners.command import CommandRunner
 
         runner = CommandRunner(cwd=ctx.cwd)
 
-        # Step 1: Run tests matching verify_ prefix
+        # Write VP test code to temp file
+        spec_test_path.write_text(code, encoding="utf-8")
+
+        # Run the spec compliance tests
         result = await runner.run(
-            ["sh", "-c", "cargo test verify_ 2>&1 || true"]
+            [
+                "sh",
+                "-c",
+                "cargo test --test spec_compliance_check 2>&1",
+            ]
         )
 
         output = (result.stdout or "") + (result.stderr or "")
 
-        # Step 2: Check each expected test exists and passes
-        for test_name, expected_assertion in expected_tests.items():
-            if f"{test_name} ..." not in output:
+        if "test result: ok" in output:
+            # All VP tests pass — implementation is correct
+            pass
+        elif "test result: FAILED" in output:
+            # Extract which tests failed and why
+            for line in output.split("\n"):
+                stripped = line.strip()
+                if "FAILED" in stripped and "verify_" in stripped:
+                    reasons.append(stripped[:200])
+                elif "panicked at" in stripped:
+                    reasons.append(stripped[:200])
+                elif "left:" in stripped or "right:" in stripped:
+                    reasons.append(stripped[:200])
+            if not reasons:
                 reasons.append(
-                    f"Required test '{test_name}' not found. "
-                    f"You MUST add this test to src/main.rs: "
-                    f"{expected_assertion[:200]}"
+                    "Spec compliance tests FAILED. Check output."
                 )
-            elif f"{test_name} ... FAILED" in output:
-                reasons.append(
-                    f"Test {test_name} FAILED. It MUST assert: "
-                    + expected_assertion[:200]
-                )
-
-        # Step 3: Verify assertion VALUES match the spec.
-        # Grep the source for each verify_ test and check the
-        # expected string matches what the flight plan specifies.
-        if not reasons:
-            for test_name, expected_assertion in (
-                expected_tests.items()
-            ):
-                # Extract expected string from assertion
-                # e.g.: assert_eq!(greet("Alice", ...), "Good day")
-                # We look for the quoted expected value
-                import re
-
-                expected_strings = re.findall(
-                    r'"([^"]*)"', expected_assertion
-                )
-                if len(expected_strings) < 2:
-                    continue  # Can't extract expected value
-
-                # The last quoted string is the expected output
-                expected_value = expected_strings[-1]
-
-                # Find the test in source and check assertion
-                test_source = await runner.run(
-                    [
-                        "sh",
-                        "-c",
-                        f"grep -A5 'fn {test_name}' src/ -r"
-                        " 2>/dev/null || true",
-                    ]
-                )
-                test_code = test_source.stdout or ""
-
-                if expected_value not in test_code:
+        elif "error" in output.lower() and result.returncode != 0:
+            # Compilation error — VP tests can't find functions
+            # This likely means the agent's code doesn't export
+            # the functions properly
+            for line in output.split("\n"):
+                if "error" in line.lower():
                     reasons.append(
-                        f"Test {test_name} does not assert the"
-                        f" exact expected value from the spec."
-                        f" Expected: \"{expected_value}\"."
-                        f" The test MUST use the exact string"
-                        f" from the Verification Properties."
+                        f"Spec test compile error: "
+                        + line.strip()[:200]
                     )
-
-        # If no expected tests defined, just check overall pass
-        if not expected_tests and "test result: FAILED" in output:
-            reasons.append(
-                "Verification property tests failed"
-            )
+                    break
+            if not reasons:
+                reasons.append(
+                    "Spec compliance tests failed to compile"
+                )
 
     except Exception as exc:
         reasons.append(f"Spec compliance check error: {exc}")
+    finally:
+        spec_test_path.unlink(missing_ok=True)
 
     passed = len(reasons) == 0
     if passed:

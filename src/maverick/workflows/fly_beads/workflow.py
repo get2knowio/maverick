@@ -14,6 +14,7 @@ from maverick.library.actions.beads import (
     select_next_bead,
     verify_bead_completion,
 )
+from maverick.library.actions.types import VerifyBeadCompletionResult
 from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
@@ -605,10 +606,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     if not ac_passed:
                         # Treat AC failure as a bead failure — skip review,
                         # feed reasons back via prior_failures on retry.
-                        from maverick.library.actions.beads import (
-                            VerifyBeadCompletionResult,
-                        )
-
                         ctx.verify_result = VerifyBeadCompletionResult(
                             passed=False,
                             reasons=tuple(ac_reasons),
