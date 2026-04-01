@@ -325,17 +325,17 @@ async def run_spec_compliance_check(
         output = (result.stdout or "") + (result.stderr or "")
 
         # Step 2: Check each expected test exists and passes
-        for test_name in expected_tests:
+        for test_name, expected_assertion in expected_tests.items():
             if f"{test_name} ..." not in output:
                 reasons.append(
                     f"Required test '{test_name}' not found. "
-                    f"The implementer MUST add this test with"
-                    f" the exact assertion from the flight plan."
+                    f"You MUST add this test to src/main.rs: "
+                    f"{expected_assertion[:200]}"
                 )
             elif f"{test_name} ... FAILED" in output:
                 reasons.append(
-                    f"Test {test_name} FAILED. Expected: "
-                    + expected_tests[test_name][:150]
+                    f"Test {test_name} FAILED. It MUST assert: "
+                    + expected_assertion[:200]
                 )
 
         # Step 3: Verify assertion VALUES match the spec.
