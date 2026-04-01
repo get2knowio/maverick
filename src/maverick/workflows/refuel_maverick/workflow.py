@@ -880,7 +880,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 }
                 work_definitions = [
                     {
-                        "title": wu.task,
+                        "title": wu.task[:490],
                         "bead_type": "task",
                         "priority": 2,
                         "category": "user_story",
