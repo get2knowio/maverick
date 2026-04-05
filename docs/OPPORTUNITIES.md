@@ -610,6 +610,137 @@ outages by failing over automatically.
 
 ---
 
+## Opportunity 12: Step-Level Evals and Provider/Prompt Testing
+
+**Signal strength:** Strong (direct observation from 10+ Maverick runs)
+
+**Current state:** Pipeline optimization is entirely serial. Each full run
+(plan + refuel + fly) takes 30-60 minutes. When a step fails — wrong model
+for structured output, prompt that produces brittle verification commands,
+reviewer that always finds phantom issues — we don't discover it until the
+pipeline stalls. Fixing requires changing config/prompts and rerunning the
+entire pipeline to verify. This makes iterating on prompt quality or
+provider routing painfully slow.
+
+**Research findings:**
+- Eval-driven development is standard practice for LLM applications (Anthropic,
+  OpenAI, Braintrust, Humanloop all publish eval frameworks)
+- The "evals as unit tests for AI" framing is now consensus — you wouldn't
+  ship code without tests, don't ship prompts without evals
+- SWE-bench and similar benchmarks demonstrate that model+prompt quality
+  varies dramatically per task type — what works for code generation fails
+  for structured output, and vice versa
+
+**Observed failures that evals would catch in minutes, not hours:**
+- GPT-5.3-Codex cannot produce JSON output (0/6 attempts across two runs)
+  — a single step eval with one fixture would show this immediately
+- Gemini reviewer file output failures masked by sentinel default of 1
+  — a review step eval checking `file_output=true` catches this
+- Verification commands that grep source code instead of running tests
+  — a prompt variant eval comparing behavioral vs structural commands
+- Review severity miscalibration across providers — an eval comparing
+  finding counts and severity distributions per provider
+
+**Design direction:**
+
+**Phase 1: Fixture capture (zero-cost, passive).** Add a hook to
+`execute_agent` that snapshots step inputs (prompt, config, context) to
+`.maverick/eval-fixtures/<step>/<timestamp>.json`. This runs during normal
+pipeline execution with no overhead. One good run produces fixtures for
+every step.
+
+**Phase 2: Step-level test runner.** A new command:
+`maverick eval <step-name> --fixture <path> --matrix <matrix.yaml>`
+
+The matrix defines permutations to test in parallel:
+```yaml
+decompose-detail:
+  permutations:
+    - {provider: claude, model_id: sonnet}
+    - {provider: copilot, model_id: gpt-5.3-codex}
+    - {provider: copilot, model_id: gpt-5.4}
+    - {provider: gemini, model_id: gemini-3.1-pro-preview}
+  repeat: 3  # catch non-determinism
+  evaluate:
+    - json_valid       # produced parseable JSON?
+    - schema_valid     # matches expected Pydantic model?
+    - file_output      # wrote to output_file_path?
+    - sc_coverage      # what % of SCs are traced?
+```
+
+Runs N permutations x M repeats concurrently via `asyncio.gather`, produces
+a comparison table. Tests one step in 3-5 minutes instead of running a full
+45-minute pipeline.
+
+**Phase 3: Prompt variant testing.** Same framework but varying prompt
+templates instead of (or in addition to) providers. Enables A/B testing
+of prompt changes against captured real-world inputs.
+
+**Phase 4: Regression suite.** Version fixtures by run. When a prompt
+template or pipeline step changes, run the eval suite against historical
+fixtures to verify nothing regressed. This is CI for the pipeline itself.
+
+**Phase 5: Provider routing optimization.** Accumulate eval data across
+runs to build a quality/cost/latency profile per model per step type.
+Feed this into the supervisor agent (Opportunity 8) for adaptive routing.
+
+**Relationship to other opportunities:**
+- **Opportunity 4** (Cap Review Retries): Evals quantify reviewer false
+  positive rates, enabling data-driven retry calibration
+- **Opportunity 5** (TDD Feedback Loop): Step evals ARE the TDD loop for
+  the pipeline itself
+- **Opportunity 8** (Supervisor Agent): Needs eval telemetry to make
+  adaptive decisions
+- **Opportunity 9** (Resource Tuning): Cost/quality metrics from evals
+  inform provider allocation
+- **Opportunity 11** (Quota Failover): Eval data shows which providers
+  are viable fallbacks per step type
+
+**Expected impact:** 10x faster iteration on prompt and provider optimization.
+Catch model-fit problems (like Codex + JSON) in minutes, not hours. Enable
+confident prompt changes with regression coverage. Build the data foundation
+for adaptive orchestration.
+
+---
+
+## Opportunity 13: Idempotent `maverick init`
+
+**Signal strength:** Strong (observed every test cycle)
+
+**Current state:** `maverick init` refuses to run if `maverick.yaml` exists
+(`ConfigExistsError`). This means it also skips `bd init`, runway
+initialization, and any other setup steps. Users who have a tuned
+`maverick.yaml` (custom provider routing, adjusted timeouts, test commands)
+must manually run `bd init` and other sub-initialization steps after
+resetting their repo.
+
+**The problem:** In iterative testing workflows (reset repo → re-run
+pipeline), you always have a pre-existing `maverick.yaml` that you don't
+want overwritten. But you do need beads re-initialized, runway seeded, and
+prerequisites checked. Currently you must run `bd init` manually and hope
+you didn't miss other setup steps.
+
+**Suggested approach:**
+- `maverick init` without `--force`: detect existing yaml, skip config
+  generation, but still run all other setup steps (bd init, runway init,
+  prerequisite checks)
+- `maverick init --force`: overwrite yaml AND run all setup steps (current
+  `--force` behavior)
+- Make each sub-step idempotent: `bd init` already handles re-initialization;
+  runway seed should be safe to re-run; prerequisite checks are read-only
+
+**Broader benefit:** Making init idempotent enables treating it as a
+"ensure everything is set up" command rather than "one-time setup."
+This is valuable for CI/CD pipelines, container rebuilds, and any
+workflow where the environment may be partially initialized.
+
+**Expected impact:** Eliminate manual `bd init` / runway seed steps in
+testing workflows. Enable `maverick init && maverick plan && maverick
+refuel && maverick fly` as a single repeatable sequence regardless of
+prior state.
+
+---
+
 ## Patterns to Watch
 
 These are emerging but not yet mature enough for immediate adoption:

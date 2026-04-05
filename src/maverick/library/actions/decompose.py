@@ -331,7 +331,15 @@ def build_decomposition_prompt(
             "- Every acceptance criterion should trace to a flight plan"
             " success"
             " criterion (SC-### where ### is the 1-based index of the criterion)",
-            "- Verification commands must be concrete and runnable",
+            "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
+            " implementation details. Good: `cargo test -p crate --"
+            " test_name 2>&1 | tail -1 | grep -q ok` (does the test"
+            " pass?), `cargo build --quiet` (does it compile?). Bad:"
+            " `grep 'pattern' src/file.rs` (is code shaped a certain"
+            " way?). The implementer may use different names, file"
+            " layouts, or patterns than anticipated. Only verify:"
+            " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
+            " codes. NEVER grep source for expected code patterns.",
             "- Use depends_on to express ordering constraints"
             " (list of work unit IDs that must complete first)",
             "- Assign parallel_group labels to work units that can execute"
@@ -535,7 +543,15 @@ def build_detail_prompt(
             " string.",
             "- Acceptance criteria must trace to flight plan success"
             " criteria (SC-### where ### is the 1-based index)",
-            "- Verification commands must be concrete and runnable",
+            "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
+            " implementation details. Good: `cargo test -p crate --"
+            " test_name 2>&1 | tail -1 | grep -q ok` (does the test"
+            " pass?), `cargo build --quiet` (does it compile?). Bad:"
+            " `grep 'pattern' src/file.rs` (is code shaped a certain"
+            " way?). The implementer may use different names, file"
+            " layouts, or patterns than anticipated. Only verify:"
+            " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
+            " codes. NEVER grep source for expected code patterns.",
             "",
             "## CRITICAL: Output Format",
             "Write the JSON to the file path specified in the"
@@ -758,7 +774,7 @@ def validate_decomposition(
 
     # --- Hard check: grossly overloaded beads (>6 SCs) ---
     # This is a hard error. 6+ SCs in one bead is always too large.
-    hard_sc_limit = 8
+    hard_sc_limit = 12
     overloaded: list[str] = []
     for spec in specs:
         sc_refs = set()

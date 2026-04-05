@@ -109,6 +109,20 @@ class MaverickAcpClient(Client):
         self._event_callback = event_callback
         self._allowed_tools = allowed_tools
 
+    def reset_for_turn(self) -> None:
+        """Clear per-turn accumulators without destroying session state.
+
+        Used for multi-turn sessions where the same session receives
+        multiple prompts.  Clears accumulated text and tool counts
+        so the next turn starts with fresh accumulators, but preserves
+        the overall session identity (step_name, agent_name, callbacks).
+
+        The abort flag is NOT cleared — if a circuit breaker fired on a
+        previous turn, subsequent turns should not proceed.
+        """
+        abort = self._state.abort
+        self._state = _SessionState(abort=abort)
+
     def get_accumulated_text(self) -> str:
         """Return all accumulated agent text from the current session.
 

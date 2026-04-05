@@ -96,6 +96,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
         dry_run: bool = bool(inputs.get("dry_run", False))
         skip_review: bool = bool(inputs.get("skip_review", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
+        # Actor-mailbox architecture is the default, but falls back to
+        # legacy path if the executor doesn't support multi-turn sessions
+        # (e.g., in unit tests with mock executors).
+        use_supervisor: bool = True
 
         # Load checkpoint to get previously completed beads
         checkpoint = await self.load_checkpoint()
@@ -576,153 +580,161 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 await fetch_runway_context(self, ctx)
                 await snapshot_and_describe(self, ctx)
 
-                # Agent implements + validates internally
-                await run_implement_and_validate(self, ctx)
+                # Check if executor supports multi-turn (has create_session).
+                # Mock executors in tests may not — fall back to legacy.
+                _can_use_supervisor = (
+                    use_supervisor
+                    and self._step_executor is not None
+                    and hasattr(self._step_executor, "create_session")
+                )
 
-                # Orchestrator verifies independently (trust-but-verify)
-                await run_gate_check(self, ctx)
+                if _can_use_supervisor:
+                    # --- Actor-mailbox path ---
+                    outcome = await self._process_bead_with_supervisor(
+                        ctx=ctx,
+                        verification_properties=_verification_properties,
+                    )
+                    if outcome.committed:
+                        completed_bead_ids.add(bead_id)
+                        beads_succeeded += 1
+                    else:
+                        beads_failed += 1
+                        bead_failure_history.setdefault(
+                            bead_id, []
+                        ).append(outcome.error or "supervisor failed")
+                else:  # noqa: PLR5501
+                    # --- Legacy step-pipeline path ---
 
-                # One remediation attempt if gate failed
-                if ctx.gate_result and not ctx.gate_result.get("passed", False):
-                    await run_gate_remediation(self, ctx)
+                    # Agent implements + validates internally
+                    await run_implement_and_validate(self, ctx)
+
+                    # Orchestrator verifies independently (trust-but-verify)
                     await run_gate_check(self, ctx)
 
-                # Acceptance criteria check — verify the agent touched
-                # the right files and met structural requirements before
-                # spending tokens on review.
-                gate_passed = ctx.gate_result and ctx.gate_result.get(
-                    "passed", False
-                )
-                ac_passed = True
-                if gate_passed:
-                    ac_passed, ac_reasons = await run_acceptance_check(
-                        self, ctx
-                    )
-                    if not ac_reasons:
-                        ac_reasons = []
-                    if not ac_passed:
-                        # Treat AC failure as a bead failure — skip review,
-                        # feed reasons back via prior_failures on retry.
-                        ctx.verify_result = VerifyBeadCompletionResult(
-                            passed=False,
-                            reasons=tuple(ac_reasons),
-                        )
-                        ac_attempt = bead_attempt_count.get(
-                            bead_id, 0
-                        ) + 1
-                        bead_attempt_count[bead_id] = ac_attempt
-                        await snapshot_prior_attempt(
-                            run_dir, ctx, ac_attempt
-                        )
-                        if ac_attempt < MAX_RETRIES_PER_BEAD:
-                            await rollback_bead(self, ctx)
-                        beads_failed += 1
-                        bead_failure_history.setdefault(
-                            bead_id, []
-                        ).append("; ".join(ac_reasons))
-                        bead_last_review[bead_id] = ctx.review_result
-                        continue
-
-                # Spec compliance: deterministic verification properties
-                spec_passed = True
-                if (
-                    gate_passed
-                    and ac_passed
-                    and _verification_properties
-                ):
-                    spec_passed, spec_reasons = (
-                        await run_spec_compliance_check(
-                            self, ctx, _verification_properties
-                        )
-                    )
-                    if not spec_passed:
-                        ctx.verify_result = VerifyBeadCompletionResult(
-                            passed=False,
-                            reasons=tuple(spec_reasons),
-                        )
-                        sp_attempt = (
-                            bead_attempt_count.get(bead_id, 0) + 1
-                        )
-                        bead_attempt_count[bead_id] = sp_attempt
-                        await snapshot_prior_attempt(
-                            run_dir, ctx, sp_attempt
-                        )
-                        if sp_attempt < MAX_RETRIES_PER_BEAD:
-                            await rollback_bead(self, ctx)
-                        beads_failed += 1
-                        bead_failure_history.setdefault(
-                            bead_id, []
-                        ).append("; ".join(spec_reasons))
-                        bead_last_review[bead_id] = ctx.review_result
-                        continue
-
-                # Review: skip when spec compliance passed (deterministic
-                # verification already confirmed correctness)
-                skip_this_review = skip_review or (
-                    spec_passed and bool(_verification_properties)
-                )
-                if gate_passed and ac_passed:
-                    await run_review_and_remediate(
-                        self, ctx, skip_review=skip_this_review
-                    )
-                    # Final gate after review fixes
-                    if not skip_this_review and ctx.review_result:
+                    # One remediation attempt if gate failed
+                    if ctx.gate_result and not ctx.gate_result.get("passed", False):
+                        await run_gate_remediation(self, ctx)
                         await run_gate_check(self, ctx)
 
-                # Verify and decide
-                ctx.verify_result = await verify_bead_completion(
-                    validation_result=ctx.gate_result or {},
-                    review_result=ctx.review_result,
-                    skip_review=skip_review,
-                )
-
-                if ctx.verify_result and ctx.verify_result.passed:
-                    await commit_bead(self, ctx)
-                    completed_bead_ids.add(ctx.bead_id)
-                    beads_succeeded += 1
-                else:
-                    # Snapshot changed files BEFORE rollback so the
-                    # next attempt can see what this attempt produced.
-                    attempt_num = bead_attempt_count.get(bead_id, 0) + 1
-                    bead_attempt_count[bead_id] = attempt_num
-                    await snapshot_prior_attempt(
-                        run_dir, ctx, attempt_num
+                    # Acceptance criteria check
+                    gate_passed = ctx.gate_result and ctx.gate_result.get(
+                        "passed", False
                     )
-
-                    # On the LAST attempt, skip rollback so the code
-                    # stays in the working copy. The next iteration
-                    # detects exhaustion and commits what we have via
-                    # commit_bead_with_followup. Without this, the
-                    # rollback erases the agent's code and the commit
-                    # captures only metadata.
-                    is_last_attempt = (
-                        attempt_num >= MAX_RETRIES_PER_BEAD
-                    )
-                    if not is_last_attempt:
-                        await rollback_bead(self, ctx)
-
-                    beads_failed += 1
-                    reasons = (
-                        "; ".join(ctx.verify_result.reasons)
-                        if ctx.verify_result
-                        else "unknown"
-                    )
-                    bead_failure_history.setdefault(bead_id, []).append(reasons)
-                    bead_last_review[bead_id] = ctx.review_result
-                    # Track issue count for non-convergence detection
-                    if ctx.review_result:
-                        issue_count = ctx.review_result.get(
-                            "issues_remaining",
-                            ctx.review_result.get("issues_found", 0),
+                    ac_passed = True
+                    if gate_passed:
+                        ac_passed, ac_reasons = await run_acceptance_check(
+                            self, ctx
                         )
-                        chain_root = (
-                            ctx.discovered_from_chain[0]
-                            if ctx.discovered_from_chain
-                            else bead_id
+                        if not ac_reasons:
+                            ac_reasons = []
+                        if not ac_passed:
+                            ctx.verify_result = VerifyBeadCompletionResult(
+                                passed=False,
+                                reasons=tuple(ac_reasons),
+                            )
+                            ac_attempt = bead_attempt_count.get(
+                                bead_id, 0
+                            ) + 1
+                            bead_attempt_count[bead_id] = ac_attempt
+                            await snapshot_prior_attempt(
+                                run_dir, ctx, ac_attempt
+                            )
+                            if ac_attempt < MAX_RETRIES_PER_BEAD:
+                                await rollback_bead(self, ctx)
+                            beads_failed += 1
+                            bead_failure_history.setdefault(
+                                bead_id, []
+                            ).append("; ".join(ac_reasons))
+                            bead_last_review[bead_id] = ctx.review_result
+                            continue
+
+                    # Spec compliance
+                    spec_passed = True
+                    if (
+                        gate_passed
+                        and ac_passed
+                        and _verification_properties
+                    ):
+                        spec_passed, spec_reasons = (
+                            await run_spec_compliance_check(
+                                self, ctx, _verification_properties
+                            )
                         )
-                        chain_issue_trajectory.setdefault(
-                            chain_root, []
-                        ).append(issue_count)
+                        if not spec_passed:
+                            ctx.verify_result = VerifyBeadCompletionResult(
+                                passed=False,
+                                reasons=tuple(spec_reasons),
+                            )
+                            sp_attempt = (
+                                bead_attempt_count.get(bead_id, 0) + 1
+                            )
+                            bead_attempt_count[bead_id] = sp_attempt
+                            await snapshot_prior_attempt(
+                                run_dir, ctx, sp_attempt
+                            )
+                            if sp_attempt < MAX_RETRIES_PER_BEAD:
+                                await rollback_bead(self, ctx)
+                            beads_failed += 1
+                            bead_failure_history.setdefault(
+                                bead_id, []
+                            ).append("; ".join(spec_reasons))
+                            bead_last_review[bead_id] = ctx.review_result
+                            continue
+
+                    # Review
+                    skip_this_review = skip_review or (
+                        spec_passed and bool(_verification_properties)
+                    )
+                    if gate_passed and ac_passed:
+                        await run_review_and_remediate(
+                            self, ctx, skip_review=skip_this_review
+                        )
+                        if not skip_this_review and ctx.review_result:
+                            await run_gate_check(self, ctx)
+
+                    # Verify and decide
+                    ctx.verify_result = await verify_bead_completion(
+                        validation_result=ctx.gate_result or {},
+                        review_result=ctx.review_result,
+                        skip_review=skip_review,
+                    )
+
+                    if ctx.verify_result and ctx.verify_result.passed:
+                        await commit_bead(self, ctx)
+                        completed_bead_ids.add(ctx.bead_id)
+                        beads_succeeded += 1
+                    else:
+                        attempt_num = bead_attempt_count.get(bead_id, 0) + 1
+                        bead_attempt_count[bead_id] = attempt_num
+                        await snapshot_prior_attempt(
+                            run_dir, ctx, attempt_num
+                        )
+                        is_last_attempt = (
+                            attempt_num >= MAX_RETRIES_PER_BEAD
+                        )
+                        if not is_last_attempt:
+                            await rollback_bead(self, ctx)
+                        beads_failed += 1
+                        reasons = (
+                            "; ".join(ctx.verify_result.reasons)
+                            if ctx.verify_result
+                            else "unknown"
+                        )
+                        bead_failure_history.setdefault(bead_id, []).append(reasons)
+                        bead_last_review[bead_id] = ctx.review_result
+                        if ctx.review_result:
+                            issue_count = ctx.review_result.get(
+                                "issues_remaining",
+                                ctx.review_result.get("issues_found", 0),
+                            )
+                            chain_root = (
+                                ctx.discovered_from_chain[0]
+                                if ctx.discovered_from_chain
+                                else bead_id
+                            )
+                            chain_issue_trajectory.setdefault(
+                                chain_root, []
+                            ).append(issue_count)
 
             except Exception as exc:
                 logger.warning(
@@ -824,6 +836,183 @@ class FlyBeadsWorkflow(PythonWorkflow):
             human_review_items=tuple(human_review_items),
         )
         return result.to_dict()
+
+    async def _process_bead_with_supervisor(
+        self,
+        *,
+        ctx: BeadContext,
+        verification_properties: str = "",
+    ) -> Any:
+        """Process a bead using the actor-mailbox supervisor.
+
+        Creates actors, runs the supervisor loop, writes the fly report.
+        Returns a BeadOutcome.
+
+        This replaces the inline step pipeline for a single bead's
+        processing when use_supervisor=True.
+        """
+        from datetime import datetime as _dt
+
+        from maverick.workflows.fly_beads.actors.acceptance import (
+            AcceptanceCriteriaActor,
+        )
+        from maverick.workflows.fly_beads.actors.committer import CommitActor
+        from maverick.workflows.fly_beads.actors.gate import GateActor
+        from maverick.workflows.fly_beads.actors.implementer import (
+            ImplementerActor,
+        )
+        from maverick.workflows.fly_beads.actors.reviewer import ReviewerActor
+        from maverick.workflows.fly_beads.actors.spec_compliance import (
+            SpecComplianceActor,
+        )
+        from maverick.workflows.fly_beads.fly_report import (
+            build_fly_report,
+            write_fly_report,
+        )
+        from maverick.workflows.fly_beads.session_registry import (
+            BeadSessionRegistry,
+        )
+        from maverick.workflows.fly_beads.steps import (
+            _build_validation_commands,
+            _is_verification_only,
+            _parse_work_unit_sections,
+        )
+        from maverick.workflows.fly_beads.supervisor import BeadSupervisor
+
+        started_at = _dt.now(tz=UTC).isoformat()
+        cwd_str = str(ctx.cwd) if ctx.cwd else None
+
+        # Build validation commands from config (defensive for tests with mocks)
+        validation_commands: dict[str, list[str]] | None = None
+        _timeout_secs = 600.0
+        try:
+            validation_commands = _build_validation_commands(
+                self._config.validation
+            )
+            _timeout_secs = float(self._config.validation.timeout_seconds)
+        except (AttributeError, TypeError):
+            pass
+
+        # Create session registry for this bead
+        session_registry = BeadSessionRegistry(bead_id=ctx.bead_id)
+
+        # Resolve step configs for implementer and reviewer
+        from maverick.executor.config import StepConfig  # noqa: E402
+        from maverick.workflows.base import StepType  # noqa: E402
+
+        impl_config = self.resolve_step_config(
+            step_name="implement",
+            step_type=StepType.PYTHON,
+            agent_name="implementer",
+        )
+        review_config = self.resolve_step_config(
+            step_name="completeness_review",
+            step_type=StepType.PYTHON,
+            agent_name="completeness_reviewer",
+        )
+
+        # Determine allowed tools
+        allowed_tools = None
+        if _is_verification_only(ctx):
+            allowed_tools = ["Read", "Glob", "Grep"]
+
+        # Build initial implement payload from work unit sections
+        parsed = _parse_work_unit_sections(ctx.description)
+        initial_payload: dict[str, Any] = {
+            "task_description": parsed.get("task", ctx.description),
+            "cwd": cwd_str,
+        }
+        if parsed.get("acceptance criteria"):
+            initial_payload["acceptance_criteria"] = parsed["acceptance criteria"]
+        if parsed.get("file scope"):
+            initial_payload["file_scope"] = parsed["file scope"]
+        procedure = parsed.get("procedure") or parsed.get("instructions")
+        if procedure:
+            initial_payload["procedure"] = procedure
+        if parsed.get("test specification"):
+            initial_payload["test_to_pass"] = parsed["test specification"]
+        if parsed.get("verification"):
+            initial_payload["verification_commands"] = parsed["verification"]
+        if ctx.runway_context:
+            initial_payload["runway_context"] = ctx.runway_context
+
+        # Create actors
+        actors: dict[str, Any] = {
+            "implementer": ImplementerActor(
+                session_registry=session_registry,
+                executor=self._step_executor,
+                cwd=ctx.cwd,
+                config=impl_config,
+                allowed_tools=allowed_tools,
+            ),
+            "gate": GateActor(
+                cwd=cwd_str,
+                validation_commands=validation_commands,
+                timeout_seconds=_timeout_secs,
+            ),
+            "acceptance_criteria": AcceptanceCriteriaActor(
+                cwd=ctx.cwd,
+                description=ctx.description,
+            ),
+            "spec_compliance": SpecComplianceActor(
+                cwd=ctx.cwd,
+                verification_properties=verification_properties,
+            ),
+            "reviewer": ReviewerActor(
+                session_registry=session_registry,
+                executor=self._step_executor,
+                cwd=ctx.cwd,
+                config=review_config,
+                bead_description=ctx.description,
+            ),
+            "committer": CommitActor(
+                bead_id=ctx.bead_id,
+                title=ctx.title,
+                cwd=ctx.cwd,
+            ),
+        }
+
+        # Run supervisor
+        supervisor = BeadSupervisor(
+            bead_id=ctx.bead_id,
+            actors=actors,
+            initial_payload=initial_payload,
+        )
+
+        await self.emit_output(
+            "supervisor",
+            f"Processing bead {ctx.bead_id} with actor-mailbox supervisor",
+            level="info",
+        )
+
+        outcome = await supervisor.process_bead()
+
+        # Clean up sessions
+        session_registry.close_all()
+
+        # Write fly report
+        if ctx.run_dir:
+            report = build_fly_report(
+                bead_outcome=outcome,
+                title=ctx.title,
+                epic_id=ctx.epic_id,
+                started_at=started_at,
+            )
+            await write_fly_report(report, ctx.run_dir)
+
+        # Emit result
+        status = "completed" if outcome.committed else "failed"
+        tag = " [needs-human-review]" if outcome.needs_human_review else ""
+        await self.emit_output(
+            "supervisor",
+            f"Bead {ctx.bead_id} {status}{tag}"
+            f" ({outcome.review_rounds} review rounds,"
+            f" {len(outcome.message_log)} messages,"
+            f" {outcome.duration_seconds:.1f}s)",
+            level="success" if outcome.committed else "warning",
+        )
+
+        return outcome
 
 
 async def _init_workspace_runway(workspace_path: Path) -> None:

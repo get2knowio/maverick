@@ -360,6 +360,216 @@ class AcpStepExecutor:
             await _wait_for_process(cached.proc)
         self._connections.clear()
 
+    # -----------------------------------------------------------------
+    # Multi-turn session support (actor-mailbox architecture)
+    # -----------------------------------------------------------------
+
+    async def create_session(
+        self,
+        *,
+        provider: str | None = None,
+        config: StepConfig | None = None,
+        cwd: Path | None = None,
+        step_name: str = "session",
+        agent_name: str = "actor",
+        event_callback: EventCallback | None = None,
+        allowed_tools: list[str] | None = None,
+    ) -> str:
+        """Create a persistent ACP session and return its session_id.
+
+        The session stays alive on the provider's subprocess until
+        ``close_session`` is called or the executor is cleaned up.
+        Use ``prompt_session`` to send follow-up prompts.
+
+        Args:
+            provider: Provider name. None = default provider.
+            config: Step config for provider/model resolution.
+            cwd: Working directory for the session.
+            step_name: For logging/observability.
+            agent_name: For logging/observability.
+            event_callback: Async callback for streaming events.
+            allowed_tools: Tool allowlist for the client.
+
+        Returns:
+            The ACP session_id string.
+        """
+        effective_config = config if config is not None else DEFAULT_EXECUTOR_CONFIG
+
+        if provider is not None:
+            provider_name = provider
+            provider_config = self._provider_registry.get(provider)
+        elif effective_config.provider is not None:
+            provider_name = effective_config.provider
+            provider_config = self._provider_registry.get(effective_config.provider)
+        else:
+            provider_name, provider_config = self._provider_registry.default()
+
+        effective_max_tokens = effective_config.max_tokens or self._global_max_tokens
+        cached = await self._get_or_create_connection(
+            provider_name, provider_config, max_output_tokens=effective_max_tokens
+        )
+
+        cwd_str = str(cwd) if cwd else str(Path.cwd())
+
+        # Reset client for the new session
+        allowed_tools_frozen = frozenset(allowed_tools) if allowed_tools else None
+        cached.client.reset(
+            step_name=step_name,
+            agent_name=agent_name,
+            event_callback=event_callback,
+            allowed_tools=allowed_tools_frozen,
+        )
+
+        session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=[])
+        session_id = session.session_id
+
+        # Set model if configured
+        resolved_model = effective_config.model_id or provider_config.default_model
+        if resolved_model:
+            resolved_model = _resolve_model_for_provider(resolved_model, session)
+            try:
+                await cached.conn.set_session_model(
+                    model_id=resolved_model,
+                    session_id=session_id,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "acp_executor.create_session_model_failed",
+                    model_id=resolved_model,
+                    error=str(exc),
+                )
+
+        self._logger.info(
+            "acp_executor.session_created",
+            session_id=session_id,
+            provider=provider_name,
+            step_name=step_name,
+        )
+        return session_id
+
+    async def prompt_session(
+        self,
+        *,
+        session_id: str,
+        prompt_text: str,
+        provider: str | None = None,
+        config: StepConfig | None = None,
+        step_name: str = "session",
+        agent_name: str = "actor",
+        event_callback: EventCallback | None = None,
+        output_schema: type[BaseModel] | None = None,
+    ) -> ExecutorResult:
+        """Send a follow-up prompt to an existing ACP session.
+
+        Unlike ``execute()``, this reuses the session created by
+        ``create_session()`` — the agent retains full conversation
+        history from prior prompts.  This is the mechanism that enables
+        persistent context in the actor-mailbox architecture.
+
+        Args:
+            session_id: Session ID from ``create_session()``.
+            prompt_text: The prompt text to send (already formatted).
+            provider: Provider name. None = default.
+            config: Step config for timeout resolution.
+            step_name: For logging/observability.
+            agent_name: For logging/observability.
+            event_callback: Async callback for streaming events.
+            output_schema: Optional Pydantic model for output extraction.
+
+        Returns:
+            ExecutorResult with the agent's response.
+        """
+        effective_config = config if config is not None else DEFAULT_EXECUTOR_CONFIG
+
+        if provider is not None:
+            provider_name = provider
+        elif effective_config.provider is not None:
+            provider_name = effective_config.provider
+        else:
+            provider_name, _ = self._provider_registry.default()
+
+        if provider_name not in self._connections:
+            raise AgentError(
+                f"No active connection for provider '{provider_name}'. "
+                f"Call create_session() first.",
+                agent_name=agent_name,
+            )
+
+        cached = self._connections[provider_name]
+
+        # Reset per-turn accumulators, preserving session identity
+        cached.client.reset_for_turn()
+        if event_callback:
+            cached.client._event_callback = event_callback
+
+        self._logger.debug(
+            "acp_executor.prompt_session",
+            session_id=session_id,
+            step_name=step_name,
+            prompt_len=len(prompt_text),
+        )
+
+        start_time = time.monotonic()
+        try:
+            coro = cached.conn.prompt(
+                prompt=[text_block(prompt_text)],
+                session_id=session_id,
+            )
+            if effective_config.timeout is not None:
+                await asyncio.wait_for(
+                    coro, timeout=float(effective_config.timeout)
+                )
+            else:
+                await coro
+        except TimeoutError as exc:
+            raise MaverickTimeoutError(
+                f"ACP prompt on session '{session_id}' timed out after "
+                f"{effective_config.timeout}s",
+                timeout_seconds=float(effective_config.timeout or 0),
+            ) from exc
+        except AcpRequestError as exc:
+            raise NetworkError(
+                f"ACP prompt failed on session '{session_id}': {exc}",
+            ) from exc
+
+        # Check circuit breaker
+        if cached.client.aborted:
+            most_called_tool = _find_most_called_tool(cached.client)
+            raise CircuitBreakerError(
+                tool_name=most_called_tool,
+                call_count=MAX_SAME_TOOL_CALLS,
+                max_calls=MAX_SAME_TOOL_CALLS,
+                agent_name=agent_name,
+            )
+
+        accumulated_text = cached.client.get_accumulated_text()
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+
+        self._logger.debug(
+            "acp_executor.prompt_session_complete",
+            session_id=session_id,
+            step_name=step_name,
+            response_len=len(accumulated_text),
+            duration_ms=duration_ms,
+        )
+
+        # Extract and validate output
+        if output_schema is not None:
+            output = _extract_json_output(
+                text=accumulated_text,
+                output_schema=output_schema,
+                step_name=step_name,
+            )
+        else:
+            output = accumulated_text
+
+        return ExecutorResult(
+            output=output,
+            success=True,
+            usage=None,
+            events=(),
+        )
+
     async def _get_or_create_connection(
         self,
         provider_name: str,

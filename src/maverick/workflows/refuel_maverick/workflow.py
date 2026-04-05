@@ -610,43 +610,21 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         label=label_prefix,
                         prompt=detail_prompt,
                         output_schema=DetailBatchOutput,
+                        output_file_path=str(batch_file),
                         timeout=600,
                     )
-                    if detail_result.output is None:
-                        raise WorkflowError(
-                            f"{label_prefix} completed but produced no output"
-                        )
-                    return [detail_result.output]
+                    if isinstance(detail_result.output, DetailBatchOutput):
+                        return [detail_result.output]
+                    raise WorkflowError(
+                        f"{label_prefix} completed but no output file"
+                        f" or parseable text produced"
+                    )
                 except (
                     OutputSchemaValidationError,
                     MalformedResponseError,
                     WorkflowError,
                     Exception,
                 ) as exc:
-                    # Try reading from file FIRST — the agent may have
-                    # written valid JSON to disk even though text
-                    # extraction failed (execute_agent retries exhaust
-                    # before our except block runs).
-                    if batch_file.exists():
-                        try:
-                            data = _json.loads(
-                                batch_file.read_text(encoding="utf-8")
-                            )
-                            parsed = DetailBatchOutput.model_validate(
-                                data
-                            )
-                            logger.info(
-                                "detail_batch_recovered_from_file",
-                                path=str(batch_file),
-                                units=len(parsed.details),
-                            )
-                            return [parsed]
-                        except Exception as file_exc:
-                            logger.debug(
-                                "detail_file_parse_failed",
-                                path=str(batch_file),
-                                error=str(file_exc),
-                            )
                     # File fallback failed — proceed with binary split
                     # only for parse errors, not quota/network errors
                     if not isinstance(

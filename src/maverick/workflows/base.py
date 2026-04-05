@@ -407,6 +407,7 @@ class PythonWorkflow(ABC):
         label: str,
         prompt: Any,
         output_schema: type[Any] | None = None,
+        output_file_path: str | None = None,
         parent_step: str | None = None,
         timeout: int = 300,
         max_retries: int = 3,
@@ -419,23 +420,44 @@ class PythonWorkflow(ABC):
         - Exponential-backoff retry on transient/timeout errors
         - Retry progress messages (↻ label retry N/max...)
 
+        When ``output_file_path`` is provided, the agent is expected to
+        write its structured output to that file (via the Write tool).
+        The executor will NOT try to parse JSON from the agent's text
+        response — the file IS the output contract.  After the agent
+        completes, the file is read and validated against
+        ``output_schema`` (if provided).  This avoids the fragile
+        dual-expectation pattern where agents must produce valid JSON
+        in both their conversational text AND a file.
+
         Args:
             step_name: Executor step name for observability.
             agent_name: Registry key of the agent.
             label: Human-readable label for progress messages.
             prompt: Prompt passed to the agent.
             output_schema: Optional Pydantic model for structured output.
+                When used with ``output_file_path``, validates the file
+                contents rather than the text response.
+            output_file_path: Path where the agent writes structured
+                output.  When set, ``output_schema`` is NOT passed to
+                the underlying executor (no text extraction).  The file
+                is read and validated after the agent finishes.
             parent_step: Step name for emitting progress events.
                 Defaults to ``step_name``.
             timeout: Per-attempt timeout in seconds.
             max_retries: Maximum number of attempts.
 
         Returns:
-            The ``ExecutorResult`` from the executor.
+            The ``ExecutorResult`` from the executor.  When
+            ``output_file_path`` is used with ``output_schema``, the
+            result's ``.output`` is replaced with the validated model
+            instance from the file.
 
         Raises:
             WorkflowError: If no step executor is configured.
         """
+        import json as _json
+        from pathlib import Path
+
         from tenacity import (
             AsyncRetrying,
             retry_if_exception_type,
@@ -486,6 +508,12 @@ class PythonWorkflow(ABC):
             OutputSchemaValidationError,
         )
 
+        # When output_file_path is set, the file is the output contract.
+        # Don't pass output_schema to the executor — it would try to
+        # extract JSON from the agent's conversational text response,
+        # which fails across models (Gemini, Codex, even Claude sometimes).
+        executor_schema = None if output_file_path else output_schema
+
         t0 = time.monotonic()
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(max_retries),
@@ -505,13 +533,49 @@ class PythonWorkflow(ABC):
                     step_name=step_name,
                     agent_name=agent_name,
                     prompt=prompt,
-                    output_schema=output_schema,
+                    output_schema=executor_schema,
                     event_callback=_event_cb,
                     config=resolved,
                     agent_kwargs=agent_kwargs,
                 )
 
         elapsed = time.monotonic() - t0
+
+        # File-based output: read and validate the file the agent wrote.
+        if output_file_path and output_schema:
+            file_path = Path(output_file_path)
+            if file_path.exists():
+                try:
+                    data = _json.loads(file_path.read_text(encoding="utf-8"))
+                    validated = output_schema.model_validate(data)
+                    # Replace the raw text output with the validated model
+                    result = result.__class__(
+                        output=validated,
+                        success=result.success,
+                        usage=result.usage,
+                        events=result.events,
+                        model_label=getattr(result, "model_label", None),
+                    )
+                    logger.info(
+                        "execute_agent.output_from_file",
+                        path=str(file_path),
+                        step_name=step_name,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "execute_agent.file_parse_failed",
+                        path=str(file_path),
+                        error=str(exc),
+                        step_name=step_name,
+                    )
+                    # Fall through — return the raw result as-is
+            else:
+                logger.debug(
+                    "execute_agent.output_file_not_found",
+                    path=str(file_path),
+                    step_name=step_name,
+                )
+
         # R4: ✓ end
         await self.emit_output(
             emit_step,

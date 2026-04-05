@@ -172,7 +172,10 @@ async def test_report_does_not_upgrade_request_changes() -> None:
     )
 
     assert report.recommendation == "request_changes"
-    assert report.issues_remaining > 0
+    # With no review_findings in the loop result, issues_remaining is 0.
+    # The recommendation alone carries the signal — phantom sentinel counts
+    # (the old `else 1` fallback) were removed to prevent false blocking.
+    assert report.issues_remaining == 0
 
 
 @pytest.mark.asyncio

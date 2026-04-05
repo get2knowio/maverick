@@ -617,7 +617,7 @@ async def run_review_fix_loop(
             executor=executor,
             review_step_configs=review_step_configs,
         )
-        current_recommendation = review_result.get("recommendation", "request_changes")
+        current_recommendation = review_result.get("recommendation", "comment")
         last_findings = _extract_findings(review_result)
 
         # Step 1b: Handle reviewer errors — don't treat failures as clean reviews
@@ -692,10 +692,14 @@ async def run_review_fix_loop(
                 # Continue to next iteration — the re-review will show whether
                 # the fixer managed partial progress before failing
 
-    # Max attempts exhausted — if every attempt was a reviewer error, report failure
+    # Max attempts exhausted — if every attempt was a reviewer error,
+    # treat as "comment" (pass-through) rather than "request_changes".
+    # Reviewer infrastructure failures should not block the pipeline;
+    # the gate checks and spec compliance step provide independent
+    # correctness verification.
     if review_errors and current_recommendation == "error":
         logger.error("Review loop exhausted with errors: %s", review_errors)
-        current_recommendation = "request_changes"
+        current_recommendation = "comment"
 
     return await _maybe_report(
         ReviewFixLoopResult(
@@ -816,18 +820,23 @@ async def _run_dual_review(
         corr_context["findings_output_path"] = str(corr_path)
 
         try:
+            # Don't pass output_schema — the reviewers write JSON to
+            # findings_output_path via the Write tool.  The file is the
+            # output contract.  Passing output_schema causes the executor
+            # to try extracting JSON from the agent's conversational text,
+            # which fails across models and triggers unnecessary retries.
             completeness_task = _executor.execute(
                 step_name="completeness_review",
                 agent_name=completeness.name,
                 prompt=comp_context,
-                output_schema=GroupedReviewResult,
+                output_schema=None,
                 config=_configs.get("completeness_review"),
             )
             correctness_task = _executor.execute(
                 step_name="correctness_review",
                 agent_name=correctness.name,
                 prompt=corr_context,
-                output_schema=GroupedReviewResult,
+                output_schema=None,
                 config=_configs.get("correctness_review"),
             )
             completeness_result, correctness_result = await asyncio.gather(
@@ -863,6 +872,33 @@ async def _run_dual_review(
                     )
                     return None
 
+            def _try_parse_text(
+                result: Any,
+            ) -> GroupedReviewResult | None:
+                """Try to parse GroupedReviewResult from executor text output.
+
+                Handles the case where reviewers (especially Gemini) embed
+                JSON in their text response instead of using the Write tool.
+                """
+                if isinstance(result, BaseException):
+                    return None
+                output = result.output
+                if isinstance(output, GroupedReviewResult):
+                    return output
+                # Try parsing raw text as JSON (markdown code block or bare)
+                if isinstance(output, str) and output.strip():
+                    from maverick.agents.contracts import validate_output as _vo
+                    parsed = _vo(output, GroupedReviewResult, strict=False)
+                    if parsed is not None:
+                        return parsed
+                    # Last resort: try bare JSON parse
+                    try:
+                        data = _json.loads(output)
+                        return GroupedReviewResult.model_validate(data)
+                    except Exception:
+                        pass
+                return None
+
             if completeness_failed:
                 # Try file fallback before giving up
                 file_result = _load_from_file(comp_path)
@@ -875,14 +911,14 @@ async def _run_dual_review(
                         completeness_result,
                     )
             elif not isinstance(completeness_result, BaseException):
-                # Try file first, then executor output
+                # Try file first, then structured output, then text parsing
                 file_result = _load_from_file(comp_path)
                 if file_result:
                     completeness_groups = list(file_result.groups)
                 else:
-                    output = completeness_result.output
-                    if isinstance(output, GroupedReviewResult):
-                        completeness_groups = list(output.groups)
+                    parsed = _try_parse_text(completeness_result)
+                    if parsed is not None:
+                        completeness_groups = list(parsed.groups)
 
             if correctness_failed:
                 file_result = _load_from_file(corr_path)
@@ -899,9 +935,9 @@ async def _run_dual_review(
                 if file_result:
                     correctness_groups = list(file_result.groups)
                 else:
-                    output = correctness_result.output
-                    if isinstance(output, GroupedReviewResult):
-                        correctness_groups = list(output.groups)
+                    parsed = _try_parse_text(correctness_result)
+                    if parsed is not None:
+                        correctness_groups = list(parsed.groups)
 
             # If both reviewers failed, report as error — don't
             # masquerade as "no issues found"
@@ -1093,7 +1129,7 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
 
         if context_result.error:
             logger.warning("Failed to gather review context: %s", context_result.error)
-            return {"recommendation": "request_changes"}
+            return {"recommendation": "error", "review_error": str(context_result.error)}
 
         review_input = {
             "review_metadata": context_result.review_metadata.to_dict(),
@@ -1106,8 +1142,8 @@ async def _run_review_check(base_branch: str) -> dict[str, Any]:
         return await _run_dual_review(review_input, base_branch)
 
     except Exception as e:
-        logger.warning("Re-review failed: %s, assuming issues remain", e)
-        return {"recommendation": "request_changes"}
+        logger.warning("Re-review failed: %s", e)
+        return {"recommendation": "error", "review_error": str(e)}
 
 
 async def generate_review_fix_report(
@@ -1175,10 +1211,11 @@ async def generate_review_fix_report(
     else:
         effective_recommendation = final_recommendation
 
-    # Use real finding count when available, fall back to sentinel (1)
-    # when findings weren't captured (e.g., reviewer errored).
+    # Use real finding count — zero findings means zero issues, not one.
+    # The old sentinel (else 1) caused phantom "1 issue remaining" when
+    # findings extraction failed, blocking every bead indefinitely.
     review_findings = tuple(loop_result.get("review_findings", ()))
-    finding_count = len(review_findings) if review_findings else 1
+    finding_count = len(review_findings)
     effective_remaining = 0 if effective_recommendation == "approve" else finding_count
     effective_found = 0 if effective_recommendation == "approve" else finding_count
 

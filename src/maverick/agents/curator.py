@@ -38,7 +38,14 @@ cleaner, more logical history before they are pushed.
 1. **Squash fix/fixup/lint/format/typecheck commits** into their logical \
 parent.  Use ``jj squash -r <change_id>`` (squashes into parent).
 2. **Improve commit messages** that are vague, duplicated, or inconsistent. \
-Use ``jj describe -r <change_id> -m "<new message>"``.
+Use ``jj describe -r <change_id> -m "<new message>"``.  \
+**CRITICAL: strip all internal orchestration references** from commit messages. \
+Remove bead IDs (``bead(project-xyz.N)``), follow-up/re-plan prefixes \
+(``Address review findings from ...``), and any pipeline mechanics. \
+Write messages as if a developer authored them — conventional commit \
+format (``type(scope): imperative description``), no internal tooling \
+references.  The permanent git history must read like human-authored \
+commits, not pipeline output.
 3. **Reorder commits** for logical flow when independent changes are \
 interleaved.  Use ``jj rebase -r <change_id> --after <target_id>``.
 4. **Never split commits** — that is too risky for a one-shot plan.
