@@ -42,9 +42,16 @@ description tells it what to do.
   `~/.maverick/workspaces/` clone; your working directory stays untouched
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context over time
-- **Resilient operation** — Automatic retries, validation-fix loops,
-  escalation chains with circuit breakers, prior-attempt snapshots for
-  iterative retry, and bead-level rollback on failure
+- **Actor-mailbox orchestration** — Fly uses an actor-model supervisor
+  where the implementer and reviewer maintain persistent ACP sessions within
+  each bead's lifetime. They exchange messages through a supervisor that
+  routes and enforces policy — no context loss between retries, no review
+  oscillation, no follow-up bead proliferation
+- **Three information types** — Clean separation between beads (domain work
+  units on the project board), files (durable context surviving restarts),
+  and messages (ephemeral process coordination between actors)
+- **Fly reports** — Structured JSON capturing the complete message exchange
+  per bead, feeding into runway for process-level learning
 
 ## Quick Start
 
@@ -127,9 +134,11 @@ PRD ──▶ plan generate ──▶ refuel ──▶ fly ──▶ land
    properties (executable test assertions derived from acceptance criteria)
 2. **Refuel** — Decomposes the plan into beads with SOP-style procedures
    (MUST/SHOULD/MAY steps) and threads verification properties
-3. **Fly** — Bead loop: implement → gate check → acceptance check →
-   spec compliance → [review if no properties] → commit → next
-4. **Land** — AI curator reorganizes commits, merges into your local repo
+3. **Fly** — Actor-mailbox supervisor per bead: implementer and reviewer
+   collaborate via persistent sessions with deterministic gate/AC/spec
+   actors validating between rounds
+4. **Land** — AI curator reorganizes commits (stripping internal bead
+   references), merges clean conventional-commit history into your local repo
 
 ### `maverick plan generate` — Plan from PRD
 
@@ -187,21 +196,31 @@ The primary execution command. Iterates over ready beads until done:
 preflight ──▶ baseline_gate ──▶ create_workspace ──▶ bead loop
                                                         │
   ┌── select next ready bead ◄──────────────────────────┘
-  ├── snapshot (jj operation for rollback)
-  ├── implement (ImplementerAgent via ACP, SOP procedure)
-  ├── gate check (format/lint/typecheck/test)
-  │   └── gate remediation if failed (1 attempt)
-  ├── acceptance check (file scope, verification commands)
-  ├── spec compliance (deterministic verification properties)
-  │   └── if failed → exact assertion error fed to implementer
-  ├── review (dual: completeness + correctness, advisory)
-  │   └── skipped when spec compliance passes
-  ├── verify completion gate
-  ├── rollback + snapshot on failure / commit on success
-  ├── escalation chain (follow-up → re-plan → circuit breaker)
-  ├── record runway data (outcome, review findings)
-  └── check_done (exit or next bead)
+  │
+  └── BeadSupervisor (actor-mailbox per bead)
+      ├── ImplementerActor (persistent ACP session)
+      │   ├── receives IMPLEMENT_REQUEST → writes code
+      │   └── receives FIX_REQUEST → targeted fixes (same session)
+      ├── GateActor (deterministic: build/lint/test)
+      ├── AcceptanceCriteriaActor (deterministic: verification commands)
+      ├── SpecComplianceActor (deterministic: VP tests)
+      ├── ReviewerActor (persistent ACP session)
+      │   ├── first review → full diff review
+      │   └── follow-up → checks prior findings addressed (same session)
+      └── CommitActor (jj commit + runway recording)
+
+      Message flow:
+      Implement → Gate → AC → Spec → Review ──┐
+                                               │
+      ┌── if approved ──────────── Commit ◄────┘
+      └── if findings ── Fix → Gate → Review (up to 3 rounds)
 ```
+
+The supervisor routes messages between actors. The implementer and reviewer
+maintain persistent ACP sessions — the implementer remembers its decisions,
+the reviewer checks its own prior findings. This eliminates review oscillation
+(previously 11→10→12 per bead, now 0-1 rounds) and follow-up bead
+proliferation (review negotiation stays within the bead as messages).
 
 After `fly` finishes, run `maverick land` to curate history and merge.
 
@@ -214,10 +233,6 @@ After `fly` finishes, run `maverick land` to curate history and merge.
 | `--auto-commit` | false | Auto-commit uncommitted changes before cloning workspace |
 | `--list-steps` | false | List workflow steps and exit |
 | `--session-log <path>` | (none) | Write session journal (JSONL) |
-
-**How failures become beads**: When validation or review finds issues that can't
-be auto-fixed, new beads are created under the same epic with high priority.
-The outer loop picks them up on the next iteration.
 
 ### `maverick land` — Finalize and Ship
 
@@ -316,17 +331,26 @@ Maverick follows a clean separation of concerns:
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
+│  Actor-Mailbox Layer (fly only)                             │
+│  BeadSupervisor — routes messages between actors per bead   │
+│  ImplementerActor, ReviewerActor (persistent ACP sessions)  │
+│  GateActor, ACCheckActor, SpecActor, CommitActor (Python)   │
+│  BeadSessionRegistry — session lifecycle per bead           │
+│  FlyReport — structured message log per bead                │
+└─────────────────────────────────────────────────────────────┘
+                          |
+┌─────────────────────────────────────────────────────────────┐
 │  ACP Executor Layer (Agent Client Protocol)                 │
-│  MaverickAcpExecutor — spawns claude-agent-acp subprocess,  │
-│  streams output, extracts structured JSON with schema       │
-│  coercion and truncation repair                             │
+│  AcpStepExecutor — spawns agent subprocesses, supports      │
+│  single-turn (execute) and multi-turn (create_session +     │
+│  prompt_session) modes for persistent conversations         │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
 │  Agent Layer                                                │
 │  ImplementerAgent, CompletenessReviewer, CorrectnessReviewer│
-│  FixerAgent, DecomposerAgent, CuratorAgent, Briefing agents │
-│  (system prompts, tool selection, file-based JSON output)    │
+│  DecomposerAgent, CuratorAgent, Briefing agents             │
+│  (system prompts, tool selection, file-based JSON output)   │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -340,12 +364,19 @@ Maverick follows a clean separation of concerns:
 
 - **Agents** know HOW to do a task — system prompts, tool selection, structured
   output schemas. They provide judgment (implementation, review, fix suggestions).
+- **Actors** are stateful wrappers around agents (or pure Python for deterministic
+  checks). They maintain persistent ACP sessions, receive messages, and respond
+  through the supervisor. Agent actors keep conversation context across the full
+  bead lifetime; deterministic actors wrap existing action functions.
+- **Supervisor** routes messages between actors for a single bead's processing.
+  The routing policy (when to re-gate, when to escalate, when to commit) is an
+  explicit match statement, not scattered control flow.
 - **Workflows** know WHAT to do and WHEN — orchestration, state management,
-  sequencing. They own deterministic side effects (commits, validation, retries).
-- **ACP Executor** bridges agents and workflows — spawns agent subprocesses via
-  the Agent Client Protocol, streams conversational output for display, and
-  extracts structured JSON from agent responses with schema coercion and
-  truncation repair.
+  sequencing. They own the outer bead loop and delegate per-bead processing
+  to the supervisor.
+- **ACP Executor** bridges actors and agent subprocesses — supports both
+  single-turn (`execute`) and multi-turn (`create_session` + `prompt_session`)
+  modes for persistent conversations.
 - **Tools** wrap external systems — GitHub API, VCS, notifications.
 
 ### Agent Execution via ACP
@@ -382,11 +413,15 @@ before each bead, and restores to the snapshot if the verification gate fails.
 
 The runway records episodic data as beads are processed:
 
+- **Fly reports** — Complete message exchange per bead (the actor-mailbox
+  conversation log), including findings trajectory, review rounds, timing,
+  and implementation decisions
 - **Bead outcomes** — Success/failure status, implementation details, error context
 - **Review findings** — What reviewers flagged, severity, resolution status
 - **Fix attempts** — What was tried, what worked, what didn't
 
-This data is stored as JSONL files with BM25-based retrieval. Over time, agents
+This data is stored as JSONL files and per-bead JSON fly reports with
+BM25-based retrieval. Over time, agents
 can query the runway for context on past decisions, recurring patterns, and
 known pitfalls. The `maverick runway seed` command bootstraps this store by
 analyzing a brownfield codebase with an AI agent. Periodic consolidation
