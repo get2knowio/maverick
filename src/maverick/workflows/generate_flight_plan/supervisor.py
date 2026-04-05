@@ -117,20 +117,22 @@ class PlanSupervisor:
         )
 
     async def _run_briefing_parallel(self) -> None:
-        """Fan-out: 3 briefing agents in parallel."""
+        """Run 3 briefing agents sequentially.
+
+        ACP supports one session at a time per connection, so we
+        run briefing agents sequentially rather than in parallel.
+        Each agent gets its own session with its own MCP server.
+        """
         from maverick.agents.preflight_briefing.prompts import (
             build_preflight_briefing_prompt,
         )
 
         briefing_prompt = build_preflight_briefing_prompt(self._prd_content)
 
-        # Create messages for each parallel agent
-        parallel_agents = ["scopist", "codebase_analyst", "criteria_writer"]
-
-        async def _run_one(agent_name: str) -> Message | None:
+        for agent_name in ["scopist", "codebase_analyst", "criteria_writer"]:
             actor = self._actors.get(agent_name)
             if actor is None:
-                return None
+                continue
 
             msg = self._make_message(
                 MessageType.BRIEFING_REQUEST,
@@ -140,28 +142,18 @@ class PlanSupervisor:
             )
             self._message_log.append(msg)
 
-            responses = await actor.receive(msg)
-            for r in responses:
-                r = self._stamp(r)
-                self._message_log.append(r)
-                return r
-            return None
-
-        results = await asyncio.gather(
-            *[_run_one(name) for name in parallel_agents],
-            return_exceptions=True,
-        )
-
-        for result in results:
-            if isinstance(result, Exception):
+            try:
+                responses = await actor.receive(msg)
+                for r in responses:
+                    r = self._stamp(r)
+                    self._message_log.append(r)
+                    self._briefs[agent_name] = r.payload
+            except Exception as exc:
                 logger.warning(
                     "plan_supervisor.briefing_agent_failed",
-                    error=str(result),
+                    agent=agent_name,
+                    error=str(exc),
                 )
-                continue
-            if result is not None:
-                agent_name = result.payload.get("agent", "")
-                self._briefs[agent_name] = result.payload
 
         logger.info(
             "plan_supervisor.briefing_complete",

@@ -202,24 +202,15 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             and hasattr(self._step_executor, "create_session")
         )
 
-        if _can_use_supervisor:
-            outcome = await self._generate_with_supervisor(
-                prd_content=prd_content,
-                name=name,
-                plan_dir=plan_dir,
-                skip_briefing=skip_briefing,
-            )
-            result = GenerateFlightPlanResult(
-                flight_plan_path=outcome.flight_plan_path,
-                name=name,
-                success_criteria_count=outcome.success_criteria_count,
-                validation_passed=outcome.validation_passed,
-                briefing_generated=outcome.briefing_path is not None,
-            )
-            return result.to_dict()
+        # Plan generation uses the legacy path for now.
+        # The briefing agents are one-shot (no multi-turn conversation)
+        # and some providers (Copilot) don't support MCP servers in
+        # ACP sessions. The MCP pattern adds more value for refuel
+        # and fly where there's persistent-session back-and-forth.
+        # TODO: Enable when all providers support MCP in ACP sessions.
 
         # ------------------------------------------------------------------
-        # Legacy path: Step 2: Pre-Flight Briefing Room (optional)
+        # Step 2: Pre-Flight Briefing Room (optional)
         # ------------------------------------------------------------------
         briefing_content: str | None = None
         briefing_generated = False
