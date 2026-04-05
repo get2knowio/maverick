@@ -82,6 +82,33 @@ class MessageType(str, Enum):
     # BeadCreator → Supervisor
     CREATE_BEADS_RESULT = "create_beads_result"
 
+    # --- Plan generation messages ---
+
+    # Supervisor → BriefingActor (one per briefing agent)
+    BRIEFING_REQUEST = "briefing_request"
+    # BriefingActor → Supervisor (via MCP tool: submit_scope/analysis/criteria/challenge)
+    BRIEFING_RESULT = "briefing_result"
+
+    # Supervisor → SynthesisActor (deterministic)
+    SYNTHESIS_REQUEST = "synthesis_request"
+    # SynthesisActor → Supervisor
+    SYNTHESIS_RESULT = "synthesis_result"
+
+    # Supervisor → GeneratorActor
+    GENERATE_PLAN_REQUEST = "generate_plan_request"
+    # GeneratorActor → Supervisor (via MCP tool: submit_flight_plan)
+    GENERATE_PLAN_RESULT = "generate_plan_result"
+
+    # Supervisor → ValidatePlanActor (deterministic)
+    VALIDATE_PLAN_REQUEST = "validate_plan_request"
+    # ValidatePlanActor → Supervisor
+    VALIDATE_PLAN_RESULT = "validate_plan_result"
+
+    # Supervisor → WritePlanActor (deterministic)
+    WRITE_PLAN_REQUEST = "write_plan_request"
+    # WritePlanActor → Supervisor
+    WRITE_PLAN_RESULT = "write_plan_result"
+
 
 @dataclass(frozen=True, slots=True)
 class Message:

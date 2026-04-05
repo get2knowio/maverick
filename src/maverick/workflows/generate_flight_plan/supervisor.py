@@ -1,0 +1,331 @@
+"""PlanSupervisor — fan-out/fan-in routing for flight plan generation.
+
+Routes messages between briefing agents (parallel), contrarian
+(sequential), synthesis (deterministic), generator, validator,
+and writer actors.
+
+The fan-out/fan-in pattern: 3 briefing agents run in parallel,
+the supervisor collects results as they arrive, and routes to the
+contrarian only when all 3 have reported.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+from maverick.logging import get_logger
+from maverick.workflows.fly_beads.actors.protocol import (
+    Actor,
+    Message,
+    MessageType,
+)
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class PlanOutcome:
+    """Result of the plan generation supervisor."""
+
+    success: bool = False
+    flight_plan_path: str = ""
+    briefing_path: str | None = None
+    success_criteria_count: int = 0
+    validation_passed: bool = False
+    message_log: list[Message] = field(default_factory=list)
+    duration_seconds: float = 0.0
+    error: str | None = None
+
+
+class PlanSupervisor:
+    """Routes messages for flight plan generation.
+
+    Handles the fan-out/fan-in pattern: 3 parallel briefing agents
+    → contrarian → synthesis → generator → validate → write.
+
+    Since Phase 1 is sequential, the 3 parallel agents are dispatched
+    via asyncio.gather on their actor.receive() calls.
+    """
+
+    def __init__(
+        self,
+        *,
+        actors: dict[str, Actor],
+        prd_content: str,
+        plan_name: str,
+        skip_briefing: bool = False,
+    ) -> None:
+        self._actors = actors
+        self._prd_content = prd_content
+        self._plan_name = plan_name
+        self._skip_briefing = skip_briefing
+        self._message_log: list[Message] = []
+        self._sequence: int = 0
+
+        # Collected briefing results
+        self._briefs: dict[str, dict[str, Any]] = {}
+        self._briefing_markdown: str = ""
+        self._flight_plan_data: dict[str, Any] = {}
+
+    async def process(self) -> PlanOutcome:
+        """Main supervisor loop."""
+        t0 = time.monotonic()
+
+        try:
+            if self._skip_briefing:
+                # Go straight to generator
+                await self._run_generator()
+            else:
+                # Fan-out briefing
+                await self._run_briefing_parallel()
+                # Contrarian
+                await self._run_contrarian()
+                # Synthesis
+                await self._run_synthesis()
+                # Generator
+                await self._run_generator()
+
+            # Validate
+            await self._run_validation()
+            # Write
+            result = await self._run_writer()
+
+        except Exception as exc:
+            logger.error("plan_supervisor.error", error=str(exc))
+            elapsed = time.monotonic() - t0
+            return PlanOutcome(
+                success=False,
+                message_log=list(self._message_log),
+                duration_seconds=elapsed,
+                error=str(exc),
+            )
+
+        elapsed = time.monotonic() - t0
+        return PlanOutcome(
+            success=True,
+            flight_plan_path=result.get("flight_plan_path", ""),
+            briefing_path=result.get("briefing_path"),
+            success_criteria_count=len(
+                self._flight_plan_data.get("success_criteria", [])
+            ),
+            validation_passed=True,
+            message_log=list(self._message_log),
+            duration_seconds=elapsed,
+        )
+
+    async def _run_briefing_parallel(self) -> None:
+        """Fan-out: 3 briefing agents in parallel."""
+        from maverick.agents.preflight_briefing.prompts import (
+            build_preflight_briefing_prompt,
+        )
+
+        briefing_prompt = build_preflight_briefing_prompt(self._prd_content)
+
+        # Create messages for each parallel agent
+        parallel_agents = ["scopist", "codebase_analyst", "criteria_writer"]
+
+        async def _run_one(agent_name: str) -> Message | None:
+            actor = self._actors.get(agent_name)
+            if actor is None:
+                return None
+
+            msg = self._make_message(
+                MessageType.BRIEFING_REQUEST,
+                sender="supervisor",
+                recipient=agent_name,
+                payload={"prompt": briefing_prompt},
+            )
+            self._message_log.append(msg)
+
+            responses = await actor.receive(msg)
+            for r in responses:
+                r = self._stamp(r)
+                self._message_log.append(r)
+                return r
+            return None
+
+        results = await asyncio.gather(
+            *[_run_one(name) for name in parallel_agents],
+            return_exceptions=True,
+        )
+
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(
+                    "plan_supervisor.briefing_agent_failed",
+                    error=str(result),
+                )
+                continue
+            if result is not None:
+                agent_name = result.payload.get("agent", "")
+                self._briefs[agent_name] = result.payload
+
+        logger.info(
+            "plan_supervisor.briefing_complete",
+            agents_responded=len(self._briefs),
+        )
+
+    async def _run_contrarian(self) -> None:
+        """Sequential: contrarian reviews all 3 briefing results."""
+        from maverick.agents.preflight_briefing.prompts import (
+            build_preflight_contrarian_prompt,
+        )
+
+        contrarian = self._actors.get("contrarian")
+        if contrarian is None:
+            return
+
+        prompt = build_preflight_contrarian_prompt(
+            self._prd_content,
+            self._briefs.get("scopist", {}),
+            self._briefs.get("codebase_analyst", {}),
+            self._briefs.get("criteria_writer", {}),
+        )
+
+        msg = self._make_message(
+            MessageType.BRIEFING_REQUEST,
+            sender="supervisor",
+            recipient="contrarian",
+            payload={"prompt": prompt},
+        )
+        self._message_log.append(msg)
+
+        responses = await contrarian.receive(msg)
+        for r in responses:
+            r = self._stamp(r)
+            self._message_log.append(r)
+            self._briefs["contrarian"] = r.payload
+
+    async def _run_synthesis(self) -> None:
+        """Deterministic: merge 4 briefs into briefing document."""
+        synthesis = self._actors.get("synthesis")
+        if synthesis is None:
+            return
+
+        msg = self._make_message(
+            MessageType.SYNTHESIS_REQUEST,
+            sender="supervisor",
+            recipient="synthesis",
+            payload={
+                "scopist": self._briefs.get("scopist"),
+                "analyst": self._briefs.get("codebase_analyst"),
+                "criteria": self._briefs.get("criteria_writer"),
+                "contrarian": self._briefs.get("contrarian"),
+            },
+        )
+        self._message_log.append(msg)
+
+        responses = await synthesis.receive(msg)
+        for r in responses:
+            r = self._stamp(r)
+            self._message_log.append(r)
+            self._briefing_markdown = r.payload.get(
+                "briefing_markdown", ""
+            )
+
+    async def _run_generator(self) -> None:
+        """Generate the flight plan."""
+        generator = self._actors.get("generator")
+        if generator is None:
+            raise ValueError("No generator actor configured")
+
+        # Build prompt with PRD + briefing
+        parts = [f"## PRD Content\n\n{self._prd_content}"]
+        if self._briefing_markdown:
+            parts.append(
+                f"## Pre-Flight Briefing\n\n{self._briefing_markdown}"
+            )
+        prompt = "\n\n".join(parts)
+
+        msg = self._make_message(
+            MessageType.GENERATE_PLAN_REQUEST,
+            sender="supervisor",
+            recipient="generator",
+            payload={"prompt": prompt},
+        )
+        self._message_log.append(msg)
+
+        responses = await generator.receive(msg)
+        for r in responses:
+            r = self._stamp(r)
+            self._message_log.append(r)
+            self._flight_plan_data = r.payload
+
+    async def _run_validation(self) -> None:
+        """Validate the flight plan."""
+        validator = self._actors.get("plan_validator")
+        if validator is None:
+            return
+
+        msg = self._make_message(
+            MessageType.VALIDATE_PLAN_REQUEST,
+            sender="supervisor",
+            recipient="plan_validator",
+            payload={"flight_plan": self._flight_plan_data},
+        )
+        self._message_log.append(msg)
+
+        responses = await validator.receive(msg)
+        for r in responses:
+            r = self._stamp(r)
+            self._message_log.append(r)
+
+    async def _run_writer(self) -> dict[str, Any]:
+        """Write flight plan and briefing to disk."""
+        writer = self._actors.get("plan_writer")
+        if writer is None:
+            return {}
+
+        msg = self._make_message(
+            MessageType.WRITE_PLAN_REQUEST,
+            sender="supervisor",
+            recipient="plan_writer",
+            payload={
+                "flight_plan_markdown": str(self._flight_plan_data),
+                "briefing_markdown": self._briefing_markdown,
+                "plan_name": self._plan_name,
+            },
+        )
+        self._message_log.append(msg)
+
+        responses = await writer.receive(msg)
+        for r in responses:
+            r = self._stamp(r)
+            self._message_log.append(r)
+            return r.payload
+        return {}
+
+    # ------------------------------------------------------------------
+    # Message helpers
+    # ------------------------------------------------------------------
+
+    def _make_message(
+        self,
+        msg_type: MessageType,
+        *,
+        sender: str,
+        recipient: str,
+        payload: dict[str, Any] | None = None,
+    ) -> Message:
+        self._sequence += 1
+        return Message(
+            msg_type=msg_type,
+            sender=sender,
+            recipient=recipient,
+            payload=payload or {},
+            sequence=self._sequence,
+        )
+
+    def _stamp(self, message: Message) -> Message:
+        self._sequence += 1
+        return Message(
+            msg_type=message.msg_type,
+            sender=message.sender,
+            recipient=message.recipient,
+            payload=message.payload,
+            sequence=self._sequence,
+            in_reply_to=message.in_reply_to,
+        )

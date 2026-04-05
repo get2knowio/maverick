@@ -196,8 +196,30 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         )
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
+        # Check if executor supports multi-turn (actor-mailbox path)
+        _can_use_supervisor = (
+            self._step_executor is not None
+            and hasattr(self._step_executor, "create_session")
+        )
+
+        if _can_use_supervisor:
+            outcome = await self._generate_with_supervisor(
+                prd_content=prd_content,
+                name=name,
+                plan_dir=plan_dir,
+                skip_briefing=skip_briefing,
+            )
+            result = GenerateFlightPlanResult(
+                flight_plan_path=outcome.flight_plan_path,
+                name=name,
+                success_criteria_count=outcome.success_criteria_count,
+                validation_passed=outcome.validation_passed,
+                briefing_generated=outcome.briefing_path is not None,
+            )
+            return result.to_dict()
+
         # ------------------------------------------------------------------
-        # Step 2: Pre-Flight Briefing Room (optional)
+        # Legacy path: Step 2: Pre-Flight Briefing Room (optional)
         # ------------------------------------------------------------------
         briefing_content: str | None = None
         briefing_generated = False
@@ -422,3 +444,135 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             briefing_generated=briefing_generated,
         )
         return result.to_dict()
+
+    async def _generate_with_supervisor(
+        self,
+        *,
+        prd_content: str,
+        name: str,
+        plan_dir: Path,
+        skip_briefing: bool,
+    ) -> Any:
+        """Generate flight plan using actor-mailbox supervisor."""
+        import sys as _sys
+
+        from acp.schema import McpServerStdio
+
+        from maverick.workflows.fly_beads.session_registry import (
+            BeadSessionRegistry,
+        )
+        from maverick.workflows.generate_flight_plan.actors.briefing import (
+            BriefingActor,
+        )
+        from maverick.workflows.generate_flight_plan.actors.generator import (
+            GeneratorActor,
+        )
+        from maverick.workflows.generate_flight_plan.actors.synthesis import (
+            SynthesisActor,
+        )
+        from maverick.workflows.generate_flight_plan.actors.validator import (
+            PlanValidatorActor,
+        )
+        from maverick.workflows.generate_flight_plan.actors.writer import (
+            PlanWriterActor,
+        )
+        from maverick.workflows.generate_flight_plan.supervisor import (
+            PlanSupervisor,
+        )
+
+        session_registry = BeadSessionRegistry(bead_id="plan")
+
+        # Create inbox directory
+        inbox_dir = plan_dir / ".inbox"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+
+        def _mcp_config(tool_name: str, agent_name: str) -> McpServerStdio:
+            return McpServerStdio(
+                name="supervisor-inbox",
+                command=_sys.executable,
+                args=[
+                    "-m", "maverick.tools.supervisor_inbox.server",
+                    "--tools", tool_name,
+                    "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
+                ],
+                env=[],
+            )
+
+        from maverick.workflows.base import StepType
+
+        briefing_agents = {
+            "scopist": ("submit_scope", "briefing_scopist"),
+            "codebase_analyst": ("submit_analysis", "briefing_codebase_analyst"),
+            "criteria_writer": ("submit_criteria", "briefing_criteria_writer"),
+            "contrarian": ("submit_challenge", "briefing_contrarian"),
+        }
+
+        actors: dict[str, Any] = {}
+
+        for agent_name, (tool_name, step_name) in briefing_agents.items():
+            config = self.resolve_step_config(
+                step_name=step_name,
+                step_type=StepType.PYTHON,
+                agent_name=agent_name,
+            )
+            actors[agent_name] = BriefingActor(
+                actor_name=agent_name,
+                mcp_tool_name=tool_name,
+                session_registry=session_registry,
+                executor=self._step_executor,
+                cwd=Path.cwd(),
+                config=config,
+                inbox_path=inbox_dir / f"{agent_name}-inbox.json",
+                mcp_server_config=_mcp_config(tool_name, agent_name),
+            )
+
+        gen_config = self.resolve_step_config(
+            step_name="generate",
+            step_type=StepType.PYTHON,
+            agent_name="flight_plan_generator",
+        )
+        actors["generator"] = GeneratorActor(
+            session_registry=session_registry,
+            executor=self._step_executor,
+            cwd=Path.cwd(),
+            config=gen_config,
+            inbox_path=inbox_dir / "generator-inbox.json",
+            mcp_server_config=_mcp_config("submit_flight_plan", "generator"),
+        )
+
+        actors["synthesis"] = SynthesisActor(plan_name=name)
+        actors["plan_validator"] = PlanValidatorActor()
+        actors["plan_writer"] = PlanWriterActor(output_dir=plan_dir)
+
+        supervisor = PlanSupervisor(
+            actors=actors,
+            prd_content=prd_content,
+            plan_name=name,
+            skip_briefing=skip_briefing,
+        )
+
+        await self.emit_output(
+            BRIEFING,
+            "Generating flight plan with actor-mailbox supervisor",
+            level="info",
+        )
+
+        outcome = await supervisor.process()
+        session_registry.close_all()
+
+        if not outcome.success:
+            from maverick.exceptions import WorkflowError
+
+            raise WorkflowError(
+                f"Plan generation failed: {outcome.error}",
+                workflow_name="generate-flight-plan",
+            )
+
+        await self.emit_output(
+            GENERATE,
+            f"Generated {outcome.success_criteria_count} success criteria "
+            f"({outcome.duration_seconds:.0f}s)",
+            level="success",
+        )
+
+        return outcome
