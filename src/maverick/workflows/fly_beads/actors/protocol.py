@@ -55,6 +55,33 @@ class MessageType(str, Enum):
     # Committer → Supervisor
     COMMIT_RESULT = "commit_result"
 
+    # --- Refuel decomposition messages ---
+
+    # Supervisor → Decomposer
+    OUTLINE_REQUEST = "outline_request"
+    # Decomposer → Supervisor
+    OUTLINE_RESULT = "outline_result"
+
+    # Supervisor → Decomposer (fill details for all work units)
+    DETAIL_REQUEST = "detail_request"
+    # Decomposer → Supervisor
+    DETAIL_RESULT = "detail_result"
+
+    # Supervisor → Validator (deterministic)
+    VALIDATE_REQUEST = "validate_request"
+    # Validator → Supervisor
+    VALIDATE_RESULT = "validate_result"
+
+    # Supervisor → Decomposer (fix validation gaps/overloads)
+    FIX_DECOMPOSE_REQUEST = "fix_decompose_request"
+    # Decomposer → Supervisor
+    FIX_DECOMPOSE_RESULT = "fix_decompose_result"
+
+    # Supervisor → BeadCreator (deterministic)
+    CREATE_BEADS_REQUEST = "create_beads_request"
+    # BeadCreator → Supervisor
+    CREATE_BEADS_RESULT = "create_beads_result"
+
 
 @dataclass(frozen=True, slots=True)
 class Message:

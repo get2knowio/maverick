@@ -523,7 +523,31 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         except Exception as exc:
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
+        # Check if executor supports multi-turn sessions (actor-mailbox path)
+        _can_use_supervisor = (
+            self._step_executor is not None
+            and hasattr(self._step_executor, "create_session")
+        )
+
+        if _can_use_supervisor:
+            decomposition = await self._decompose_with_supervisor(
+                flight_plan=flight_plan,
+                raw_content=raw_content,
+                codebase_context=codebase_context,
+                briefing_doc=briefing_doc,
+                runway_context_text=runway_context_text,
+                run_dir=run_dir,
+            )
+        else:
+            # --- Legacy decompose retry loop ---
+            pass  # fall through to existing for-loop below
+
+        if not _can_use_supervisor:
+            pass  # marker
+
         for attempt in range(1, MAX_DECOMPOSE_ATTEMPTS + 1):
+            if _can_use_supervisor:
+                break  # skip legacy loop — supervisor already ran
             await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
             # --- 3a: Outline pass ---
@@ -1038,3 +1062,150 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             ),
         )
         return result.to_dict()
+
+    async def _decompose_with_supervisor(
+        self,
+        *,
+        flight_plan: Any,
+        raw_content: str,
+        codebase_context: str,
+        briefing_doc: Any,
+        runway_context_text: str,
+        run_dir: Path | None,
+    ) -> Any:
+        """Decompose using actor-mailbox supervisor.
+
+        Replaces the retry loop with persistent-session decomposer
+        that receives targeted fix requests instead of full redos.
+
+        Returns a DecompositionOutput (same type as the legacy loop).
+        """
+        from maverick.workflows.fly_beads.session_registry import (
+            BeadSessionRegistry,
+        )
+        from maverick.workflows.refuel_maverick.actors.bead_creator import (
+            BeadCreatorActor,
+        )
+        from maverick.workflows.refuel_maverick.actors.decomposer import (
+            DecomposerActor,
+        )
+        from maverick.workflows.refuel_maverick.actors.validator import (
+            ValidatorActor,
+        )
+        from maverick.workflows.refuel_maverick.models import (
+            DecompositionOutput,
+            WorkUnitSpec,
+        )
+        from maverick.workflows.refuel_maverick.supervisor import (
+            RefuelSupervisor,
+        )
+
+        await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
+
+        session_registry = BeadSessionRegistry(bead_id="refuel")
+
+        # Resolve configs
+        outline_config = self.resolve_step_config(
+            step_name=DECOMPOSE_OUTLINE,
+            step_type=StepType.PYTHON,
+            agent_name="decomposer",
+        )
+        detail_config = self.resolve_step_config(
+            step_name=DECOMPOSE_DETAIL,
+            step_type=StepType.PYTHON,
+            agent_name="decomposer",
+        )
+
+        output_dir = None
+        if run_dir:
+            output_dir = run_dir / "decompose-output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build SC refs from flight plan
+        sc_refs = []
+        for i, sc in enumerate(
+            getattr(flight_plan, "success_criteria", [])
+        ):
+            ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
+            sc_refs.append(ref)
+
+        # Build initial payload
+        initial_payload = {
+            "flight_plan_content": raw_content,
+            "success_criteria_refs": sc_refs,
+            "codebase_context": codebase_context,
+            "briefing": (
+                briefing_doc.to_markdown()
+                if briefing_doc and hasattr(briefing_doc, "to_markdown")
+                else str(briefing_doc or "")
+            ),
+            "verification_properties": getattr(
+                flight_plan, "verification_properties", ""
+            ),
+        }
+
+        actors: dict[str, Any] = {
+            "decomposer": DecomposerActor(
+                session_registry=session_registry,
+                executor=self._step_executor,
+                cwd=Path.cwd(),
+                outline_config=outline_config,
+                detail_config=detail_config,
+                output_dir=output_dir,
+            ),
+            "validator": ValidatorActor(
+                flight_plan=flight_plan,
+                success_criteria_refs=sc_refs,
+            ),
+        }
+
+        supervisor = RefuelSupervisor(
+            actors=actors,
+            initial_payload=initial_payload,
+            flight_plan=flight_plan,
+        )
+
+        await self.emit_output(
+            DECOMPOSE,
+            "Decomposing with actor-mailbox supervisor",
+            level="info",
+        )
+
+        outcome = await supervisor.process()
+        session_registry.close_all()
+
+        if not outcome.success and not outcome.specs:
+            from maverick.exceptions import WorkflowError
+
+            raise WorkflowError(
+                f"Decomposition failed: {outcome.error or 'no specs produced'}",
+                workflow_name="refuel-maverick",
+            )
+
+        # Convert specs to DecompositionOutput
+        work_units = []
+        for spec in outcome.specs:
+            if isinstance(spec, WorkUnitSpec):
+                work_units.append(spec)
+            elif isinstance(spec, dict):
+                work_units.append(WorkUnitSpec.model_validate(spec))
+
+        decomposition = DecompositionOutput(
+            work_units=work_units,
+            rationale=f"{len(work_units)} work units via supervisor"
+            f" ({outcome.fix_rounds} fix rounds,"
+            f" {outcome.duration_seconds:.0f}s)",
+        )
+
+        await self.emit_output(
+            DECOMPOSE,
+            f"Decomposed into {len(work_units)} work units"
+            f" ({outcome.fix_rounds} fix rounds)",
+            level="success",
+        )
+        await self.emit_step_completed(
+            DECOMPOSE,
+            {"work_unit_count": len(work_units)},
+        )
+
+        return decomposition
