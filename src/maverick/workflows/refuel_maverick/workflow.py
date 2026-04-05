@@ -1100,26 +1100,38 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             RefuelSupervisor,
         )
 
+        import sys as _sys
+
+        from acp.schema import McpServerStdio
+
         await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
         session_registry = BeadSessionRegistry(bead_id="refuel")
 
-        # Resolve configs
-        outline_config = self.resolve_step_config(
+        # Resolve config for decomposer
+        decompose_config = self.resolve_step_config(
             step_name=DECOMPOSE_OUTLINE,
             step_type=StepType.PYTHON,
             agent_name="decomposer",
         )
-        detail_config = self.resolve_step_config(
-            step_name=DECOMPOSE_DETAIL,
-            step_type=StepType.PYTHON,
-            agent_name="decomposer",
-        )
 
-        output_dir = None
-        if run_dir:
-            output_dir = run_dir / "decompose-output"
-            output_dir.mkdir(parents=True, exist_ok=True)
+        # Set up inbox file for MCP tool calls
+        inbox_dir = run_dir / "decompose-output" if run_dir else Path.cwd() / ".maverick" / "tmp"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        inbox_path = inbox_dir / "mcp-inbox.json"
+        inbox_path.unlink(missing_ok=True)
+
+        # Create MCP server config — the supervisor's inbox endpoint
+        mcp_config = McpServerStdio(
+            name="supervisor-inbox",
+            command=_sys.executable,
+            args=[
+                "-m", "maverick.tools.supervisor_inbox.server",
+                "--tools", "submit_outline,submit_details,submit_fix",
+                "--output", str(inbox_path),
+            ],
+            env=[],
+        )
 
         # Build SC refs from flight plan
         sc_refs = []
@@ -1129,16 +1141,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
             sc_refs.append(ref)
 
-        # Build initial payload
+        # Build initial payload — pass typed objects for prompt building
         initial_payload = {
             "flight_plan_content": raw_content,
-            "success_criteria_refs": sc_refs,
             "codebase_context": codebase_context,
-            "briefing": (
-                briefing_doc.to_markdown()
-                if briefing_doc and hasattr(briefing_doc, "to_markdown")
-                else str(briefing_doc or "")
-            ),
+            "briefing": briefing_doc,
+            "runway_context": runway_context_text or None,
             "verification_properties": getattr(
                 flight_plan, "verification_properties", ""
             ),
@@ -1149,9 +1157,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 session_registry=session_registry,
                 executor=self._step_executor,
                 cwd=Path.cwd(),
-                outline_config=outline_config,
-                detail_config=detail_config,
-                output_dir=output_dir,
+                config=decompose_config,
+                inbox_path=inbox_path,
+                mcp_server_config=mcp_config,
             ),
             "validator": ValidatorActor(
                 flight_plan=flight_plan,

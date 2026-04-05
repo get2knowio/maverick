@@ -50,6 +50,7 @@ class BeadSessionRegistry:
         agent_name: str | None = None,
         event_callback: Any | None = None,
         allowed_tools: list[str] | None = None,
+        mcp_servers: list[Any] | None = None,
     ) -> str:
         """Return existing session_id for this actor, or create a new one.
 
@@ -66,6 +67,7 @@ class BeadSessionRegistry:
             agent_name: For logging/observability.
             event_callback: Async callback for streaming events.
             allowed_tools: Tool allowlist for the agent.
+            mcp_servers: MCP server configs to attach to the session.
 
         Returns:
             The ACP session_id string.
@@ -89,6 +91,7 @@ class BeadSessionRegistry:
             agent_name=effective_agent,
             event_callback=event_callback,
             allowed_tools=allowed_tools,
+            mcp_servers=mcp_servers,
         )
         self.sessions[actor_name] = session_id
         if provider:

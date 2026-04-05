@@ -1,13 +1,17 @@
 """DecomposerActor — persistent-session actor for flight plan decomposition.
 
-Handles outline generation, detail filling, and targeted fix requests
-in a single ACP session. The session persists across all three phases
-so the decomposer remembers the full context when patching gaps.
+Uses MCP tools as the outbound mailbox to the supervisor. The agent
+calls submit_outline, submit_details, or submit_fix tools to deliver
+structured messages — the MCP protocol enforces the parameter schemas.
+
+The agent receives natural-language prompts (no schema directives)
+and communicates results via tool calls (schema-enforced by MCP).
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +35,7 @@ class DecomposerActor:
     - FIX_DECOMPOSE_REQUEST: Patch specific gaps/overloads (turn 3+)
 
     All turns happen on the same persistent ACP session.
+    Results are delivered via MCP tool calls, not text output.
     """
 
     def __init__(
@@ -39,18 +44,17 @@ class DecomposerActor:
         session_registry: BeadSessionRegistry,
         executor: Any,  # AcpStepExecutor
         cwd: Path | None = None,
-        outline_config: StepConfig | None = None,
-        detail_config: StepConfig | None = None,
-        output_dir: Path | None = None,
+        config: StepConfig | None = None,
+        inbox_path: Path,
+        mcp_server_config: Any = None,  # McpServerStdio
     ) -> None:
         self._registry = session_registry
         self._executor = executor
         self._cwd = cwd
-        self._outline_config = outline_config
-        self._detail_config = detail_config
-        self._output_dir = output_dir
+        self._config = config
+        self._inbox_path = inbox_path
+        self._mcp_config = mcp_server_config
         self._turns: int = 0
-        self._outline_json: str | None = None
 
     @property
     def name(self) -> str:
@@ -74,59 +78,62 @@ class DecomposerActor:
     async def _handle_outline(self, message: Message) -> list[Message]:
         """Generate the work unit outline (turn 1)."""
         from maverick.library.actions.decompose import build_outline_prompt
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutline,
-        )
 
         payload = message.payload
         prompt_text = build_outline_prompt(
-            flight_plan_content=payload["flight_plan_content"],
-            success_criteria_refs=payload.get("success_criteria_refs", []),
-            codebase_context=payload.get("codebase_context", ""),
-            briefing=payload.get("briefing", ""),
-            validation_feedback=payload.get("validation_feedback", ""),
+            payload["flight_plan_content"],
+            payload.get("codebase_context"),
+            briefing=payload.get("briefing"),
+            runway_context=payload.get("runway_context"),
         )
 
+        # Append validation feedback from prior fix rounds
+        validation_feedback = payload.get("validation_feedback", "")
+        if validation_feedback:
+            prompt_text += (
+                f"\n\n## PREVIOUS ATTEMPT FAILED VALIDATION\n"
+                f"{validation_feedback}\n"
+                f"Fix these issues in your new decomposition."
+            )
+
+        # Append instruction to use the submit_outline tool
+        prompt_text += (
+            "\n\n## REQUIRED: Submit via tool call\n"
+            "You MUST call the `submit_outline` tool with your results. "
+            "Do NOT put your decomposition in a text response or code block — "
+            "the supervisor can only receive your work via the submit_outline "
+            "tool call."
+        )
+
+        # Create session with MCP server for tool-based output
+        mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(
             self.name,
             self._executor,
             cwd=self._cwd,
-            config=self._outline_config,
+            config=self._config,
+            mcp_servers=mcp_servers,
         )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
-            config=self._outline_config,
+            config=self._config,
             step_name="decompose_outline",
             agent_name="decomposer",
-            output_schema=DecompositionOutline,
         )
         self._turns += 1
 
-        # Cache the outline JSON for detail prompt building
-        output = result.output
-        if isinstance(output, DecompositionOutline):
-            self._outline_json = output.model_dump_json()
-            outline_data = output.model_dump()
-        elif isinstance(output, str):
-            self._outline_json = output
-            outline_data = json.loads(output)
-        else:
-            self._outline_json = json.dumps(output)
-            outline_data = output
+        # Read structured result from inbox (written by MCP tool call)
+        inbox_data = await self._read_inbox_with_retry("submit_outline")
 
         return [
             Message(
                 msg_type=MessageType.OUTLINE_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "outline": outline_data,
-                    "outline_json": self._outline_json,
-                    "unit_count": len(outline_data.get("work_units", [])),
-                },
+                payload=inbox_data.get("arguments", {}) if inbox_data else {},
                 in_reply_to=message.sequence,
             )
         ]
@@ -136,87 +143,54 @@ class DecomposerActor:
         from maverick.library.actions.decompose import build_detail_prompt
 
         payload = message.payload
-        unit_ids = payload["unit_ids"]
-
-        # Build output file path
-        output_file = None
-        if self._output_dir:
-            self._output_dir.mkdir(parents=True, exist_ok=True)
-            output_file = self._output_dir / "detail-all.json"
-            output_file.unlink(missing_ok=True)
 
         prompt_text = build_detail_prompt(
             flight_plan_content=payload.get("flight_plan_content", ""),
-            outline_json=self._outline_json or "{}",
-            unit_ids=unit_ids,
-            output_file_path=str(output_file) if output_file else None,
+            outline_json=payload.get("outline_json", "{}"),
+            unit_ids=payload.get("unit_ids", []),
             verification_properties=payload.get(
                 "verification_properties", ""
             ),
         )
 
+        # Append instruction to use the submit_details tool
+        prompt_text += (
+            "\n\n## REQUIRED: Submit via tool call\n"
+            "You MUST call the `submit_details` tool with your results. "
+            "Do NOT put details in a text response or code block — "
+            "the supervisor can only receive your work via the "
+            "submit_details tool call."
+        )
+
         session_id = self._registry.get_session(self.name)
         if not session_id:
+            mcp_servers = [self._mcp_config] if self._mcp_config else None
             session_id = await self._registry.get_or_create(
                 self.name,
                 self._executor,
                 cwd=self._cwd,
-                config=self._detail_config,
+                config=self._config,
+                mcp_servers=mcp_servers,
             )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
-            config=self._detail_config,
+            config=self._config,
             step_name="decompose_detail",
             agent_name="decomposer",
         )
         self._turns += 1
 
-        # Read from file if written, otherwise parse from text
-        detail_data: dict[str, Any] | None = None
-        if output_file and output_file.exists():
-            try:
-                detail_data = json.loads(
-                    output_file.read_text(encoding="utf-8")
-                )
-                logger.info(
-                    "decomposer_actor.detail_from_file",
-                    path=str(output_file),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "decomposer_actor.detail_file_parse_failed",
-                    error=str(exc),
-                )
-
-        if detail_data is None:
-            # Try parsing from text output
-            text = result.output if isinstance(result.output, str) else ""
-            from maverick.agents.contracts import validate_output
-
-            from maverick.workflows.refuel_maverick.models import (
-                DetailBatchOutput,
-            )
-
-            parsed = validate_output(text, DetailBatchOutput, strict=False)
-            if parsed is not None:
-                detail_data = parsed.model_dump()
-            else:
-                detail_data = {"details": []}
+        inbox_data = await self._read_inbox_with_retry("submit_details")
 
         return [
             Message(
                 msg_type=MessageType.DETAIL_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "details": detail_data,
-                    "detail_count": len(
-                        detail_data.get("details", [])
-                    ),
-                },
+                payload=inbox_data.get("arguments", {}) if inbox_data else {},
                 in_reply_to=message.sequence,
             )
         ]
@@ -227,8 +201,7 @@ class DecomposerActor:
 
         parts: list[str] = [
             "Your previous decomposition had validation issues. "
-            "Fix ONLY the specific problems listed below — do not "
-            "regenerate everything.\n"
+            "Fix ONLY the specific problems listed below.\n"
         ]
 
         if payload.get("coverage_gaps"):
@@ -236,90 +209,137 @@ class DecomposerActor:
             for gap in payload["coverage_gaps"]:
                 parts.append(f"- {gap}")
             parts.append(
-                "\nAssign each missing SC to an existing work unit's "
-                "acceptance_criteria, or create a minimal new work unit."
+                "\nAssign each missing SC to an existing work unit or "
+                "create a new one."
             )
 
         if payload.get("overloaded"):
             parts.append("\n## Overloaded Work Units\n")
             for item in payload["overloaded"]:
                 parts.append(f"- {item}")
-            parts.append(
-                "\nSplit overloaded units into smaller pieces with "
-                "depends_on links."
-            )
-
-        # Output the complete patched decomposition as JSON
-        output_file = None
-        if self._output_dir:
-            output_file = self._output_dir / "detail-fix.json"
-            output_file.unlink(missing_ok=True)
+            parts.append("\nSplit into smaller units with depends_on links.")
 
         parts.append(
-            "\n## Output\n"
-            "Write the COMPLETE updated decomposition (all work units "
-            "with full details) as JSON"
-        )
-        if output_file:
-            parts.append(f" to the file: {output_file}")
-        parts.append(
-            ".\nUse the same schema as before: "
-            '{"work_units": [...], "details": [...]}'
+            "\n\n## REQUIRED: Submit via tool call\n"
+            "You MUST call the `submit_fix` tool with the COMPLETE "
+            "updated work_units and details arrays. Do NOT respond "
+            "in text — the supervisor can only receive your fix via "
+            "the submit_fix tool call. If you respond without calling "
+            "the tool, the fix will not be registered."
         )
 
         prompt_text = "\n".join(parts)
 
         session_id = self._registry.get_session(self.name)
         if not session_id:
+            mcp_servers = [self._mcp_config] if self._mcp_config else None
             session_id = await self._registry.get_or_create(
                 self.name,
                 self._executor,
                 cwd=self._cwd,
-                config=self._detail_config,
+                config=self._config,
+                mcp_servers=mcp_servers,
             )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
-            config=self._detail_config,
+            config=self._config,
             step_name="decompose_fix",
             agent_name="decomposer",
         )
         self._turns += 1
 
-        # Read patched output
-        fix_data: dict[str, Any] | None = None
-        if output_file and output_file.exists():
-            try:
-                fix_data = json.loads(
-                    output_file.read_text(encoding="utf-8")
-                )
-            except Exception:
-                pass
-
-        if fix_data is None:
-            text = result.output if isinstance(result.output, str) else ""
-            try:
-                fix_data = json.loads(text)
-            except Exception:
-                fix_data = {}
+        inbox_data = await self._read_inbox_with_retry("submit_fix")
 
         return [
             Message(
                 msg_type=MessageType.FIX_DECOMPOSE_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={"patched": fix_data},
+                payload=inbox_data.get("arguments", {}) if inbox_data else {},
                 in_reply_to=message.sequence,
             )
         ]
 
+    async def _read_inbox_with_retry(
+        self,
+        expected_tool: str,
+        max_retries: int = 2,
+    ) -> dict[str, Any] | None:
+        """Read the inbox, retrying if the agent didn't call the tool.
+
+        If the inbox is empty after a turn, immediately re-prompts
+        the agent to call the expected tool. This is the self-correcting
+        loop: the orchestrator tells the agent it hasn't delivered its
+        message yet.
+        """
+        data = self._read_inbox_file()
+        if data is not None:
+            return data
+
+        # Inbox empty — agent responded in text without calling the tool.
+        # Re-prompt on the same session to nudge it.
+        for retry in range(max_retries):
+            logger.info(
+                "decomposer_actor.inbox_retry",
+                expected_tool=expected_tool,
+                retry=retry + 1,
+                turn=self._turns,
+            )
+            nudge = (
+                f"Your response was not registered because you did not "
+                f"call the `{expected_tool}` tool. The supervisor can "
+                f"only receive your work via tool calls, not text. "
+                f"Please call `{expected_tool}` now with your results."
+            )
+            session_id = self._registry.get_session(self.name)
+            if session_id:
+                await self._executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text=nudge,
+                    provider=self._registry.get_provider(self.name),
+                    config=self._config,
+                    step_name=f"decompose_nudge_{expected_tool}",
+                    agent_name="decomposer",
+                )
+                self._turns += 1
+
+            data = self._read_inbox_file()
+            if data is not None:
+                return data
+
+        logger.warning(
+            "decomposer_actor.inbox_exhausted",
+            expected_tool=expected_tool,
+            retries=max_retries,
+        )
+        return None
+
+    def _read_inbox_file(self) -> dict[str, Any] | None:
+        """Read and consume the inbox file."""
+        if self._inbox_path.exists():
+            try:
+                data = json.loads(
+                    self._inbox_path.read_text(encoding="utf-8")
+                )
+                self._inbox_path.unlink()  # consume the message
+                logger.info(
+                    "decomposer_actor.inbox_read",
+                    tool=data.get("tool"),
+                    turn=self._turns,
+                )
+                return data
+            except Exception as exc:
+                logger.warning(
+                    "decomposer_actor.inbox_read_failed",
+                    error=str(exc),
+                )
+        return None
+
     def get_state_snapshot(self) -> dict[str, Any]:
-        return {
-            "turns": self._turns,
-            "has_outline": self._outline_json is not None,
-        }
+        return {"turns": self._turns}
 
     def restore_state(self, snapshot: dict[str, Any]) -> None:
         self._turns = snapshot.get("turns", 0)

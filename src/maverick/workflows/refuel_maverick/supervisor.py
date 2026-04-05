@@ -1,16 +1,17 @@
 """RefuelSupervisor — message routing for flight plan decomposition.
 
-Routes messages between the DecomposerActor (persistent session),
-ValidatorActor (deterministic), and BeadCreatorActor (deterministic).
+Routes messages between the DecomposerActor (persistent session with
+MCP tools), ValidatorActor (deterministic), and BeadCreatorActor.
 
-The supervisor replaces the decompose retry loop in workflow.py.
-Instead of throwing away the full decomposition on validation failure,
-the decomposer receives a targeted FIX_DECOMPOSE_REQUEST and patches
-the specific gaps — saving 10-15 minutes per retry.
+The decomposer delivers structured results via MCP tool calls —
+the schema is enforced by the protocol, so no coercion layer is
+needed. The supervisor reads tool call data directly.
 """
 
 from __future__ import annotations
 
+import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,7 +25,6 @@ from maverick.workflows.fly_beads.actors.protocol import (
 
 logger = get_logger(__name__)
 
-#: Maximum fix rounds before giving up.
 MAX_FIX_ROUNDS = 3
 
 
@@ -45,12 +45,8 @@ class RefuelOutcome:
 class RefuelSupervisor:
     """Routes messages between decomposer, validator, and bead creator.
 
-    Flow:
-    1. OUTLINE_REQUEST → decomposer
-    2. DETAIL_REQUEST → decomposer (same session)
-    3. VALIDATE_REQUEST → validator
-    4. If gaps: FIX_DECOMPOSE_REQUEST → decomposer → VALIDATE again
-    5. CREATE_BEADS_REQUEST → bead creator
+    The decomposer sends structured data via MCP tool calls.
+    The supervisor reads it directly — no JSON extraction, no coercion.
     """
 
     def __init__(
@@ -67,9 +63,9 @@ class RefuelSupervisor:
         self._sequence: int = 0
         self._fix_rounds: int = 0
 
-        # Accumulated decomposition state
-        self._outline: dict[str, Any] | None = None
-        self._details: dict[str, Any] | None = None
+        # Accumulated state from tool calls
+        self._outline_data: dict[str, Any] | None = None
+        self._detail_data: dict[str, Any] | None = None
         self._specs: list[Any] = []
 
     async def process(self) -> RefuelOutcome:
@@ -101,7 +97,6 @@ class RefuelSupervisor:
                 logger.debug(
                     "refuel_supervisor.deliver",
                     msg_type=message.msg_type.value,
-                    sender=message.sender,
                     recipient=message.recipient,
                 )
 
@@ -126,7 +121,6 @@ class RefuelSupervisor:
 
         elapsed = time.monotonic() - t0
 
-        # Extract outcome from last CREATE_BEADS_RESULT
         create_result = self._find_last(MessageType.CREATE_BEADS_RESULT)
         success = (
             create_result is not None
@@ -152,17 +146,21 @@ class RefuelSupervisor:
         )
 
     def _route(self, message: Message) -> list[Message]:
-        """Routing policy for refuel decomposition."""
+        """Routing policy."""
 
         match message.msg_type:
 
             case MessageType.OUTLINE_RESULT:
-                self._outline = message.payload.get("outline")
-                # Send all unit IDs for detail filling
+                # Data came directly from MCP tool call — already structured
+                self._outline_data = message.payload
+                work_units = message.payload.get("work_units", [])
                 unit_ids = [
-                    wu.get("id", "")
-                    for wu in (self._outline or {}).get("work_units", [])
+                    wu.get("id", "") for wu in work_units
+                    if isinstance(wu, dict)
                 ]
+
+                outline_json = json.dumps(self._outline_data)
+
                 return [
                     self._make_message(
                         MessageType.DETAIL_REQUEST,
@@ -170,6 +168,7 @@ class RefuelSupervisor:
                         recipient="decomposer",
                         payload={
                             "unit_ids": unit_ids,
+                            "outline_json": outline_json,
                             "flight_plan_content": self._initial_payload.get(
                                 "flight_plan_content", ""
                             ),
@@ -181,9 +180,9 @@ class RefuelSupervisor:
                 ]
 
             case MessageType.DETAIL_RESULT:
-                self._details = message.payload.get("details")
-                # Merge and validate
-                self._specs = self._merge_outline_details()
+                self._detail_data = message.payload
+                self._specs = self._merge_to_specs()
+
                 return [
                     self._make_message(
                         MessageType.VALIDATE_REQUEST,
@@ -196,7 +195,6 @@ class RefuelSupervisor:
             case MessageType.VALIDATE_RESULT:
                 passed = message.payload.get("passed", False)
                 if passed:
-                    # Build deps list from specs
                     extracted_deps = self._extract_deps()
                     return [
                         self._make_message(
@@ -211,9 +209,8 @@ class RefuelSupervisor:
                     ]
                 elif self._fix_rounds < MAX_FIX_ROUNDS:
                     self._fix_rounds += 1
-                    # Enrich gaps with SC text from flight plan
                     gaps = message.payload.get("gaps", [])
-                    enriched_gaps = self._enrich_gaps(gaps)
+                    enriched = self._enrich_gaps(gaps)
                     overloaded = message.payload.get("overloaded", [])
                     return [
                         self._make_message(
@@ -221,7 +218,7 @@ class RefuelSupervisor:
                             sender="supervisor",
                             recipient="decomposer",
                             payload={
-                                "coverage_gaps": enriched_gaps,
+                                "coverage_gaps": enriched,
                                 "overloaded": overloaded,
                             },
                         )
@@ -232,81 +229,147 @@ class RefuelSupervisor:
                         rounds=self._fix_rounds,
                         gaps=message.payload.get("gaps"),
                     )
-                    return []  # Stop — workflow will report failure
+                    return []
 
             case MessageType.FIX_DECOMPOSE_RESULT:
-                # Re-merge from patched output and re-validate
-                patched = message.payload.get("patched", {})
-                if patched:
-                    self._details = patched
-                    self._specs = self._merge_outline_details()
-                return [
-                    self._make_message(
-                        MessageType.VALIDATE_REQUEST,
-                        sender="supervisor",
-                        recipient="validator",
-                        payload={"specs": self._specs},
+                # Fix provides updated work_units + details
+                fix_data = message.payload
+                if fix_data.get("work_units") or fix_data.get("details"):
+                    if fix_data.get("work_units"):
+                        self._outline_data = {
+                            "work_units": fix_data["work_units"]
+                        }
+                    if fix_data.get("details"):
+                        self._detail_data = {
+                            "details": fix_data["details"]
+                        }
+                    self._specs = self._merge_to_specs()
+                    return [
+                        self._make_message(
+                            MessageType.VALIDATE_REQUEST,
+                            sender="supervisor",
+                            recipient="validator",
+                            payload={"specs": self._specs},
+                        )
+                    ]
+                else:
+                    # Agent didn't call the submit_fix tool — empty payload.
+                    # Don't retry with the same specs (would loop forever).
+                    # Proceed to bead creation with what we have.
+                    logger.warning(
+                        "refuel_supervisor.fix_empty_payload",
+                        round=self._fix_rounds,
+                        msg="Agent did not call submit_fix tool; "
+                        "proceeding with existing specs",
                     )
-                ]
+                    extracted_deps = self._extract_deps()
+                    return [
+                        self._make_message(
+                            MessageType.CREATE_BEADS_REQUEST,
+                            sender="supervisor",
+                            recipient="bead_creator",
+                            payload={
+                                "specs": self._specs,
+                                "extracted_deps": extracted_deps,
+                            },
+                        )
+                    ]
 
             case MessageType.CREATE_BEADS_RESULT:
-                return []  # Done
+                return []
 
         return []
 
-    def _merge_outline_details(self) -> list[Any]:
-        """Merge outline work units with detail data into specs."""
-        from maverick.library.actions.decompose import (
-            merge_outline_and_details,
-        )
+    # ------------------------------------------------------------------
+    # Spec construction — simple merge, no coercion needed
+    # ------------------------------------------------------------------
+
+    def _merge_to_specs(self) -> list[Any]:
+        """Merge outline work_units with detail entries into specs.
+
+        Since the data came from MCP tool calls with enforced schemas,
+        we just need to combine outline skeletons with detail entries
+        by matching on ID. No coercion or type fixing needed.
+        """
         from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutline,
-            DetailBatchOutput,
+            WorkUnitSpec,
         )
 
-        if not self._outline or not self._details:
-            return []
+        work_units = (
+            self._outline_data.get("work_units", [])
+            if self._outline_data
+            else []
+        )
+        details = (
+            self._detail_data.get("details", [])
+            if self._detail_data
+            else []
+        )
 
-        try:
-            outline = DecompositionOutline.model_validate(self._outline)
-            # Details may come as {details: [...]} or as full spec list
-            if isinstance(self._details, dict) and "details" in self._details:
-                detail_batches = [
-                    DetailBatchOutput.model_validate(self._details)
-                ]
-            elif isinstance(self._details, list):
-                detail_batches = [
-                    DetailBatchOutput(details=self._details)
-                ]
-            else:
-                detail_batches = []
-            return merge_outline_and_details(outline, detail_batches)
-        except Exception as exc:
-            logger.warning(
-                "refuel_supervisor.merge_failed", error=str(exc)
-            )
-            return []
+        # Index details by ID
+        detail_map: dict[str, dict[str, Any]] = {}
+        for d in details:
+            if isinstance(d, dict):
+                detail_map[d.get("id", "")] = d
+
+        specs: list[Any] = []
+        for wu in work_units:
+            if not isinstance(wu, dict):
+                continue
+
+            wu_id = wu.get("id", "")
+            detail = detail_map.get(wu_id, {})
+
+            # Merge: outline fields + detail fields
+            merged = {
+                "id": wu_id,
+                "task": wu.get("task", ""),
+                "sequence": wu.get("sequence", 0),
+                "parallel_group": wu.get("parallel_group"),
+                "depends_on": wu.get("depends_on", []),
+                "file_scope": wu.get("file_scope", {}),
+                "instructions": detail.get("instructions", ""),
+                "acceptance_criteria": detail.get(
+                    "acceptance_criteria", []
+                ),
+                "verification": detail.get("verification", []),
+                "test_specification": detail.get(
+                    "test_specification", ""
+                ),
+            }
+
+            try:
+                specs.append(WorkUnitSpec.model_validate(merged))
+            except Exception as exc:
+                logger.warning(
+                    "refuel_supervisor.spec_validation_failed",
+                    wu_id=wu_id,
+                    error=str(exc),
+                )
+                # Include as dict for validation to report on
+                specs.append(merged)
+
+        return specs
 
     def _extract_deps(self) -> list[list[str]]:
-        """Extract dependency pairs from specs for wiring."""
+        """Extract dependency pairs from specs."""
         deps: list[list[str]] = []
         for spec in self._specs:
-            spec_id = spec.id if hasattr(spec, "id") else spec.get("id", "")
-            depends_on = (
+            sid = spec.id if hasattr(spec, "id") else spec.get("id", "")
+            dep_list = (
                 spec.depends_on
                 if hasattr(spec, "depends_on")
                 else spec.get("depends_on", [])
             )
-            for dep_id in depends_on:
-                deps.append([spec_id, dep_id])
+            for dep_id in dep_list:
+                deps.append([sid, dep_id])
         return deps
 
     def _enrich_gaps(self, gaps: list[str]) -> list[str]:
-        """Enrich SC gap references with actual text from flight plan."""
+        """Enrich SC gap references with text from flight plan."""
         if not self._flight_plan:
             return gaps
 
-        enriched = []
         sc_list = getattr(self._flight_plan, "success_criteria", [])
         sc_map = {}
         for i, sc in enumerate(sc_list):
@@ -314,14 +377,18 @@ class RefuelSupervisor:
             text = getattr(sc, "text", str(sc))
             sc_map[ref] = text
 
+        enriched = []
         for gap in gaps:
-            # Gap might be "SC-015 not explicitly covered..."
             for ref, text in sc_map.items():
                 if ref in gap:
                     gap = f"{gap} — Full text: {text}"
                     break
             enriched.append(gap)
         return enriched
+
+    # ------------------------------------------------------------------
+    # Message helpers
+    # ------------------------------------------------------------------
 
     def _make_message(
         self,

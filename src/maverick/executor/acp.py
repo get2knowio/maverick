@@ -374,6 +374,7 @@ class AcpStepExecutor:
         agent_name: str = "actor",
         event_callback: EventCallback | None = None,
         allowed_tools: list[str] | None = None,
+        mcp_servers: list[Any] | None = None,
     ) -> str:
         """Create a persistent ACP session and return its session_id.
 
@@ -389,6 +390,9 @@ class AcpStepExecutor:
             agent_name: For logging/observability.
             event_callback: Async callback for streaming events.
             allowed_tools: Tool allowlist for the client.
+            mcp_servers: MCP server configs (McpServerStdio) to attach
+                to the session.  The agent subprocess spawns and connects
+                to these servers, making their tools available.
 
         Returns:
             The ACP session_id string.
@@ -420,7 +424,9 @@ class AcpStepExecutor:
             allowed_tools=allowed_tools_frozen,
         )
 
-        session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=[])
+        session = await cached.conn.new_session(
+            cwd=cwd_str, mcp_servers=mcp_servers or []
+        )
         session_id = session.session_id
 
         # Set model if configured
