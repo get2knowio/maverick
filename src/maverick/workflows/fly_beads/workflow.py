@@ -879,8 +879,32 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
         from maverick.workflows.fly_beads.supervisor import BeadSupervisor
 
+        import sys as _sys
+
+        from acp.schema import McpServerStdio
+
         started_at = _dt.now(tz=UTC).isoformat()
         cwd_str = str(ctx.cwd) if ctx.cwd else None
+
+        # Set up MCP inbox for agent actors
+        inbox_dir = (
+            ctx.run_dir / "beads" / ctx.bead_id / "inbox"
+            if ctx.run_dir
+            else Path.cwd() / ".maverick" / "tmp" / "inbox"
+        )
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+
+        def _mcp_config(tools: str, agent_name: str) -> McpServerStdio:
+            return McpServerStdio(
+                name="supervisor-inbox",
+                command=_sys.executable,
+                args=[
+                    "-m", "maverick.tools.supervisor_inbox.server",
+                    "--tools", tools,
+                    "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
+                ],
+                env=[],
+            )
 
         # Build validation commands from config (defensive for tests with mocks)
         validation_commands: dict[str, list[str]] | None = None
@@ -944,6 +968,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 cwd=ctx.cwd,
                 config=impl_config,
                 allowed_tools=allowed_tools,
+                inbox_path=inbox_dir / "implementer-inbox.json",
+                mcp_server_config=_mcp_config(
+                    "submit_implementation,submit_fix_result", "implementer"
+                ),
             ),
             "gate": GateActor(
                 cwd=cwd_str,
@@ -964,6 +992,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 cwd=ctx.cwd,
                 config=review_config,
                 bead_description=ctx.description,
+                inbox_path=inbox_dir / "reviewer-inbox.json",
+                mcp_server_config=_mcp_config(
+                    "submit_review", "reviewer"
+                ),
             ),
             "committer": CommitActor(
                 bead_id=ctx.bead_id,

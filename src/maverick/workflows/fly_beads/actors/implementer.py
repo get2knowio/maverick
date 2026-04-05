@@ -1,13 +1,14 @@
 """ImplementerActor — agent actor that implements and fixes code.
 
-Maintains a persistent ACP session for the bead's lifetime.  The
-implementer remembers its own decisions across fix requests — when the
-reviewer or gate sends findings, the implementer has full context of
-why it wrote the code that way and can make targeted fixes.
+Maintains a persistent ACP session for the bead's lifetime.
+Communicates results to the supervisor via MCP tool calls
+(submit_implementation, submit_fix_result) — schema enforced
+by the MCP protocol.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -27,31 +28,29 @@ class ImplementerActor:
 
     Handles:
     - IMPLEMENT_REQUEST: Initial implementation (creates session)
-    - FIX_REQUEST: Address gate failures, AC failures, or review findings
-      (reuses same session — full context preserved)
+    - FIX_REQUEST: Address gate/AC/review findings (same session)
 
-    The session persists for the entire bead's lifetime.  The implementer
-    has access to its full conversation history, so when the reviewer says
-    "fix F001," the implementer knows exactly what F001 refers to and why
-    it made the original choice.
+    Results delivered via MCP tool calls, not text output.
     """
 
     def __init__(
         self,
         *,
         session_registry: BeadSessionRegistry,
-        executor: Any,  # AcpStepExecutor
+        executor: Any,
         cwd: Path | None = None,
         config: StepConfig | None = None,
         allowed_tools: list[str] | None = None,
-        agent_kwargs: dict[str, Any] | None = None,
+        inbox_path: Path,
+        mcp_server_config: Any = None,
     ) -> None:
         self._registry = session_registry
         self._executor = executor
         self._cwd = cwd
         self._config = config
         self._allowed_tools = allowed_tools
-        self._agent_kwargs = agent_kwargs or {}
+        self._inbox_path = inbox_path
+        self._mcp_config = mcp_server_config
         self._turns: int = 0
 
     @property
@@ -75,7 +74,6 @@ class ImplementerActor:
         """Handle initial implementation request."""
         payload = message.payload
 
-        # Build structured prompt from payload fields
         parts: list[str] = []
         parts.append(f"## Task\n\n{payload.get('task_description', '')}")
 
@@ -94,18 +92,26 @@ class ImplementerActor:
         if payload.get("runway_context"):
             parts.append(f"## Prior Context\n\n{payload['runway_context']}")
 
+        parts.append(
+            "\n\n## REQUIRED: Submit via tool call\n"
+            "When implementation is complete, you MUST call the "
+            "`submit_implementation` tool with a summary and list of "
+            "files changed. Do NOT just respond in text."
+        )
+
         prompt_text = "\n\n".join(parts)
 
-        # Create session and send first prompt
+        mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(
             self.name,
             self._executor,
             cwd=self._cwd,
             config=self._config,
             allowed_tools=self._allowed_tools,
+            mcp_servers=mcp_servers,
         )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
@@ -115,16 +121,17 @@ class ImplementerActor:
         )
         self._turns += 1
 
+        inbox_data = await self._read_inbox_with_retry(
+            "submit_implementation", session_id
+        )
+
         return [
             Message(
                 msg_type=MessageType.IMPLEMENT_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "summary": _truncate(
-                        result.output if isinstance(result.output, str) else "", 2000
-                    ),
-                    "turn": self._turns,
+                payload=inbox_data.get("arguments", {}) if inbox_data else {
+                    "summary": "implementation completed (no tool call)",
                 },
                 in_reply_to=message.sequence,
             )
@@ -168,26 +175,27 @@ class ImplementerActor:
             elif isinstance(findings, str):
                 parts.append(f"## Review Findings\n\n{findings}")
 
-        if payload.get("reviewer_message"):
-            parts.append(
-                f"## Reviewer Notes\n\n{payload['reviewer_message']}"
-            )
+        parts.append(
+            "\n\n## REQUIRED: Submit via tool call\n"
+            "When fixes are complete, call the `submit_fix_result` tool "
+            "with a summary of what you addressed."
+        )
 
         prompt_text = "\n\n".join(parts)
 
-        # Send to existing session (same conversation context)
         session_id = self._registry.get_session(self.name)
         if not session_id:
-            # Shouldn't happen, but create if needed
+            mcp_servers = [self._mcp_config] if self._mcp_config else None
             session_id = await self._registry.get_or_create(
                 self.name,
                 self._executor,
                 cwd=self._cwd,
                 config=self._config,
                 allowed_tools=self._allowed_tools,
+                mcp_servers=mcp_servers,
             )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
@@ -197,30 +205,70 @@ class ImplementerActor:
         )
         self._turns += 1
 
+        inbox_data = await self._read_inbox_with_retry(
+            "submit_fix_result", session_id
+        )
+
         return [
             Message(
                 msg_type=MessageType.FIX_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "summary": _truncate(
-                        result.output if isinstance(result.output, str) else "", 2000
-                    ),
-                    "turn": self._turns,
+                payload=inbox_data.get("arguments", {}) if inbox_data else {
+                    "summary": "fixes applied (no tool call)",
                 },
                 in_reply_to=message.sequence,
             )
         ]
+
+    async def _read_inbox_with_retry(
+        self, expected_tool: str, session_id: str, max_retries: int = 2
+    ) -> dict[str, Any] | None:
+        data = self._read_inbox_file()
+        if data is not None:
+            return data
+
+        for retry in range(max_retries):
+            logger.info(
+                "implementer_actor.inbox_retry",
+                tool=expected_tool, retry=retry + 1,
+            )
+            await self._executor.prompt_session(
+                session_id=session_id,
+                prompt_text=(
+                    f"Your work was not registered because you did not "
+                    f"call the `{expected_tool}` tool. Please call "
+                    f"`{expected_tool}` now."
+                ),
+                provider=self._registry.get_provider(self.name),
+                config=self._config,
+                step_name=f"implement_nudge_{expected_tool}",
+                agent_name="implementer",
+            )
+            self._turns += 1
+            data = self._read_inbox_file()
+            if data is not None:
+                return data
+
+        logger.warning("implementer_actor.inbox_exhausted", tool=expected_tool)
+        return None
+
+    def _read_inbox_file(self) -> dict[str, Any] | None:
+        if self._inbox_path.exists():
+            try:
+                data = json.loads(
+                    self._inbox_path.read_text(encoding="utf-8")
+                )
+                self._inbox_path.unlink()
+                return data
+            except Exception as exc:
+                logger.warning(
+                    "implementer_actor.inbox_read_failed", error=str(exc)
+                )
+        return None
 
     def get_state_snapshot(self) -> dict[str, Any]:
         return {"turns": self._turns}
 
     def restore_state(self, snapshot: dict[str, Any]) -> None:
         self._turns = snapshot.get("turns", 0)
-
-
-def _truncate(text: str, max_len: int) -> str:
-    """Truncate text for message payloads (summaries, not full output)."""
-    if len(text) <= max_len:
-        return text
-    return text[:max_len] + "... (truncated)"

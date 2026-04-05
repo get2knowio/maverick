@@ -1,17 +1,17 @@
 """ReviewerActor — agent actor that reviews code changes.
 
-Maintains a persistent ACP session for the bead's lifetime.  On
-follow-up reviews, the reviewer can reference its own prior findings
-because the conversation history is preserved in the session.
+Maintains a persistent ACP session for the bead's lifetime.
+Communicates review results to the supervisor via the submit_review
+MCP tool — schema enforced by the protocol. No heuristic text
+parsing needed.
 
-This eliminates the review oscillation problem: instead of doing a
-fresh review each time (finding different issues), the reviewer checks
-"were my previous findings addressed?" and only flags genuinely new
-issues.
+On follow-up reviews, the reviewer checks its own prior findings
+because the conversation history is preserved in the session.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -29,33 +29,32 @@ logger = get_logger(__name__)
 class ReviewerActor:
     """Agent actor that reviews code for completeness and correctness.
 
-    Handles:
-    - REVIEW_REQUEST: Review the current code state
+    Handles REVIEW_REQUEST messages. On the first review, does a full
+    diff review. On subsequent reviews (same session), checks whether
+    prior findings were addressed.
 
-    On the first review, does a full review of the diff.  On subsequent
-    reviews (same session), checks whether prior findings were addressed
-    and only flags new critical/major issues.
-
-    The session persists for the bead's lifetime, so the reviewer
-    remembers exactly what it said before.
+    Results delivered via submit_review MCP tool call.
     """
 
     def __init__(
         self,
         *,
         session_registry: BeadSessionRegistry,
-        executor: Any,  # AcpStepExecutor
+        executor: Any,
         cwd: Path | None = None,
         config: StepConfig | None = None,
         bead_description: str = "",
+        inbox_path: Path,
+        mcp_server_config: Any = None,
     ) -> None:
         self._registry = session_registry
         self._executor = executor
         self._cwd = cwd
         self._config = config
         self._bead_description = bead_description
+        self._inbox_path = inbox_path
+        self._mcp_config = mcp_server_config
         self._review_count: int = 0
-        self._prior_findings: list[dict[str, Any]] = []
 
     @property
     def name(self) -> str:
@@ -64,7 +63,8 @@ class ReviewerActor:
     async def receive(self, message: Message) -> list[Message]:
         if message.msg_type != MessageType.REVIEW_REQUEST:
             logger.warning(
-                "reviewer_actor.unexpected_message", msg_type=message.msg_type
+                "reviewer_actor.unexpected_message",
+                msg_type=message.msg_type,
             )
             return []
 
@@ -77,35 +77,34 @@ class ReviewerActor:
 
     async def _initial_review(self, message: Message) -> list[Message]:
         """First review — full review of the code changes."""
-        # Get the current diff from the workspace
-        diff = await self._get_workspace_diff()
-
         prompt_text = (
-            "Review the following code changes for completeness and "
-            "correctness.\n\n"
+            "Review the code changes in the working directory for "
+            "completeness and correctness. Use the Read, Glob, and "
+            "Grep tools to examine the code.\n\n"
             f"## Task Description\n\n{self._bead_description}\n\n"
-            f"## Diff\n\n```diff\n{diff}\n```\n\n"
             "## Instructions\n\n"
-            "1. Check that the implementation satisfies the task description "
+            "1. Read the changed files to understand what was implemented.\n"
+            "2. Check that the implementation satisfies the task description "
             "and acceptance criteria.\n"
-            "2. Check for bugs, security issues, and correctness problems.\n"
-            "3. Do NOT flag style preferences or minor suggestions.\n"
-            "4. Only flag issues that are CRITICAL (runtime crash, security, "
-            "data corruption) or MAJOR (bugs, missing required behavior).\n\n"
-            "Respond with:\n"
-            "- APPROVED if no critical/major issues\n"
-            "- FINDINGS: followed by a numbered list of issues, each with "
-            "severity (CRITICAL/MAJOR), file:line, and description\n"
+            "3. Check for bugs, security issues, and correctness problems.\n"
+            "4. Only flag CRITICAL (runtime crash, security, data corruption) "
+            "or MAJOR (bugs, missing required behavior) issues.\n\n"
+            "## REQUIRED: Submit via tool call\n"
+            "Call the `submit_review` tool with your findings. Set "
+            "approved=true if no critical/major issues, or approved=false "
+            "with a findings array describing each issue."
         )
 
+        mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(
             self.name,
             self._executor,
             cwd=self._cwd,
             config=self._config,
+            mcp_servers=mcp_servers,
         )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
@@ -114,65 +113,54 @@ class ReviewerActor:
             agent_name="reviewer",
         )
 
-        text = result.output if isinstance(result.output, str) else ""
-        approved, findings = self._parse_review_response(text)
-        self._prior_findings = findings
+        inbox_data = await self._read_inbox_with_retry(session_id)
+        payload = inbox_data.get("arguments", {}) if inbox_data else {
+            "approved": True,
+        }
+        payload["review_round"] = self._review_count
 
         return [
             Message(
                 msg_type=MessageType.REVIEW_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "approved": approved,
-                    "findings": findings,
-                    "findings_count": len(findings),
-                    "review_round": self._review_count,
-                },
+                payload=payload,
                 in_reply_to=message.sequence,
             )
         ]
 
     async def _followup_review(self, message: Message) -> list[Message]:
         """Follow-up review — check if prior findings were addressed."""
-        diff = await self._get_workspace_diff()
-
-        # Build a targeted prompt referencing prior findings
-        prior_list = "\n".join(
-            f"{i+1}. [{f.get('severity', 'MAJOR')}] "
-            f"`{f.get('file', '?')}:{f.get('line', '?')}`: "
-            f"{f.get('issue', '?')}"
-            for i, f in enumerate(self._prior_findings)
-        )
-
         prompt_text = (
             "The implementer has made changes to address your previous "
             "findings. Review ONLY whether your previous findings were "
             "addressed. Do NOT do a fresh full review.\n\n"
-            f"## Your Previous Findings\n\n{prior_list}\n\n"
-            f"## Updated Diff\n\n```diff\n{diff}\n```\n\n"
-            "## Instructions\n\n"
-            "For each previous finding, state:\n"
-            "- ADDRESSED: if the issue is fixed\n"
-            "- STILL PRESENT: if the issue remains (explain briefly)\n"
-            "- ACCEPTED: if the implementer's approach is valid (you "
-            "changed your mind or it was a style preference)\n\n"
-            "Then state APPROVED if all findings are addressed/accepted, "
-            "or list any STILL PRESENT items.\n\n"
+            "Use the Read tool to check the specific files and lines "
+            "you flagged previously.\n\n"
+            "For each previous finding, determine if it was:\n"
+            "- ADDRESSED: the issue is fixed\n"
+            "- STILL PRESENT: the issue remains\n"
+            "- ACCEPTED: the implementer's approach is valid\n\n"
             "IMPORTANT: Do NOT introduce new findings that weren't in "
-            "your previous review. Only evaluate the items above.\n"
+            "your previous review.\n\n"
+            "## REQUIRED: Submit via tool call\n"
+            "Call the `submit_review` tool. Set approved=true if all "
+            "findings are addressed/accepted, or approved=false with "
+            "remaining issues in the findings array."
         )
 
         session_id = self._registry.get_session(self.name)
         if not session_id:
+            mcp_servers = [self._mcp_config] if self._mcp_config else None
             session_id = await self._registry.get_or_create(
                 self.name,
                 self._executor,
                 cwd=self._cwd,
                 config=self._config,
+                mcp_servers=mcp_servers,
             )
 
-        result = await self._executor.prompt_session(
+        await self._executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=self._registry.get_provider(self.name),
@@ -181,88 +169,68 @@ class ReviewerActor:
             agent_name="reviewer",
         )
 
-        text = result.output if isinstance(result.output, str) else ""
-        approved, findings = self._parse_review_response(text)
-        self._prior_findings = findings
+        inbox_data = await self._read_inbox_with_retry(session_id)
+        payload = inbox_data.get("arguments", {}) if inbox_data else {
+            "approved": True,
+        }
+        payload["review_round"] = self._review_count
 
         return [
             Message(
                 msg_type=MessageType.REVIEW_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload={
-                    "approved": approved,
-                    "findings": findings,
-                    "findings_count": len(findings),
-                    "review_round": self._review_count,
-                },
+                payload=payload,
                 in_reply_to=message.sequence,
             )
         ]
 
-    async def _get_workspace_diff(self) -> str:
-        """Get the current workspace diff for review."""
-        from maverick.runners.command import CommandRunner
+    async def _read_inbox_with_retry(
+        self, session_id: str, max_retries: int = 2
+    ) -> dict[str, Any] | None:
+        data = self._read_inbox_file()
+        if data is not None:
+            return data
 
-        cwd = self._cwd or Path.cwd()
-        runner = CommandRunner(cwd=cwd, timeout=30.0)
-        result = await runner.run(
-            ["git", "diff", "--no-color", "HEAD"],
-            cwd=cwd,
-        )
-        diff = result.output.strip() if result.success else ""
-        # Truncate very large diffs
-        if len(diff) > 50000:
-            diff = diff[:50000] + "\n... (truncated)"
-        return diff
+        for retry in range(max_retries):
+            logger.info(
+                "reviewer_actor.inbox_retry", retry=retry + 1
+            )
+            await self._executor.prompt_session(
+                session_id=session_id,
+                prompt_text=(
+                    "Your review was not registered because you did not "
+                    "call the `submit_review` tool. Please call "
+                    "`submit_review` now with your findings."
+                ),
+                provider=self._registry.get_provider(self.name),
+                config=self._config,
+                step_name="review_nudge",
+                agent_name="reviewer",
+            )
+            data = self._read_inbox_file()
+            if data is not None:
+                return data
 
-    def _parse_review_response(
-        self, text: str
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Parse review response into (approved, findings).
+        logger.warning("reviewer_actor.inbox_exhausted")
+        return None
 
-        Simple heuristic parsing — looks for APPROVED or FINDINGS markers.
-        Falls back to: if text contains CRITICAL or MAJOR, not approved.
-        """
-        text_upper = text.upper()
-
-        # Check for explicit approval
-        if "APPROVED" in text_upper and "FINDINGS" not in text_upper:
-            return True, []
-
-        # Extract findings heuristically
-        findings: list[dict[str, Any]] = []
-        for line in text.split("\n"):
-            line_stripped = line.strip()
-            # Look for patterns like "1. [CRITICAL] file:line: description"
-            if any(
-                sev in line_stripped.upper()
-                for sev in ["CRITICAL", "MAJOR", "STILL PRESENT"]
-            ):
-                findings.append({
-                    "severity": (
-                        "critical"
-                        if "CRITICAL" in line_stripped.upper()
-                        else "major"
-                    ),
-                    "issue": line_stripped,
-                    "file": "",
-                    "line": "",
-                })
-
-        if not findings:
-            # No explicit findings and no APPROVED marker — treat as approved
-            # (the reviewer didn't flag anything specific)
-            return True, []
-
-        return False, findings
+    def _read_inbox_file(self) -> dict[str, Any] | None:
+        if self._inbox_path.exists():
+            try:
+                data = json.loads(
+                    self._inbox_path.read_text(encoding="utf-8")
+                )
+                self._inbox_path.unlink()
+                return data
+            except Exception as exc:
+                logger.warning(
+                    "reviewer_actor.inbox_read_failed", error=str(exc)
+                )
+        return None
 
     def get_state_snapshot(self) -> dict[str, Any]:
-        return {
-            "review_count": self._review_count,
-            "prior_findings": self._prior_findings,
-        }
+        return {"review_count": self._review_count}
 
     def restore_state(self, snapshot: dict[str, Any]) -> None:
         self._review_count = snapshot.get("review_count", 0)
-        self._prior_findings = snapshot.get("prior_findings", [])
