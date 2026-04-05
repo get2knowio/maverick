@@ -65,15 +65,35 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
-    """Handle a tool call — write to the inbox file for the supervisor."""
+    """Handle a tool call — validate against schema, write to inbox."""
     if name not in _active_tools:
         raise ValueError(
             f"Tool '{name}' is not available. "
             f"Available tools: {', '.join(sorted(_active_tools))}"
         )
 
-    # Write to shared file — the supervisor reads this after the turn
-    message = {"tool": name, "arguments": arguments or {}}
+    args = arguments or {}
+
+    # Validate arguments against the tool's input schema.
+    # If invalid, return an error so the agent can self-correct.
+    tool_def = _active_tools[name]
+    schema = tool_def.inputSchema
+    if schema:
+        import jsonschema
+
+        try:
+            jsonschema.validate(instance=args, schema=schema)
+        except jsonschema.ValidationError as exc:
+            # Return a clear error — the agent sees this and retries
+            error_path = " → ".join(str(p) for p in exc.absolute_path) if exc.absolute_path else "(root)"
+            raise ValueError(
+                f"Schema validation failed for '{name}' at '{error_path}': "
+                f"{exc.message}. Please fix the arguments and call "
+                f"'{name}' again."
+            ) from exc
+
+    # Validation passed — write to inbox
+    message = {"tool": name, "arguments": args}
     _output_path.parent.mkdir(parents=True, exist_ok=True)
     _output_path.write_text(
         json.dumps(message, indent=2, default=str),
