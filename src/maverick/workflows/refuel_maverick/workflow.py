@@ -1113,8 +1113,46 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             level="info",
         )
 
-        # Start Thespian actor system
-        asys = ActorSystem("multiprocTCPBase", transientUnique=True)
+        # Start Thespian actor system on a known port.
+        # Use a fixed port so the MCP server subprocess can connect.
+        # Clean up any stale admin from a previous crashed run.
+        import atexit
+        import socket
+
+        THESPIAN_PORT = 19500
+
+        def _port_in_use(port: int) -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(("127.0.0.1", port)) == 0
+
+        if _port_in_use(THESPIAN_PORT):
+            logger.warning(
+                "refuel.stale_admin_detected",
+                port=THESPIAN_PORT,
+                msg="Shutting down stale Thespian admin",
+            )
+            try:
+                stale = ActorSystem(
+                    "multiprocTCPBase",
+                    capabilities={"Admin Port": THESPIAN_PORT},
+                )
+                stale.shutdown()
+                import time; time.sleep(1)
+            except Exception:
+                pass
+
+        asys = ActorSystem(
+            "multiprocTCPBase",
+            capabilities={"Admin Port": THESPIAN_PORT},
+        )
+
+        # Register atexit handler for crash safety
+        def _cleanup_actor_system():
+            try:
+                asys.shutdown()
+            except Exception:
+                pass
+        atexit.register(_cleanup_actor_system)
 
         try:
             # Create child actors
@@ -1133,6 +1171,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 "type": "init",
                 "cwd": str(Path.cwd()),
                 "mcp_tools": "submit_outline,submit_details,submit_fix",
+                "admin_port": THESPIAN_PORT,
             }, timeout=10)
 
             asys.ask(validator_addr, {
@@ -1165,6 +1204,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         finally:
             asys.shutdown()
+            atexit.unregister(_cleanup_actor_system)
 
         if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError

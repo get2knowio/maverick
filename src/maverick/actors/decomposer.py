@@ -10,6 +10,7 @@ MCP tool call to arrive in its inbox.
 """
 
 import asyncio
+import threading
 
 from thespian.actors import Actor
 
@@ -17,9 +18,9 @@ from thespian.actors import Actor
 class DecomposerActor(Actor):
     """Sends ACP prompts for decomposition phases.
 
-    The decomposer is fire-and-forget for each phase: it sends the
-    prompt and confirms. The actual structured result arrives at the
-    supervisor via the MCP tool call path.
+    Uses a persistent event loop in a background thread for async
+    ACP calls. This avoids the asyncio.run() teardown issue where
+    ACP's async generators conflict with loop closure.
     """
 
     def receiveMessage(self, message, sender):
@@ -29,56 +30,54 @@ class DecomposerActor(Actor):
         msg_type = message.get("type")
 
         if msg_type == "init":
-            # Store config for lazy executor creation
             self._cwd = message.get("cwd")
             self._mcp_tools = message.get("mcp_tools", "")
+            self._admin_port = message.get("admin_port", 19500)
             self._supervisor_addr = sender
+            # Create persistent event loop for async ACP calls
+            self._loop = asyncio.new_event_loop()
+            self._loop_thread = threading.Thread(
+                target=self._loop.run_forever, daemon=True
+            )
+            self._loop_thread.start()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "outline_request":
-            try:
-                asyncio.run(self._send_outline_prompt(message))
-                self.send(sender, {"type": "prompt_sent", "phase": "outline"})
-            except Exception as exc:
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "outline",
-                    "error": str(exc),
-                })
+            self._run_async(
+                self._send_outline_prompt(message),
+                sender, "outline",
+            )
 
         elif msg_type == "detail_request":
-            try:
-                asyncio.run(self._send_detail_prompt(message))
-                self.send(sender, {"type": "prompt_sent", "phase": "detail"})
-            except Exception as exc:
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "detail",
-                    "error": str(exc),
-                })
+            self._run_async(
+                self._send_detail_prompt(message),
+                sender, "detail",
+            )
 
         elif msg_type == "fix_request":
-            try:
-                asyncio.run(self._send_fix_prompt(message))
-                self.send(sender, {"type": "prompt_sent", "phase": "fix"})
-            except Exception as exc:
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "fix",
-                    "error": str(exc),
-                })
+            self._run_async(
+                self._send_fix_prompt(message),
+                sender, "fix",
+            )
 
         elif msg_type == "nudge":
-            # Agent didn't call the MCP tool — re-prompt
-            try:
-                asyncio.run(self._send_nudge(message))
-                self.send(sender, {"type": "prompt_sent", "phase": "nudge"})
-            except Exception as exc:
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "nudge",
-                    "error": str(exc),
-                })
+            self._run_async(
+                self._send_nudge(message),
+                sender, "nudge",
+            )
+
+    def _run_async(self, coro, sender, phase):
+        """Run an async coroutine on the persistent event loop."""
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            future.result(timeout=1800)  # blocks until done
+            self.send(sender, {"type": "prompt_sent", "phase": phase})
+        except Exception as exc:
+            self.send(sender, {
+                "type": "prompt_error",
+                "phase": phase,
+                "error": str(exc),
+            })
 
     def _get_executor(self):
         """Lazy-create ACP executor in this actor's process."""
@@ -112,24 +111,18 @@ class DecomposerActor(Actor):
         if session_id:
             return session_id
 
-        # Build MCP server config
+        # Build MCP server config with admin port for Thespian discovery
         maverick_bin = shutil.which("maverick") or "maverick"
+        admin_port = str(getattr(self, "_admin_port", 19500))
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
-            args=["serve-inbox", "--tools", self._mcp_tools],
+            args=[
+                "serve-inbox",
+                "--tools", self._mcp_tools,
+                "--admin-port", admin_port,
+            ],
             env=[],
-        )
-
-        from maverick.executor.config import resolve_step_config
-        from maverick.config import load_config
-
-        config = load_config()
-        step_config = resolve_step_config(
-            step_name="decompose_outline",
-            step_type="python",
-            agent_name="decomposer",
-            project_config=config,
         )
 
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
@@ -138,21 +131,26 @@ class DecomposerActor(Actor):
             "decomposer",
             executor,
             cwd=cwd,
-            config=step_config,
             mcp_servers=[mcp_config],
         )
         return session_id
 
     async def _prompt(self, prompt_text: str, step_name: str = "decompose"):
         """Send a prompt to the persistent ACP session."""
+        from maverick.executor.config import StepConfig
+
         executor = self._get_executor()
         registry = self._get_session_registry()
         session_id = await self._get_or_create_session()
+
+        # Use a generous timeout — decomposition prompts can take 10+ min
+        config = StepConfig(timeout=1200)
 
         await executor.prompt_session(
             session_id=session_id,
             prompt_text=prompt_text,
             provider=registry.get_provider("decomposer"),
+            config=config,
             step_name=step_name,
             agent_name="decomposer",
         )

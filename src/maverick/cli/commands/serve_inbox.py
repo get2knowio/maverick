@@ -1,10 +1,10 @@
 """CLI command for maverick serve-inbox.
 
-Starts the MCP supervisor inbox server. Discovers the supervisor
-Thespian actor via globalName and delivers tool call data as
-Thespian messages.
+Starts the MCP supervisor inbox server. Connects to the Thespian
+actor system on the specified admin port and discovers the supervisor
+actor by globalName.
 
-    maverick serve-inbox --tools submit_outline,submit_details
+    maverick serve-inbox --tools submit_outline,submit_details --admin-port 19500
 """
 
 from __future__ import annotations
@@ -22,11 +22,17 @@ logger = get_logger(__name__)
     required=True,
     help="Comma-separated tool names to expose to the agent.",
 )
-def serve_inbox(tools: str) -> None:
+@click.option(
+    "--admin-port",
+    type=int,
+    default=19500,
+    help="Thespian admin port to connect to.",
+)
+def serve_inbox(tools: str, admin_port: int) -> None:
     """Start the MCP supervisor inbox server (internal).
 
-    Discovers the supervisor Thespian actor and delivers validated
-    MCP tool calls as messages.
+    Connects to a Thespian actor system and delivers validated
+    MCP tool calls as messages to the supervisor actor.
     """
     from maverick.tools.supervisor_inbox import server as _server_module
     from maverick.tools.supervisor_inbox.server import (
@@ -49,12 +55,16 @@ def serve_inbox(tools: str) -> None:
         )
         raise SystemExit(1)
 
-    # Connect to existing Thespian ActorSystem and discover supervisor
+    # Connect to existing Thespian ActorSystem on the specified port
     from thespian.actors import ActorSystem
 
     from maverick.actors.refuel_supervisor import RefuelSupervisorActor
 
-    asys = ActorSystem("multiprocTCPBase")
+    asys = ActorSystem(
+        "multiprocTCPBase",
+        capabilities={"Admin Port": admin_port},
+    )
+    # Discover supervisor by globalName
     supervisor_addr = asys.createActor(
         RefuelSupervisorActor, globalName="supervisor-inbox"
     )
