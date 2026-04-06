@@ -42,11 +42,16 @@ description tells it what to do.
   `~/.maverick/workspaces/` clone; your working directory stays untouched
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context over time
-- **Actor-mailbox orchestration** — Fly uses an actor-model supervisor
-  where the implementer and reviewer maintain persistent ACP sessions within
-  each bead's lifetime. They exchange messages through a supervisor that
-  routes and enforces policy — no context loss between retries, no review
-  oscillation, no follow-up bead proliferation
+- **Thespian actor system** — All workflows use Thespian `multiprocTCPBase`
+  for true cross-process actor messaging. Each actor runs in its own OS
+  process. Supervisors route messages via policy. Agent actors hold persistent
+  ACP sessions. The MCP server delivers schema-validated tool calls directly
+  to the supervisor's Thespian inbox — no files, no polling, no parsing.
+- **MCP supervisor inbox** — Agents communicate results via MCP tool calls
+  (`submit_outline`, `submit_review`, etc.). The `maverick serve-inbox`
+  subcommand runs an MCP server with jsonschema validation that delivers
+  to the Thespian supervisor. Built-in tools (Read/Write) are for work;
+  MCP tools are for messaging.
 - **Three information types** — Clean separation between beads (domain work
   units on the project board), files (durable context surviving restarts),
   and messages (ephemeral process coordination between actors)
@@ -320,23 +325,43 @@ Maverick follows a clean separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI Layer (Click + Rich)                                   │
-│  maverick fly, refuel, plan, init, brief, land, runway      │
+│  maverick fly, refuel, plan, init, brief, land, runway,     │
+│  serve-inbox                                                │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
 │  Workflow Layer (Python async)                              │
 │  FlyBeadsWorkflow, GenerateFlightPlanWorkflow,              │
-│  RefuelMaverickWorkflow, RefuelSpeckitWorkflow              │
-│  (orchestration, state management, bead lifecycle)          │
+│  RefuelMaverickWorkflow                                     │
+│  Starts Thespian ActorSystem, creates actors, sends "start" │
+│  to supervisor, waits for "complete"                        │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
-│  Actor-Mailbox Layer (fly only)                             │
-│  BeadSupervisor — routes messages between actors per bead   │
-│  ImplementerActor, ReviewerActor (persistent ACP sessions)  │
-│  GateActor, ACCheckActor, SpecActor, CommitActor (Python)   │
-│  BeadSessionRegistry — session lifecycle per bead           │
-│  FlyReport — structured message log per bead                │
+│  Thespian Actor Layer (multiprocTCPBase)                    │
+│  Each actor runs in its own OS process                      │
+│                                                             │
+│  Supervisors (routing policy in receiveMessage):            │
+│  - RefuelSupervisorActor (outline → detail → validate)      │
+│  - BeadSupervisor (implement → gate → review → commit)      │
+│  - PlanSupervisor (briefing fan-out → generate → validate)  │
+│                                                             │
+│  Agent actors (persistent ACP sessions):                    │
+│  - DecomposerActor, ImplementerActor, ReviewerActor         │
+│  - BriefingActor (generic, parameterized per agent)         │
+│                                                             │
+│  Deterministic actors (pure Python):                        │
+│  - ValidatorActor, GateActor, BeadCreatorActor,             │
+│    CommitActor, SynthesisActor, PlanWriterActor             │
+└─────────────────────────────────────────────────────────────┘
+                          |
+┌─────────────────────────────────────────────────────────────┐
+│  MCP Supervisor Inbox (maverick serve-inbox)                │
+│  Agent → MCP tool call → jsonschema validation →            │
+│  Thespian tell() → supervisor's receiveMessage              │
+│                                                             │
+│  Built-in tools (Read/Write/Edit) = workspace work          │
+│  MCP tools (submit_outline/review) = supervisor messages    │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
@@ -347,37 +372,39 @@ Maverick follows a clean separation of concerns:
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
-│  Agent Layer                                                │
-│  ImplementerAgent, CompletenessReviewer, CorrectnessReviewer│
-│  DecomposerAgent, CuratorAgent, Briefing agents             │
-│  (system prompts, tool selection, file-based JSON output)   │
+│  Agent Layer (prompt builders)                              │
+│  ImplementerAgent, Reviewers, DecomposerAgent, CuratorAgent │
+│  Briefing agents (Scopist, Analyst, CriteriaWriter)         │
+│  FlightPlanGenerator                                        │
 └─────────────────────────────────────────────────────────────┘
                           |
 ┌─────────────────────────────────────────────────────────────┐
 │  Tool & Runner Layer                                        │
-│  MCP tools, CommandRunner, jj actions, GitPython,           │
-│  PyGithub, validation runners, notifications                │
+│  CommandRunner, jj actions, GitPython, PyGithub,            │
+│  validation runners, bd CLI, notifications                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Separation of Concerns
 
-- **Agents** know HOW to do a task — system prompts, tool selection, structured
-  output schemas. They provide judgment (implementation, review, fix suggestions).
-- **Actors** are stateful wrappers around agents (or pure Python for deterministic
-  checks). They maintain persistent ACP sessions, receive messages, and respond
-  through the supervisor. Agent actors keep conversation context across the full
-  bead lifetime; deterministic actors wrap existing action functions.
-- **Supervisor** routes messages between actors for a single bead's processing.
-  The routing policy (when to re-gate, when to escalate, when to commit) is an
-  explicit match statement, not scattered control flow.
-- **Workflows** know WHAT to do and WHEN — orchestration, state management,
-  sequencing. They own the outer bead loop and delegate per-bead processing
-  to the supervisor.
-- **ACP Executor** bridges actors and agent subprocesses — supports both
+- **Supervisors** are Thespian actors that own routing policy. Their `receiveMessage`
+  is the inbox. MCP tool calls from agents arrive here directly. The supervisor
+  routes to the next actor based on message type — no scattered control flow.
+- **Agent actors** are Thespian actors that hold persistent ACP sessions. They
+  receive prompts from the supervisor, send them to the LLM via ACP, and the
+  LLM delivers results back to the supervisor via MCP tool calls.
+- **Deterministic actors** are Thespian actors that wrap pure Python functions
+  (validation, bead creation, gate checks). No ACP session needed.
+- **MCP Supervisor Inbox** (`maverick serve-inbox`) bridges agents and supervisors.
+  The agent calls MCP tools; the server validates via jsonschema and delivers
+  via Thespian `tell()` to the supervisor's inbox.
+- **Workflows** create the Thespian ActorSystem, instantiate actors, send "start"
+  to the supervisor, and wait for "complete". They own the outer lifecycle.
+- **ACP Executor** bridges agent actors and LLM subprocesses — supports both
   single-turn (`execute`) and multi-turn (`create_session` + `prompt_session`)
   modes for persistent conversations.
-- **Tools** wrap external systems — GitHub API, VCS, notifications.
+- **Agents** (prompt builders) know HOW to do a task — system prompts, tool
+  selection. They build prompts; they don't own orchestration or state.
 
 ### Agent Execution via ACP
 
@@ -526,6 +553,8 @@ See [Agent Prompts Reference](docs/agent-prompts.md) for details.
 | Package Manager | uv | Fast, reproducible builds via `uv.lock` |
 | Build System | Make | AI-friendly commands with minimal output |
 | AI/Agents | Agent Client Protocol (ACP) | `agent-client-protocol` SDK + `claude-agent-acp` subprocess |
+| Actor Framework | Thespian | `multiprocTCPBase` — each actor in its own OS process |
+| MCP Tools | MCP SDK | Supervisor inbox server with jsonschema validation |
 | CLI | Click + Rich | Auto TTY detection for output |
 | Validation | Pydantic | Configuration and data models |
 | VCS (writes) | Jujutsu (jj) | Colocated mode; `maverick.jj.client.JjClient` |

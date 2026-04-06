@@ -1199,7 +1199,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: asys.ask(supervisor_addr, "start", timeout=1800),
+                lambda: asys.ask(supervisor_addr, "start", timeout=3600),
             )
 
         finally:

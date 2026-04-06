@@ -143,8 +143,8 @@ class DecomposerActor(Actor):
         registry = self._get_session_registry()
         session_id = await self._get_or_create_session()
 
-        # Use a generous timeout — decomposition prompts can take 10+ min
-        config = StepConfig(timeout=1200)
+        # Decomposition prompts can take 15-20 min on large flight plans
+        config = StepConfig(timeout=1800)
 
         await executor.prompt_session(
             session_id=session_id,
