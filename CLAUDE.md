@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Maverick is a Python CLI application that automates AI-powered development workflows using the Claude Agent SDK. It orchestrates multi-phase workflows: feature implementation from task lists, parallel code review, convention updates, and PR management.
+Maverick is a Python CLI application that orchestrates AI-powered development workflows using the Agent Client Protocol (ACP). It runs the full PRD-to-code pipeline: plan generation, decomposition into beads (work units), implementation, review, and commit management — using an actor-mailbox architecture with MCP tool-based communication.
 
 ## Technology Stack
 
@@ -13,7 +13,9 @@ Maverick is a Python CLI application that automates AI-powered development workf
 | Language        | Python 3.10+            | Use `from __future__ import annotations` |
 | Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
 | Build System    | Make                    | AI-friendly commands with minimal output |
-| AI/Agents       | Claude Agent SDK        | `claude-agent-sdk` package               |
+| AI/Agents       | Agent Client Protocol   | `agent-client-protocol` SDK + `claude-agent-acp` subprocess |
+| Actor Framework | Thespian                | `multiprocTCPBase` for cross-process actor messaging |
+| MCP Tools       | MCP SDK                 | Supervisor inbox server for schema-enforced agent output |
 | CLI             | Click                   | `click` package                          |
 | CLI Output      | Rich                    | `rich` package (auto TTY detection)      |
 | Validation      | Pydantic                | For configuration and data models        |
@@ -132,10 +134,15 @@ src/maverick/
 ├── constants.py         # Workflow execution constants
 ├── events.py            # Workflow progress event dataclasses
 ├── results.py           # StepResult, WorkflowResult dataclasses
-├── agents/              # Agent implementations
+├── actors/              # Thespian actor definitions
+│   ├── refuel_supervisor.py  # RefuelSupervisorActor (routing + inbox)
+│   ├── decomposer.py        # DecomposerActor (ACP prompts)
+│   ├── validator.py          # ValidatorActor (pure sync)
+│   └── bead_creator.py       # BeadCreatorActor (async bd calls)
+├── agents/              # Agent implementations (prompt builders)
 │   ├── base.py          # MaverickAgent abstract base class
-│   └── *.py             # Concrete agents (CodeReviewerAgent, etc.)
-├── executor/            # Step execution (Claude SDK integration)
+│   └── *.py             # Concrete agents (ImplementerAgent, etc.)
+├── executor/            # Step execution (ACP integration)
 ├── checkpoint/          # Checkpoint persistence
 ├── registry/            # Component registry (actions/agents/generators)
 ├── jj/                  # JjClient — typed jj (Jujutsu) wrapper
@@ -153,19 +160,33 @@ src/maverick/
 ├── workflows/           # Workflow orchestration
 │   ├── fly.py           # FlyWorkflow - full spec-based workflow
 │   └── refuel.py        # RefuelWorkflow - tech-debt resolution
-├── tools/               # MCP tool definitions
+├── tools/               # MCP tool servers
+│   └── supervisor_inbox/    # Generic MCP server for actor communication
+│       ├── server.py        # MCP server (maverick serve-inbox)
+│       └── schemas.py       # Tool schemas (full inbox vocabulary)
 ├── hooks/               # Safety and logging hooks
 └── utils/               # Shared utilities
 ```
 
 ### Separation of Concerns
 
-- **Agents**: Know HOW to do a task (system prompts, tool selection, Claude SDK interaction)
-- **Workflows**: Know WHAT to do and WHEN (orchestration, state management, sequencing)
-- **Tools**: Wrap external systems (GitHub CLI, git, notifications)
+- **Actors**: Thespian actors that own state and process messages. Agent actors hold persistent ACP sessions; deterministic actors wrap Python functions.
+- **Supervisors**: Route messages between actors via policy. The supervisor IS a Thespian actor — `receiveMessage` is its inbox.
+- **Agents**: Know HOW to do a task (system prompts, tool selection). Build prompts; don't own orchestration.
+- **Workflows**: Know WHAT to do and WHEN. Create the ActorSystem, actors, send "start", wait for "complete".
+- **MCP Tools**: The supervisor's inbox. Agents call MCP tools to deliver structured results; the protocol validates schemas.
 - **JjClient**: Typed wrapper around `jj` CLI with retries, timeouts, and error hierarchy
 - **WorkspaceManager**: Lifecycle for hidden jj workspaces (`~/.maverick/workspaces/`)
-- **VcsRepository**: Protocol abstracting git vs jj for read operations
+
+### Three Information Types
+
+All data in Maverick falls into one of three categories:
+
+| Type | What | Lifecycle | Examples |
+|------|------|-----------|----------|
+| **Beads** | Domain work units | Created at refuel, closed at commit, persist forever | "Implement UID sync", "Add compose profiles" |
+| **Files** | Durable context | Survives restarts, read across sessions | Flight plans, work units, fly reports, config |
+| **Messages** | Process coordination | Created, consumed, discarded within one bead/step | Tool calls, routing signals, review findings |
 
 ## Development Commands
 
@@ -220,19 +241,49 @@ Do NOT bypass ACP with direct `claude -p` subprocess calls or other ad-hoc execu
 ACP provides connection caching, retry, circuit breakers, event streaming, and provider
 abstraction that raw subprocess calls lack.
 
-### Tool-First Agent Design
+### Multi-Turn Sessions
 
-Agents should use Claude Code's built-in tools (Read, Write, Bash, Grep, etc.) to interact
-with the filesystem and produce artifacts — not try to return large structured outputs as
-JSON blobs. This aligns with how Claude Code naturally works and avoids output token budget
-issues.
+The executor supports persistent ACP sessions via `create_session()` + `prompt_session()`.
+A single session can receive multiple prompts with full conversation history preserved.
+This is used by the actor-mailbox architecture to keep implementer and reviewer context
+across fix rounds.
 
-**Do**: Give agents Write access and have them create files directly on disk.
-**Don't**: Ask agents to return multi-KB content embedded in JSON `output_schema` responses.
+### MCP Tool-Based Agent Output (Supervisor Inbox)
 
-Small structured outputs (commit messages, PR titles, short analysis results) work fine with
-`output_schema`. Large content (documentation, seed files, code generation) should be written
-to disk by the agent.
+Agents communicate structured results to the supervisor via MCP tool calls, not JSON in
+text responses. The orchestrator runs an MCP server (`maverick serve-inbox`) whose tools
+are the message types the supervisor accepts. The MCP protocol provides schema guidance;
+the server validates via `jsonschema.validate()` and returns errors for self-correction.
+
+**Do**: Define agent output as MCP tool schemas in `maverick.tools.supervisor_inbox.schemas`
+**Don't**: Ask agents to produce structured JSON in their text response (`output_schema` pattern)
+
+Built-in tools (Read, Write, Edit, Bash, Glob, Grep) are for doing work in the workspace.
+MCP tools (submit_outline, submit_review, etc.) are for sending results to the supervisor.
+
+**Provider compatibility**: Claude reliably calls MCP tools. Copilot agents currently do not
+call MCP tools in ACP sessions — use the text fallback path for Copilot-routed steps.
+
+### Actor-Mailbox Architecture
+
+All three workflows (plan, refuel, fly) use a supervisor that routes messages between actors:
+
+- **Agent actors** (implementer, reviewer, decomposer): Persistent ACP sessions, deliver
+  results via MCP tool calls to the supervisor's inbox
+- **Deterministic actors** (gate, validator, bead creator): Pure Python, no ACP session
+- **Supervisor**: Routes messages via a policy (match on message type). The supervisor IS
+  the Thespian actor — its `receiveMessage` is its inbox
+
+See `docs/AGENT-MCP.md` for the full architecture design.
+
+### Thespian Actor System (In Progress)
+
+The refuel workflow uses Thespian `multiprocTCPBase` for true cross-process actor messaging.
+The MCP server subprocess discovers the supervisor by connecting to the Thespian Admin on
+a known port and using `globalName='supervisor-inbox'`.
+
+**Status**: Cross-process messaging works. The async bridge (running ACP prompt_session inside
+a Thespian actor process) needs debugging — see `memory/thespian-integration-status.md`.
 
 ### ACP Stream Buffer
 
@@ -392,31 +443,39 @@ Violations cause `AttributeError: 'str' object has no attribute 'is_dir'` or sim
 
 ## Workflows
 
-Maverick uses a beads-only workflow model. All development is driven by beads (units of work managed by the `bd` CLI tool).
+Maverick uses a beads-only workflow model. All development is driven by beads (units of work managed by the `bd` CLI tool). All three workflows use the actor-mailbox pattern with MCP tool-based communication.
 
 ### CLI Commands
 
 | Command | Purpose |
 |---------|---------|
-| `maverick fly [options]` | Pick next ready bead(s) and iterate (bead execution) |
-| `maverick land [options]` | Curate history and push (finalize fly work) |
-| `maverick refuel speckit <spec_dir>` | Create beads from a SpecKit specification |
-| `maverick workspace status` | Show workspace state for current project |
-| `maverick workspace clean` | Remove workspace for current project |
+| `maverick plan generate <name> --from-prd <file>` | Generate flight plan from PRD |
+| `maverick refuel <plan-name>` | Decompose flight plan into beads |
+| `maverick fly --epic <id>` | Implement beads (actor-mailbox supervisor) |
+| `maverick land [--eject\|--finalize]` | Curate history and merge |
+| `maverick serve-inbox --tools <list>` | MCP supervisor inbox server (internal) |
+| `maverick workspace status\|clean` | Manage hidden workspace |
 | `maverick init` | Initialize a new Maverick project |
-| `maverick uninstall` | Remove Maverick configuration |
+| `maverick brief [--watch]` | Review bead status |
+| `maverick runway seed\|consolidate` | Manage knowledge store |
 
 ### fly (Bead-Driven Development)
 
-Iterates over ready beads until done. Runs the `fly-beads` DSL workflow:
+Iterates over ready beads. Each bead is processed by a BeadSupervisor using the actor-mailbox pattern:
 
-1. **Preflight**: Check API, git, jj, and bd prerequisites
-2. **Create workspace**: Clone user repo into `~/.maverick/workspaces/<project>/` via `jj git clone`
-3. **Bead Loop**: Select next ready bead, implement, validate, review, commit (via jj), close
+1. **Preflight**: Check prerequisites
+2. **Create workspace**: Clone via `jj git clone` into `~/.maverick/workspaces/<project>/`
+3. **Bead Loop**: Select bead → BeadSupervisor processes it:
+   - ImplementerActor (persistent ACP session, calls `submit_implementation` MCP tool)
+   - GateActor (deterministic: build/lint/test)
+   - ReviewerActor (persistent ACP session, calls `submit_review` MCP tool)
+   - CommitActor (jj commit)
+   - Review negotiation happens via messages within the bead — no follow-up beads
 
-All fly work happens in the hidden workspace — the user's working directory is untouched. Run `maverick land` after `fly` to curate and push. Preflight MUST use `check_validation_tools: false` because the workspace `.venv` doesn't exist until bootstrap; rely on `sync_deps` step to install tools before validation.
+The supervisor routes messages: implement → gate → review → (fix loop if needed) → commit.
+Implementer and reviewer share persistent sessions — no context loss between rounds.
 
-Options: `--epic` (optional, filter by epic), `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--list-steps`, `--session-log`
+Options: `--epic`, `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--auto-commit`
 
 ### land (Curate and Push)
 
@@ -501,31 +560,18 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
 
 ## Active Technologies
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK v0.1.18 (`claude-agent-sdk`, `output_format` structured output), Click, Rich, Pydantic, PyYAML, GitPython
-- YAML files (`maverick.yaml`, `~/.config/maverick/config.yaml`)
-- JSON files under `.maverick/checkpoints/` for checkpoint persistence
-- DSL-based workflow definitions with YAML serialization
-- Python 3.10+ with `from __future__ import annotations` + Claude Agent SDK (`claude-agent-sdk`), Pydantic, tenacity, structlog (032-step-executor-protocol)
-- N/A (no persistence changes) (032-step-executor-protocol)
-- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (config models), PyYAML (serialization), Claude Agent SDK (executor) (033-step-config)
-- N/A (YAML config files only) (033-step-config)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Pydantic, structlog, tenacity (034-step-mode-dispatch)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Rich, Pydantic, PyYAML, structlog, tenacity, GitPython (035-python-workflow)
-- JSON files under `~/.maverick/checkpoints/` via `FileCheckpointStore` (035-python-workflow)
-- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (config models), structlog (logging), Claude Agent SDK (agents) (036-prompt-config)
-- Python 3.10+ (with `from __future__ import annotations`) + Pydantic (frozen models, validators), PyYAML (frontmatter parsing), pathlib (file operations) (037-flight-plan-models)
-- Markdown+YAML files on disk (`flight-plan.md`, `###-slug.md`) (037-flight-plan-models)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK (`claude-agent-sdk`), Click, Rich, Pydantic, pathlib, structlog, tenacity (038-refuel-maverick-method)
-- Markdown+YAML files on disk (`.maverick/work-units/<name>/`), beads via `bd` CLI (038-refuel-maverick-method)
-- Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Rich (console output), RefuelMaverickWorkflow (workflow engine) (039-refuel-flight-plan)
-- N/A (reuses existing `.maverick/work-units/{plan-name}/` convention) (039-refuel-flight-plan)
-- Python 3.10+ (with `from __future__ import annotations`) + Click (CLI), Rich (output formatting), Pydantic (models) (040-flight-plan-cli)
-- Markdown+YAML files on disk (`.maverick/flight-plans/`) (040-flight-plan-cli)
-- Python 3.10+ (with `from __future__ import annotations`) + Claude Agent SDK, Click, Rich, Pydantic, GitPython, tenacity, structlog; YAML DSL infrastructure removed and live code migrated to top-level modules (041-remove-yaml-dsl)
-- JSON checkpoint files under `~/.maverick/checkpoints/` (041-remove-yaml-dsl)
-- Python 3.10+ (with `from __future__ import annotations`) + `agent-client-protocol` v0.8.1+ (new), Click, Rich, Pydantic, structlog, tenacity, GitPython (042-acp-integration)
+- Python 3.11+ with `from __future__ import annotations`
+- Agent Client Protocol (ACP) via `agent-client-protocol` SDK + `claude-agent-acp` subprocess
+- MCP SDK for supervisor inbox tool server
+- Thespian actor framework for cross-process actor messaging
+- Click + Rich for CLI, Pydantic for models, structlog for logging
+- Jujutsu (jj) for VCS writes, GitPython for VCS reads
+- Beads via `bd` CLI for work unit management
 
 ## Recent Changes
-- 041-remove-yaml-dsl: Removed dead YAML DSL infrastructure; migrated live code to maverick.events, maverick.results, maverick.types, maverick.constants, maverick.executor/, maverick.checkpoint/, maverick.registry/
-- 031-instructions-preset: Verified Claude Code preset + instructions pattern for all interactive agents
-- 030-typed-output-contracts: Added Pydantic-based typed output contracts for agents using Claude Agent SDK `output_format` structured output
+- Actor-mailbox architecture: all three workflows (plan/refuel/fly) use supervisor actors with MCP tool-based agent output
+- MCP supervisor inbox: `maverick serve-inbox` subcommand with jsonschema validation
+- Thespian integration: cross-process messaging for refuel (async bridge in progress)
+- Fly improvements: persistent ACP sessions eliminate review oscillation (0-1 rounds vs 11→10→12)
+- Curator prompt: strips bead IDs from commit messages for clean git history
+- Behavioral verification commands in decomposer (tests pass, not code pattern greps)
