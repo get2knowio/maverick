@@ -879,7 +879,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
         from maverick.workflows.fly_beads.supervisor import BeadSupervisor
 
-        import sys as _sys
+        import shutil as _shutil
 
         from acp.schema import McpServerStdio
 
@@ -893,13 +893,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
             else Path.cwd() / ".maverick" / "tmp" / "inbox"
         )
         inbox_dir.mkdir(parents=True, exist_ok=True)
+        _maverick_bin = _shutil.which("maverick") or "maverick"
 
         def _mcp_config(tools: str, agent_name: str) -> McpServerStdio:
             return McpServerStdio(
                 name="supervisor-inbox",
-                command=_sys.executable,
+                command=_maverick_bin,
                 args=[
-                    "-m", "maverick.tools.supervisor_inbox.server",
+                    "serve-inbox",
                     "--tools", tools,
                     "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
                 ],

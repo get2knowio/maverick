@@ -188,5 +188,10 @@ cli.add_command(runway)
 cli.add_command(uninstall)
 cli.add_command(workspace)
 
+# Internal commands (used by actor-mailbox infrastructure)
+from maverick.cli.commands.serve_inbox import serve_inbox
+
+cli.add_command(serve_inbox)
+
 if __name__ == "__main__":
     cli()

@@ -1100,13 +1100,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             RefuelSupervisor,
         )
 
-        import sys as _sys
+        import shutil as _shutil
 
         from acp.schema import McpServerStdio
 
         await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
         session_registry = BeadSessionRegistry(bead_id="refuel")
+        _maverick_bin = _shutil.which("maverick") or "maverick"
 
         # Resolve config for decomposer
         decompose_config = self.resolve_step_config(
@@ -1124,9 +1125,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Create MCP server config — the supervisor's inbox endpoint
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
-            command=_sys.executable,
+            command=_maverick_bin,
             args=[
-                "-m", "maverick.tools.supervisor_inbox.server",
+                "serve-inbox",
                 "--tools", "submit_outline,submit_details,submit_fix",
                 "--output", str(inbox_path),
             ],

@@ -445,7 +445,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         skip_briefing: bool,
     ) -> Any:
         """Generate flight plan using actor-mailbox supervisor."""
-        import sys as _sys
+        import shutil as _shutil
 
         from acp.schema import McpServerStdio
 
@@ -477,12 +477,14 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         inbox_dir = plan_dir / ".inbox"
         inbox_dir.mkdir(parents=True, exist_ok=True)
 
+        _maverick_bin = _shutil.which("maverick") or "maverick"
+
         def _mcp_config(tool_name: str, agent_name: str) -> McpServerStdio:
             return McpServerStdio(
                 name="supervisor-inbox",
-                command=_sys.executable,
+                command=_maverick_bin,
                 args=[
-                    "-m", "maverick.tools.supervisor_inbox.server",
+                    "serve-inbox",
                     "--tools", tool_name,
                     "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
                 ],
