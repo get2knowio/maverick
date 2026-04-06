@@ -1080,62 +1080,23 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         Returns a DecompositionOutput (same type as the legacy loop).
         """
-        from maverick.workflows.fly_beads.session_registry import (
-            BeadSessionRegistry,
-        )
-        from maverick.workflows.refuel_maverick.actors.bead_creator import (
-            BeadCreatorActor,
-        )
-        from maverick.workflows.refuel_maverick.actors.decomposer import (
-            DecomposerActor,
-        )
-        from maverick.workflows.refuel_maverick.actors.validator import (
-            ValidatorActor,
-        )
         from maverick.workflows.refuel_maverick.models import (
             DecompositionOutput,
             WorkUnitSpec,
         )
-        from maverick.workflows.refuel_maverick.supervisor import (
-            RefuelSupervisor,
-        )
 
-        import shutil as _shutil
+        import asyncio
 
-        from acp.schema import McpServerStdio
+        from thespian.actors import ActorSystem
+
+        from maverick.actors.bead_creator import BeadCreatorActor
+        from maverick.actors.decomposer import DecomposerActor
+        from maverick.actors.refuel_supervisor import RefuelSupervisorActor
+        from maverick.actors.validator import ValidatorActor
 
         await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
-        session_registry = BeadSessionRegistry(bead_id="refuel")
-        _maverick_bin = _shutil.which("maverick") or "maverick"
-
-        # Resolve config for decomposer
-        decompose_config = self.resolve_step_config(
-            step_name=DECOMPOSE_OUTLINE,
-            step_type=StepType.PYTHON,
-            agent_name="decomposer",
-        )
-
-        # Create MCP server config — uses Thespian actor system for inbox
-        mcp_config = McpServerStdio(
-            name="supervisor-inbox",
-            command=_maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools", "submit_outline,submit_details,submit_fix",
-            ],
-            env=[],
-        )
-
-        # Build SC refs from flight plan
-        sc_refs = []
-        for i, sc in enumerate(
-            getattr(flight_plan, "success_criteria", [])
-        ):
-            ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
-            sc_refs.append(ref)
-
-        # Build initial payload — pass typed objects for prompt building
+        # Build initial payload
         initial_payload = {
             "flight_plan_content": raw_content,
             "codebase_context": codebase_context,
@@ -1146,50 +1107,76 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             ),
         }
 
-        actors: dict[str, Any] = {
-            "decomposer": DecomposerActor(
-                session_registry=session_registry,
-                executor=self._step_executor,
-                cwd=Path.cwd(),
-                config=decompose_config,
-                mcp_server_config=mcp_config,
-                read_inbox=None,  # set after supervisor created
-            ),
-            "validator": ValidatorActor(
-                flight_plan=flight_plan,
-                success_criteria_refs=sc_refs,
-            ),
-        }
-
-        supervisor = RefuelSupervisor(
-            actors=actors,
-            initial_payload=initial_payload,
-            flight_plan=flight_plan,
-        )
-
-        # Wire the supervisor's Thespian inbox to the decomposer
-        actors["decomposer"]._read_inbox = supervisor.read_inbox
-
         await self.emit_output(
             DECOMPOSE,
-            "Decomposing with actor-mailbox supervisor",
+            "Decomposing with Thespian actor system",
             level="info",
         )
 
-        outcome = await supervisor.process()
-        session_registry.close_all()
+        # Start Thespian actor system
+        asys = ActorSystem("multiprocTCPBase", transientUnique=True)
 
-        if not outcome.success and not outcome.specs:
+        try:
+            # Create child actors
+            decomposer_addr = asys.createActor(DecomposerActor)
+            validator_addr = asys.createActor(ValidatorActor)
+            bead_creator_addr = asys.createActor(BeadCreatorActor)
+
+            # Create supervisor with globalName for MCP server discovery
+            supervisor_addr = asys.createActor(
+                RefuelSupervisorActor,
+                globalName="supervisor-inbox",
+            )
+
+            # Init child actors
+            asys.ask(decomposer_addr, {
+                "type": "init",
+                "cwd": str(Path.cwd()),
+                "mcp_tools": "submit_outline,submit_details,submit_fix",
+            }, timeout=10)
+
+            asys.ask(validator_addr, {
+                "type": "init",
+                "flight_plan": flight_plan,
+            }, timeout=10)
+
+            asys.ask(bead_creator_addr, {
+                "type": "init",
+                "plan_name": flight_plan.name if hasattr(flight_plan, "name") else "",
+                "plan_objective": flight_plan.objective if hasattr(flight_plan, "objective") else "",
+            }, timeout=10)
+
+            # Init supervisor with child addresses and config
+            asys.ask(supervisor_addr, {
+                "type": "init",
+                "decomposer_addr": decomposer_addr,
+                "validator_addr": validator_addr,
+                "bead_creator_addr": bead_creator_addr,
+                "initial_payload": initial_payload,
+                "config": {"flight_plan": flight_plan},
+            }, timeout=10)
+
+            # Start decomposition and wait for result
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: asys.ask(supervisor_addr, "start", timeout=1800),
+            )
+
+        finally:
+            asys.shutdown()
+
+        if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError
 
             raise WorkflowError(
-                f"Decomposition failed: {outcome.error or 'no specs produced'}",
+                f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",
                 workflow_name="refuel-maverick",
             )
 
         # Convert specs to DecompositionOutput
         work_units = []
-        for spec in outcome.specs:
+        for spec in result.get("specs", []):
             if isinstance(spec, WorkUnitSpec):
                 work_units.append(spec)
             elif isinstance(spec, dict):

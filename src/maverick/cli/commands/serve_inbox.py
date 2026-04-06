@@ -1,11 +1,8 @@
 """CLI command for maverick serve-inbox.
 
-Starts the MCP supervisor inbox server. This is an internal command
-used by the actor-mailbox architecture — the agent subprocess spawns
-it and connects via stdio.
-
-The server validates tool call arguments against JSON Schema and
-delivers them to the supervisor's Thespian inbox actor.
+Starts the MCP supervisor inbox server. Discovers the supervisor
+Thespian actor via globalName and delivers tool call data as
+Thespian messages.
 
     maverick serve-inbox --tools submit_outline,submit_details
 """
@@ -28,9 +25,8 @@ logger = get_logger(__name__)
 def serve_inbox(tools: str) -> None:
     """Start the MCP supervisor inbox server (internal).
 
-    Exposes a filtered set of MCP tools for an agent to call.
-    Each tool call is validated against the schema and delivered
-    to the supervisor's Thespian inbox actor.
+    Discovers the supervisor Thespian actor and delivers validated
+    MCP tool calls as messages.
     """
     from maverick.tools.supervisor_inbox import server as _server_module
     from maverick.tools.supervisor_inbox.server import (
@@ -53,16 +49,16 @@ def serve_inbox(tools: str) -> None:
         )
         raise SystemExit(1)
 
-    # Connect to existing Thespian ActorSystem and discover supervisor inbox
+    # Connect to existing Thespian ActorSystem and discover supervisor
     from thespian.actors import ActorSystem
 
-    from maverick.actors.inbox import InboxActor
+    from maverick.actors.refuel_supervisor import RefuelSupervisorActor
 
     asys = ActorSystem("multiprocTCPBase")
-    inbox_addr = asys.createActor(
-        InboxActor, globalName="supervisor-inbox"
+    supervisor_addr = asys.createActor(
+        RefuelSupervisorActor, globalName="supervisor-inbox"
     )
     _server_module._thespian_system = asys
-    _server_module._thespian_inbox = inbox_addr
+    _server_module._thespian_inbox = supervisor_addr
 
     asyncio.run(run_server())
