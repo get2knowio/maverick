@@ -68,9 +68,62 @@ class RefuelSupervisor:
         self._detail_data: dict[str, Any] | None = None
         self._specs: list[Any] = []
 
+        # Thespian actor system for inbox
+        self._actor_system: Any = None
+        self._inbox_addr: Any = None
+
+    def _start_actor_system(self) -> None:
+        """Start Thespian ActorSystem and create inbox actor."""
+        from thespian.actors import ActorSystem
+
+        from maverick.actors.inbox import InboxActor
+
+        self._actor_system = ActorSystem(
+            "multiprocTCPBase", transientUnique=True
+        )
+        self._inbox_addr = self._actor_system.createActor(
+            InboxActor, globalName="supervisor-inbox"
+        )
+        logger.info("refuel_supervisor.actor_system_started")
+
+    def _stop_actor_system(self) -> None:
+        """Shutdown Thespian ActorSystem cleanly."""
+        if self._actor_system is not None:
+            try:
+                self._actor_system.shutdown()
+                logger.info("refuel_supervisor.actor_system_stopped")
+            except Exception as exc:
+                logger.warning(
+                    "refuel_supervisor.actor_system_shutdown_error",
+                    error=str(exc),
+                )
+            self._actor_system = None
+            self._inbox_addr = None
+
+    async def read_inbox(self, timeout: float = 60.0) -> dict[str, Any] | None:
+        """Read the latest message from the Thespian inbox actor.
+
+        Wraps the blocking ask() in run_in_executor for async compat.
+        """
+        import asyncio
+
+        if self._actor_system is None or self._inbox_addr is None:
+            return None
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self._actor_system.ask(
+                self._inbox_addr, "get_latest", timeout=timeout
+            ),
+        )
+        return result
+
     async def process(self) -> RefuelOutcome:
         """Main supervisor loop."""
         t0 = time.monotonic()
+
+        self._start_actor_system()
 
         pending: list[Message] = [
             self._make_message(
@@ -111,6 +164,7 @@ class RefuelSupervisor:
         except Exception as exc:
             logger.error("refuel_supervisor.error", error=str(exc))
             elapsed = time.monotonic() - t0
+            self._stop_actor_system()
             return RefuelOutcome(
                 success=False,
                 message_log=list(self._message_log),
@@ -119,6 +173,7 @@ class RefuelSupervisor:
                 error=str(exc),
             )
 
+        self._stop_actor_system()
         elapsed = time.monotonic() - t0
 
         create_result = self._find_last(MessageType.CREATE_BEADS_RESULT)

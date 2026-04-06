@@ -948,6 +948,7 @@ dependencies = [
     { name = "rich" },
     { name = "structlog" },
     { name = "tenacity" },
+    { name = "thespian" },
     { name = "tiktoken" },
     { name = "unidiff" },
 ]
@@ -1000,6 +1001,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0,<14" },
     { name = "structlog", specifier = ">=24.1,<26" },
     { name = "tenacity", specifier = ">=8.2,<10" },
+    { name = "thespian", specifier = ">=4.0.1" },
     { name = "tiktoken", specifier = ">=0.8,<1" },
     { name = "unidiff", specifier = ">=0.7,<1" },
 ]
@@ -2147,6 +2149,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
 ]
+
+[[package]]
+name = "thespian"
+version = "4.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/a7/f4529906c026b35b4aa90bc95860c124da8409f9b15a78b48fafb8207dc2/thespian-4.0.1.tar.gz", hash = "sha256:a4ae87849ca24d4545555a7fa45c500e2cae0ce03cba0ddf863cfb576d76a819", size = 437434, upload-time = "2025-03-12T13:18:45.392Z" }
 
 [[package]]
 name = "tiktoken"

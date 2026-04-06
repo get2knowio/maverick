@@ -2,18 +2,16 @@
 
 Uses MCP tools as the outbound mailbox to the supervisor. The agent
 calls submit_outline, submit_details, or submit_fix tools to deliver
-structured messages — the MCP protocol enforces the parameter schemas.
+structured messages via the Thespian inbox actor.
 
-The agent receives natural-language prompts (no schema directives)
-and communicates results via tool calls (schema-enforced by MCP).
+The agent receives natural-language prompts and communicates results
+via MCP tool calls → Thespian message passing.
 """
 
 from __future__ import annotations
 
-import json
-import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Coroutine
 
 from maverick.executor.config import StepConfig
 from maverick.logging import get_logger
@@ -35,25 +33,25 @@ class DecomposerActor:
     - FIX_DECOMPOSE_REQUEST: Patch specific gaps/overloads (turn 3+)
 
     All turns happen on the same persistent ACP session.
-    Results are delivered via MCP tool calls, not text output.
+    Results delivered via MCP tool calls to Thespian inbox actor.
     """
 
     def __init__(
         self,
         *,
         session_registry: BeadSessionRegistry,
-        executor: Any,  # AcpStepExecutor
+        executor: Any,
         cwd: Path | None = None,
         config: StepConfig | None = None,
-        inbox_path: Path,
-        mcp_server_config: Any = None,  # McpServerStdio
+        mcp_server_config: Any = None,
+        read_inbox: Callable[..., Coroutine[Any, Any, dict[str, Any] | None]],
     ) -> None:
         self._registry = session_registry
         self._executor = executor
         self._cwd = cwd
         self._config = config
-        self._inbox_path = inbox_path
         self._mcp_config = mcp_server_config
+        self._read_inbox = read_inbox
         self._turns: int = 0
 
     @property
@@ -87,7 +85,6 @@ class DecomposerActor:
             runway_context=payload.get("runway_context"),
         )
 
-        # Append validation feedback from prior fix rounds
         validation_feedback = payload.get("validation_feedback", "")
         if validation_feedback:
             prompt_text += (
@@ -96,16 +93,14 @@ class DecomposerActor:
                 f"Fix these issues in your new decomposition."
             )
 
-        # Append instruction to use the submit_outline tool
         prompt_text += (
             "\n\n## REQUIRED: Submit via tool call\n"
             "You MUST call the `submit_outline` tool with your results. "
-            "Do NOT put your decomposition in a text response or code block — "
-            "the supervisor can only receive your work via the submit_outline "
+            "Do NOT put your decomposition in a text response — the "
+            "supervisor can only receive your work via the submit_outline "
             "tool call."
         )
 
-        # Create session with MCP server for tool-based output
         mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(
             self.name,
@@ -125,8 +120,9 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        # Read structured result from inbox (written by MCP tool call)
-        inbox_data = await self._read_inbox_with_retry("submit_outline")
+        inbox_data = await self._read_inbox_with_retry(
+            "submit_outline", session_id
+        )
 
         return [
             Message(
@@ -153,12 +149,11 @@ class DecomposerActor:
             ),
         )
 
-        # Append instruction to use the submit_details tool
         prompt_text += (
             "\n\n## REQUIRED: Submit via tool call\n"
             "You MUST call the `submit_details` tool with your results. "
-            "Do NOT put details in a text response or code block — "
-            "the supervisor can only receive your work via the "
+            "Do NOT put details in a text response — the "
+            "supervisor can only receive your work via the "
             "submit_details tool call."
         )
 
@@ -183,7 +178,9 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry("submit_details")
+        inbox_data = await self._read_inbox_with_retry(
+            "submit_details", session_id
+        )
 
         return [
             Message(
@@ -251,7 +248,9 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry("submit_fix")
+        inbox_data = await self._read_inbox_with_retry(
+            "submit_fix", session_id
+        )
 
         return [
             Message(
@@ -266,76 +265,41 @@ class DecomposerActor:
     async def _read_inbox_with_retry(
         self,
         expected_tool: str,
+        session_id: str,
         max_retries: int = 2,
     ) -> dict[str, Any] | None:
-        """Read the inbox, retrying if the agent didn't call the tool.
-
-        If the inbox is empty after a turn, immediately re-prompts
-        the agent to call the expected tool. This is the self-correcting
-        loop: the orchestrator tells the agent it hasn't delivered its
-        message yet.
-        """
-        data = self._read_inbox_file()
+        """Read from Thespian inbox, nudging if agent didn't call the tool."""
+        data = await self._read_inbox()
         if data is not None:
             return data
 
-        # Inbox empty — agent responded in text without calling the tool.
-        # Re-prompt on the same session to nudge it.
         for retry in range(max_retries):
             logger.info(
                 "decomposer_actor.inbox_retry",
                 expected_tool=expected_tool,
                 retry=retry + 1,
-                turn=self._turns,
             )
-            nudge = (
-                f"Your response was not registered because you did not "
-                f"call the `{expected_tool}` tool. The supervisor can "
-                f"only receive your work via tool calls, not text. "
-                f"Please call `{expected_tool}` now with your results."
+            await self._executor.prompt_session(
+                session_id=session_id,
+                prompt_text=(
+                    f"Your response was not registered because you did not "
+                    f"call the `{expected_tool}` tool. Please call "
+                    f"`{expected_tool}` now with your results."
+                ),
+                provider=self._registry.get_provider(self.name),
+                config=self._config,
+                step_name=f"decompose_nudge_{expected_tool}",
+                agent_name="decomposer",
             )
-            session_id = self._registry.get_session(self.name)
-            if session_id:
-                await self._executor.prompt_session(
-                    session_id=session_id,
-                    prompt_text=nudge,
-                    provider=self._registry.get_provider(self.name),
-                    config=self._config,
-                    step_name=f"decompose_nudge_{expected_tool}",
-                    agent_name="decomposer",
-                )
-                self._turns += 1
-
-            data = self._read_inbox_file()
+            self._turns += 1
+            data = await self._read_inbox()
             if data is not None:
                 return data
 
         logger.warning(
             "decomposer_actor.inbox_exhausted",
             expected_tool=expected_tool,
-            retries=max_retries,
         )
-        return None
-
-    def _read_inbox_file(self) -> dict[str, Any] | None:
-        """Read and consume the inbox file."""
-        if self._inbox_path.exists():
-            try:
-                data = json.loads(
-                    self._inbox_path.read_text(encoding="utf-8")
-                )
-                self._inbox_path.unlink()  # consume the message
-                logger.info(
-                    "decomposer_actor.inbox_read",
-                    tool=data.get("tool"),
-                    turn=self._turns,
-                )
-                return data
-            except Exception as exc:
-                logger.warning(
-                    "decomposer_actor.inbox_read_failed",
-                    error=str(exc),
-                )
         return None
 
     def get_state_snapshot(self) -> dict[str, Any]:

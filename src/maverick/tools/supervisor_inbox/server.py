@@ -3,29 +3,20 @@
 Generic MCP server that exposes a filtered set of tools per agent.
 Each tool represents a message type the supervisor's inbox accepts.
 The agent calls these tools to deliver structured messages; the MCP
-protocol enforces the parameter schemas.
+protocol provides schema guidance, and we enforce it server-side
+via jsonschema validation.
 
-The --tools flag controls which tools each agent can see.
-The --output flag specifies where to write received messages.
+Tool call data is delivered to the supervisor's Thespian inbox actor
+via message passing — no filesystem coordination.
 
-Usage:
-    python -m maverick.tools.supervisor_inbox.server \\
-        --tools submit_outline,submit_details,submit_fix \\
-        --output /path/to/inbox.json
-
-The server writes each tool call to the output file as:
-    {"tool": "submit_outline", "arguments": {...}}
-
-The supervisor reads this file after each agent turn.
+Usage (called by agent subprocess, not manually):
+    maverick serve-inbox --tools submit_outline,submit_details,submit_fix
 """
 
 from __future__ import annotations
 
-import argparse
-import asyncio
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
@@ -34,9 +25,10 @@ from mcp.types import TextContent, Tool
 
 from maverick.tools.supervisor_inbox.schemas import ALL_TOOL_SCHEMAS
 
-# Module-level state set at startup
+# Module-level state set at startup by serve_inbox command
 _active_tools: dict[str, Tool] = {}
-_output_path: Path = Path("/tmp/mcp-inbox.json")
+_thespian_system: Any = None  # ActorSystem
+_thespian_inbox: Any = None   # ActorAddress
 
 server = Server("supervisor-inbox")
 
@@ -65,7 +57,7 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
-    """Handle a tool call — validate against schema, write to inbox."""
+    """Handle a tool call — validate and deliver to supervisor inbox."""
     if name not in _active_tools:
         raise ValueError(
             f"Tool '{name}' is not available. "
@@ -74,8 +66,7 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
 
     args = arguments or {}
 
-    # Validate arguments against the tool's input schema.
-    # If invalid, return an error so the agent can self-correct.
+    # Validate arguments against the tool's input schema
     tool_def = _active_tools[name]
     schema = tool_def.inputSchema
     if schema:
@@ -84,21 +75,28 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
         try:
             jsonschema.validate(instance=args, schema=schema)
         except jsonschema.ValidationError as exc:
-            # Return a clear error — the agent sees this and retries
-            error_path = " → ".join(str(p) for p in exc.absolute_path) if exc.absolute_path else "(root)"
+            error_path = (
+                " → ".join(str(p) for p in exc.absolute_path)
+                if exc.absolute_path
+                else "(root)"
+            )
             raise ValueError(
                 f"Schema validation failed for '{name}' at '{error_path}': "
                 f"{exc.message}. Please fix the arguments and call "
                 f"'{name}' again."
             ) from exc
 
-    # Validation passed — write to inbox
+    # Deliver to supervisor's Thespian inbox actor
     message = {"tool": name, "arguments": args}
-    _output_path.parent.mkdir(parents=True, exist_ok=True)
-    _output_path.write_text(
-        json.dumps(message, indent=2, default=str),
-        encoding="utf-8",
-    )
+
+    if _thespian_system is not None and _thespian_inbox is not None:
+        _thespian_system.tell(_thespian_inbox, message)
+    else:
+        # Fallback: log warning (shouldn't happen in normal operation)
+        print(
+            f"WARNING: no Thespian inbox configured, message dropped: {name}",
+            file=sys.stderr,
+        )
 
     return [TextContent(type="text", text=f"Submitted {name} to supervisor.")]
 
@@ -111,41 +109,3 @@ async def run_server() -> None:
             streams[1],
             server.create_initialization_options(),
         )
-
-
-def main() -> None:
-    """Entry point — parse args and start server."""
-    global _active_tools, _output_path
-
-    parser = argparse.ArgumentParser(
-        description="Supervisor inbox MCP tool server"
-    )
-    parser.add_argument(
-        "--tools",
-        required=True,
-        help="Comma-separated tool names to expose to this agent",
-    )
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="Path to write inbox messages (JSON file)",
-    )
-    args = parser.parse_args()
-
-    requested = {t.strip() for t in args.tools.split(",") if t.strip()}
-    _active_tools = _build_mcp_tools(requested)
-    _output_path = Path(args.output)
-
-    if not _active_tools:
-        print(
-            f"ERROR: no valid tools found in '{args.tools}'. "
-            f"Available: {', '.join(sorted(ALL_TOOL_SCHEMAS))}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    asyncio.run(run_server())
-
-
-if __name__ == "__main__":
-    main()

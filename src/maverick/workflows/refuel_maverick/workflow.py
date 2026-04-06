@@ -1116,20 +1116,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             agent_name="decomposer",
         )
 
-        # Set up inbox file for MCP tool calls
-        inbox_dir = run_dir / "decompose-output" if run_dir else Path.cwd() / ".maverick" / "tmp"
-        inbox_dir.mkdir(parents=True, exist_ok=True)
-        inbox_path = inbox_dir / "mcp-inbox.json"
-        inbox_path.unlink(missing_ok=True)
-
-        # Create MCP server config — the supervisor's inbox endpoint
+        # Create MCP server config — uses Thespian actor system for inbox
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=_maverick_bin,
             args=[
                 "serve-inbox",
                 "--tools", "submit_outline,submit_details,submit_fix",
-                "--output", str(inbox_path),
             ],
             env=[],
         )
@@ -1159,8 +1152,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 executor=self._step_executor,
                 cwd=Path.cwd(),
                 config=decompose_config,
-                inbox_path=inbox_path,
                 mcp_server_config=mcp_config,
+                read_inbox=None,  # set after supervisor created
             ),
             "validator": ValidatorActor(
                 flight_plan=flight_plan,
@@ -1173,6 +1166,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             initial_payload=initial_payload,
             flight_plan=flight_plan,
         )
+
+        # Wire the supervisor's Thespian inbox to the decomposer
+        actors["decomposer"]._read_inbox = supervisor.read_inbox
 
         await self.emit_output(
             DECOMPOSE,
