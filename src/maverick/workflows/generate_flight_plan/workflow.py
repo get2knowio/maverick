@@ -202,15 +202,29 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             and hasattr(self._step_executor, "create_session")
         )
 
-        # Plan generation uses the legacy path for now.
-        # The briefing agents are one-shot (no multi-turn conversation)
-        # and some providers (Copilot) don't support MCP servers in
-        # ACP sessions. The MCP pattern adds more value for refuel
-        # and fly where there's persistent-session back-and-forth.
-        # TODO: Enable when all providers support MCP in ACP sessions.
+        # Use Thespian actor system when available and executor supports it
+        _can_use_thespian = (
+            self._step_executor is not None
+            and hasattr(self._step_executor, "create_session")
+        )
+
+        if _can_use_thespian:
+            result = await self._generate_with_thespian(
+                prd_content=prd_content,
+                name=name,
+                plan_dir=plan_dir,
+                skip_briefing=skip_briefing,
+            )
+            return GenerateFlightPlanResult(
+                flight_plan_path=result.get("flight_plan_path", str(target_file)),
+                name=name,
+                success_criteria_count=result.get("success_criteria_count", 0),
+                validation_passed=result.get("validation_passed", True),
+                briefing_generated=result.get("briefing_path") is not None,
+            ).to_dict()
 
         # ------------------------------------------------------------------
-        # Step 2: Pre-Flight Briefing Room (optional)
+        # Legacy path: Step 2: Pre-Flight Briefing Room (optional)
         # ------------------------------------------------------------------
         briefing_content: str | None = None
         briefing_generated = False
@@ -569,3 +583,150 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         )
 
         return outcome
+
+    async def _generate_with_thespian(
+        self,
+        *,
+        prd_content: str,
+        name: str,
+        plan_dir: Path,
+        skip_briefing: bool,
+    ) -> dict[str, Any]:
+        """Generate flight plan using Thespian actor system.
+
+        Creates actors for parallel briefing, contrarian, generator,
+        validator, and writer. The supervisor routes messages.
+        """
+        import asyncio
+        import atexit
+        import socket
+
+        from thespian.actors import ActorSystem
+
+        from maverick.actors.briefing import BriefingActor
+        from maverick.actors.generator import GeneratorActor
+        from maverick.actors.plan_supervisor import PlanSupervisorActor
+        from maverick.actors.plan_validator import PlanValidatorActor
+        from maverick.actors.plan_writer import PlanWriterActor
+
+        THESPIAN_PORT = 19500
+
+        # Clean up stale admin
+        def _port_in_use(port):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(("127.0.0.1", port)) == 0
+
+        if _port_in_use(THESPIAN_PORT):
+            try:
+                stale = ActorSystem(
+                    "multiprocTCPBase",
+                    capabilities={"Admin Port": THESPIAN_PORT},
+                )
+                stale.shutdown()
+                import time; time.sleep(1)
+            except Exception:
+                pass
+
+        asys = ActorSystem(
+            "multiprocTCPBase",
+            capabilities={"Admin Port": THESPIAN_PORT},
+        )
+
+        def _cleanup():
+            try:
+                asys.shutdown()
+            except Exception:
+                pass
+        atexit.register(_cleanup)
+
+        try:
+            cwd = str(Path.cwd())
+
+            # Create briefing actors (4 instances of BriefingActor)
+            scopist = asys.createActor(BriefingActor)
+            analyst = asys.createActor(BriefingActor)
+            criteria = asys.createActor(BriefingActor)
+            contrarian = asys.createActor(BriefingActor)
+
+            # Init each with its MCP tool
+            for addr, tool in [
+                (scopist, "submit_scope"),
+                (analyst, "submit_analysis"),
+                (criteria, "submit_criteria"),
+                (contrarian, "submit_challenge"),
+            ]:
+                asys.ask(addr, {
+                    "type": "init",
+                    "mcp_tool": tool,
+                    "admin_port": THESPIAN_PORT,
+                    "cwd": cwd,
+                }, timeout=10)
+
+            # Create generator
+            gen = asys.createActor(GeneratorActor)
+            asys.ask(gen, {
+                "type": "init",
+                "admin_port": THESPIAN_PORT,
+                "cwd": cwd,
+            }, timeout=10)
+
+            # Create deterministic actors
+            validator = asys.createActor(PlanValidatorActor)
+            writer = asys.createActor(PlanWriterActor)
+            asys.ask(writer, {
+                "type": "init",
+                "output_dir": str(plan_dir),
+            }, timeout=10)
+
+            # Create supervisor
+            supervisor = asys.createActor(
+                PlanSupervisorActor,
+                globalName="supervisor-inbox",
+            )
+            asys.ask(supervisor, {
+                "type": "init",
+                "prd_content": prd_content,
+                "plan_name": name,
+                "skip_briefing": skip_briefing,
+                "scopist_addr": scopist,
+                "analyst_addr": analyst,
+                "criteria_addr": criteria,
+                "contrarian_addr": contrarian,
+                "generator_addr": gen,
+                "validator_addr": validator,
+                "writer_addr": writer,
+            }, timeout=10)
+
+            await self.emit_output(
+                BRIEFING,
+                "Generating flight plan with Thespian actor system",
+                level="info",
+            )
+
+            # Start and wait
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: asys.ask(supervisor, "start", timeout=3600),
+            )
+
+        finally:
+            asys.shutdown()
+            atexit.unregister(_cleanup)
+
+        if not result or not result.get("success"):
+            from maverick.exceptions import WorkflowError
+
+            raise WorkflowError(
+                f"Plan generation failed: "
+                f"{result.get('error', 'unknown') if result else 'no result'}",
+                workflow_name="generate-flight-plan",
+            )
+
+        await self.emit_output(
+            GENERATE,
+            f"Generated {result.get('success_criteria_count', 0)} success criteria",
+            level="success",
+        )
+
+        return result
