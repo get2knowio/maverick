@@ -321,14 +321,26 @@ existing actor, not a new one. No serialized addresses needed.
 processes. Actor modules must be in an installed package (on `sys.path`). Defining
 actors in `__main__` or uninstalled modules causes `InvalidActorSpecification`.
 
-**Self-Contained Actors**: Each Thespian actor MUST own its own ACP agent subprocess.
-Do NOT share executors, sessions, or connections between actor processes. Each actor:
-1. Spawns its own `claude-agent-acp` subprocess via `create_default_executor()`
-2. Creates its own ACP session with MCP server config attached
-3. Owns the full lifecycle — start agent, send prompts, clean up when done
+**Self-Contained Actors**: Each agent actor MUST own its own ACP agent subprocess.
+Do NOT share executors, sessions, or connections between actor processes.
 
-This eliminates unpicklable state issues and follows the actor model principle:
-no shared state, no shared connections, no coordination except messages.
+Standard agent actor lifecycle:
+
+| Phase | What happens |
+|-------|-------------|
+| **init** | Create persistent event loop + thread. Set `_executor = None`, `_session_id = None`. |
+| **first prompt** | `_ensure_executor()` lazily creates executor (spawns ACP agent subprocess). `_new_session()` creates fresh ACP session with MCP config. |
+| **subsequent prompts** (same bead/task) | Reuse executor + session. Agent remembers conversation context. |
+| **new bead/task** | `_new_session()` creates fresh session on existing connection. Agent subprocess stays alive; only the conversation resets. |
+| **shutdown** | `executor.cleanup()` kills ACP agent subprocess. Only called on explicit "shutdown" message from supervisor. |
+| **ActorSystem shutdown** | Thespian kills the actor OS process. |
+
+Key rules:
+- Do NOT call `executor.cleanup()` after every prompt — agent subprocess must persist
+- Do NOT recreate the executor per prompt — use `_ensure_executor()` (lazy, once)
+- Supervisors MUST send `{"type": "shutdown"}` to all agent actors before sending
+  `{"type": "complete"}` to the workflow — this ensures clean ACP subprocess teardown
+- ACP connections are cached per provider; sessions are cheap to create
 
 ### ACP Stream Buffer
 
