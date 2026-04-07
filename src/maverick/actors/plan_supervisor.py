@@ -268,7 +268,15 @@ class PlanSupervisorActor(Actor):
         })
 
     def _handle_write_complete(self, message):
-        """Plan written — send complete to workflow."""
+        """Plan written — shutdown agents, send complete to workflow."""
+        # Shutdown agent actors (cleanup ACP subprocesses)
+        for addr in [
+            self._scopist, self._analyst, self._criteria,
+            self._contrarian, self._generator,
+        ]:
+            if addr:
+                self.send(addr, {"type": "shutdown"})
+
         sc_count = len(self._flight_plan_data.get("success_criteria", []))
         print(
             f"PLAN_SUPERVISOR: complete ({sc_count} SCs)",
@@ -285,6 +293,13 @@ class PlanSupervisorActor(Actor):
             })
 
     def _handle_error(self, error_msg):
+        for addr in [
+            self._scopist, self._analyst, self._criteria,
+            self._contrarian, self._generator,
+        ]:
+            if addr:
+                self.send(addr, {"type": "shutdown"})
+
         if self._workflow_sender:
             self.send(self._workflow_sender, {
                 "type": "complete",

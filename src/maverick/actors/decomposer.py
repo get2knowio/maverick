@@ -42,6 +42,16 @@ class DecomposerActor(Actor):
             self._loop_thread.start()
             self.send(sender, {"type": "init_ok"})
 
+        elif msg_type == "shutdown":
+            if hasattr(self, "_executor") and self._executor:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._executor.cleanup(), self._loop
+                    ).result(timeout=5)
+                except Exception:
+                    pass
+            self.send(sender, {"type": "shutdown_ok"})
+
         elif msg_type == "outline_request":
             self._run_async(
                 self._send_outline_prompt(message),

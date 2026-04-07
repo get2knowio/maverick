@@ -187,7 +187,9 @@ class RefuelSupervisorActor(Actor):
             })
 
     def _handle_beads_created(self, message):
-        """Decomposition complete — reply to workflow."""
+        """Decomposition complete — shutdown agents, reply to workflow."""
+        if self._decomposer:
+            self.send(self._decomposer, {"type": "shutdown"})
         if self._workflow_sender:
             self.send(self._workflow_sender, {
                 "type": "complete",
@@ -199,7 +201,9 @@ class RefuelSupervisorActor(Actor):
             })
 
     def _handle_error(self, error_msg):
-        """Report error to workflow."""
+        """Report error to workflow — shutdown agents first."""
+        if self._decomposer:
+            self.send(self._decomposer, {"type": "shutdown"})
         if self._workflow_sender:
             self.send(self._workflow_sender, {
                 "type": "complete",

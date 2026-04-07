@@ -27,12 +27,24 @@ class BriefingActor(Actor):
             self._mcp_tool = message["mcp_tool"]
             self._admin_port = message.get("admin_port", 19500)
             self._cwd = message.get("cwd")
+            self._executor = None
+            self._session_id = None
             self._loop = asyncio.new_event_loop()
             self._thread = threading.Thread(
                 target=self._loop.run_forever, daemon=True
             )
             self._thread.start()
             self.send(sender, {"type": "init_ok"})
+
+        elif msg_type == "shutdown":
+            if self._executor:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._executor.cleanup(), self._loop
+                    ).result(timeout=5)
+                except Exception:
+                    pass
+            self.send(sender, {"type": "shutdown_ok"})
 
         elif msg_type == "briefing":
             print(
@@ -63,15 +75,16 @@ class BriefingActor(Actor):
                     "error": str(exc),
                 })
 
-    async def _send_prompt(self, message):
+    async def _ensure_executor(self):
+        if self._executor is None:
+            from maverick.executor import create_default_executor
+            self._executor = create_default_executor()
+
+    async def _new_session(self):
         from pathlib import Path
 
         from acp.schema import McpServerStdio
-
-        from maverick.executor import create_default_executor
-        from maverick.executor.config import StepConfig
-
-        executor = create_default_executor()
+        await self._ensure_executor()
 
         maverick_bin = shutil.which("maverick") or "maverick"
         mcp_config = McpServerStdio(
@@ -87,12 +100,19 @@ class BriefingActor(Actor):
 
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
 
-        session_id = await executor.create_session(
+        self._session_id = await self._executor.create_session(
             step_name=f"briefing_{self._mcp_tool}",
             agent_name="briefing",
             cwd=cwd,
             mcp_servers=[mcp_config],
         )
+
+    async def _send_prompt(self, message):
+        from maverick.executor.config import StepConfig
+
+        await self._ensure_executor()
+        if not self._session_id:
+            await self._new_session()
 
         prompt_text = message.get("prompt", "")
         prompt_text += (
@@ -101,12 +121,10 @@ class BriefingActor(Actor):
             f"results. Do NOT put results in a text response."
         )
 
-        await executor.prompt_session(
-            session_id=session_id,
+        await self._executor.prompt_session(
+            session_id=self._session_id,
             prompt_text=prompt_text,
             config=StepConfig(timeout=1200),
             step_name=f"briefing_{self._mcp_tool}",
             agent_name="briefing",
         )
-
-        await executor.cleanup()

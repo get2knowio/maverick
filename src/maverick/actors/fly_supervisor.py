@@ -280,7 +280,13 @@ class FlySupervisorActor(Actor):
         self._next_bead()
 
     def _complete(self):
-        """All beads done — report to workflow."""
+        """All beads done — shutdown agents, report to workflow."""
+        # Shutdown agent actors (cleanup ACP subprocesses)
+        if self._implementer:
+            self.send(self._implementer, {"type": "shutdown"})
+        if self._reviewer:
+            self.send(self._reviewer, {"type": "shutdown"})
+
         print(
             f"FLY_SUPERVISOR: complete ({len(self._completed_beads)} beads)",
             file=sys.stderr, flush=True,
