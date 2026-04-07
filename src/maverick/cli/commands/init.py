@@ -264,6 +264,13 @@ PROJECT_TYPE_CHOICES = [
     help="Comma-separated list of ACP providers (e.g., claude,copilot,gemini).",
 )
 @click.option(
+    "--models",
+    "model_specs",
+    type=str,
+    multiple=True,
+    help="Provider model specs: provider:model1,model2 (e.g., copilot:gpt-5.3-codex,gpt-5.4).",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -280,6 +287,7 @@ async def init(
     skip_providers: bool,
     force: bool,
     providers: str | None,
+    model_specs: tuple[str, ...],
     verbose: bool,
 ) -> None:
     """Initialize maverick configuration for the current project.
@@ -372,8 +380,39 @@ async def init(
                 for prov, path in mcp_written.items():
                     click.echo(f"✓ MCP config written for {prov}: {path}")
 
+            # Model discovery
+            if provider_list:
+                from maverick.init.model_discovery import (
+                    discover_all_models,
+                    parse_model_specs,
+                )
+
+                user_specs = (
+                    parse_model_specs(model_specs)
+                    if model_specs
+                    else None
+                )
+
+                click.echo("")
+                click.echo("Model Discovery")
+                discovered = await discover_all_models(
+                    provider_list, user_specs
+                )
+                for prov, pm in discovered.items():
+                    source_label = {
+                        "probe": "probed",
+                        "user": "specified",
+                        "default": "defaults",
+                    }.get(pm.source, pm.source)
+                    models_str = ", ".join(pm.models[:5])
+                    if len(pm.models) > 5:
+                        models_str += f" (+{len(pm.models) - 5} more)"
+                    click.echo(
+                        f"  {prov} ({source_label}): {models_str}"
+                    )
+
             # Success message
-            click.echo(f"✓ Configuration written to {result.config_path}")
+            click.echo(f"\n✓ Configuration written to {result.config_path}")
 
             # Suggest runway seed if runway initialized and providers available
             if (
