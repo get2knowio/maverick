@@ -258,6 +258,12 @@ PROJECT_TYPE_CHOICES = [
     help="Overwrite existing maverick.yaml.",
 )
 @click.option(
+    "--providers",
+    type=str,
+    default=None,
+    help="Comma-separated list of ACP providers (e.g., claude,copilot,gemini).",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -273,6 +279,7 @@ async def init(
     no_detect: bool,
     skip_providers: bool,
     force: bool,
+    providers: str | None,
     verbose: bool,
 ) -> None:
     """Initialize maverick configuration for the current project.
@@ -344,6 +351,26 @@ async def init(
             # Beads init status (only show if initialized)
             if result.beads_initialized:
                 click.echo("✓ Beads initialized (.beads/)")
+
+            # Write provider MCP config files
+            provider_list = (
+                [p.strip() for p in providers.split(",") if p.strip()]
+                if providers
+                else [
+                    p.name
+                    for p in (
+                        result.provider_discovery.found_providers
+                        if result.provider_discovery
+                        else ()
+                    )
+                ]
+            )
+            if provider_list:
+                from maverick.init.mcp_config import write_provider_mcp_configs
+
+                mcp_written = write_provider_mcp_configs(provider_list)
+                for prov, path in mcp_written.items():
+                    click.echo(f"✓ MCP config written for {prov}: {path}")
 
             # Success message
             click.echo(f"✓ Configuration written to {result.config_path}")
