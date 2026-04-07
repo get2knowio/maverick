@@ -84,37 +84,24 @@ class DecomposerActor(Actor):
                 "error": str(exc),
             })
 
-    def _get_executor(self):
-        """Lazy-create ACP executor in this actor's process."""
-        if not hasattr(self, "_executor") or self._executor is None:
-            from maverick.executor import create_default_executor
+    async def _ensure_agent(self):
+        """Spawn this actor's own ACP agent and create a session.
 
-            self._executor = create_default_executor()
-        return self._executor
+        Each actor owns its own agent subprocess — no shared
+        connections, no shared sessions, no registry. The actor
+        creates everything it needs from maverick.yaml config.
+        """
+        if getattr(self, "_session_id", None):
+            return  # already running
 
-    def _get_session_registry(self):
-        """Lazy-create session registry."""
-        if not hasattr(self, "_registry") or self._registry is None:
-            from maverick.workflows.fly_beads.session_registry import (
-                BeadSessionRegistry,
-            )
-
-            self._registry = BeadSessionRegistry(bead_id="refuel")
-        return self._registry
-
-    async def _get_or_create_session(self):
-        """Get or create the persistent ACP session."""
         import shutil
         from pathlib import Path
 
         from acp.schema import McpServerStdio
 
-        registry = self._get_session_registry()
-        executor = self._get_executor()
+        from maverick.executor import create_default_executor
 
-        session_id = registry.get_session("decomposer")
-        if session_id:
-            return session_id
+        self._executor = create_default_executor()
 
         # Build MCP server config with admin port for Thespian discovery
         maverick_bin = shutil.which("maverick") or "maverick"
@@ -132,29 +119,24 @@ class DecomposerActor(Actor):
 
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
 
-        session_id = await registry.get_or_create(
-            "decomposer",
-            executor,
+        self._session_id = await self._executor.create_session(
+            step_name="decompose",
+            agent_name="decomposer",
             cwd=cwd,
             mcp_servers=[mcp_config],
         )
-        return session_id
 
     async def _prompt(self, prompt_text: str, step_name: str = "decompose"):
-        """Send a prompt to the persistent ACP session."""
+        """Send a prompt to this actor's own ACP session."""
         from maverick.executor.config import StepConfig
 
-        executor = self._get_executor()
-        registry = self._get_session_registry()
-        session_id = await self._get_or_create_session()
+        await self._ensure_agent()
 
-        # Decomposition prompts can take 15-20 min on large flight plans
         config = StepConfig(timeout=1800)
 
-        await executor.prompt_session(
-            session_id=session_id,
+        await self._executor.prompt_session(
+            session_id=self._session_id,
             prompt_text=prompt_text,
-            provider=registry.get_provider("decomposer"),
             config=config,
             step_name=step_name,
             agent_name="decomposer",
