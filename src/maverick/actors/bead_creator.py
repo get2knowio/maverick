@@ -85,14 +85,17 @@ class BeadCreatorActor(Actor):
             import json
             dep_result = await wire_dependencies(
                 work_definitions=work_defs,
-                created_map=creation_result.get("created_map", {}),
-                tasks_content="",  # Not needed for extracted deps
+                created_map=creation_result.created_map,
+                tasks_content="",
                 extracted_deps=json.dumps(extracted_deps),
             )
 
+        epic = creation_result.epic or {}
+        epic_id = epic.get("bd_id", "") if isinstance(epic, dict) else getattr(epic, "bd_id", "")
+
         return {
             "success": True,
-            "epic_id": creation_result.get("epic", {}).get("bd_id", ""),
-            "bead_count": len(creation_result.get("work_beads", [])),
-            "deps_wired": dep_result.get("wired_count", 0) if dep_result else 0,
+            "epic_id": epic_id,
+            "bead_count": len(creation_result.work_beads),
+            "deps_wired": getattr(dep_result, "wired_count", 0) if dep_result else 0,
         }
