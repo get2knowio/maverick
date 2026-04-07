@@ -276,14 +276,50 @@ All three workflows (plan, refuel, fly) use a supervisor that routes messages be
 
 See `docs/AGENT-MCP.md` for the full architecture design.
 
-### Thespian Actor System (In Progress)
+### Thespian Actor System
 
 The refuel workflow uses Thespian `multiprocTCPBase` for true cross-process actor messaging.
-The MCP server subprocess discovers the supervisor by connecting to the Thespian Admin on
-a known port and using `globalName='supervisor-inbox'`.
+Each actor runs in its own OS process. The supervisor IS the Thespian actor — its
+`receiveMessage` is its inbox. MCP tool calls arrive directly via Thespian `tell()`.
 
-**Status**: Cross-process messaging works. The async bridge (running ACP prompt_session inside
-a Thespian actor process) needs debugging — see `memory/thespian-integration-status.md`.
+**Admin Port**: Use a fixed port (default 19500) via `capabilities={'Admin Port': 19500}`.
+Do NOT use `transientUnique=True` — child processes (the MCP server) cannot discover a
+random-port Admin. Pass `--admin-port` to `maverick serve-inbox` so it connects to the
+same Admin.
+
+**Stale Admin Cleanup**: The Admin daemon survives the parent process. Always call
+`asys.shutdown()` in a finally block. Register an `atexit` handler as backup. On startup,
+check if the port is occupied and shut down any stale Admin before creating a new one.
+
+**Async Bridge in Actor Processes**: ACP's `prompt_session()` is async but Thespian's
+`receiveMessage` is synchronous. Use a persistent background event loop:
+
+```python
+# In actor __init__ or init message handler:
+self._loop = asyncio.new_event_loop()
+self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+self._thread.start()
+
+# In message handler:
+future = asyncio.run_coroutine_threadsafe(self._do_prompt(), self._loop)
+result = future.result(timeout=1800)
+```
+
+Do NOT use `asyncio.run()` — it tears down async generators (ACP's stdio transport) on
+completion, causing `RuntimeError: aclose(): asynchronous generator is already running`.
+The persistent loop keeps the event loop alive across multiple message handlers.
+
+**Timeout Guidance**: Decomposition prompts on large flight plans take 10-20 minutes.
+Set `StepConfig(timeout=1800)` for prompt_session calls. Set `asys.ask(timeout=3600)`
+for the overall supervisor workflow.
+
+**globalName Discovery**: The MCP server discovers the supervisor via
+`asys.createActor(SupervisorClass, globalName='supervisor-inbox')` which returns the
+existing actor, not a new one. No serialized addresses needed.
+
+**Module Importability**: Thespian actor classes MUST be importable by forked child
+processes. Actor modules must be in an installed package (on `sys.path`). Defining
+actors in `__main__` or uninstalled modules causes `InvalidActorSpecification`.
 
 ### ACP Stream Buffer
 
