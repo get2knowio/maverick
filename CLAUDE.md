@@ -321,6 +321,15 @@ existing actor, not a new one. No serialized addresses needed.
 processes. Actor modules must be in an installed package (on `sys.path`). Defining
 actors in `__main__` or uninstalled modules causes `InvalidActorSpecification`.
 
+**Self-Contained Actors**: Each Thespian actor MUST own its own ACP agent subprocess.
+Do NOT share executors, sessions, or connections between actor processes. Each actor:
+1. Spawns its own `claude-agent-acp` subprocess via `create_default_executor()`
+2. Creates its own ACP session with MCP server config attached
+3. Owns the full lifecycle — start agent, send prompts, clean up when done
+
+This eliminates unpicklable state issues and follows the actor model principle:
+no shared state, no shared connections, no coordination except messages.
+
 ### ACP Stream Buffer
 
 The ACP transport uses newline-delimited JSON over stdio. The default asyncio
