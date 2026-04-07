@@ -29,6 +29,15 @@ class RefuelSupervisorActor(Actor):
     """
 
     def receiveMessage(self, message, sender):
+        import sys
+        # Log every message for debugging
+        msg_preview = str(message)[:200] if message else "None"
+        print(
+            f"SUPERVISOR: received msg type={type(message).__name__} "
+            f"from={sender} preview={msg_preview}",
+            file=sys.stderr, flush=True,
+        )
+
         # --- Init: receive config and child actor addresses ---
         if isinstance(message, dict) and message.get("type") == "init":
             self._init(message, sender)
@@ -42,15 +51,17 @@ class RefuelSupervisorActor(Actor):
 
         # --- Tool call from MCP server (via Thespian tell) ---
         if isinstance(message, dict) and "tool" in message:
+            print(f"SUPERVISOR: tool call received: {message.get('tool')}", file=sys.stderr, flush=True)
             self._handle_tool_call(message)
             return
 
         # --- Decomposer prompt confirmation ---
         if isinstance(message, dict) and message.get("type") == "prompt_sent":
-            # Informational — the real result comes via MCP tool call
+            print(f"SUPERVISOR: prompt_sent phase={message.get('phase')}", file=sys.stderr, flush=True)
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
+            print(f"SUPERVISOR: prompt_error phase={message.get('phase')} error={message.get('error')}", file=sys.stderr, flush=True)
             self._handle_error(
                 f"Decomposer error ({message.get('phase')}): "
                 f"{message.get('error')}"

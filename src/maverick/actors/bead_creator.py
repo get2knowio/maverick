@@ -47,6 +47,9 @@ class BeadCreatorActor(Actor):
 
         epic_def = {
             "title": plan_name,
+            "bead_type": "epic",
+            "priority": 1,
+            "category": "user_story",
             "description": plan_objective,
             "task_list": [
                 s.id if hasattr(s, "id") else s.get("id", "")
@@ -65,6 +68,9 @@ class BeadCreatorActor(Actor):
             )
             work_defs.append({
                 "title": task[:490],
+                "bead_type": "task",
+                "priority": 2,
+                "category": "user_story",
                 "description": (instructions or task)[:500],
                 "user_story_id": sid,
             })

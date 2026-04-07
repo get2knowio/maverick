@@ -68,11 +68,16 @@ class DecomposerActor(Actor):
 
     def _run_async(self, coro, sender, phase):
         """Run an async coroutine on the persistent event loop."""
+        import sys
+        print(f"DECOMPOSER: starting {phase}...", file=sys.stderr, flush=True)
         try:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            print(f"DECOMPOSER: waiting for {phase} (timeout=1800s)...", file=sys.stderr, flush=True)
             future.result(timeout=1800)  # blocks until done
+            print(f"DECOMPOSER: {phase} completed!", file=sys.stderr, flush=True)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
+            print(f"DECOMPOSER: {phase} FAILED: {exc}", file=sys.stderr, flush=True)
             self.send(sender, {
                 "type": "prompt_error",
                 "phase": phase,
