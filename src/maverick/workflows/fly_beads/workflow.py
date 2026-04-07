@@ -350,13 +350,29 @@ class FlyBeadsWorkflow(PythonWorkflow):
             pass
 
         # ----------------------------------------------------------------
-        # Bead loop
+        # Bead loop — Thespian actor system or legacy
         # ----------------------------------------------------------------
-        # max_beads caps *successful* completions, not total iterations.
-        # Global safety limit prevents runaway loops; per-bead retry limit
-        # (MAX_RETRIES_PER_BEAD) defers stuck beads after N failed attempts.
+        _can_use_thespian = (
+            self._step_executor is not None
+            and hasattr(self._step_executor, "create_session")
+        )
+
+        if _can_use_thespian and not dry_run:
+            thespian_result = await self._run_fly_with_thespian(
+                epic_id=epic_id,
+                workspace_path=workspace_path,
+            )
+            beads_succeeded = thespian_result.get("beads_completed", 0)
+            completed_bead_ids = set(thespian_result.get("completed_bead_ids", []))
+        else:
+            # Legacy bead loop below
+            pass
+
+        # Legacy bead loop (skipped when Thespian runs)
         max_iterations = max_beads * 3
         _iteration = 0
+        if _can_use_thespian and not dry_run:
+            _iteration = max_iterations  # skip loop
         while beads_succeeded < max_beads and _iteration < max_iterations:
             _iteration += 1
             # --- Select next bead ---
@@ -836,6 +852,132 @@ class FlyBeadsWorkflow(PythonWorkflow):
             human_review_items=tuple(human_review_items),
         )
         return result.to_dict()
+
+    async def _run_fly_with_thespian(
+        self,
+        *,
+        epic_id: str,
+        workspace_path: Path | None,
+    ) -> dict[str, Any]:
+        """Run the fly bead loop using Thespian actor system."""
+        import asyncio
+        import atexit
+        import socket
+
+        from thespian.actors import ActorSystem
+
+        from maverick.actors.ac_check import ACCheckActor
+        from maverick.actors.committer import CommitActor
+        from maverick.actors.fly_supervisor import FlySupervisorActor
+        from maverick.actors.gate import GateActor
+        from maverick.actors.implementer import ImplementerActor
+        from maverick.actors.reviewer import ReviewerActor
+        from maverick.actors.spec_check import SpecCheckActor
+
+        THESPIAN_PORT = 19500
+        cwd = str(workspace_path) if workspace_path else str(Path.cwd())
+
+        def _port_in_use(port):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(("127.0.0.1", port)) == 0
+
+        if _port_in_use(THESPIAN_PORT):
+            try:
+                stale = ActorSystem(
+                    "multiprocTCPBase",
+                    capabilities={"Admin Port": THESPIAN_PORT},
+                )
+                stale.shutdown()
+                import time; time.sleep(1)
+            except Exception:
+                pass
+
+        asys = ActorSystem(
+            "multiprocTCPBase",
+            capabilities={"Admin Port": THESPIAN_PORT},
+        )
+
+        def _cleanup():
+            try:
+                asys.shutdown()
+            except Exception:
+                pass
+        atexit.register(_cleanup)
+
+        try:
+            # Create all actors
+            impl = asys.createActor(ImplementerActor)
+            reviewer = asys.createActor(ReviewerActor)
+            gate = asys.createActor(GateActor)
+            ac = asys.createActor(ACCheckActor)
+            spec = asys.createActor(SpecCheckActor)
+            committer = asys.createActor(CommitActor)
+
+            supervisor = asys.createActor(
+                FlySupervisorActor,
+                globalName="supervisor-inbox",
+            )
+
+            # Init actors
+            for addr in [impl, reviewer]:
+                asys.ask(addr, {
+                    "type": "init",
+                    "admin_port": THESPIAN_PORT,
+                    "cwd": cwd,
+                }, timeout=10)
+
+            # Init gate with validation config
+            validation_commands = None
+            _timeout_secs = 600.0
+            try:
+                from maverick.workflows.fly_beads.steps import (
+                    _build_validation_commands,
+                )
+                validation_commands = _build_validation_commands(
+                    self._config.validation
+                )
+                _timeout_secs = float(self._config.validation.timeout_seconds)
+            except (AttributeError, TypeError):
+                pass
+
+            asys.ask(gate, {
+                "type": "init",
+                "cwd": cwd,
+                "validation_commands": validation_commands,
+                "timeout_seconds": _timeout_secs,
+            }, timeout=10)
+
+            # Init supervisor
+            asys.ask(supervisor, {
+                "type": "init",
+                "epic_id": epic_id,
+                "cwd": cwd,
+                "implementer_addr": impl,
+                "reviewer_addr": reviewer,
+                "gate_addr": gate,
+                "ac_addr": ac,
+                "spec_addr": spec,
+                "committer_addr": committer,
+                "config": {},
+            }, timeout=10)
+
+            await self.emit_output(
+                "fly",
+                "Running fly with Thespian actor system",
+                level="info",
+            )
+
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: asys.ask(supervisor, "start", timeout=7200),
+            )
+
+        finally:
+            asys.shutdown()
+            atexit.unregister(_cleanup)
+
+        return result or {"beads_completed": 0, "completed_bead_ids": []}
 
     async def _process_bead_with_supervisor(
         self,
