@@ -82,9 +82,12 @@ class BeadCreatorActor(Actor):
 
         dep_result = None
         if extracted_deps:
+            import json
             dep_result = await wire_dependencies(
-                creation_result=creation_result,
-                extracted_deps=extracted_deps,
+                work_definitions=work_defs,
+                created_map=creation_result.get("created_map", {}),
+                tasks_content="",  # Not needed for extracted deps
+                extracted_deps=json.dumps(extracted_deps),
             )
 
         return {
