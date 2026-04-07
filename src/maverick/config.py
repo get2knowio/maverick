@@ -386,9 +386,13 @@ class MaverickConfig(BaseSettings):
         default_factory=dict,
         description="ACP agent provider configurations keyed by provider name.",
     )
+    actors: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
+    )
     steps: dict[str, StepConfig] = Field(
         default_factory=dict,
-        description="Project-level step configuration defaults keyed by step name.",
+        description="Legacy step configuration (superseded by actors:).",
     )
     prompts: dict[str, PromptOverrideConfig] = Field(
         default_factory=dict,

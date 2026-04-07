@@ -592,6 +592,10 @@ class InitConfig(BaseModel):
         default_factory=lambda: {"max_agents": 3, "max_tasks": 5}
     )
     agent_providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    actors: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
+    )
     verbosity: str = "warning"
 
     def to_yaml(self) -> str:
@@ -606,6 +610,8 @@ class InitConfig(BaseModel):
         data = self.model_dump(exclude_none=True)
         if not data.get("agent_providers"):
             data.pop("agent_providers", None)
+        if not data.get("actors"):
+            data.pop("actors", None)
         return yaml.dump(
             data,
             default_flow_style=False,

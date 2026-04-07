@@ -411,6 +411,52 @@ async def init(
                         f"  {prov} ({source_label}): {models_str}"
                     )
 
+                # Distribute models across actors
+                from maverick.init.actor_distribution import distribute_models
+
+                default_prov = (
+                    result.provider_discovery.default_provider
+                    if result.provider_discovery
+                    else provider_list[0] if provider_list else "claude"
+                )
+                actor_configs = distribute_models(
+                    discovered, default_provider=default_prov
+                )
+
+                click.echo("")
+                click.echo("Actor Assignment")
+                for workflow, actors in actor_configs.items():
+                    for actor_name, ac in actors.items():
+                        click.echo(
+                            f"  {workflow}.{actor_name}: "
+                            f"{ac.provider}/{ac.model_id}"
+                        )
+
+                # Write actors section to the config file
+                import yaml as _yaml
+                from pathlib import Path as _Path
+
+                config_path = _Path(result.config_path)
+                if config_path.exists():
+                    config_data = _yaml.safe_load(
+                        config_path.read_text(encoding="utf-8")
+                    ) or {}
+                    config_data["actors"] = {
+                        wf: {
+                            name: ac.to_dict()
+                            for name, ac in actors.items()
+                        }
+                        for wf, actors in actor_configs.items()
+                    }
+                    config_path.write_text(
+                        _yaml.dump(
+                            config_data,
+                            default_flow_style=False,
+                            sort_keys=False,
+                        ),
+                        encoding="utf-8",
+                    )
+
             # Success message
             click.echo(f"\n✓ Configuration written to {result.config_path}")
 
