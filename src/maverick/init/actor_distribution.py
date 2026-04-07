@@ -168,6 +168,11 @@ def distribute_models(
     if not default_provider:
         default_provider = next(iter(providers), "claude")
 
+    # Track provider usage to spread load across providers
+    provider_usage: dict[str, int] = {
+        prov: 0 for prov in providers
+    }
+
     result: dict[str, dict[str, ActorConfig]] = {}
 
     for workflow, actors in ACTOR_CAPABILITIES.items():
@@ -175,8 +180,12 @@ def distribute_models(
 
         for actor_name, needed_cap in actors.items():
             config = _find_best_model(
-                pool, needed_cap, default_provider
+                pool, needed_cap, default_provider, provider_usage
             )
+            provider_usage[config.provider] = (
+                provider_usage.get(config.provider, 0) + 1
+            )
+
             # Add timeout if actor has one
             timeout = ACTOR_TIMEOUTS.get(actor_name)
             if timeout:
@@ -191,39 +200,61 @@ def _find_best_model(
     pool: list[tuple[str, str, str]],
     needed_capability: str,
     default_provider: str,
+    provider_usage: dict[str, int] | None = None,
 ) -> ActorConfig:
     """Find the best model for a capability requirement.
 
     Preference order:
-    1. Native-provider model matching exact capability
-    2. Any model matching exact capability
+    1. Native-provider model matching exact capability (least-used provider first)
+    2. Any model matching exact capability (least-used provider first)
     3. Models matching fallback capabilities
     4. Default provider's first model
+
+    When multiple providers have matching models, the least-used
+    provider is preferred to spread load across providers.
     """
+    usage = provider_usage or {}
     fallback_caps = CAPABILITY_FALLBACK.get(
         needed_capability, [needed_capability]
     )
 
     for cap in fallback_caps:
-        # Pass 1: native-provider models
+        # Collect all matching models
+        native_matches: list[tuple[str, str]] = []
+        other_matches: list[tuple[str, str]] = []
+
         for prov, model_id, model_cap in pool:
             if model_cap == cap:
                 native = _get_native_provider(model_id)
                 if native == prov:
-                    return ActorConfig(provider=prov, model_id=model_id)
+                    native_matches.append((prov, model_id))
+                else:
+                    other_matches.append((prov, model_id))
 
-        # Pass 2: any provider
-        for prov, model_id, model_cap in pool:
-            if model_cap == cap:
-                return ActorConfig(provider=prov, model_id=model_id)
+        # Sort by provider usage (least-used first) to spread load
+        def _by_usage(item: tuple[str, str]) -> int:
+            return usage.get(item[0], 0)
 
-    # Fallback: default provider's first model
-    for prov, model_id, _ in pool:
-        if prov == default_provider:
-            return ActorConfig(provider=prov, model_id=model_id)
+        if native_matches:
+            native_matches.sort(key=_by_usage)
+            return ActorConfig(
+                provider=native_matches[0][0],
+                model_id=native_matches[0][1],
+            )
 
-    # Last resort
-    if pool:
-        return ActorConfig(provider=pool[0][0], model_id=pool[0][1])
+        if other_matches:
+            other_matches.sort(key=_by_usage)
+            return ActorConfig(
+                provider=other_matches[0][0],
+                model_id=other_matches[0][1],
+            )
+
+    # Fallback: least-used provider's first model
+    fallback = [
+        (prov, mid) for prov, mid, _ in pool
+    ]
+    if fallback:
+        fallback.sort(key=_by_usage)
+        return ActorConfig(provider=fallback[0][0], model_id=fallback[0][1])
 
     return ActorConfig(provider=default_provider, model_id="default")
