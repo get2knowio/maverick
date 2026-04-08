@@ -164,19 +164,26 @@ class PlanSupervisorActor(Actor):
         )
 
         if all(k in self._briefs for k in needed):
-            self._send_to_contrarian()
+            # Guard against duplicate triggers
+            if not getattr(self, "_contrarian_sent", False):
+                self._contrarian_sent = True
+                self._send_to_contrarian()
 
     def _send_to_contrarian(self):
         """All 3 briefs collected — send to contrarian."""
-        from maverick.agents.preflight_briefing.prompts import (
-            build_preflight_contrarian_prompt,
-        )
+        # Build contrarian prompt manually since the briefs are raw
+        # dicts (from MCP tool calls), not Pydantic models.
+        scope_json = json.dumps(self._briefs.get("scope", {}), indent=2)
+        analysis_json = json.dumps(self._briefs.get("analysis", {}), indent=2)
+        criteria_json = json.dumps(self._briefs.get("criteria", {}), indent=2)
 
-        prompt = build_preflight_contrarian_prompt(
-            self._prd_content,
-            self._briefs.get("scope", {}),
-            self._briefs.get("analysis", {}),
-            self._briefs.get("criteria", {}),
+        prompt = (
+            f"## PRD Content\n\n{self._prd_content}\n\n"
+            f"## Scopist Analysis\n\n```json\n{scope_json}\n```\n\n"
+            f"## Codebase Analysis\n\n```json\n{analysis_json}\n```\n\n"
+            f"## Success Criteria\n\n```json\n{criteria_json}\n```\n\n"
+            f"Challenge these analyses. Identify risks, blind spots, "
+            f"and missing considerations."
         )
 
         self.send(self._contrarian, {"type": "briefing", "prompt": prompt})
