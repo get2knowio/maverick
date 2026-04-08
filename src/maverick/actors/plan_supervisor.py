@@ -272,11 +272,19 @@ class PlanSupervisorActor(Actor):
         fp = self._flight_plan_data
         sc_list = fp.get("success_criteria", [])
 
+        # Default objective from PRD first line if agent didn't provide one
+        default_objective = self._prd_content.split("\n")[0].lstrip("#").strip()[:200]
         frontmatter = {
             "name": self._plan_name,
             "version": "1",
             "created": str(date.today()),
-            "objective": fp.get("objective", ""),
+            "objective": fp.get("objective") or default_objective,
+            "tags": fp.get("tags", []),
+            "scope": fp.get("scope", {
+                "in_scope": fp.get("in_scope", []),
+                "out_of_scope": fp.get("out_of_scope", []),
+                "boundaries": fp.get("boundaries", []),
+            }),
         }
 
         import yaml as _yaml
