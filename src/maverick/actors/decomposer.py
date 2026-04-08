@@ -114,7 +114,10 @@ class DecomposerActor(Actor):
         self._executor = create_default_executor()
 
         # Build MCP server config with admin port for Thespian discovery
-        maverick_bin = shutil.which("maverick") or "maverick"
+        maverick_bin = (
+            shutil.which("maverick")
+            or str(Path(sys.executable).parent / "maverick")
+        )
         admin_port = str(getattr(self, "_admin_port", 19500))
         mcp_config = McpServerStdio(
             name="supervisor-inbox",

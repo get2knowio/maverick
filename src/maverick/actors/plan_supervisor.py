@@ -44,19 +44,22 @@ class PlanSupervisorActor(Actor):
                 self._start_briefing()
             return
 
+        # --- Prompt confirmations (informational) ---
+        # Check BEFORE tool routing — prompt_sent messages also have
+        # a "tool" key, so they'd be misrouted otherwise.
+        if isinstance(message, dict) and message.get("type") == "prompt_sent":
+            return
+
         # --- MCP tool calls from agents ---
         if isinstance(message, dict) and "tool" in message:
             tool = message["tool"]
             args = message.get("arguments", {})
             print(
-                f"PLAN_SUPERVISOR: tool call: {tool}",
+                f"PLAN_SUPERVISOR: tool call: {tool} "
+                f"(args keys: {list(args.keys()) if args else 'none'})",
                 file=sys.stderr, flush=True,
             )
             self._handle_tool_call(tool, args)
-            return
-
-        # --- Prompt confirmations (informational) ---
-        if isinstance(message, dict) and message.get("type") == "prompt_sent":
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":

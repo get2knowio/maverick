@@ -49,15 +49,16 @@ class RefuelSupervisorActor(Actor):
             self._start_outline()
             return
 
+        # --- Decomposer prompt confirmation ---
+        # Check BEFORE tool routing — prompt_sent may contain a "tool" key
+        if isinstance(message, dict) and message.get("type") == "prompt_sent":
+            print(f"SUPERVISOR: prompt_sent phase={message.get('phase')}", file=sys.stderr, flush=True)
+            return
+
         # --- Tool call from MCP server (via Thespian tell) ---
         if isinstance(message, dict) and "tool" in message:
             print(f"SUPERVISOR: tool call received: {message.get('tool')}", file=sys.stderr, flush=True)
             self._handle_tool_call(message)
-            return
-
-        # --- Decomposer prompt confirmation ---
-        if isinstance(message, dict) and message.get("type") == "prompt_sent":
-            print(f"SUPERVISOR: prompt_sent phase={message.get('phase')}", file=sys.stderr, flush=True)
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":

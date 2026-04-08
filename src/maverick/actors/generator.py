@@ -71,7 +71,10 @@ class GeneratorActor(Actor):
         from acp.schema import McpServerStdio
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or "maverick"
+        maverick_bin = (
+            shutil.which("maverick")
+            or str(Path(sys.executable).parent / "maverick")
+        )
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
@@ -99,17 +102,41 @@ class GeneratorActor(Actor):
         if not self._session_id:
             await self._new_session()
 
-        prompt_text = message.get("prompt", "")
-        prompt_text += (
-            "\n\n## REQUIRED: Submit via tool call\n"
-            "You MUST call the `submit_flight_plan` tool with your "
-            "flight plan. Do NOT put the plan in a text response."
+        raw_prompt = message.get("prompt", "")
+        prompt_text = (
+            "You are a flight plan generator. Your ONLY job is to read "
+            "the PRD and briefing below, then call the `submit_flight_plan` "
+            "tool with a structured flight plan.\n\n"
+            "DO NOT read files from the filesystem. DO NOT explore the codebase. "
+            "DO NOT write any code. Your sole output is a single call to "
+            "`submit_flight_plan`.\n\n"
+            "The tool requires:\n"
+            "- objective: one-line summary of what this plan achieves\n"
+            "- success_criteria: array of {description, verification} objects\n"
+            "- in_scope: array of strings for what's in scope\n"
+            "- out_of_scope: array of strings for what's out of scope\n"
+            "- constraints: array of strings for constraints\n"
+            "- context: background context as markdown\n"
+            "- tags: categorization tags\n\n"
+            f"{raw_prompt}\n\n"
+            "Now call `submit_flight_plan` with the structured plan. "
+            "Do NOT respond with text — ONLY call the tool."
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             config=StepConfig(timeout=1200),
             step_name="generate",
             agent_name="flight_plan_generator",
+        )
+        # Log response for debugging
+        text = getattr(result, "text", "") or ""
+        output = getattr(result, "output", None)
+        success = getattr(result, "success", None)
+        print(
+            f"GENERATOR: result success={success}, "
+            f"text_len={len(text)}, output_type={type(output).__name__}, "
+            f"output_preview={str(output)[:500]}",
+            file=sys.stderr, flush=True,
         )

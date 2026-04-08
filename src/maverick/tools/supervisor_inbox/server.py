@@ -52,6 +52,11 @@ def _build_mcp_tools(tool_names: set[str]) -> dict[str, Tool]:
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """Return the tools this agent is allowed to call."""
+    print(
+        f"INBOX_SERVER: list_tools called, returning: "
+        f"{list(_active_tools.keys())}",
+        file=sys.stderr, flush=True,
+    )
     return list(_active_tools.values())
 
 
@@ -88,9 +93,18 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
 
     # Deliver to supervisor's Thespian inbox actor
     message = {"tool": name, "arguments": args}
+    print(
+        f"INBOX_SERVER: tool call received: {name} "
+        f"(args keys: {list(args.keys()) if args else 'none'})",
+        file=sys.stderr, flush=True,
+    )
 
     if _thespian_system is not None and _thespian_inbox is not None:
         _thespian_system.tell(_thespian_inbox, message)
+        print(
+            f"INBOX_SERVER: delivered {name} to supervisor",
+            file=sys.stderr, flush=True,
+        )
     else:
         # Fallback: log warning (shouldn't happen in normal operation)
         print(

@@ -323,15 +323,55 @@ SUBMIT_CHALLENGE = _tool(
 
 SUBMIT_FLIGHT_PLAN = _tool(
     name="submit_flight_plan",
-    description="Submit the generated flight plan to the supervisor.",
+    description=(
+        "Submit the generated flight plan to the supervisor. "
+        "You MUST call this tool — do not put the plan in text."
+    ),
     schema={
         "type": "object",
         "properties": {
-            "success_criteria": {"type": "array", "items": {"type": "object"}},
-            "scope": {"type": "object"},
-            "verification_properties": {"type": "string"},
+            "objective": {
+                "type": "string",
+                "description": "One-line objective summarizing what this plan achieves.",
+            },
+            "context": {
+                "type": "string",
+                "description": "Background context for the plan (markdown).",
+            },
+            "success_criteria": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "verification": {"type": "string"},
+                    },
+                    "required": ["description"],
+                },
+                "description": "Measurable success criteria for the plan.",
+            },
+            "in_scope": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Items explicitly in scope.",
+            },
+            "out_of_scope": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Items explicitly out of scope.",
+            },
+            "constraints": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Constraints or limitations.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags for categorization.",
+            },
         },
-        "required": ["success_criteria"],
+        "required": ["objective", "success_criteria"],
     },
 )
 

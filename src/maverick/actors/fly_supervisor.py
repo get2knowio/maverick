@@ -41,13 +41,14 @@ class FlySupervisorActor(Actor):
             self._next_bead()
             return
 
+        # Agent prompt confirmations — check BEFORE tool routing
+        # since prompt_sent may contain a "tool" key
+        if isinstance(message, dict) and message.get("type") == "prompt_sent":
+            return
+
         # MCP tool calls from agents
         if isinstance(message, dict) and "tool" in message:
             self._handle_tool_call(message)
-            return
-
-        # Agent prompt confirmations
-        if isinstance(message, dict) and message.get("type") == "prompt_sent":
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":

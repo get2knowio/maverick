@@ -103,7 +103,10 @@ class ImplementerActor(Actor):
         from acp.schema import McpServerStdio
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or "maverick"
+        maverick_bin = (
+            shutil.which("maverick")
+            or str(Path(sys.executable).parent / "maverick")
+        )
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
