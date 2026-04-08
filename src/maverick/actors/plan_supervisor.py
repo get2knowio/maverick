@@ -293,27 +293,38 @@ class PlanSupervisorActor(Actor):
         import yaml as _yaml
         fm_str = _yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
 
+        objective = fp.get("objective") or default_objective
+
         body_parts = [f"# {self._plan_name}\n"]
+
+        # Objective — required by parser
+        body_parts.append(f"## Objective\n\n{objective}\n")
+
         if fp.get("context"):
             body_parts.append(f"## Context\n\n{fp['context']}\n")
 
+        # Success Criteria — parser expects checkbox format
         body_parts.append("## Success Criteria\n")
-        for i, sc in enumerate(sc_list):
+        for sc in sc_list:
             if isinstance(sc, dict):
                 desc = sc.get("description", str(sc))
-                body_parts.append(f"{i+1}. {desc}")
             else:
-                body_parts.append(f"{i+1}. {sc}")
+                desc = str(sc)
+            body_parts.append(f"- [ ] {desc}")
 
-        if fp.get("in_scope"):
-            body_parts.append("\n## In Scope\n")
-            for item in fp["in_scope"]:
-                body_parts.append(f"- {item}")
-
-        if fp.get("out_of_scope"):
-            body_parts.append("\n## Out of Scope\n")
-            for item in fp["out_of_scope"]:
-                body_parts.append(f"- {item}")
+        # Scope — parser expects ## Scope with ### In / ### Out
+        in_scope = fp.get("in_scope", [])
+        out_of_scope = fp.get("out_of_scope", [])
+        if in_scope or out_of_scope:
+            body_parts.append("\n## Scope\n")
+            if in_scope:
+                body_parts.append("### In\n")
+                for item in in_scope:
+                    body_parts.append(f"- {item}")
+            if out_of_scope:
+                body_parts.append("\n### Out\n")
+                for item in out_of_scope:
+                    body_parts.append(f"- {item}")
 
         if fp.get("constraints"):
             body_parts.append("\n## Constraints\n")
