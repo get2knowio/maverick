@@ -266,11 +266,54 @@ class PlanSupervisorActor(Actor):
                 file=sys.stderr, flush=True,
             )
         # Write regardless — validation is non-blocking for plan
+        # Format flight plan data as markdown with YAML frontmatter
+        from datetime import date
+
+        fp = self._flight_plan_data
+        sc_list = fp.get("success_criteria", [])
+
+        frontmatter = {
+            "name": self._plan_name,
+            "version": "1",
+            "created": str(date.today()),
+            "objective": fp.get("objective", ""),
+        }
+
+        import yaml as _yaml
+        fm_str = _yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
+
+        body_parts = [f"# {self._plan_name}\n"]
+        if fp.get("context"):
+            body_parts.append(f"## Context\n\n{fp['context']}\n")
+
+        body_parts.append("## Success Criteria\n")
+        for i, sc in enumerate(sc_list):
+            if isinstance(sc, dict):
+                desc = sc.get("description", str(sc))
+                body_parts.append(f"{i+1}. {desc}")
+            else:
+                body_parts.append(f"{i+1}. {sc}")
+
+        if fp.get("in_scope"):
+            body_parts.append("\n## In Scope\n")
+            for item in fp["in_scope"]:
+                body_parts.append(f"- {item}")
+
+        if fp.get("out_of_scope"):
+            body_parts.append("\n## Out of Scope\n")
+            for item in fp["out_of_scope"]:
+                body_parts.append(f"- {item}")
+
+        if fp.get("constraints"):
+            body_parts.append("\n## Constraints\n")
+            for item in fp["constraints"]:
+                body_parts.append(f"- {item}")
+
+        flight_plan_md = f"---\n{fm_str}---\n\n" + "\n".join(body_parts) + "\n"
+
         self.send(self._writer, {
             "type": "write",
-            "flight_plan_markdown": json.dumps(
-                self._flight_plan_data, indent=2, default=str
-            ),
+            "flight_plan_markdown": flight_plan_md,
             "briefing_markdown": self._briefing_markdown,
         })
 
