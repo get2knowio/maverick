@@ -9,11 +9,13 @@ ACP sessions per bead.
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from thespian.actors import Actor
 
 MAX_REVIEW_ROUNDS = 3
 MAX_GATE_FIX_ATTEMPTS = 2
+MAX_SPEC_FIX_ATTEMPTS = 2
 
 
 class FlySupervisorActor(Actor):
@@ -80,6 +82,11 @@ class FlySupervisorActor(Actor):
             self._handle_commit_result(message)
             return
 
+        # Aggregate review result (post-flight)
+        if isinstance(message, dict) and message.get("type") == "aggregate_review_complete":
+            self._handle_aggregate_review_complete(message)
+            return
+
     # ------------------------------------------------------------------
     # Init
     # ------------------------------------------------------------------
@@ -100,9 +107,16 @@ class FlySupervisorActor(Actor):
         # State
         self._workflow_sender = None
         self._completed_beads = []
+        self._completed_titles = []
+        self._bead_events = []
         self._current_bead = None
+        self._current_work_unit_md = ""
+        self._briefing_context = ""
+        self._flight_plan_name = ""
         self._review_rounds = 0
         self._gate_fix_attempts = 0
+        self._spec_fix_attempts = 0
+        self._last_review_findings = []
 
         self.send(sender, {"type": "init_ok"})
 
@@ -139,6 +153,14 @@ class FlySupervisorActor(Actor):
         self._current_bead = select_result
         self._review_rounds = 0
         self._gate_fix_attempts = 0
+        self._spec_fix_attempts = 0
+
+        # Resolve flight plan name from bead selection
+        if not self._flight_plan_name:
+            self._flight_plan_name = select_result.get("flight_plan_name", "")
+
+        # Load enriched context for this bead
+        self._load_bead_context(bead_id)
 
         print(
             f"FLY_SUPERVISOR: processing bead {bead_id}: "
@@ -153,14 +175,93 @@ class FlySupervisorActor(Actor):
         # Start implementation
         self._start_implement()
 
+    def _load_bead_context(self, bead_id):
+        """Load work unit markdown and briefing context for enriched reviews."""
+        if not self._flight_plan_name or not self._cwd:
+            return
+
+        plans_dir = Path(self._cwd) / ".maverick" / "plans" / self._flight_plan_name
+
+        # Load work unit markdown (glob for *-{bead_id_suffix}.md)
+        # Bead IDs from bd are like "epic-abc.1", work unit IDs are kebab-case
+        # Work unit files are named like "001-update-remote-user-uid.md"
+        self._current_work_unit_md = ""
+        try:
+            for md_file in sorted(plans_dir.glob("*.md")):
+                if md_file.name in ("flight-plan.md", "briefing.md", "refuel-briefing.md"):
+                    continue
+                content = md_file.read_text(encoding="utf-8")
+                # Check if this work unit's bead description matches
+                # by reading the YAML frontmatter work-unit field
+                if f"work-unit:" in content:
+                    self._current_work_unit_md = content
+                    # Use the first matching work unit for now
+                    # (supervisor processes beads sequentially)
+                    break
+            # If no match by frontmatter, use bead description as fallback
+            if not self._current_work_unit_md:
+                # Try matching by bead title against file content
+                title = self._current_bead.get("title", "")
+                for md_file in sorted(plans_dir.glob("[0-9]*.md")):
+                    content = md_file.read_text(encoding="utf-8")
+                    if title and title[:40] in content:
+                        self._current_work_unit_md = content
+                        break
+        except Exception as exc:
+            print(
+                f"FLY_SUPERVISOR: failed to load work unit: {exc}",
+                file=sys.stderr, flush=True,
+            )
+
+        # Load briefing context (once, cached across beads)
+        if not self._briefing_context:
+            for briefing_name in ("refuel-briefing.md", "briefing.md"):
+                briefing_path = plans_dir / briefing_name
+                if briefing_path.exists():
+                    try:
+                        self._briefing_context = briefing_path.read_text(
+                            encoding="utf-8"
+                        )[:8000]  # Cap at 8KB to avoid prompt bloat
+                        print(
+                            f"FLY_SUPERVISOR: loaded briefing ({len(self._briefing_context)} chars)",
+                            file=sys.stderr, flush=True,
+                        )
+                    except Exception:
+                        pass
+                    break
+
     def _start_implement(self):
         """Send implement request to implementer."""
         bead = self._current_bead
-        prompt = (
-            f"## Task\n\n{bead.get('description', bead.get('title', ''))}\n\n"
-            f"Implement this task. Read the relevant files, make changes, "
-            f"and run tests to verify."
+        desc = bead.get("description", bead.get("title", ""))
+
+        # Enrich implementer prompt with work unit spec if available
+        runway_hint = (
+            "\n\n## Historical Context (Runway)\n\n"
+            "The `.maverick/runway/` directory contains project knowledge:\n"
+            "- `episodic/bead-outcomes.jsonl` — outcomes from previous beads\n"
+            "- `episodic/review-findings.jsonl` — review findings and resolutions\n"
+            "- `episodic/fix-attempts.jsonl` — what was tried and whether it worked\n"
+            "- `semantic/` — architecture notes and decision records\n"
+            "- `index.json` — store metadata and suppressed patterns\n\n"
+            "Read these files if they exist — they contain lessons learned "
+            "that may prevent repeating past mistakes."
         )
+
+        if self._current_work_unit_md:
+            prompt = (
+                f"## Work Unit Specification\n\n{self._current_work_unit_md}\n\n"
+                f"Implement this task. Read the relevant files, make changes, "
+                f"and run tests to verify."
+                f"{runway_hint}"
+            )
+        else:
+            prompt = (
+                f"## Task\n\n{desc}\n\n"
+                f"Implement this task. Read the relevant files, make changes, "
+                f"and run tests to verify."
+                f"{runway_hint}"
+            )
 
         self.send(self._implementer, {
             "type": "implement",
@@ -198,6 +299,7 @@ class FlySupervisorActor(Actor):
         elif tool == "submit_review":
             approved = args.get("approved", True)
             findings = args.get("findings", [])
+            self._last_review_findings = findings
             print(
                 f"FLY_SUPERVISOR: review {'approved' if approved else f'rejected ({len(findings)} findings)'}",
                 file=sys.stderr, flush=True,
@@ -207,6 +309,7 @@ class FlySupervisorActor(Actor):
                 self._commit_bead()
             elif self._review_rounds < MAX_REVIEW_ROUNDS:
                 self._review_rounds += 1
+                self._record_review_findings(findings)
                 # Send findings to implementer for fix
                 prompt = "Please fix the following review findings:\n\n"
                 for f in findings:
@@ -244,7 +347,10 @@ class FlySupervisorActor(Actor):
     def _handle_ac_result(self, message):
         passed = message.get("passed", False)
         if passed:
-            self.send(self._spec, {"type": "spec_check"})
+            self.send(self._spec, {
+                "type": "spec_check",
+                "cwd": self._cwd,
+            })
         else:
             reasons = message.get("reasons", [])
             self.send(self._implementer, {
@@ -253,11 +359,28 @@ class FlySupervisorActor(Actor):
             })
 
     def _handle_spec_result(self, message):
-        # Spec passed → review
-        self.send(self._reviewer, {
-            "type": "review",
-            "bead_description": self._current_bead.get("description", ""),
-        })
+        passed = message.get("passed", False)
+        if passed:
+            # Spec passed → review with enriched context
+            self.send(self._reviewer, {
+                "type": "review",
+                "bead_description": self._current_bead.get("description", ""),
+                "work_unit_md": self._current_work_unit_md,
+                "briefing_context": self._briefing_context,
+            })
+        elif self._spec_fix_attempts < MAX_SPEC_FIX_ATTEMPTS:
+            self._spec_fix_attempts += 1
+            findings = message.get("findings", [])
+            prompt = "Spec compliance check found issues:\n\n"
+            for f in findings:
+                prompt += f"- {f}\n"
+            prompt += "\nFix these issues."
+            self.send(self._implementer, {
+                "type": "fix",
+                "prompt": prompt,
+            })
+        else:
+            self._commit_bead(tag="needs-human-review")
 
     def _commit_bead(self, tag=None):
         bead = self._current_bead
@@ -270,8 +393,29 @@ class FlySupervisorActor(Actor):
         })
 
     def _handle_commit_result(self, message):
-        bead_id = self._current_bead.get("bead_id", "")
+        bead = self._current_bead
+        bead_id = bead.get("bead_id", "")
         self._completed_beads.append(bead_id)
+        self._completed_titles.append(bead.get("title", bead_id))
+
+        # Build structured bead event
+        bead_event = {
+            "bead_id": bead_id,
+            "epic_id": self._epic_id,
+            "title": bead.get("title", ""),
+            "flight_plan": self._flight_plan_name,
+            "success": message.get("success", False),
+            "commit_sha": message.get("commit_sha", ""),
+            "tag": message.get("tag"),
+            "review_rounds": self._review_rounds,
+            "gate_fix_attempts": self._gate_fix_attempts,
+            "spec_fix_attempts": self._spec_fix_attempts,
+        }
+        self._bead_events.append(bead_event)
+
+        # Record to runway (best-effort)
+        self._record_bead_outcome(message)
+
         print(
             f"FLY_SUPERVISOR: bead {bead_id} committed "
             f"(total: {len(self._completed_beads)})",
@@ -280,16 +424,75 @@ class FlySupervisorActor(Actor):
         # Next bead
         self._next_bead()
 
+    # ------------------------------------------------------------------
+    # Post-flight aggregate review
+    # ------------------------------------------------------------------
+
     def _complete(self):
-        """All beads done — shutdown agents, report to workflow."""
-        # Shutdown agent actors (cleanup ACP subprocesses)
+        """All beads done — run aggregate review if multiple beads, then report."""
+        if len(self._completed_beads) > 1:
+            print(
+                f"FLY_SUPERVISOR: running aggregate review across "
+                f"{len(self._completed_beads)} beads",
+                file=sys.stderr, flush=True,
+            )
+            self._run_aggregate_review()
+        else:
+            self._finalize()
+
+    def _run_aggregate_review(self):
+        """Send aggregate review request to reviewer."""
+        import subprocess
+
+        # Get diff stats from baseline to HEAD
+        diff_stat = ""
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--stat", "HEAD~" + str(len(self._completed_beads))],
+                capture_output=True, text=True, cwd=self._cwd, timeout=30,
+            )
+            diff_stat = result.stdout[:4000] if result.stdout else "(no diff)"
+        except Exception:
+            diff_stat = "(could not generate diff)"
+
+        bead_list = "\n".join(
+            f"- {title}" for title in self._completed_titles
+        )
+
+        self.send(self._reviewer, {
+            "type": "aggregate_review",
+            "objective": self._flight_plan_name,
+            "bead_list": bead_list,
+            "diff_stat": diff_stat,
+            "bead_count": len(self._completed_beads),
+        })
+
+    def _handle_aggregate_review_complete(self, message):
+        """Aggregate review done — finalize with findings attached."""
+        findings = message.get("findings", [])
+        if findings:
+            print(
+                f"FLY_SUPERVISOR: aggregate review flagged "
+                f"{len(findings)} cross-bead concerns",
+                file=sys.stderr, flush=True,
+            )
+
+        self._aggregate_findings = findings
+        self._finalize()
+
+    def _finalize(self):
+        """Shutdown agents, report to workflow."""
         if self._implementer:
             self.send(self._implementer, {"type": "shutdown"})
         if self._reviewer:
             self.send(self._reviewer, {"type": "shutdown"})
 
+        aggregate = getattr(self, "_aggregate_findings", [])
+        has_concerns = len(aggregate) > 0
+
         print(
-            f"FLY_SUPERVISOR: complete ({len(self._completed_beads)} beads)",
+            f"FLY_SUPERVISOR: complete ({len(self._completed_beads)} beads"
+            f"{', ' + str(len(aggregate)) + ' aggregate concerns' if has_concerns else ''})",
             file=sys.stderr, flush=True,
         )
         if self._workflow_sender:
@@ -298,4 +501,81 @@ class FlySupervisorActor(Actor):
                 "success": True,
                 "beads_completed": len(self._completed_beads),
                 "completed_bead_ids": self._completed_beads,
+                "bead_events": self._bead_events,
+                "aggregate_review": aggregate,
+                "needs_human_review": has_concerns,
             })
+
+    # ------------------------------------------------------------------
+    # Runway recording (best-effort)
+    # ------------------------------------------------------------------
+
+    def _record_bead_outcome(self, commit_result):
+        """Record bead outcome to runway store."""
+        try:
+            asyncio.run(self._async_record_outcome(commit_result))
+        except Exception as exc:
+            print(
+                f"FLY_SUPERVISOR: runway record failed: {exc}",
+                file=sys.stderr, flush=True,
+            )
+
+    async def _async_record_outcome(self, commit_result):
+        from maverick.library.actions.runway import record_bead_outcome
+
+        bead = self._current_bead
+        review_result = {
+            "issues_found": self._review_rounds,
+            "issues_fixed": (
+                self._review_rounds
+                if commit_result.get("success")
+                else 0
+            ),
+        }
+
+        await record_bead_outcome(
+            bead_id=bead.get("bead_id", ""),
+            epic_id=self._epic_id,
+            title=bead.get("title", ""),
+            flight_plan=self._flight_plan_name,
+            validation_result={"passed": True},
+            review_result=review_result,
+            mistakes_caught=[
+                f.get("issue", "")
+                for f in self._last_review_findings
+                if f.get("severity") in ("critical", "major")
+            ] or None,
+            cwd=self._cwd,
+        )
+
+    def _record_review_findings(self, findings):
+        """Record review findings to runway store."""
+        if not findings:
+            return
+        try:
+            asyncio.run(self._async_record_review(findings))
+        except Exception as exc:
+            print(
+                f"FLY_SUPERVISOR: runway review record failed: {exc}",
+                file=sys.stderr, flush=True,
+            )
+
+    async def _async_record_review(self, findings):
+        from maverick.library.actions.runway import record_review_findings
+
+        review_result = {
+            "findings": [
+                {
+                    "severity": f.get("severity", "major"),
+                    "category": "code_review",
+                    "file_path": f.get("file", ""),
+                    "description": f.get("issue", ""),
+                }
+                for f in findings
+            ],
+        }
+        await record_review_findings(
+            bead_id=self._current_bead.get("bead_id", ""),
+            review_result=review_result,
+            cwd=self._cwd,
+        )

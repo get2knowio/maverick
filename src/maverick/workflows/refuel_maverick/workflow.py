@@ -882,7 +882,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 }
                 work_definitions = [
                     {
-                        "title": wu.task[:490],
+                        "title": wu.id if len(wu.task) > 200 else wu.task[:200],
                         "bead_type": "task",
                         "priority": 2,
                         "category": "user_story",
@@ -1222,17 +1222,18 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             elif isinstance(spec, dict):
                 work_units.append(WorkUnitSpec.model_validate(spec))
 
+        fix_rounds = result.get("fix_rounds", 0)
+
         decomposition = DecompositionOutput(
             work_units=work_units,
             rationale=f"{len(work_units)} work units via supervisor"
-            f" ({outcome.fix_rounds} fix rounds,"
-            f" {outcome.duration_seconds:.0f}s)",
+            f" ({fix_rounds} fix rounds)",
         )
 
         await self.emit_output(
             DECOMPOSE,
             f"Decomposed into {len(work_units)} work units"
-            f" ({outcome.fix_rounds} fix rounds)",
+            f" ({fix_rounds} fix rounds)",
             level="success",
         )
         await self.emit_step_completed(

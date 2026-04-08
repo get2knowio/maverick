@@ -10,6 +10,7 @@ MCP tool call to arrive in its inbox.
 """
 
 import asyncio
+import sys
 import threading
 
 from thespian.actors import Actor
@@ -78,7 +79,6 @@ class DecomposerActor(Actor):
 
     def _run_async(self, coro, sender, phase):
         """Run an async coroutine on the persistent event loop."""
-        import sys
         print(f"DECOMPOSER: starting {phase}...", file=sys.stderr, flush=True)
         try:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)

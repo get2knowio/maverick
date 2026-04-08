@@ -52,7 +52,9 @@ class RefuelSupervisorActor(Actor):
         # --- Decomposer prompt confirmation ---
         # Check BEFORE tool routing — prompt_sent may contain a "tool" key
         if isinstance(message, dict) and message.get("type") == "prompt_sent":
-            print(f"SUPERVISOR: prompt_sent phase={message.get('phase')}", file=sys.stderr, flush=True)
+            phase = message.get("phase", "")
+            print(f"SUPERVISOR: prompt_sent phase={phase}", file=sys.stderr, flush=True)
+            self._handle_prompt_sent(phase)
             return
 
         # --- Tool call from MCP server (via Thespian tell) ---
@@ -99,6 +101,7 @@ class RefuelSupervisorActor(Actor):
         self._details = None
         self._specs = []
         self._fix_rounds = 0
+        self._nudge_count = 0
         self._workflow_sender = None
         self._initial_payload = message.get("initial_payload", {})
 
@@ -115,10 +118,49 @@ class RefuelSupervisorActor(Actor):
             **self._initial_payload,
         })
 
+    def _handle_prompt_sent(self, phase):
+        """Check if expected tool call arrived; nudge if not."""
+        import sys
+
+        MAX_NUDGES = 2
+        # Map phase to expected tool and state check
+        phase_tool_map = {
+            "outline": ("submit_outline", lambda: self._outline is not None),
+            "detail": ("submit_details", lambda: self._details is not None),
+            "fix": ("submit_fix", lambda: self._fix_rounds > 0 and self._details is not None),
+        }
+
+        if phase not in phase_tool_map:
+            return
+
+        tool_name, check_fn = phase_tool_map[phase]
+        if check_fn():
+            # Tool call already arrived — nothing to do
+            return
+
+        if self._nudge_count >= MAX_NUDGES:
+            print(
+                f"SUPERVISOR: max nudges reached for {phase}, skipping",
+                file=sys.stderr, flush=True,
+            )
+            return
+
+        self._nudge_count += 1
+        print(
+            f"SUPERVISOR: prompt completed but no {tool_name} received, "
+            f"nudging decomposer (attempt {self._nudge_count})",
+            file=sys.stderr, flush=True,
+        )
+        self.send(self._decomposer, {
+            "type": "nudge",
+            "expected_tool": tool_name,
+        })
+
     def _handle_tool_call(self, message):
         """Route MCP tool call to appropriate handler."""
         tool = message.get("tool", "")
         args = message.get("arguments", {})
+        self._nudge_count = 0  # Reset on successful tool call
 
         if tool == "submit_outline":
             self._outline = args

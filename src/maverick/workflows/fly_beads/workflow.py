@@ -947,6 +947,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 "timeout_seconds": _timeout_secs,
             }, timeout=10)
 
+            # Init spec check with project type
+            project_type = getattr(self._config, "project_type", "rust")
+            asys.ask(spec, {
+                "type": "init",
+                "cwd": cwd,
+                "project_type": project_type,
+            }, timeout=10)
+
             # Init supervisor
             asys.ask(supervisor, {
                 "type": "init",
@@ -977,7 +985,33 @@ class FlyBeadsWorkflow(PythonWorkflow):
             asys.shutdown()
             atexit.unregister(_cleanup)
 
-        return result or {"beads_completed": 0, "completed_bead_ids": []}
+        if not result:
+            return {"beads_completed": 0, "completed_bead_ids": []}
+
+        # Emit per-bead summary to console from structured events
+        for event in result.get("bead_events", []):
+            tag = f" [{event['tag']}]" if event.get("tag") else ""
+            review_info = (
+                f", {event['review_rounds']} review round(s)"
+                if event.get("review_rounds", 0) > 0
+                else ""
+            )
+            await self.emit_output(
+                "fly",
+                f"Bead {event['bead_id']}: {event['title']}"
+                f"{tag}{review_info}",
+                level="success" if event.get("success") else "warning",
+            )
+
+        aggregate = result.get("aggregate_review", [])
+        if aggregate:
+            await self.emit_output(
+                "fly",
+                f"Aggregate review: {len(aggregate)} cross-bead concern(s)",
+                level="warning",
+            )
+
+        return result
 
     async def _process_bead_with_supervisor(
         self,
