@@ -191,7 +191,7 @@ class PlanSupervisorActor(Actor):
     def _synthesize_and_generate(self):
         """Contrarian done — synthesize briefing and send to generator."""
         from maverick.preflight_briefing.serializer import (
-            serialize_briefing_to_markdown,
+            serialize_preflight_briefing,
         )
         from maverick.preflight_briefing.synthesis import (
             synthesize_preflight_briefing,
@@ -220,7 +220,7 @@ class PlanSupervisorActor(Actor):
             briefing_doc = synthesize_preflight_briefing(
                 self._plan_name, scopist, analyst, criteria, contrarian
             )
-            self._briefing_markdown = serialize_briefing_to_markdown(
+            self._briefing_markdown = serialize_preflight_briefing(
                 briefing_doc
             )
         except Exception as exc:
