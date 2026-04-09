@@ -989,18 +989,25 @@ class FlyBeadsWorkflow(PythonWorkflow):
             return {"beads_completed": 0, "completed_bead_ids": []}
 
         # Emit per-bead summary to console from structured events
+        human_review_beads = []
         for event in result.get("bead_events", []):
-            tag = f" [{event['tag']}]" if event.get("tag") else ""
+            tag = event.get("tag")
+            tag_str = f" [{tag}]" if tag else ""
             review_info = (
                 f", {event['review_rounds']} review round(s)"
                 if event.get("review_rounds", 0) > 0
                 else ""
             )
+
+            is_flagged = tag == "needs-human-review"
+            if is_flagged:
+                human_review_beads.append(event)
+
             await self.emit_output(
                 "fly",
                 f"Bead {event['bead_id']}: {event['title']}"
-                f"{tag}{review_info}",
-                level="success" if event.get("success") else "warning",
+                f"{tag_str}{review_info}",
+                level="warning" if is_flagged else "success",
             )
 
         aggregate = result.get("aggregate_review", [])
@@ -1010,6 +1017,21 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 f"Aggregate review: {len(aggregate)} cross-bead concern(s)",
                 level="warning",
             )
+
+        # Prominent summary for beads that need human attention
+        if human_review_beads:
+            await self.emit_output(
+                "fly",
+                f"ACTION REQUIRED: {len(human_review_beads)} bead(s) "
+                f"committed with [needs-human-review]:",
+                level="error",
+            )
+            for event in human_review_beads:
+                await self.emit_output(
+                    "fly",
+                    f"  - {event['bead_id']}: {event['title']}",
+                    level="error",
+                )
 
         return result
 
