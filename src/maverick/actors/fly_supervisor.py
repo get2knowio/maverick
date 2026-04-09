@@ -183,31 +183,64 @@ class FlySupervisorActor(Actor):
 
         plans_dir = Path(self._cwd) / ".maverick" / "plans" / self._flight_plan_name
 
-        # Load work unit markdown (glob for *-{bead_id_suffix}.md)
-        # Bead IDs from bd are like "epic-abc.1", work unit IDs are kebab-case
-        # Work unit files are named like "001-update-remote-user-uid.md"
+        # Load all work unit files (keyed by work-unit ID from frontmatter)
+        # and match against the bead's title/description.
         self._current_work_unit_md = ""
+        bead_title = self._current_bead.get("title", "")
+        bead_desc = self._current_bead.get("description", "")
+
         try:
-            for md_file in sorted(plans_dir.glob("*.md")):
-                if md_file.name in ("flight-plan.md", "briefing.md", "refuel-briefing.md"):
-                    continue
+            work_units = {}
+            for md_file in sorted(plans_dir.glob("[0-9]*.md")):
                 content = md_file.read_text(encoding="utf-8")
-                # Check if this work unit's bead description matches
-                # by reading the YAML frontmatter work-unit field
-                if f"work-unit:" in content:
-                    self._current_work_unit_md = content
-                    # Use the first matching work unit for now
-                    # (supervisor processes beads sequentially)
-                    break
-            # If no match by frontmatter, use bead description as fallback
-            if not self._current_work_unit_md:
-                # Try matching by bead title against file content
-                title = self._current_bead.get("title", "")
-                for md_file in sorted(plans_dir.glob("[0-9]*.md")):
-                    content = md_file.read_text(encoding="utf-8")
-                    if title and title[:40] in content:
-                        self._current_work_unit_md = content
+                # Extract work-unit ID from YAML frontmatter
+                wu_id = ""
+                for line in content.split("\n"):
+                    if line.startswith("work-unit:"):
+                        wu_id = line.split(":", 1)[1].strip()
                         break
+                if wu_id:
+                    work_units[wu_id] = content
+
+            # Match: check if bead title contains the work unit ID
+            # (bead titles are the task description which often includes
+            # the work unit's key terms)
+            for wu_id, content in work_units.items():
+                # Extract the ## Task line for matching
+                task_line = ""
+                in_task = False
+                for line in content.split("\n"):
+                    if line.startswith("## Task"):
+                        in_task = True
+                        continue
+                    if in_task and line.strip():
+                        task_line = line.strip()
+                        break
+
+                # Match if bead title starts with the task description
+                # or task description starts with the bead title
+                if task_line and bead_title:
+                    if (bead_title[:60] in task_line
+                            or task_line[:60] in bead_title):
+                        self._current_work_unit_md = content
+                        print(
+                            f"FLY_SUPERVISOR: matched work unit '{wu_id}' "
+                            f"for bead",
+                            file=sys.stderr, flush=True,
+                        )
+                        break
+
+            if not self._current_work_unit_md and work_units:
+                print(
+                    f"FLY_SUPERVISOR: no work unit match for "
+                    f"'{bead_title[:50]}', using all as context",
+                    file=sys.stderr, flush=True,
+                )
+                # Fallback: concatenate all work units so the agent
+                # has full context and can pick the right one
+                self._current_work_unit_md = "\n\n---\n\n".join(
+                    work_units.values()
+                )
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: failed to load work unit: {exc}",
