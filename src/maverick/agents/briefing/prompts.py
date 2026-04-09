@@ -29,10 +29,7 @@ def build_briefing_prompt(
         open bead context sections.
     """
     context_section = _format_codebase_context(codebase_context)
-    prompt = (
-        f"## Flight Plan\n\n{flight_plan_content}"
-        f"\n\n## Codebase Context\n\n{context_section}"
-    )
+    prompt = f"## Flight Plan\n\n{flight_plan_content}\n\n## Codebase Context\n\n{context_section}"
 
     if open_bead_context is not None:
         bead_section = open_bead_context.format_for_prompt()

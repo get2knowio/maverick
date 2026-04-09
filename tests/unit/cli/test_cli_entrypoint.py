@@ -519,12 +519,8 @@ def test_fly_without_maverick_yaml_exits_with_error(
 
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(
-                name="git", available=True, version="2.39.0", path="/usr/bin/git"
-            ),
-            DependencyStatus(
-                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
-            ),
+            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
+            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
         ]
 
         # No maverick.yaml in temp_dir
@@ -580,12 +576,8 @@ def test_fly_with_maverick_yaml_passes_config_check(
 
     with patch("maverick.main.check_dependencies") as mock_check_deps:
         mock_check_deps.return_value = [
-            DependencyStatus(
-                name="git", available=True, version="2.39.0", path="/usr/bin/git"
-            ),
-            DependencyStatus(
-                name="gh", available=True, version="2.20.0", path="/usr/bin/gh"
-            ),
+            DependencyStatus(name="git", available=True, version="2.39.0", path="/usr/bin/git"),
+            DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
         ]
 
         result = cli_runner.invoke(cli, ["fly", "--dry-run"])

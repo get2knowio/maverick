@@ -41,9 +41,7 @@ class TestCommandRunner:
         T020: Verify that a simple command execution returns a CommandResult
         with correct returncode, stdout, stderr, success flag, and duration.
         """
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             result = await runner.run(["echo", "hello"])
 
@@ -64,9 +62,7 @@ class TestCommandRunner:
         """
         mock_process.communicate = AsyncMock(return_value=(b"out", b"err"))
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             result = await runner.run(["some", "command"])
 
@@ -88,9 +84,7 @@ class TestCommandRunner:
         mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.wait = AsyncMock()
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner(timeout=0.1)
             result = await runner.run(["sleep", "10"])
 
@@ -129,9 +123,7 @@ class TestCommandRunner:
             captured_env = kwargs.get("env")
             return mock_process
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(side_effect=capture_env)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(side_effect=capture_env)):
             runner = CommandRunner(env={"CUSTOM_VAR": "custom_value"})
             await runner.run(["echo", "test"])
 
@@ -159,9 +151,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             lines = []
             async for line in runner.stream(["echo", "test"]):
@@ -193,9 +183,7 @@ class TestCommandRunner:
         mock_process.terminate = MagicMock()
         mock_process.kill = MagicMock()
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner(timeout=0.1)
             lines = []
             async for line in runner.stream(["long", "command"]):
@@ -214,9 +202,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             lines = []
             async for line in runner.stream(["test"]):
@@ -228,9 +214,7 @@ class TestCommandRunner:
             assert lines[1].timestamp_ms >= 0
 
     @pytest.mark.asyncio
-    async def test_wait_returns_result_after_stream(
-        self, mock_process: MagicMock
-    ) -> None:
+    async def test_wait_returns_result_after_stream(self, mock_process: MagicMock) -> None:
         """Test wait() returns final CommandResult after streaming."""
         mock_stdout = AsyncMock()
         mock_stdout.readline = AsyncMock(side_effect=[b"output\n", b""])
@@ -240,9 +224,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             async for _ in runner.stream(["test"]):
                 pass
@@ -268,9 +250,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             lines = []
             async for line in runner.stream(["test"]):
@@ -311,9 +291,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 1
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             lines = []
             async for line in runner.stream(["test"]):
@@ -354,9 +332,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 1  # Non-zero exit code indicates failure
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
             lines = []
             async for line in runner.stream(
@@ -419,9 +395,7 @@ class TestCommandRunner:
         mock_process.wait = AsyncMock()
         mock_process.returncode = 0
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             runner = CommandRunner()
 
             # Stream and count lines without keeping them all in memory
@@ -459,9 +433,7 @@ class TestCommandRunner:
             assert len(result.stdout.split("\n")) == num_lines
 
     @pytest.mark.asyncio
-    async def test_wait_reports_timeout_from_stream(
-        self, mock_process: MagicMock
-    ) -> None:
+    async def test_wait_reports_timeout_from_stream(self, mock_process: MagicMock) -> None:
         """Test wait() reports timeout state from stream()."""
         mock_process.stdout = AsyncMock()
         mock_process.stderr = AsyncMock()
@@ -478,9 +450,7 @@ class TestCommandRunner:
         mock_process.stdout.readline.side_effect = delayed_readline
         mock_process.stderr.readline.side_effect = delayed_readline
 
-        with patch(
-            "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)
-        ):
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)):
             # Use a longer timeout to make the test more stable
             # but still short enough to complete quickly
             runner = CommandRunner(timeout=0.1)

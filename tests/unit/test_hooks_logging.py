@@ -22,9 +22,7 @@ async def test_log_tool_execution_empty_return_on_error():
     config = LoggingConfig(enabled=True)
 
     # Mock sanitize_inputs to raise an exception
-    with patch(
-        "maverick.hooks.logging.sanitize_inputs", side_effect=Exception("Logging error")
-    ):
+    with patch("maverick.hooks.logging.sanitize_inputs", side_effect=Exception("Logging error")):
         # Act
         result = await log_tool_execution(
             input_data, "tool-1", None, config=config, start_time=datetime.now()

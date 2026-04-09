@@ -84,9 +84,7 @@ class TestGitHubCLIRunner:
         runner = GitHubCLIRunner()
         mock_runner = AsyncMock()
         # First call: auth check, second call: get issue, third call: get issue again
-        mock_runner.run = AsyncMock(
-            side_effect=[auth_result, issue_result, issue_result]
-        )
+        mock_runner.run = AsyncMock(side_effect=[auth_result, issue_result, issue_result])
         runner._command_runner = mock_runner
 
         # First call should check auth
@@ -211,9 +209,7 @@ class TestGitHubCLIRunner:
         runner = GitHubCLIRunner()
         mock_runner = AsyncMock()
         # Auth check, create PR, then get_pr is called which doesn't check auth again
-        mock_runner.run = AsyncMock(
-            side_effect=[auth_result, create_result, view_result]
-        )
+        mock_runner.run = AsyncMock(side_effect=[auth_result, create_result, view_result])
         runner._command_runner = mock_runner
 
         pr = await runner.create_pr(title="Test PR", body="PR body")
@@ -349,9 +345,7 @@ class TestErrorClassification:
         """Test authentication error classification using exit code 4."""
         runner = GitHubCLIRunner()
 
-        error_type, error_message, is_retryable = runner._classify_error(
-            4, "Not authenticated"
-        )
+        error_type, error_message, is_retryable = runner._classify_error(4, "Not authenticated")
 
         assert error_type == "auth"
         assert "Authentication required" in error_message
@@ -361,9 +355,7 @@ class TestErrorClassification:
         """Test command canceled classification using exit code 2."""
         runner = GitHubCLIRunner()
 
-        error_type, error_message, is_retryable = runner._classify_error(
-            2, "Operation canceled"
-        )
+        error_type, error_message, is_retryable = runner._classify_error(2, "Operation canceled")
 
         assert error_type == "canceled"
         assert "canceled" in error_message.lower()
@@ -469,9 +461,7 @@ class TestErrorClassification:
         """Test classification for unknown exit codes."""
         runner = GitHubCLIRunner()
 
-        error_type, error_message, is_retryable = runner._classify_error(
-            99, "Unexpected error"
-        )
+        error_type, error_message, is_retryable = runner._classify_error(99, "Unexpected error")
 
         assert error_type == "unknown"
         assert "exit code 99" in error_message
@@ -690,10 +680,7 @@ class TestGitHubCLIRunnerValidate:
         assert isinstance(result, ValidationResult)
         assert result.success is False
         assert result.component == "GitHubCLIRunner"
-        assert any(
-            "not installed" in error or "not on PATH" in error
-            for error in result.errors
-        )
+        assert any("not installed" in error or "not on PATH" in error for error in result.errors)
 
     @pytest.mark.asyncio
     @patch("maverick.runners.github.shutil.which")
@@ -711,8 +698,7 @@ class TestGitHubCLIRunnerValidate:
             returncode=4,
             stdout="",
             stderr=(
-                "You are not logged into any GitHub hosts. "
-                "Run gh auth login to authenticate."
+                "You are not logged into any GitHub hosts. Run gh auth login to authenticate."
             ),
             duration_ms=50,
             timed_out=False,
@@ -799,8 +785,7 @@ class TestGitHubCLIRunnerValidate:
         assert result.component == "GitHubCLIRunner"
         assert len(result.errors) > 0
         assert any(
-            "missing" in error.lower() and "scope" in error.lower()
-            for error in result.errors
+            "missing" in error.lower() and "scope" in error.lower() for error in result.errors
         )
 
     @pytest.mark.asyncio

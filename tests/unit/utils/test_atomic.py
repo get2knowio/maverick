@@ -42,9 +42,7 @@ class TestAtomicWriteText:
         assert file_path.exists()
         assert file_path.read_text() == content
 
-    def test_write_text_fails_without_mkdir_if_parent_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_text_fails_without_mkdir_if_parent_missing(self, tmp_path: Path) -> None:
         """Test that atomic_write_text fails when mkdir=False and parent missing."""
         file_path = tmp_path / "nonexistent" / "test.txt"
 
@@ -161,9 +159,7 @@ class TestAtomicWriteJson:
         assert file_path.exists()
         assert json.loads(file_path.read_text()) == data
 
-    def test_write_json_fails_without_mkdir_if_parent_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_json_fails_without_mkdir_if_parent_missing(self, tmp_path: Path) -> None:
         """Test that atomic_write_json fails when mkdir=False and parent missing."""
         file_path = tmp_path / "nonexistent" / "test.json"
 

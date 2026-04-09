@@ -119,9 +119,7 @@ class CodeRabbitRunner:
                 findings=(),
                 summary="",
                 raw_output="",
-                warnings=(
-                    "CodeRabbit CLI not installed. Install from: https://coderabbit.ai/",
-                ),
+                warnings=("CodeRabbit CLI not installed. Install from: https://coderabbit.ai/",),
             )
 
         # Build command
@@ -147,10 +145,7 @@ class CodeRabbitRunner:
         # Generate summary
         error_count = sum(1 for f in findings if f.severity == "error")
         warning_count = sum(1 for f in findings if f.severity == "warning")
-        summary = (
-            f"Found {len(findings)} issues: "
-            f"{error_count} errors, {warning_count} warnings"
-        )
+        summary = f"Found {len(findings)} issues: {error_count} errors, {warning_count} warnings"
 
         return CodeRabbitResult(
             findings=tuple(findings),

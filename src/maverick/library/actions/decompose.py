@@ -228,9 +228,7 @@ def _format_codebase_context(context: CodebaseContext) -> str:
     """
     if not context.files:
         if context.missing_files:
-            return (
-                f"No files could be read. Missing: {', '.join(context.missing_files)}"
-            )
+            return f"No files could be read. Missing: {', '.join(context.missing_files)}"
         return "No in-scope files specified."
 
     parts: list[str] = []
@@ -239,9 +237,7 @@ def _format_codebase_context(context: CodebaseContext) -> str:
 
     result = "\n\n".join(parts)
     if context.missing_files:
-        result += "\n\n### Missing Files\n\n" + "\n".join(
-            f"- {p}" for p in context.missing_files
-        )
+        result += "\n\n### Missing Files\n\n" + "\n".join(f"- {p}" for p in context.missing_files)
 
     return result
 
@@ -519,8 +515,7 @@ def build_detail_prompt(
     instructions = "\n".join(
         [
             f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
-            "- Each detail entry must include: instructions, acceptance_criteria,"
-            " verification",
+            "- Each detail entry must include: instructions, acceptance_criteria, verification",
             "- Instructions: write a PROCEDURE with numbered steps"
             " using RFC 2119 keywords (MUST, SHOULD, MAY). Each step"
             " MUST specify: (a) the exact file and line range to read"
@@ -570,9 +565,7 @@ def build_detail_prompt(
 
     detail_output_section = ""
     if output_file_path:
-        detail_output_section = (
-            f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
-        )
+        detail_output_section = f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
 
     vp_section = ""
     if verification_properties:
@@ -633,9 +626,7 @@ def merge_outline_and_details(
     for wu in outline.work_units:
         detail = detail_map.get(wu.id)
         if detail is None:
-            raise ValueError(
-                f"Work unit '{wu.id}' from outline has no matching detail entry"
-            )
+            raise ValueError(f"Work unit '{wu.id}' from outline has no matching detail entry")
         specs.append(
             _WorkUnitSpec(
                 id=wu.id,
@@ -755,9 +746,11 @@ def validate_decomposition(
 
         # Build expected refs: use expected_sc_refs if provided, else
         # fall back to sequential SC-001..SC-NNN for backward compat.
-        expected_refs: list[str] = list(expected_sc_refs) if expected_sc_refs else [
-            f"SC-{i:03d}" for i in range(1, success_criteria_count + 1)
-        ]
+        expected_refs: list[str] = (
+            list(expected_sc_refs)
+            if expected_sc_refs
+            else [f"SC-{i:03d}" for i in range(1, success_criteria_count + 1)]
+        )
 
         for ref in expected_refs:
             if ref not in covered_refs:
@@ -767,8 +760,7 @@ def validate_decomposition(
 
     if gaps:
         raise SCCoverageError(
-            f"Incomplete SC coverage: {len(gaps)} success "
-            f"criteria not traced — {'; '.join(gaps)}",
+            f"Incomplete SC coverage: {len(gaps)} success criteria not traced — {'; '.join(gaps)}",
             gaps=gaps,
         )
 

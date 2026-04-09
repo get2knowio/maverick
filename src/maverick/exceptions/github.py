@@ -67,9 +67,7 @@ class GitHubCLINotFoundError(GitHubError):
 
     def __init__(self) -> None:
         """Initialize the GitHubCLINotFoundError."""
-        super().__init__(
-            "GitHub CLI (gh) not installed. Install from: https://cli.github.com/"
-        )
+        super().__init__("GitHub CLI (gh) not installed. Install from: https://cli.github.com/")
 
 
 class GitHubAuthError(GitHubError):

@@ -106,18 +106,14 @@ class RunwaySeedAgent(MaverickAgent[SeedContext, None]):
 
         # Git log
         if context.git_log:
-            lines = [
-                f"- {c.short_sha} {c.message} ({c.author})" for c in context.git_log
-            ]
+            lines = [f"- {c.short_sha} {c.message} ({c.author})" for c in context.git_log]
             sections.append("## Recent Git History\n\n" + "\n".join(lines))
         else:
             sections.append("## Recent Git History\n\n(No git history available)")
 
         # Directory tree
         if context.directory_tree:
-            sections.append(
-                "## Directory Tree\n\n```\n" + context.directory_tree + "\n```"
-            )
+            sections.append("## Directory Tree\n\n```\n" + context.directory_tree + "\n```")
 
         # Config files
         if context.config_files:
@@ -134,6 +130,5 @@ class RunwaySeedAgent(MaverickAgent[SeedContext, None]):
 
         return (
             "Analyze the following project context and write the 4 semantic "
-            "knowledge files as described in your instructions.\n\n"
-            + "\n\n".join(sections)
+            "knowledge files as described in your instructions.\n\n" + "\n\n".join(sections)
         )

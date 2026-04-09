@@ -87,9 +87,7 @@ def validate_flight_plan_file(path: Path) -> list[ValidationIssue]:
             issues.append(
                 ValidationIssue(
                     location="frontmatter",
-                    message=(
-                        "V1: Document must start with '---' frontmatter delimiter."
-                    ),
+                    message=("V1: Document must start with '---' frontmatter delimiter."),
                 )
             )
         elif error_kind == "missing_closing_delimiter":
@@ -97,10 +95,7 @@ def validate_flight_plan_file(path: Path) -> list[ValidationIssue]:
             issues.append(
                 ValidationIssue(
                     location="frontmatter",
-                    message=(
-                        "V2: Document is missing the closing"
-                        " '---' frontmatter delimiter."
-                    ),
+                    message=("V2: Document is missing the closing '---' frontmatter delimiter."),
                 )
             )
         else:
@@ -134,9 +129,7 @@ def validate_flight_plan_file(path: Path) -> list[ValidationIssue]:
         issues.append(
             ValidationIssue(
                 location="frontmatter.version",
-                message=(
-                    "V5: Frontmatter field 'version' must be present and non-empty."
-                ),
+                message=("V5: Frontmatter field 'version' must be present and non-empty."),
             )
         )
 

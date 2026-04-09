@@ -226,8 +226,7 @@ def _convert_git_error(exc: GitCommandError, operation: str) -> GitError:
 
     # Checkout conflict
     checkout_conflict = (
-        "would be overwritten" in stderr_lower
-        or "overwritten by checkout" in stderr_lower
+        "would be overwritten" in stderr_lower or "overwritten by checkout" in stderr_lower
     )
     if checkout_conflict:
         return CheckoutConflictError()
@@ -369,17 +368,11 @@ class GitRepository:
         # Get diff for staged changes
         if self._repo.head.is_valid():
             staged_diff = self._repo.index.diff(self._repo.head.commit)
-            staged = [
-                d.a_path or d.b_path or "" for d in staged_diff if d.a_path or d.b_path
-            ]
+            staged = [d.a_path or d.b_path or "" for d in staged_diff if d.a_path or d.b_path]
 
             # Get diff for unstaged changes
             unstaged_diff = self._repo.index.diff(None)
-            unstaged = [
-                d.a_path or d.b_path or ""
-                for d in unstaged_diff
-                if d.a_path or d.b_path
-            ]
+            unstaged = [d.a_path or d.b_path or "" for d in unstaged_diff if d.a_path or d.b_path]
         else:
             # Initial commit case - all index entries are staged
             staged = [str(entry.path) for entry in self._repo.index.entries.values()]
@@ -960,9 +953,7 @@ class AsyncGitRepository:
         from_ref: str = "HEAD",
     ) -> None:
         """Create a new branch."""
-        return await asyncio.to_thread(
-            self._sync.create_branch, name, checkout, from_ref
-        )
+        return await asyncio.to_thread(self._sync.create_branch, name, checkout, from_ref)
 
     async def create_branch_with_fallback(
         self,
@@ -970,9 +961,7 @@ class AsyncGitRepository:
         from_ref: str = "HEAD",
     ) -> str:
         """Create branch with timestamp suffix fallback on conflict."""
-        return await asyncio.to_thread(
-            self._sync.create_branch_with_fallback, name, from_ref
-        )
+        return await asyncio.to_thread(self._sync.create_branch_with_fallback, name, from_ref)
 
     async def checkout(self, branch: str) -> None:
         """Switch to an existing branch."""
@@ -1007,9 +996,7 @@ class AsyncGitRepository:
         set_upstream: bool = False,
     ) -> None:
         """Push commits to remote."""
-        return await asyncio.to_thread(
-            self._sync.push, remote, branch, force, set_upstream
-        )
+        return await asyncio.to_thread(self._sync.push, remote, branch, force, set_upstream)
 
     async def pull(
         self,

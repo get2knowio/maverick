@@ -56,12 +56,8 @@ def test_mock_github_cli_call_recording(mock_github_cli: MockGitHubCLI) -> None:
 def test_mock_github_cli_pattern_matching(mock_github_cli: MockGitHubCLI) -> None:
     """Test command pattern matching (exact and substring)."""
     # Configure responses with different patterns
-    mock_github_cli.set_response(
-        "pr create", CommandResponse(returncode=0, stdout="pr created")
-    )
-    mock_github_cli.set_response(
-        "pr list", CommandResponse(returncode=0, stdout="pr list")
-    )
+    mock_github_cli.set_response("pr create", CommandResponse(returncode=0, stdout="pr created"))
+    mock_github_cli.set_response("pr list", CommandResponse(returncode=0, stdout="pr list"))
 
     # Test exact match
     response1 = mock_github_cli.execute(["pr", "create"])
@@ -90,9 +86,7 @@ def test_mock_github_cli_default_response(mock_github_cli: MockGitHubCLI) -> Non
 def test_mock_github_cli_reset(mock_github_cli: MockGitHubCLI) -> None:
     """Test that reset clears all state."""
     # Configure response and execute command
-    mock_github_cli.set_response(
-        "pr create", CommandResponse(returncode=0, stdout="created")
-    )
+    mock_github_cli.set_response("pr create", CommandResponse(returncode=0, stdout="created"))
     mock_github_cli.execute(["pr", "create"])
 
     # Reset

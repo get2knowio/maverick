@@ -75,9 +75,7 @@ class TestRunValidationStep:
     async def test_run_validation_step_failure(self) -> None:
         """Test validation step returns failure."""
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"Error: formatting issues found")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"", b"Error: formatting issues found"))
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -93,9 +91,7 @@ class TestRunValidationStep:
         mock_process.communicate = AsyncMock(side_effect=TimeoutError())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await run_validation_step(
-                ValidationStep.TEST, Path("/repo"), timeout=1.0
-            )
+            result = await run_validation_step(ValidationStep.TEST, Path("/repo"), timeout=1.0)
 
         assert result.success is False
         assert "timed out" in result.output.lower()
@@ -106,9 +102,7 @@ class TestRunValidationStep:
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(side_effect=FileNotFoundError("ruff"))
 
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("ruff")
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("ruff")):
             result = await run_validation_step(ValidationStep.FORMAT, Path("/repo"))
 
         # Should skip if tool not found (success=True)
@@ -183,9 +177,7 @@ class TestRunValidationPipeline:
 
         # Lint fails (returns 3 times for retries)
         mock_lint_process = AsyncMock()
-        mock_lint_process.communicate = AsyncMock(
-            return_value=(b"", b"Lint errors found")
-        )
+        mock_lint_process.communicate = AsyncMock(return_value=(b"", b"Lint errors found"))
         mock_lint_process.returncode = 1
 
         # Format passes, then lint fails 3 times (retries)
@@ -219,9 +211,7 @@ class TestRunValidationPipeline:
         mock_process.returncode = 1
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            results = await run_validation_pipeline(
-                Path("/repo"), stop_on_failure=False
-            )
+            results = await run_validation_pipeline(Path("/repo"), stop_on_failure=False)
 
         assert len(results) == 4
         assert all(not r.success for r in results)
@@ -248,9 +238,7 @@ class TestRunValidationPipeline:
         """Test pipeline retries auto-fixable steps on failure."""
         # First attempt: format fails
         mock_fail_process = AsyncMock()
-        mock_fail_process.communicate = AsyncMock(
-            return_value=(b"", b"formatting needed")
-        )
+        mock_fail_process.communicate = AsyncMock(return_value=(b"", b"formatting needed"))
         mock_fail_process.returncode = 1
 
         # Second attempt: format succeeds (after auto-fix)

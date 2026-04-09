@@ -149,9 +149,7 @@ class TestCheckDependencies:
         """Test version extraction with multi-line output (uses first line)."""
         mock_run = MagicMock()
         mock_run.returncode = 0
-        mock_run.stdout = (
-            "gh version 2.40.0 (2024-01-01)\nCopyright info\nOther details\n"
-        )
+        mock_run.stdout = "gh version 2.40.0 (2024-01-01)\nCopyright info\nOther details\n"
         mock_run.stderr = ""
 
         with (

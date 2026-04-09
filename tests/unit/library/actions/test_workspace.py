@@ -114,9 +114,7 @@ class TestInitWorkspace:
                 side_effect=[
                     make_result(returncode=0),  # Branch exists
                     make_result(returncode=0),  # Checkout success
-                    make_result(
-                        returncode=0, stdout=" M src/file.py\n ?? new_file.py\n"
-                    ),  # Dirty
+                    make_result(returncode=0, stdout=" M src/file.py\n ?? new_file.py\n"),  # Dirty
                 ]
             )
 
@@ -124,9 +122,7 @@ class TestInitWorkspace:
 
             assert result.is_clean is False
 
-    async def test_auto_detects_task_file_in_specs_directory(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_auto_detects_task_file_in_specs_directory(self, tmp_path: Path) -> None:
         """Test auto-detects task file in specs/{branch_name}/tasks.md."""
         import os
 

@@ -10,8 +10,9 @@ via MCP tool calls → Thespian message passing.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from maverick.executor.config import StepConfig
 from maverick.logging import get_logger
@@ -120,9 +121,7 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry(
-            "submit_outline", session_id
-        )
+        inbox_data = await self._read_inbox_with_retry("submit_outline", session_id)
 
         return [
             Message(
@@ -144,9 +143,7 @@ class DecomposerActor:
             flight_plan_content=payload.get("flight_plan_content", ""),
             outline_json=payload.get("outline_json", "{}"),
             unit_ids=payload.get("unit_ids", []),
-            verification_properties=payload.get(
-                "verification_properties", ""
-            ),
+            verification_properties=payload.get("verification_properties", ""),
         )
 
         prompt_text += (
@@ -178,9 +175,7 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry(
-            "submit_details", session_id
-        )
+        inbox_data = await self._read_inbox_with_retry("submit_details", session_id)
 
         return [
             Message(
@@ -205,10 +200,7 @@ class DecomposerActor:
             parts.append("## Missing SC Coverage\n")
             for gap in payload["coverage_gaps"]:
                 parts.append(f"- {gap}")
-            parts.append(
-                "\nAssign each missing SC to an existing work unit or "
-                "create a new one."
-            )
+            parts.append("\nAssign each missing SC to an existing work unit or create a new one.")
 
         if payload.get("overloaded"):
             parts.append("\n## Overloaded Work Units\n")
@@ -248,9 +240,7 @@ class DecomposerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry(
-            "submit_fix", session_id
-        )
+        inbox_data = await self._read_inbox_with_retry("submit_fix", session_id)
 
         return [
             Message(

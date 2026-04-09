@@ -214,11 +214,7 @@ def _get_detectors() -> dict[str, BasePlugin]:
     # get_mapping_from_secret_type_to_class() returns a complex union type
     # that mypy cannot properly infer. We use Any to work around this.
     type_to_class: dict[str, Any] = get_mapping_from_secret_type_to_class()
-    return {
-        name: type_to_class[name]()
-        for name in DEFAULT_DETECTORS
-        if name in type_to_class
-    }
+    return {name: type_to_class[name]() for name in DEFAULT_DETECTORS if name in type_to_class}
 
 
 def load_baseline(baseline_path: Path | str | None = None) -> set[str]:

@@ -32,9 +32,7 @@ class TestActionIntentCoverage:
             assert isinstance(description, str), (
                 f"Intent for '{action_name}' is not a string: {type(description)}"
             )
-            assert description.strip(), (
-                f"Intent for '{action_name}' is empty or whitespace-only"
-            )
+            assert description.strip(), f"Intent for '{action_name}' is empty or whitespace-only"
 
 
 class TestNoOrphanIntentKeys:
@@ -71,8 +69,7 @@ class TestGetIntent:
         for action_name, expected in ACTION_INTENTS.items():
             actual = get_intent(action_name)
             assert actual == expected, (
-                f"get_intent('{action_name}') returned "
-                f"{actual!r}, expected {expected!r}"
+                f"get_intent('{action_name}') returned {actual!r}, expected {expected!r}"
             )
 
     def test_returns_none_for_empty_string(self) -> None:

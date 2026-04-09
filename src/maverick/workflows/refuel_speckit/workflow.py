@@ -200,9 +200,7 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(CHECKOUT_MAIN, str(exc))
                 raise
-            await self.emit_step_completed(
-                CHECKOUT_MAIN, output={"branch_name": "main"}
-            )
+            await self.emit_step_completed(CHECKOUT_MAIN, output={"branch_name": "main"})
 
             # Step 9: Merge spec branch into main
             await self.emit_step_started(MERGE)

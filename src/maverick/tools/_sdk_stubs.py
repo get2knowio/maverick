@@ -93,9 +93,7 @@ def tool(
     _schema = schema
 
     def _decorator(f: _F) -> _ToolWrapper:
-        return _ToolWrapper(
-            f, name=_name, description=_description, input_schema=_schema
-        )
+        return _ToolWrapper(f, name=_name, description=_description, input_schema=_schema)
 
     return _decorator
 

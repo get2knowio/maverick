@@ -11,7 +11,6 @@ contrarian only when all 3 have reported.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -108,9 +107,7 @@ class PlanSupervisor:
             success=True,
             flight_plan_path=result.get("flight_plan_path", ""),
             briefing_path=result.get("briefing_path"),
-            success_criteria_count=len(
-                self._flight_plan_data.get("success_criteria", [])
-            ),
+            success_criteria_count=len(self._flight_plan_data.get("success_criteria", [])),
             validation_passed=True,
             message_log=list(self._message_log),
             duration_seconds=elapsed,
@@ -214,9 +211,7 @@ class PlanSupervisor:
         for r in responses:
             r = self._stamp(r)
             self._message_log.append(r)
-            self._briefing_markdown = r.payload.get(
-                "briefing_markdown", ""
-            )
+            self._briefing_markdown = r.payload.get("briefing_markdown", "")
 
     async def _run_generator(self) -> None:
         """Generate the flight plan."""
@@ -227,9 +222,7 @@ class PlanSupervisor:
         # Build prompt with PRD + briefing
         parts = [f"## PRD Content\n\n{self._prd_content}"]
         if self._briefing_markdown:
-            parts.append(
-                f"## Pre-Flight Briefing\n\n{self._briefing_markdown}"
-            )
+            parts.append(f"## Pre-Flight Briefing\n\n{self._briefing_markdown}")
         prompt = "\n\n".join(parts)
 
         msg = self._make_message(

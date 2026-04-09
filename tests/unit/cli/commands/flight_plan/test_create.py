@@ -44,9 +44,7 @@ class TestFlightPlanCreateHappyPath:
         result = cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
-        expected_file = (
-            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
-        )
+        expected_file = flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         assert expected_file.exists(), f"Expected file not found: {expected_file}"
 
     def test_created_file_contains_name_in_frontmatter(
@@ -59,9 +57,7 @@ class TestFlightPlanCreateHappyPath:
 
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
-        file_path = (
-            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
-        )
+        file_path = flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         content = file_path.read_text()
         parts = content.split("---", 2)
         fm = yaml.safe_load(parts[1])
@@ -75,9 +71,7 @@ class TestFlightPlanCreateHappyPath:
         """The created file contains all required Markdown sections."""
         cli_runner.invoke(cli, ["plan", "create", "my-feature"])
 
-        file_path = (
-            flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
-        )
+        file_path = flight_plan_env / ".maverick" / "plans" / "my-feature" / "flight-plan.md"
         content = file_path.read_text()
         assert "## Objective" in content
         assert "## Success Criteria" in content
@@ -326,8 +320,7 @@ class TestFlightPlanCreateNameValidation:
         # doesn't parse the leading hyphen as an option flag.
         result = cli_runner.invoke(cli, ["plan", "create", "--", "-starts-with-hyphen"])
         assert result.exit_code != 0, (
-            f"Expected failure for name '-starts-with-hyphen', "
-            f"got exit=0: {result.output}"
+            f"Expected failure for name '-starts-with-hyphen', got exit=0: {result.output}"
         )
 
     def test_invalid_name_shows_error_message(
@@ -341,11 +334,7 @@ class TestFlightPlanCreateNameValidation:
         assert result.exit_code == 1
         # Should mention the name or kebab-case requirement
         output_lower = result.output.lower()
-        assert (
-            "invalid" in output_lower
-            or "kebab" in output_lower
-            or "name" in output_lower
-        )
+        assert "invalid" in output_lower or "kebab" in output_lower or "name" in output_lower
 
     def test_invalid_name_does_not_create_file(
         self,

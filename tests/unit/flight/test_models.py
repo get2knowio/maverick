@@ -154,12 +154,8 @@ class TestFlightPlan:
             tags=("auth", "security"),
             objective="Implement user authentication with JWT tokens.",
             success_criteria=(
-                SuccessCriterion(
-                    text="Users can register with email and password", checked=True
-                ),
-                SuccessCriterion(
-                    text="Users can log in and receive a JWT", checked=False
-                ),
+                SuccessCriterion(text="Users can register with email and password", checked=True),
+                SuccessCriterion(text="Users can log in and receive a JWT", checked=False),
                 SuccessCriterion(
                     text="Protected routes reject unauthenticated requests",
                     checked=False,
@@ -441,9 +437,7 @@ class TestAcceptanceCriterion:
         """AcceptanceCriterion with SC-### trace_ref is stored correctly."""
         from maverick.flight.models import AcceptanceCriterion
 
-        ac = AcceptanceCriterion(
-            text="Database connection pool is configured", trace_ref="SC-001"
-        )
+        ac = AcceptanceCriterion(text="Database connection pool is configured", trace_ref="SC-001")
         assert ac.trace_ref == "SC-001"
 
     def test_frozen_immutability(self) -> None:

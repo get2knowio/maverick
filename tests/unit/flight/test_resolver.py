@@ -255,9 +255,7 @@ class TestIndependentUnits:
         # unit-dep must come after unit-x; unit-y is independent
         all_ids_before_dep: set[str] = set()
         dep_batch_index = next(
-            i
-            for i, batch in enumerate(order.batches)
-            if "unit-dep" in _batch_unit_ids(batch)
+            i for i, batch in enumerate(order.batches) if "unit-dep" in _batch_unit_ids(batch)
         )
         for batch in order.batches[:dep_batch_index]:
             all_ids_before_dep |= _batch_unit_ids(batch)
@@ -299,9 +297,7 @@ class TestParallelGroupBatching:
     def test_group_only_in_same_tier(self) -> None:
         """Units with same parallel_group but different tiers are NOT merged."""
         a = _make_work_unit("unit-a", sequence=1, parallel_group="grp")
-        b = _make_work_unit(
-            "unit-b", sequence=2, depends_on=("unit-a",), parallel_group="grp"
-        )
+        b = _make_work_unit("unit-b", sequence=2, depends_on=("unit-a",), parallel_group="grp")
 
         order = resolve_execution_order([a, b])
 

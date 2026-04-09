@@ -136,9 +136,7 @@ class StepConfig(BaseModel):
             errors.append("prompt_file cannot be set on deterministic steps")
 
         if errors:
-            raise ValueError(
-                "Invalid configuration for deterministic step: " + "; ".join(errors)
-            )
+            raise ValueError("Invalid configuration for deterministic step: " + "; ".join(errors))
 
         return self
 
@@ -317,9 +315,7 @@ def resolve_step_config(
         try:
             parsed_inline = StepConfig.model_validate(coerced)
         except Exception as exc:
-            raise ConfigError(
-                f"Invalid inline config for step '{step_name}': {exc}"
-            ) from exc
+            raise ConfigError(f"Invalid inline config for step '{step_name}': {exc}") from exc
 
     # --- Step 2: Resolve model fields via 4-layer precedence ---
     # For model_id, temperature, max_tokens: first non-None from
@@ -431,9 +427,7 @@ def resolve_step_config(
             retry_policy=retry_policy,
         )
     except Exception as exc:
-        raise ConfigError(
-            f"Invalid resolved config for step '{step_name}': {exc}"
-        ) from exc
+        raise ConfigError(f"Invalid resolved config for step '{step_name}': {exc}") from exc
 
 
 # Backward-compatible alias for code that still references the old name.

@@ -110,17 +110,13 @@ class GeneratorRegistry:
         if component is None:
             # Used as a decorator: @registry.register("name")
             def decorator(gen_class: GeneratorType) -> GeneratorType:
-                self._register_impl(
-                    name, gen_class, validate=validate, requires=requires_tuple
-                )
+                self._register_impl(name, gen_class, validate=validate, requires=requires_tuple)
                 return gen_class
 
             return decorator
         else:
             # Direct call: registry.register("name", GeneratorClass)
-            self._register_impl(
-                name, component, validate=validate, requires=requires_tuple
-            )
+            self._register_impl(name, component, validate=validate, requires=requires_tuple)
             return component
 
     def _register_impl(

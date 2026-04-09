@@ -65,12 +65,16 @@ class BeadCreatorActor:
         for s in specs:
             sid = s.id if hasattr(s, "id") else s.get("id", "")
             task = s.task if hasattr(s, "task") else s.get("task", "")
-            instructions = s.instructions if hasattr(s, "instructions") else s.get("instructions", "")
-            work_defs.append({
-                "title": task[:490],
-                "description": (instructions or task)[:500],
-                "user_story_id": sid,
-            })
+            instructions = (
+                s.instructions if hasattr(s, "instructions") else s.get("instructions", "")
+            )  # noqa: E501
+            work_defs.append(
+                {
+                    "title": task[:490],
+                    "description": (instructions or task)[:500],
+                    "user_story_id": sid,
+                }
+            )
 
         try:
             creation_result = await create_beads(

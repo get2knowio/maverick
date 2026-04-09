@@ -67,9 +67,7 @@ class TestWorkspaceManagerCreate:
     """Tests for WorkspaceManager.create()."""
 
     @pytest.mark.asyncio
-    async def test_create_clones_repo(
-        self, manager: WorkspaceManager, user_repo: Path
-    ) -> None:
+    async def test_create_clones_repo(self, manager: WorkspaceManager, user_repo: Path) -> None:
         mock_client = AsyncMock(spec=JjClient)
         mock_client.git_clone.return_value = JjCloneResult(
             success=True,
@@ -92,9 +90,7 @@ class TestWorkspaceManagerCreate:
         )
 
     @pytest.mark.asyncio
-    async def test_create_idempotent(
-        self, manager: WorkspaceManager, user_repo: Path
-    ) -> None:
+    async def test_create_idempotent(self, manager: WorkspaceManager, user_repo: Path) -> None:
         """If workspace + metadata already exist, skip clone."""
         # Pre-create workspace with metadata
         ws = manager.workspace_path
@@ -148,9 +144,7 @@ class TestWorkspaceManagerBootstrap:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_bootstrap_no_setup_command(
-        self, user_repo: Path, ws_root: Path
-    ) -> None:
+    async def test_bootstrap_no_setup_command(self, user_repo: Path, ws_root: Path) -> None:
         mgr = WorkspaceManager(
             user_repo_path=user_repo,
             workspace_root=ws_root,
@@ -183,9 +177,7 @@ class TestWorkspaceManagerBootstrap:
             await manager.bootstrap()
 
     @pytest.mark.asyncio
-    async def test_bootstrap_missing_workspace_raises(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_bootstrap_missing_workspace_raises(self, manager: WorkspaceManager) -> None:
         with pytest.raises(WorkspaceError, match="does not exist"):
             await manager.bootstrap()
 
@@ -210,9 +202,7 @@ class TestWorkspaceManagerSync:
         mock_client.git_fetch.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sync_missing_workspace_raises(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_sync_missing_workspace_raises(self, manager: WorkspaceManager) -> None:
         with pytest.raises(WorkspaceError, match="does not exist"):
             await manager.sync_from_origin()
 
@@ -269,9 +259,7 @@ class TestWorkspaceManagerState:
     def test_get_state_none_without_meta(self, manager: WorkspaceManager) -> None:
         assert manager.get_state() is None
 
-    def test_get_and_set_state(
-        self, manager: WorkspaceManager, user_repo: Path
-    ) -> None:
+    def test_get_and_set_state(self, manager: WorkspaceManager, user_repo: Path) -> None:
         ws = manager.workspace_path
         ws.mkdir(parents=True)
 

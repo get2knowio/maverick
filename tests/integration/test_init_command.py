@@ -578,8 +578,7 @@ asyncio_mode = "auto"
 
         assert result.exit_code == 0
         assert elapsed < 30.0, (
-            f"SC-001 VIOLATED: maverick init took {elapsed:.2f}s, "
-            f"must complete in <30 seconds"
+            f"SC-001 VIOLATED: maverick init took {elapsed:.2f}s, must complete in <30 seconds"
         )
 
 

@@ -239,10 +239,7 @@ class TestCreateSafetyHooks:
             h
             for h in hooks
             if getattr(h, "matcher", None)
-            and (
-                "Write" in getattr(h, "matcher", "")
-                or "Edit" in getattr(h, "matcher", "")
-            )
+            and ("Write" in getattr(h, "matcher", "") or "Edit" in getattr(h, "matcher", ""))
         ]
         assert len(write_hooks) == 0
 

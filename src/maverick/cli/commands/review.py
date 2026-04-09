@@ -82,16 +82,13 @@ async def review(
         details = await client.show(bead_id)
     except Exception as exc:
         console.print(f"[red]Error:[/] Could not fetch bead {bead_id}: {exc}")
-        raise SystemExit(ExitCode.FAILURE)
+        raise SystemExit(ExitCode.FAILURE) from exc
 
     state = details.state or {}
     labels = details.labels or []
 
     # Verify this is a human-assigned review bead
-    is_human = (
-        "needs-human-review" in labels
-        or "assumption-review" in labels
-    )
+    is_human = "needs-human-review" in labels or "assumption-review" in labels
     if not is_human:
         console.print(
             f"[yellow]Warning:[/] Bead {bead_id} is not flagged for "
@@ -150,8 +147,7 @@ async def review(
             decision = "reject"
             console.print()
             console.print(
-                "[bold]Guidance for the correction agent[/] "
-                "(brief note — what should change?):"
+                "[bold]Guidance for the correction agent[/] (brief note — what should change?):"
             )
             guidance = click.prompt(">")
         else:
@@ -190,18 +186,12 @@ async def review(
             pass
 
         try:
-            created = await client.create_bead(
-                correction_def, parent_id=parent_id
-            )
-            console.print(
-                f"\n[yellow]→[/] Correction bead created: {created.bd_id}"
-            )
+            created = await client.create_bead(correction_def, parent_id=parent_id)
+            console.print(f"\n[yellow]→[/] Correction bead created: {created.bd_id}")
         except Exception as exc:
-            console.print(
-                f"\n[red]Error:[/] Failed to create correction bead: {exc}"
-            )
+            console.print(f"\n[red]Error:[/] Failed to create correction bead: {exc}")
             console.print("Close the review bead manually when ready.")
-            raise SystemExit(ExitCode.FAILURE)
+            raise SystemExit(ExitCode.FAILURE) from exc
 
         # Close the review bead as rejected
         await client.close(bead_id, reason=f"rejected: {guidance[:200]}")

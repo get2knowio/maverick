@@ -185,9 +185,7 @@ async def run_fix_retry_loop(
         resolved_commands = validation_commands
     else:
         # Try to extract commands from validation result (set by validate step handler)
-        result_commands = validation_result.get("stage_results", {}).get(
-            "_validation_commands"
-        )
+        result_commands = validation_result.get("stage_results", {}).get("_validation_commands")
         if isinstance(result_commands, dict):
             resolved_commands = {k: tuple(v) for k, v in result_commands.items()}
         else:
@@ -232,14 +230,10 @@ async def run_fix_retry_loop(
                             f"Applied fix for {_summarize_errors(current_result)}",
                         )
                         fixes_applied.append(fix_description)
-                        logger.info(
-                            "Fix attempt %d succeeded: %s", attempts, fix_description
-                        )
+                        logger.info("Fix attempt %d succeeded: %s", attempts, fix_description)
                     else:
                         error_msg = fix_result.get("error", "Unknown error")
-                        fixes_applied.append(
-                            f"Fix attempt {attempts} failed: {error_msg}"
-                        )
+                        fixes_applied.append(f"Fix attempt {attempts} failed: {error_msg}")
                         logger.warning("Fix attempt %d failed: %s", attempts, error_msg)
                         # Continue to re-run validation - fix may have been partial
 
@@ -274,8 +268,7 @@ async def run_fix_retry_loop(
 
                     # Validation still failing - signal retry needed
                     logger.debug(
-                        "Validation still failing after fix attempt %d, "
-                        "%d attempt(s) remaining",
+                        "Validation still failing after fix attempt %d, %d attempt(s) remaining",
                         attempts,
                         max_attempts - attempts,
                     )
@@ -506,9 +499,7 @@ def _build_fix_prompt(
                     "success", stage_entry.get("passed", True)
                 ):
                     name = stage_entry.get("stage", stage_entry.get("name", "unknown"))
-                    error_output = stage_entry.get(
-                        "error", stage_entry.get("output", "")
-                    )
+                    error_output = stage_entry.get("error", stage_entry.get("output", ""))
                     error_msg = error_output[:500] if error_output else "unknown error"
                     errors.append(f"- {name}: {error_msg}")
 
@@ -632,10 +623,7 @@ async def generate_validation_report(
         )
         fix_data = None
     elif (
-        fix_data
-        and isinstance(fix_data, dict)
-        and "message" in fix_data
-        and "logged" in fix_data
+        fix_data and isinstance(fix_data, dict) and "message" in fix_data and "logged" in fix_data
     ):
         # This is a log_message result, not a fix result - ignore it
         logger.debug("Ignoring log_message result in fix_data")
@@ -732,8 +720,7 @@ def _aggregate_stage_results(
             # Prefer structured errors, fall back to raw output
             if error_list and not passed:
                 errors = [
-                    e.get("message", str(e)) if isinstance(e, dict) else str(e)
-                    for e in error_list
+                    e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in error_list
                 ]
             elif error_output and not passed:
                 errors = [error_output]
@@ -814,8 +801,7 @@ def _generate_fix_suggestions(
     # If we exhausted fix attempts
     if attempts >= max_attempts and max_attempts > 0:
         suggestions.append(
-            f"Automatic fixes exhausted ({attempts} attempts). "
-            "Manual intervention required."
+            f"Automatic fixes exhausted ({attempts} attempts). Manual intervention required."
         )
 
     # Per-stage suggestions
@@ -823,8 +809,7 @@ def _generate_fix_suggestions(
 
     if any(s.get("name") == "format" for s in failed_stages):
         suggestions.append(
-            "Format errors detected. Try running the formatter manually: "
-            f"`{_cmd_str('format')}`."
+            f"Format errors detected. Try running the formatter manually: `{_cmd_str('format')}`."
         )
 
     if any(s.get("name") == "lint" for s in failed_stages):
@@ -835,8 +820,7 @@ def _generate_fix_suggestions(
 
     if any(s.get("name") == "typecheck" for s in failed_stages):
         suggestions.append(
-            "Type checking errors detected. Review output and fix: "
-            f"`{_cmd_str('typecheck')}`."
+            f"Type checking errors detected. Review output and fix: `{_cmd_str('typecheck')}`."
         )
 
     if any(s.get("name") == "test" for s in failed_stages):
@@ -847,9 +831,7 @@ def _generate_fix_suggestions(
 
     # If no specific suggestions, provide generic guidance
     if not suggestions:
-        suggestions.append(
-            "Review validation output above for details on what needs to be fixed."
-        )
+        suggestions.append("Review validation output above for details on what needs to be fixed.")
 
     return suggestions
 

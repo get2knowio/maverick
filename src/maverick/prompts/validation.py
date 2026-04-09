@@ -55,9 +55,7 @@ def _validate_file_path(prompt_file: str, project_root: Path) -> None:
         PromptConfigError: If path is invalid, outside root, or missing.
     """
     if Path(prompt_file).is_absolute():
-        raise PromptConfigError(
-            f"Absolute paths are not allowed for prompt_file: {prompt_file}"
-        )
+        raise PromptConfigError(f"Absolute paths are not allowed for prompt_file: {prompt_file}")
 
     file_path = project_root / prompt_file
     resolved_path = file_path.resolve()
@@ -66,9 +64,7 @@ def _validate_file_path(prompt_file: str, project_root: Path) -> None:
     try:
         resolved_path.relative_to(project_root_resolved)
     except ValueError as err:
-        raise PromptConfigError(
-            f"Prompt file must be within project root: {prompt_file}"
-        ) from err
+        raise PromptConfigError(f"Prompt file must be within project root: {prompt_file}") from err
 
     if not resolved_path.is_file():
         raise PromptConfigError(f"Prompt file not found: {resolved_path}")

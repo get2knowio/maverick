@@ -17,9 +17,7 @@ class RunwayNotInitializedError(RunwayError):
 
     def __init__(self, path: str) -> None:
         self.path = path
-        super().__init__(
-            f"Runway not initialized at {path}. Run 'maverick runway init'."
-        )
+        super().__init__(f"Runway not initialized at {path}. Run 'maverick runway init'.")
 
 
 class RunwayCorruptedError(RunwayError):

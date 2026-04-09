@@ -142,9 +142,7 @@ async def render_workflow_events(
             console_obj.print(f"  [green]\u2713[/] [bold]{event.name}[/]")
 
         elif isinstance(event, PreflightCheckFailed):
-            console_obj.print(
-                f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}"
-            )
+            console_obj.print(f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}")
             if event.remediation:
                 console_obj.print(f"    [dim]Hint: {event.remediation}[/]")
 
@@ -165,9 +163,7 @@ async def render_workflow_events(
 
             # R7: type annotation is (python) or (agentic)
             step_type_value = event.step_type.value
-            type_annotation = (
-                "agentic" if step_type_value == "agent" else step_type_value
-            )
+            type_annotation = "agentic" if step_type_value == "agent" else step_type_value
 
             # R6: ⚙ for all step starts
             icon = "\u2699"
@@ -226,8 +222,7 @@ async def render_workflow_events(
             else:
                 error_detail = f": {event.error}" if event.error else ""
                 console_obj.print(
-                    f"[bold red]\u2717[/] {step_name}{error_detail} "
-                    f"[dim]({duration_sec:.2f}s)[/]"
+                    f"[bold red]\u2717[/] {step_name}{error_detail} [dim]({duration_sec:.2f}s)[/]"
                 )
 
         elif isinstance(event, AgentStreamChunk):
@@ -260,9 +255,7 @@ async def render_workflow_events(
 
         elif isinstance(event, RollbackCompleted):
             if event.success:
-                console_obj.print(
-                    f"[green]  \u2713 Rollback succeeded: {event.step_name}[/]"
-                )
+                console_obj.print(f"[green]  \u2713 Rollback succeeded: {event.step_name}[/]")
             else:
                 error_detail = f" ({event.error})" if event.error else ""
                 console_obj.print(
@@ -273,9 +266,7 @@ async def render_workflow_events(
             label = event.item_label or f"iteration {event.iteration_index + 1}"
             total = event.total_iterations
             idx = event.iteration_index + 1
-            console_obj.print(
-                f"\n[cyan]\u2500\u2500 [{idx}/{total}] {label} \u2500\u2500[/]"
-            )
+            console_obj.print(f"\n[cyan]\u2500\u2500 [{idx}/{total}] {label} \u2500\u2500[/]")
 
         elif isinstance(event, LoopIterationCompleted):
             duration_sec = event.duration_ms / 1000
@@ -292,9 +283,7 @@ async def render_workflow_events(
                 )
 
         elif isinstance(event, CheckpointSaved):
-            console_obj.print(
-                f"[dim]  \U0001f4be Checkpoint saved: {event.step_name}[/]"
-            )
+            console_obj.print(f"[dim]  \U0001f4be Checkpoint saved: {event.step_name}[/]")
 
         elif isinstance(event, WorkflowCompleted):
             _stop_spinner()
@@ -310,13 +299,10 @@ async def render_workflow_events(
 
             if event.success:
                 console_obj.print(
-                    f"[bold green]Workflow completed successfully[/] "
-                    f"in {total_sec:.2f}s"
+                    f"[bold green]Workflow completed successfully[/] in {total_sec:.2f}s"
                 )
             else:
-                console_obj.print(
-                    f"[bold red]Workflow failed[/] after {total_sec:.2f}s"
-                )
+                console_obj.print(f"[bold red]Workflow failed[/] after {total_sec:.2f}s")
 
 
 @dataclass
@@ -379,9 +365,7 @@ async def execute_python_workflow(
             existing = await checkpoint_store.load_latest(workflow_name)
             if existing:
                 await checkpoint_store.clear(workflow_name)
-                console.print(
-                    "[yellow]Restarting workflow (cleared existing checkpoint)[/]"
-                )
+                console.print("[yellow]Restarting workflow (cleared existing checkpoint)[/]")
                 console.print()
         else:
             existing = await checkpoint_store.load_latest(workflow_name)
@@ -396,9 +380,7 @@ async def execute_python_workflow(
         # Display workflow header.
         console.print(f"[bold cyan]Executing workflow: {workflow_name}[/]")
         if run_config.inputs:
-            input_summary = ", ".join(
-                f"{k}=[yellow]{v}[/]" for k, v in run_config.inputs.items()
-            )
+            input_summary = ", ".join(f"{k}=[yellow]{v}[/]" for k, v in run_config.inputs.items())
             console.print(f"Inputs: {input_summary}")
         else:
             console.print("Inputs: (none)")

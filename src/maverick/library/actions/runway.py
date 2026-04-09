@@ -211,18 +211,14 @@ async def record_review_findings(
             bead_id=bead_id,
             count=count,
         )
-        return RecordReviewFindingsResult(
-            success=True, findings_recorded=count, error=None
-        )
+        return RecordReviewFindingsResult(success=True, findings_recorded=count, error=None)
     except Exception as exc:
         logger.warning(
             "runway_review_findings_failed",
             bead_id=bead_id,
             error=str(exc),
         )
-        return RecordReviewFindingsResult(
-            success=False, findings_recorded=0, error=str(exc)
-        )
+        return RecordReviewFindingsResult(success=False, findings_recorded=0, error=str(exc))
 
 
 async def retrieve_runway_context(
@@ -275,9 +271,7 @@ async def retrieve_runway_context(
             bm25_top_k=bm25_top_k,
         )
 
-        context_text = _format_runway_context(
-            outcomes, query_result.passages, max_context_chars
-        )
+        context_text = _format_runway_context(outcomes, query_result.passages, max_context_chars)
 
         return RunwayRetrievalResult(
             success=True,
@@ -405,6 +399,4 @@ async def record_fix_attempt(
             finding_id=finding_id,
             error=str(exc),
         )
-        return RecordFixAttemptResult(
-            success=False, attempt_id=attempt_id, error=str(exc)
-        )
+        return RecordFixAttemptResult(success=False, attempt_id=attempt_id, error=str(exc))

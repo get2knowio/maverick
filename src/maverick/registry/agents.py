@@ -110,17 +110,13 @@ class AgentRegistry:
         if component is None:
             # Used as a decorator: @registry.register("name")
             def decorator(agent_class: AgentType) -> AgentType:
-                self._register_impl(
-                    name, agent_class, validate=validate, requires=requires_tuple
-                )
+                self._register_impl(name, agent_class, validate=validate, requires=requires_tuple)
                 return agent_class
 
             return decorator
         else:
             # Direct call: registry.register("name", AgentClass)
-            self._register_impl(
-                name, component, validate=validate, requires=requires_tuple
-            )
+            self._register_impl(name, component, validate=validate, requires=requires_tuple)
             return component
 
     def _register_impl(

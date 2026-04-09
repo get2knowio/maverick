@@ -40,9 +40,7 @@ class TestGithubListIssues:
     @pytest.mark.asyncio
     async def test_github_list_issues_invalid_limit(self) -> None:
         """Test github_list_issues rejects invalid limit (T020)."""
-        result = await github_list_issues.handler(
-            {"label": "bug", "state": "open", "limit": 0}
-        )
+        result = await github_list_issues.handler({"label": "bug", "state": "open", "limit": 0})
 
         # Parse response
         response_data = json.loads(result["content"][0]["text"])

@@ -37,18 +37,16 @@ class DecomposerActor(Actor):
             self._supervisor_addr = sender
             # Create persistent event loop for async ACP calls
             self._loop = asyncio.new_event_loop()
-            self._loop_thread = threading.Thread(
-                target=self._loop.run_forever, daemon=True
-            )
+            self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
             self._loop_thread.start()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "shutdown":
             if hasattr(self, "_executor") and self._executor:
                 try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._executor.cleanup(), self._loop
-                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
+                        timeout=5
+                    )
                 except Exception:
                     pass
             self.send(sender, {"type": "shutdown_ok"})
@@ -56,25 +54,29 @@ class DecomposerActor(Actor):
         elif msg_type == "outline_request":
             self._run_async(
                 self._send_outline_prompt(message),
-                sender, "outline",
+                sender,
+                "outline",
             )
 
         elif msg_type == "detail_request":
             self._run_async(
                 self._send_detail_prompt(message),
-                sender, "detail",
+                sender,
+                "detail",
             )
 
         elif msg_type == "fix_request":
             self._run_async(
                 self._send_fix_prompt(message),
-                sender, "fix",
+                sender,
+                "fix",
             )
 
         elif msg_type == "nudge":
             self._run_async(
                 self._send_nudge(message),
-                sender, "nudge",
+                sender,
+                "nudge",
             )
 
     def _run_async(self, coro, sender, phase):
@@ -82,17 +84,22 @@ class DecomposerActor(Actor):
         print(f"DECOMPOSER: starting {phase}...", file=sys.stderr, flush=True)
         try:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-            print(f"DECOMPOSER: waiting for {phase} (timeout=1800s)...", file=sys.stderr, flush=True)
+            print(
+                f"DECOMPOSER: waiting for {phase} (timeout=1800s)...", file=sys.stderr, flush=True
+            )
             future.result(timeout=1800)  # blocks until done
             print(f"DECOMPOSER: {phase} completed!", file=sys.stderr, flush=True)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
             print(f"DECOMPOSER: {phase} FAILED: {exc}", file=sys.stderr, flush=True)
-            self.send(sender, {
-                "type": "prompt_error",
-                "phase": phase,
-                "error": str(exc),
-            })
+            self.send(
+                sender,
+                {
+                    "type": "prompt_error",
+                    "phase": phase,
+                    "error": str(exc),
+                },
+            )
 
     async def _ensure_agent(self):
         """Spawn this actor's own ACP agent and create a session.
@@ -114,18 +121,17 @@ class DecomposerActor(Actor):
         self._executor = create_default_executor()
 
         # Build MCP server config with admin port for Thespian discovery
-        maverick_bin = (
-            shutil.which("maverick")
-            or str(Path(sys.executable).parent / "maverick")
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         admin_port = str(getattr(self, "_admin_port", 19500))
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
             args=[
                 "serve-inbox",
-                "--tools", self._mcp_tools,
-                "--admin-port", admin_port,
+                "--tools",
+                self._mcp_tools,
+                "--admin-port",
+                admin_port,
             ],
             env=[],
         )
@@ -187,9 +193,7 @@ class DecomposerActor(Actor):
             flight_plan_content=message.get("flight_plan_content", ""),
             outline_json=message.get("outline_json", "{}"),
             unit_ids=message.get("unit_ids", []),
-            verification_properties=message.get(
-                "verification_properties", ""
-            ),
+            verification_properties=message.get("verification_properties", ""),
         )
 
         prompt_text += (

@@ -32,25 +32,19 @@ class TestRegisterAllAgents:
         agent_class = registry.agents.get("implementer")
         assert agent_class is ImplementerAgent
 
-    def test_registers_completeness_reviewer_agent(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registers_completeness_reviewer_agent(self, registry: ComponentRegistry) -> None:
         """Test that completeness_reviewer agent is registered."""
         register_all_agents(registry)
 
         assert registry.agents.has("completeness_reviewer")
 
-    def test_registers_correctness_reviewer_agent(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registers_correctness_reviewer_agent(self, registry: ComponentRegistry) -> None:
         """Test that correctness_reviewer agent is registered."""
         register_all_agents(registry)
 
         assert registry.agents.has("correctness_reviewer")
 
-    def test_registers_validation_fixer_agent(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registers_validation_fixer_agent(self, registry: ComponentRegistry) -> None:
         """Test that validation_fixer agent is registered."""
         register_all_agents(registry)
 
@@ -93,9 +87,7 @@ class TestRegisterAllAgents:
         with pytest.raises(Exception):  # DuplicateComponentError
             register_all_agents(registry)
 
-    def test_registered_agents_can_be_instantiated(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registered_agents_can_be_instantiated(self, registry: ComponentRegistry) -> None:
         """Test that registered agents can be instantiated."""
         register_all_agents(registry)
 
@@ -115,19 +107,11 @@ class TestRegisterAllAgents:
         assert not registry.agents.has("issue_fixer")
         assert not registry.agents.has("unified_reviewer")
 
-    def test_registered_agents_have_correct_names(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registered_agents_have_correct_names(self, registry: ComponentRegistry) -> None:
         """Test that registered agents have the expected class names."""
         register_all_agents(registry)
 
         assert registry.agents.get("implementer").__name__ == "ImplementerAgent"
-        assert (
-            registry.agents.get("completeness_reviewer").__name__
-            == "CompletenessReviewerAgent"
-        )
-        assert (
-            registry.agents.get("correctness_reviewer").__name__
-            == "CorrectnessReviewerAgent"
-        )
+        assert registry.agents.get("completeness_reviewer").__name__ == "CompletenessReviewerAgent"
+        assert registry.agents.get("correctness_reviewer").__name__ == "CorrectnessReviewerAgent"
         assert registry.agents.get("validation_fixer").__name__ == "FixerAgent"

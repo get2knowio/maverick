@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import gc
 import functools
+import gc
 import signal
 import sys
 from collections.abc import Callable
@@ -193,9 +193,8 @@ def _install_loop_closed_suppressor() -> None:
     _orig_hook = sys.unraisablehook
 
     def _hook(unraisable: sys.UnraisableHookArgs) -> None:
-        if (
-            isinstance(unraisable.exc_value, RuntimeError)
-            and "Event loop is closed" in str(unraisable.exc_value)
+        if isinstance(unraisable.exc_value, RuntimeError) and "Event loop is closed" in str(
+            unraisable.exc_value
         ):
             return
         _orig_hook(unraisable)

@@ -190,9 +190,7 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
             logger.error("git_create_branch: Not inside a git repository")
             return error_response("Not inside a git repository", "NOT_A_REPOSITORY")
         except BranchExistsError:
-            logger.error(
-                "git_create_branch: Branch '%s' already exists", args.get("name", "")
-            )
+            logger.error("git_create_branch: Branch '%s' already exists", args.get("name", ""))
             return error_response(
                 f"Branch '{args.get('name', '')}' already exists",
                 "BRANCH_EXISTS",
@@ -210,9 +208,7 @@ def create_git_create_branch_tool(cwd: Path | None = None) -> Any:
                 or "did not match" in error_msg
                 or "unknown revision" in error_msg
             ):
-                logger.error(
-                    "git_create_branch: Base branch '%s' not found", base_branch
-                )
+                logger.error("git_create_branch: Base branch '%s' not found", base_branch)
                 return error_response(
                     f"Base branch '{base_branch}' not found",
                     "BRANCH_NOT_FOUND",

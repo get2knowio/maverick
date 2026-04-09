@@ -184,15 +184,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # All files missing — greenfield project, not an error
             await self.emit_output(
                 GATHER_CONTEXT,
-                f"Greenfield project \u2014 none of {total_scope} "
-                f"in-scope files exist yet",
+                f"Greenfield project \u2014 none of {total_scope} in-scope files exist yet",
             )
         elif missing_count > 0:
             # Partial — some files exist, some don't
             await self.emit_output(
                 GATHER_CONTEXT,
-                f"{missing_count} of {total_scope} in-scope files "
-                f"not found (may not exist yet)",
+                f"{missing_count} of {total_scope} in-scope files not found (may not exist yet)",
                 level="warning",
             )
         size_kb = codebase_context.total_size // 1024
@@ -263,9 +261,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # A dedicated agent reads the flight plan's success criteria plus
         # the codebase context and produces executable test assertions.
         # These become the deterministic spec compliance gate during fly.
-        verification_properties = getattr(
-            flight_plan, "verification_properties", ""
-        )
+        verification_properties = getattr(flight_plan, "verification_properties", "")
         _derive_vp = (
             not verification_properties
             and self._step_executor is not None
@@ -293,9 +289,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "- Output ONE fenced code block with all tests\n\n"
                     f"## Success Criteria\n\n{sc_text}\n\n"
                     f"## Codebase Files\n\n"
-                    + "\n".join(
-                        f"- {f.path}" for f in codebase_context.files
-                    )
+                    + "\n".join(f"- {f.path}" for f in codebase_context.files)
                     + "\n"
                 )
                 try:
@@ -315,13 +309,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     if "verify_" in vp_text:
                         verification_properties = vp_text
                         # Write to flight plan file
-                        fp_text = await asyncio.to_thread(
-                            flight_plan_path.read_text, "utf-8"
-                        )
+                        fp_text = await asyncio.to_thread(flight_plan_path.read_text, "utf-8")
                         if "\n## Verification Properties" not in fp_text:
                             fp_text += (
-                                "\n\n## Verification Properties\n\n"
-                                + verification_properties
+                                "\n\n## Verification Properties\n\n" + verification_properties
                             )
                             await asyncio.to_thread(
                                 flight_plan_path.write_text,
@@ -342,9 +333,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                             f" tests)",
                         )
             except Exception as exc:
-                logger.warning(
-                    "derive_verification_failed", error=str(exc)
-                )
+                logger.warning("derive_verification_failed", error=str(exc))
                 await self.emit_output(
                     DERIVE_VERIFICATION,
                     f"Verification derivation failed (non-fatal): {exc}",
@@ -356,9 +345,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         import contextlib
 
         with contextlib.suppress(Exception):
-            raw_content = await asyncio.to_thread(
-                flight_plan_path.read_text, "utf-8"
-            )
+            raw_content = await asyncio.to_thread(flight_plan_path.read_text, "utf-8")
 
         briefing_doc = None
         briefing_path_str: str | None = None
@@ -406,14 +393,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     ),
                 )
 
-                if (
-                    not nav_result.output
-                    or not struct_result.output
-                    or not recon_result.output
-                ):
-                    raise WorkflowError(
-                        "One or more briefing agents returned no output"
-                    )
+                if not nav_result.output or not struct_result.output or not recon_result.output:
+                    raise WorkflowError("One or more briefing agents returned no output")
 
                 # Sequential: Contrarian reviews all 3
                 contrarian_prompt = build_contrarian_prompt(
@@ -463,9 +444,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             if recon_out and recon_out.suggested_cross_plan_dependencies:
                 suggested_deps = recon_out.suggested_cross_plan_dependencies
                 # Remove self-reference
-                suggested_deps = tuple(
-                    d for d in suggested_deps if d != flight_plan.name
-                )
+                suggested_deps = tuple(d for d in suggested_deps if d != flight_plan.name)
                 if suggested_deps:
                     await self.emit_output(
                         BRIEFING,
@@ -524,9 +503,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
         # Check if executor supports multi-turn sessions (actor-mailbox path)
-        _can_use_supervisor = (
-            self._step_executor is not None
-            and hasattr(self._step_executor, "create_session")
+        _can_use_supervisor = self._step_executor is not None and hasattr(
+            self._step_executor, "create_session"
         )
 
         if _can_use_supervisor:
@@ -569,16 +547,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 outline_result = await self.execute_agent(
                     step_name=DECOMPOSE_OUTLINE,
                     agent_name="decomposer",
-                    label=f"Decomposer (outline, attempt {attempt}/"
-                    f"{MAX_DECOMPOSE_ATTEMPTS})",
+                    label=f"Decomposer (outline, attempt {attempt}/{MAX_DECOMPOSE_ATTEMPTS})",
                     prompt=outline_prompt,
                     output_schema=DecompositionOutline,
                     timeout=600,
                 )
             except OutputSchemaValidationError:
-                await self.emit_step_failed(
-                    DECOMPOSE, "Outline pass failed schema validation"
-                )
+                await self.emit_step_failed(DECOMPOSE, "Outline pass failed schema validation")
                 raise
             except Exception as exc:
                 await self.emit_step_failed(DECOMPOSE, str(exc))
@@ -608,7 +583,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 batch_ids: list[str], label_prefix: str
             ) -> list[DetailBatchOutput]:
                 """Run a detail batch with file-based output + binary-split retry."""
-                import json as _json
 
                 from maverick.exceptions.agent import MalformedResponseError
 
@@ -620,12 +594,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
                 detail_prompt = build_detail_prompt(
                     raw_content,
-                    outline_json,
+                    outline_json,  # noqa: B023
                     batch_ids,
                     output_file_path=str(batch_file),
-                    verification_properties=getattr(
-                        flight_plan, "verification_properties", ""
-                    ),
+                    verification_properties=getattr(flight_plan, "verification_properties", ""),
                 )
                 try:
                     detail_result = await self.execute_agent(
@@ -640,8 +612,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     if isinstance(detail_result.output, DetailBatchOutput):
                         return [detail_result.output]
                     raise WorkflowError(
-                        f"{label_prefix} completed but no output file"
-                        f" or parseable text produced"
+                        f"{label_prefix} completed but no output file or parseable text produced"
                     )
                 except (
                     OutputSchemaValidationError,
@@ -670,20 +641,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         f" splitting into {len(left_ids)}+{len(right_ids)}",
                         level="warning",
                     )
-                    left = await _run_detail_batch(
-                        left_ids, f"{label_prefix} [L]"
-                    )
-                    right = await _run_detail_batch(
-                        right_ids, f"{label_prefix} [R]"
-                    )
+                    left = await _run_detail_batch(left_ids, f"{label_prefix} [L]")
+                    right = await _run_detail_batch(right_ids, f"{label_prefix} [R]")
                     return left + right
 
             for batch_idx, batch_ids in enumerate(batches):
                 batch_label = f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
                 try:
-                    batch_results = await _run_detail_batch(
-                        batch_ids, batch_label
-                    )
+                    batch_results = await _run_detail_batch(batch_ids, batch_label)
                     detail_outputs.extend(batch_results)
                 except Exception as exc:
                     await self.emit_step_failed(DECOMPOSE, str(exc))
@@ -694,9 +659,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 decomposition = merge_outline_and_details(outline, detail_outputs)
             except ValueError as exc:
                 await self.emit_step_failed(DECOMPOSE, str(exc))
-                raise WorkflowError(
-                    f"Failed to merge outline and detail passes: {exc}"
-                ) from exc
+                raise WorkflowError(f"Failed to merge outline and detail passes: {exc}") from exc
 
             await self.emit_output(
                 DECOMPOSE,
@@ -760,8 +723,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     validation_feedback = "\n".join(feedback_lines)
                     await self.emit_output(
                         VALIDATE,
-                        f"Validation failed (attempt {attempt}/"
-                        f"{MAX_DECOMPOSE_ATTEMPTS}): {exc}",
+                        f"Validation failed (attempt {attempt}/{MAX_DECOMPOSE_ATTEMPTS}): {exc}",
                         level="warning",
                     )
                     await self.emit_step_failed(VALIDATE, str(exc))
@@ -799,9 +761,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             break  # Success — exit retry loop
         else:
             # Loop exhausted without break (should not reach here due to raise above)
-            raise WorkflowError(
-                f"Decomposition failed after {MAX_DECOMPOSE_ATTEMPTS} attempts"
-            )
+            raise WorkflowError(f"Decomposition failed after {MAX_DECOMPOSE_ATTEMPTS} attempts")
 
         # ------------------------------------------------------------------
         # Step 5: Write work units
@@ -827,22 +787,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # Write work unit files using {sequence:03d}-{id}.md naming
             # Write to BOTH plans/ (reusable) and runs/ (execution context)
             run_wu_dir = run_dir / "work-units"
-            await asyncio.to_thread(
-                run_wu_dir.mkdir, parents=True, exist_ok=True
-            )
+            await asyncio.to_thread(run_wu_dir.mkdir, parents=True, exist_ok=True)
             for wu in work_units:
                 filename = f"{wu.sequence:03d}-{wu.id}.md"
                 content = serialize_work_unit(wu)
                 # Plans directory (reusable artifact)
                 file_path = work_units_dir / filename
-                await asyncio.to_thread(
-                    file_path.write_text, content, "utf-8"
-                )
+                await asyncio.to_thread(file_path.write_text, content, "utf-8")
                 # Run directory (execution context)
                 run_file_path = run_wu_dir / filename
-                await asyncio.to_thread(
-                    run_file_path.write_text, content, "utf-8"
-                )
+                await asyncio.to_thread(run_file_path.write_text, content, "utf-8")
                 written += 1
         except Exception as exc:
             await self.emit_step_failed(WRITE_WORK_UNITS, str(exc))
@@ -886,9 +840,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         "bead_type": "task",
                         "priority": 2,
                         "category": "user_story",
-                        "description": (
-                            wu.instructions[:500] if wu.instructions else wu.task
-                        ),
+                        "description": (wu.instructions[:500] if wu.instructions else wu.task),
                         "phase_names": [],
                         "user_story_id": wu.id,
                         "task_ids": [wu.id],
@@ -939,13 +891,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 # This serializes epics without creating redundant fan-in
                 # dependencies — if A→B already exists, C only needs B→C.
                 try:
-                    all_beads = await _bead_client.query(
-                        "type=epic AND status=open"
-                    )
-                    existing_epics = [
-                        b for b in all_beads
-                        if b.id != new_epic_id
-                    ]
+                    all_beads = await _bead_client.query("type=epic AND status=open")
+                    existing_epics = [b for b in all_beads if b.id != new_epic_id]
                     if existing_epics:
                         # Use the last one (most recently created = tail)
                         tail_epic = existing_epics[-1]
@@ -1053,8 +1000,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     )
                     await self.emit_output(
                         WIRE_CROSS_PLAN_DEPS,
-                        f"Wired {cross_plan_result.wired_count} cross-plan "
-                        f"epic dependencies",
+                        f"Wired {cross_plan_result.wired_count} cross-plan epic dependencies",
                     )
                     for err in cross_plan_result.errors:
                         await self.emit_output(
@@ -1096,13 +1042,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 if cross_plan_result
                 else ()
             ),
-            cross_plan_dep_errors=(
-                cross_plan_result.errors if cross_plan_result else ()
-            ),
+            cross_plan_dep_errors=(cross_plan_result.errors if cross_plan_result else ()),
             suggested_cross_plan_deps=suggested_deps,
-            open_bead_overlap_count=(
-                open_bead_result.overlap_count if open_bead_result else 0
-            ),
+            open_bead_overlap_count=(open_bead_result.overlap_count if open_bead_result else 0),
         )
         return result.to_dict()
 
@@ -1123,11 +1065,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         Returns a DecompositionOutput (same type as the legacy loop).
         """
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutput,
-            WorkUnitSpec,
-        )
-
         import asyncio
 
         from thespian.actors import ActorSystem
@@ -1136,6 +1073,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         from maverick.actors.decomposer import DecomposerActor
         from maverick.actors.refuel_supervisor import RefuelSupervisorActor
         from maverick.actors.validator import ValidatorActor
+        from maverick.workflows.refuel_maverick.models import (
+            DecompositionOutput,
+            WorkUnitSpec,
+        )
 
         await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
@@ -1145,9 +1086,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "codebase_context": codebase_context,
             "briefing": briefing_doc,
             "runway_context": runway_context_text or None,
-            "verification_properties": getattr(
-                flight_plan, "verification_properties", ""
-            ),
+            "verification_properties": getattr(flight_plan, "verification_properties", ""),
         }
 
         await self.emit_output(
@@ -1180,7 +1119,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time; time.sleep(1)
+                import time
+
+                time.sleep(1)
             except Exception:
                 pass
 
@@ -1195,6 +1136,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 asys.shutdown()
             except Exception:
                 pass
+
         atexit.register(_cleanup_actor_system)
 
         try:
@@ -1210,33 +1152,51 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             )
 
             # Init child actors
-            asys.ask(decomposer_addr, {
-                "type": "init",
-                "cwd": str(Path.cwd()),
-                "mcp_tools": "submit_outline,submit_details,submit_fix",
-                "admin_port": THESPIAN_PORT,
-            }, timeout=10)
+            asys.ask(
+                decomposer_addr,
+                {
+                    "type": "init",
+                    "cwd": str(Path.cwd()),
+                    "mcp_tools": "submit_outline,submit_details,submit_fix",
+                    "admin_port": THESPIAN_PORT,
+                },
+                timeout=10,
+            )
 
-            asys.ask(validator_addr, {
-                "type": "init",
-                "flight_plan": flight_plan,
-            }, timeout=10)
+            asys.ask(
+                validator_addr,
+                {
+                    "type": "init",
+                    "flight_plan": flight_plan,
+                },
+                timeout=10,
+            )
 
-            asys.ask(bead_creator_addr, {
-                "type": "init",
-                "plan_name": flight_plan.name if hasattr(flight_plan, "name") else "",
-                "plan_objective": flight_plan.objective if hasattr(flight_plan, "objective") else "",
-            }, timeout=10)
+            asys.ask(
+                bead_creator_addr,
+                {
+                    "type": "init",
+                    "plan_name": flight_plan.name if hasattr(flight_plan, "name") else "",
+                    "plan_objective": flight_plan.objective
+                    if hasattr(flight_plan, "objective")
+                    else "",  # noqa: E501
+                },
+                timeout=10,
+            )
 
             # Init supervisor with child addresses and config
-            asys.ask(supervisor_addr, {
-                "type": "init",
-                "decomposer_addr": decomposer_addr,
-                "validator_addr": validator_addr,
-                "bead_creator_addr": bead_creator_addr,
-                "initial_payload": initial_payload,
-                "config": {"flight_plan": flight_plan},
-            }, timeout=10)
+            asys.ask(
+                supervisor_addr,
+                {
+                    "type": "init",
+                    "decomposer_addr": decomposer_addr,
+                    "validator_addr": validator_addr,
+                    "bead_creator_addr": bead_creator_addr,
+                    "initial_payload": initial_payload,
+                    "config": {"flight_plan": flight_plan},
+                },
+                timeout=10,
+            )
 
             # Start decomposition and wait for result
             loop = asyncio.get_event_loop()
@@ -1253,7 +1213,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             from maverick.exceptions import WorkflowError
 
             raise WorkflowError(
-                f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",
+                f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",  # noqa: E501
                 workflow_name="refuel-maverick",
             )
 
@@ -1269,14 +1229,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         decomposition = DecompositionOutput(
             work_units=work_units,
-            rationale=f"{len(work_units)} work units via supervisor"
-            f" ({fix_rounds} fix rounds)",
+            rationale=f"{len(work_units)} work units via supervisor ({fix_rounds} fix rounds)",
         )
 
         await self.emit_output(
             DECOMPOSE,
-            f"Decomposed into {len(work_units)} work units"
-            f" ({fix_rounds} fix rounds)",
+            f"Decomposed into {len(work_units)} work units ({fix_rounds} fix rounds)",
             level="success",
         )
         await self.emit_step_completed(

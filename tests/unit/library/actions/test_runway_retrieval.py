@@ -143,9 +143,7 @@ class TestRetrieveRunwayContext:
         runway_path = initialized_runway / ".maverick" / "runway"
         store = RunwayStore(runway_path)
 
-        await store.append_bead_outcome(
-            BeadOutcome(bead_id="b1", epic_id="e1", title="Same epic")
-        )
+        await store.append_bead_outcome(BeadOutcome(bead_id="b1", epic_id="e1", title="Same epic"))
         await store.append_bead_outcome(
             BeadOutcome(bead_id="b2", epic_id="e2", title="Different epic")
         )

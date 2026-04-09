@@ -80,9 +80,7 @@ class DecompositionOutput(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    work_units: list[WorkUnitSpec] = Field(
-        description="Ordered list of work unit specifications"
-    )
+    work_units: list[WorkUnitSpec] = Field(description="Ordered list of work unit specifications")
     rationale: str = Field(description="Agent's reasoning for the decomposition")
 
     @field_validator("work_units")
@@ -154,9 +152,7 @@ class DecompositionOutline(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    work_units: list[WorkUnitOutline] = Field(
-        description="Ordered list of work unit outlines"
-    )
+    work_units: list[WorkUnitOutline] = Field(description="Ordered list of work unit outlines")
     rationale: str = Field(description="Agent's reasoning for the decomposition")
 
     @field_validator("work_units")

@@ -16,14 +16,20 @@ class PlanValidatorActor(Actor):
                 from maverick.flight.validator import validate_flight_plan
 
                 warnings = validate_flight_plan(flight_plan_data)
-                self.send(sender, {
-                    "type": "validation_result",
-                    "passed": True,
-                    "warnings": warnings or [],
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "validation_result",
+                        "passed": True,
+                        "warnings": warnings or [],
+                    },
+                )
             except Exception as exc:
-                self.send(sender, {
-                    "type": "validation_result",
-                    "passed": False,
-                    "warnings": [str(exc)],
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "validation_result",
+                        "passed": False,
+                        "warnings": [str(exc)],
+                    },
+                )

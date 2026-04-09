@@ -14,9 +14,9 @@ from maverick.library.actions.beads import (
     select_next_bead,
     verify_bead_completion,
 )
-from maverick.library.actions.types import VerifyBeadCompletionResult
 from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
+from maverick.library.actions.types import VerifyBeadCompletionResult
 from maverick.library.actions.validation import run_independent_gate
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
@@ -296,21 +296,15 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     _build_validation_commands,
                 )
 
-                baseline_cmds = _build_validation_commands(
-                    self._config.validation
-                )
+                baseline_cmds = _build_validation_commands(self._config.validation)
                 baseline_result = await run_independent_gate(
                     stages=["format", "lint", "typecheck", "test"],
                     cwd=str(workspace_path),
                     validation_commands=baseline_cmds or None,
-                    timeout_seconds=float(
-                        self._config.validation.timeout_seconds
-                    ),
+                    timeout_seconds=float(self._config.validation.timeout_seconds),
                 )
                 if not baseline_result.get("passed"):
-                    summary = baseline_result.get(
-                        "summary", "unknown failures"
-                    )
+                    summary = baseline_result.get("summary", "unknown failures")
                     await self.emit_output(
                         BASELINE_GATE,
                         f"WARNING: Baseline validation failed: {summary}. "
@@ -333,9 +327,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     level="warning",
                 )
             else:
-                await self.emit_step_completed(
-                    BASELINE_GATE, baseline_result
-                )
+                await self.emit_step_completed(BASELINE_GATE, baseline_result)
 
         # ----------------------------------------------------------------
         # Load work unit files once for bead description enrichment
@@ -354,15 +346,16 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Bead loop — Thespian actor system or legacy
         # ----------------------------------------------------------------
-        _can_use_thespian = (
-            self._step_executor is not None
-            and hasattr(self._step_executor, "create_session")
+        _can_use_thespian = self._step_executor is not None and hasattr(
+            self._step_executor, "create_session"
         )
 
         if _can_use_thespian and not dry_run:
             thespian_result = await self._run_fly_with_thespian(
                 epic_id=epic_id,
                 workspace_path=workspace_path,
+                watch=watch,
+                watch_interval=watch_interval,
             )
             beads_succeeded = thespian_result.get("beads_completed", 0)
             completed_bead_ids = set(thespian_result.get("completed_bead_ids", []))
@@ -447,13 +440,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             run_dir=run_dir,
                             flight_plan_name=select_result.flight_plan_name or "",
                             prior_failures=prior_failures,
-                            briefing_context=load_briefing_context(
-                                select_result.flight_plan_name
-                            ),
+                            briefing_context=load_briefing_context(select_result.flight_plan_name),
                         )
-                        retry_ctx.review_result = bead_last_review.get(
-                            bead_id
-                        )
+                        retry_ctx.review_result = bead_last_review.get(bead_id)
 
                         # Populate discovered-from chain for escalation
                         await resolve_provenance(retry_ctx)
@@ -469,28 +458,24 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         chain_depth[chain_root] = current_depth
                         retry_ctx.escalation_depth = current_depth
 
-                        await commit_bead_with_followup(
-                            self, retry_ctx, prior_failures
-                        )
+                        await commit_bead_with_followup(self, retry_ctx, prior_failures)
                         completed_bead_ids.add(bead_id)
                         beads_succeeded += 1
                         # Record for human review manifest if tagged
                         if retry_ctx.human_review_tag:
                             key_findings: list[str] = []
                             if retry_ctx.review_result:
-                                for f in retry_ctx.review_result.get(
-                                    "review_findings", []
-                                )[:3]:
-                                    key_findings.append(
-                                        f.get("description", "")[:200]
-                                    )
-                            human_review_items.append({
-                                "bead_id": bead_id,
-                                "title": bead_title,
-                                "status": "needs-human-review",
-                                "escalation_depth": retry_ctx.escalation_depth,
-                                "key_findings": key_findings,
-                            })
+                                for f in retry_ctx.review_result.get("review_findings", [])[:3]:
+                                    key_findings.append(f.get("description", "")[:200])
+                            human_review_items.append(
+                                {
+                                    "bead_id": bead_id,
+                                    "title": bead_title,
+                                    "status": "needs-human-review",
+                                    "escalation_depth": retry_ctx.escalation_depth,
+                                    "key_findings": key_findings,
+                                }
+                            )
                     except Exception as exc:
                         logger.warning(
                             "fly_beads_followup_failed",
@@ -512,9 +497,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             prior_attempt_ctx: str | None = None
             prev_attempt = bead_attempt_count.get(bead_id, 0)
             if prev_attempt > 0:
-                prior_attempt_ctx = load_prior_attempt_context(
-                    run_dir, bead_id, prev_attempt
-                )
+                prior_attempt_ctx = load_prior_attempt_context(run_dir, bead_id, prev_attempt)
 
             # Enrich bead description with full work unit markdown.
             # The bead database stores truncated plain-text; the work
@@ -528,9 +511,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 plans_dir = Path.cwd() / ".maverick" / "plans"
                 if plans_dir.is_dir():
                     for candidate in plans_dir.iterdir():
-                        if candidate.is_dir() and (
-                            candidate / "flight-plan.md"
-                        ).exists():
+                        if candidate.is_dir() and (candidate / "flight-plan.md").exists():
                             fp_name = candidate.name
                             break
 
@@ -538,13 +519,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 _work_unit_bodies.update(load_work_unit_files(fp_name))
                 # Load verification properties from flight plan
                 if not _verification_properties:
-                    fp_path = (
-                        Path.cwd()
-                        / ".maverick"
-                        / "plans"
-                        / fp_name
-                        / "flight-plan.md"
-                    )
+                    fp_path = Path.cwd() / ".maverick" / "plans" / fp_name / "flight-plan.md"
                     if fp_path.exists():
                         content = fp_path.read_text(encoding="utf-8")
                         from maverick.flight.parser import (
@@ -552,23 +527,17 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         )
 
                         h2 = _split_h2_sections(content)
-                        _verification_properties = h2.get(
-                            "Verification Properties", ""
-                        ).strip()
+                        _verification_properties = h2.get("Verification Properties", "").strip()
 
                 # Fallback: read from run dir VP file
                 if not _verification_properties and run_dir:
                     vp_file = run_dir / "verification-properties.txt"
                     if vp_file.exists():
-                        _verification_properties = vp_file.read_text(
-                            encoding="utf-8"
-                        ).strip()
+                        _verification_properties = vp_file.read_text(encoding="utf-8").strip()
 
             enriched_description = select_result.description
             if _work_unit_bodies:
-                wu_body = match_bead_to_work_unit(
-                    bead_title, _work_unit_bodies
-                )
+                wu_body = match_bead_to_work_unit(bead_title, _work_unit_bodies)
                 if wu_body:
                     enriched_description = wu_body
 
@@ -617,9 +586,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         beads_succeeded += 1
                     else:
                         beads_failed += 1
-                        bead_failure_history.setdefault(
-                            bead_id, []
-                        ).append(outcome.error or "supervisor failed")
+                        bead_failure_history.setdefault(bead_id, []).append(
+                            outcome.error or "supervisor failed"
+                        )
                 else:  # noqa: PLR5501
                     # --- Legacy step-pipeline path ---
 
@@ -635,14 +604,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         await run_gate_check(self, ctx)
 
                     # Acceptance criteria check
-                    gate_passed = ctx.gate_result and ctx.gate_result.get(
-                        "passed", False
-                    )
+                    gate_passed = ctx.gate_result and ctx.gate_result.get("passed", False)
                     ac_passed = True
                     if gate_passed:
-                        ac_passed, ac_reasons = await run_acceptance_check(
-                            self, ctx
-                        )
+                        ac_passed, ac_reasons = await run_acceptance_check(self, ctx)
                         if not ac_reasons:
                             ac_reasons = []
                         if not ac_passed:
@@ -650,52 +615,38 @@ class FlyBeadsWorkflow(PythonWorkflow):
                                 passed=False,
                                 reasons=tuple(ac_reasons),
                             )
-                            ac_attempt = bead_attempt_count.get(
-                                bead_id, 0
-                            ) + 1
+                            ac_attempt = bead_attempt_count.get(bead_id, 0) + 1
                             bead_attempt_count[bead_id] = ac_attempt
-                            await snapshot_prior_attempt(
-                                run_dir, ctx, ac_attempt
-                            )
+                            await snapshot_prior_attempt(run_dir, ctx, ac_attempt)
                             if ac_attempt < MAX_RETRIES_PER_BEAD:
                                 await rollback_bead(self, ctx)
                             beads_failed += 1
-                            bead_failure_history.setdefault(
-                                bead_id, []
-                            ).append("; ".join(ac_reasons))
+                            bead_failure_history.setdefault(bead_id, []).append(
+                                "; ".join(ac_reasons)
+                            )
                             bead_last_review[bead_id] = ctx.review_result
                             continue
 
                     # Spec compliance
                     spec_passed = True
-                    if (
-                        gate_passed
-                        and ac_passed
-                        and _verification_properties
-                    ):
-                        spec_passed, spec_reasons = (
-                            await run_spec_compliance_check(
-                                self, ctx, _verification_properties
-                            )
+                    if gate_passed and ac_passed and _verification_properties:
+                        spec_passed, spec_reasons = await run_spec_compliance_check(
+                            self, ctx, _verification_properties
                         )
                         if not spec_passed:
                             ctx.verify_result = VerifyBeadCompletionResult(
                                 passed=False,
                                 reasons=tuple(spec_reasons),
                             )
-                            sp_attempt = (
-                                bead_attempt_count.get(bead_id, 0) + 1
-                            )
+                            sp_attempt = bead_attempt_count.get(bead_id, 0) + 1
                             bead_attempt_count[bead_id] = sp_attempt
-                            await snapshot_prior_attempt(
-                                run_dir, ctx, sp_attempt
-                            )
+                            await snapshot_prior_attempt(run_dir, ctx, sp_attempt)
                             if sp_attempt < MAX_RETRIES_PER_BEAD:
                                 await rollback_bead(self, ctx)
                             beads_failed += 1
-                            bead_failure_history.setdefault(
-                                bead_id, []
-                            ).append("; ".join(spec_reasons))
+                            bead_failure_history.setdefault(bead_id, []).append(
+                                "; ".join(spec_reasons)
+                            )
                             bead_last_review[bead_id] = ctx.review_result
                             continue
 
@@ -704,9 +655,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                         spec_passed and bool(_verification_properties)
                     )
                     if gate_passed and ac_passed:
-                        await run_review_and_remediate(
-                            self, ctx, skip_review=skip_this_review
-                        )
+                        await run_review_and_remediate(self, ctx, skip_review=skip_this_review)
                         if not skip_this_review and ctx.review_result:
                             await run_gate_check(self, ctx)
 
@@ -724,12 +673,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     else:
                         attempt_num = bead_attempt_count.get(bead_id, 0) + 1
                         bead_attempt_count[bead_id] = attempt_num
-                        await snapshot_prior_attempt(
-                            run_dir, ctx, attempt_num
-                        )
-                        is_last_attempt = (
-                            attempt_num >= MAX_RETRIES_PER_BEAD
-                        )
+                        await snapshot_prior_attempt(run_dir, ctx, attempt_num)
+                        is_last_attempt = attempt_num >= MAX_RETRIES_PER_BEAD
                         if not is_last_attempt:
                             await rollback_bead(self, ctx)
                         beads_failed += 1
@@ -750,9 +695,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                                 if ctx.discovered_from_chain
                                 else bead_id
                             )
-                            chain_issue_trajectory.setdefault(
-                                chain_root, []
-                            ).append(issue_count)
+                            chain_issue_trajectory.setdefault(chain_root, []).append(issue_count)
 
             except Exception as exc:
                 logger.warning(
@@ -799,8 +742,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             )
                     await self.emit_output(
                         COMMIT,
-                        "Epic done — no more ready beads"
-                        f" (completed {beads_succeeded})",
+                        f"Epic done — no more ready beads (completed {beads_succeeded})",
                         level="success",
                     )
                     break
@@ -815,18 +757,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
             manifest_dir.mkdir(parents=True, exist_ok=True)
             manifest_path = manifest_dir / "human-review-manifest.json"
             try:
-                manifest_path.write_text(
-                    _json.dumps(human_review_items, indent=2)
-                )
+                manifest_path.write_text(_json.dumps(human_review_items, indent=2))
                 logger.info(
                     "human_review_manifest_written",
                     path=str(manifest_path),
                     count=len(human_review_items),
                 )
             except Exception as exc:
-                logger.warning(
-                    "human_review_manifest_write_failed", error=str(exc)
-                )
+                logger.warning("human_review_manifest_write_failed", error=str(exc))
 
         beads_processed = beads_succeeded + beads_failed + beads_skipped
 
@@ -836,12 +774,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
             if final_meta:
                 from datetime import datetime as _dt
 
-                final_meta.status = (
-                    "completed" if beads_failed == 0 else "failed"
-                )
-                final_meta.completed_at = (
-                    _dt.now(tz=UTC).isoformat()
-                )
+                final_meta.status = "completed" if beads_failed == 0 else "failed"
+                final_meta.completed_at = _dt.now(tz=UTC).isoformat()
                 write_metadata(run_dir, final_meta)
 
         result = FlyBeadsResult(
@@ -860,6 +794,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
         *,
         epic_id: str,
         workspace_path: Path | None,
+        watch: bool = False,
+        watch_interval: int = 30,
     ) -> dict[str, Any]:
         """Run the fly bead loop using Thespian actor system."""
         import asyncio
@@ -890,7 +826,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time; time.sleep(1)
+                import time
+
+                time.sleep(1)
             except Exception:
                 pass
 
@@ -904,6 +842,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 asys.shutdown()
             except Exception:
                 pass
+
         atexit.register(_cleanup)
 
         try:
@@ -922,11 +861,15 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
             # Init actors
             for addr in [impl, reviewer]:
-                asys.ask(addr, {
-                    "type": "init",
-                    "admin_port": THESPIAN_PORT,
-                    "cwd": cwd,
-                }, timeout=10)
+                asys.ask(
+                    addr,
+                    {
+                        "type": "init",
+                        "admin_port": THESPIAN_PORT,
+                        "cwd": cwd,
+                    },
+                    timeout=10,
+                )
 
             # Init gate with validation config
             validation_commands = None
@@ -935,43 +878,54 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 from maverick.workflows.fly_beads.steps import (
                     _build_validation_commands,
                 )
-                validation_commands = _build_validation_commands(
-                    self._config.validation
-                )
+
+                validation_commands = _build_validation_commands(self._config.validation)
                 _timeout_secs = float(self._config.validation.timeout_seconds)
             except (AttributeError, TypeError):
                 pass
 
-            asys.ask(gate, {
-                "type": "init",
-                "cwd": cwd,
-                "validation_commands": validation_commands,
-                "timeout_seconds": _timeout_secs,
-            }, timeout=10)
+            asys.ask(
+                gate,
+                {
+                    "type": "init",
+                    "cwd": cwd,
+                    "validation_commands": validation_commands,
+                    "timeout_seconds": _timeout_secs,
+                },
+                timeout=10,
+            )
 
             # Init spec check with project type
             project_type = getattr(self._config, "project_type", "rust")
-            asys.ask(spec, {
-                "type": "init",
-                "cwd": cwd,
-                "project_type": project_type,
-            }, timeout=10)
+            asys.ask(
+                spec,
+                {
+                    "type": "init",
+                    "cwd": cwd,
+                    "project_type": project_type,
+                },
+                timeout=10,
+            )
 
             # Init supervisor
-            asys.ask(supervisor, {
-                "type": "init",
-                "epic_id": epic_id,
-                "cwd": cwd,
-                "implementer_addr": impl,
-                "reviewer_addr": reviewer,
-                "gate_addr": gate,
-                "ac_addr": ac,
-                "spec_addr": spec,
-                "committer_addr": committer,
-                "config": {},
-                "watch": watch,
-                "watch_interval": watch_interval,
-            }, timeout=10)
+            asys.ask(
+                supervisor,
+                {
+                    "type": "init",
+                    "epic_id": epic_id,
+                    "cwd": cwd,
+                    "implementer_addr": impl,
+                    "reviewer_addr": reviewer,
+                    "gate_addr": gate,
+                    "ac_addr": ac,
+                    "spec_addr": spec,
+                    "committer_addr": committer,
+                    "config": {},
+                    "watch": watch,
+                    "watch_interval": watch_interval,
+                },
+                timeout=10,
+            )
 
             await self.emit_output(
                 "fly",
@@ -983,7 +937,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
             result = await loop.run_in_executor(
                 None,
                 lambda: asys.ask(
-                    supervisor, "start",
+                    supervisor,
+                    "start",
                     timeout=86400 if watch else 7200,  # 24h for watch, 2h normal
                 ),
             )
@@ -1012,8 +967,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
             await self.emit_output(
                 "fly",
-                f"Bead {event['bead_id']}: {event['title']}"
-                f"{tag_str}{review_info}",
+                f"Bead {event['bead_id']}: {event['title']}{tag_str}{review_info}",
                 level="warning" if is_flagged else "success",
             )
 
@@ -1056,7 +1010,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
         This replaces the inline step pipeline for a single bead's
         processing when use_supervisor=True.
         """
+        import shutil as _shutil
         from datetime import datetime as _dt
+
+        from acp.schema import McpServerStdio
 
         from maverick.workflows.fly_beads.actors.acceptance import (
             AcceptanceCriteriaActor,
@@ -1084,10 +1041,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
         from maverick.workflows.fly_beads.supervisor import BeadSupervisor
 
-        import shutil as _shutil
-
-        from acp.schema import McpServerStdio
-
         started_at = _dt.now(tz=UTC).isoformat()
         cwd_str = str(ctx.cwd) if ctx.cwd else None
 
@@ -1106,8 +1059,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 command=_maverick_bin,
                 args=[
                     "serve-inbox",
-                    "--tools", tools,
-                    "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
+                    "--tools",
+                    tools,
+                    "--output",
+                    str(inbox_dir / f"{agent_name}-inbox.json"),
                 ],
                 env=[],
             )
@@ -1116,9 +1071,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         validation_commands: dict[str, list[str]] | None = None
         _timeout_secs = 600.0
         try:
-            validation_commands = _build_validation_commands(
-                self._config.validation
-            )
+            validation_commands = _build_validation_commands(self._config.validation)
             _timeout_secs = float(self._config.validation.timeout_seconds)
         except (AttributeError, TypeError):
             pass
@@ -1127,7 +1080,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         session_registry = BeadSessionRegistry(bead_id=ctx.bead_id)
 
         # Resolve step configs for implementer and reviewer
-        from maverick.executor.config import StepConfig  # noqa: E402
         from maverick.workflows.base import StepType  # noqa: E402
 
         impl_config = self.resolve_step_config(
@@ -1199,9 +1151,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 config=review_config,
                 bead_description=ctx.description,
                 inbox_path=inbox_dir / "reviewer-inbox.json",
-                mcp_server_config=_mcp_config(
-                    "submit_review", "reviewer"
-                ),
+                mcp_server_config=_mcp_config("submit_review", "reviewer"),
             ),
             "committer": CommitActor(
                 bead_id=ctx.bead_id,

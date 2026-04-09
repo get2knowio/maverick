@@ -31,8 +31,11 @@ class PlanWriterActor(Actor):
                 briefing_path = output_dir / "briefing.md"
                 briefing_path.write_text(briefing_content, encoding="utf-8")
 
-            self.send(sender, {
-                "type": "write_result",
-                "flight_plan_path": str(plan_path),
-                "briefing_path": str(briefing_path) if briefing_path else None,
-            })
+            self.send(
+                sender,
+                {
+                    "type": "write_result",
+                    "flight_plan_path": str(plan_path),
+                    "briefing_path": str(briefing_path) if briefing_path else None,
+                },
+            )

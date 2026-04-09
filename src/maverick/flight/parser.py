@@ -239,9 +239,7 @@ def parse_flight_plan_sections(body: str) -> dict[str, Any]:
 
     context = h2.get("Context", "").strip()
     constraints = parse_bullet_list(h2.get("Constraints", ""))
-    verification_properties = h2.get(
-        "Verification Properties", ""
-    ).strip()
+    verification_properties = h2.get("Verification Properties", "").strip()
     notes = h2.get("Notes", "").strip()
 
     return {
@@ -284,7 +282,7 @@ def _parse_acceptance_criteria_line(line: str) -> tuple[str, str | None] | None:
         prefix_m = _TRACE_REF_PREFIX_RE.match(raw_text)
         if prefix_m:
             trace_ref = prefix_m.group(1)
-            text = raw_text[prefix_m.end():].strip()
+            text = raw_text[prefix_m.end() :].strip()
         else:
             trace_ref = None
             text = raw_text
@@ -330,9 +328,7 @@ def parse_work_unit_sections(body: str) -> dict[str, Any]:
         "protect": parse_bullet_list(h3_scope.get("Protect", "")),
     }
 
-    instructions = (
-        h2.get("Procedure", "") or h2.get("Instructions", "")
-    ).strip()
+    instructions = (h2.get("Procedure", "") or h2.get("Instructions", "")).strip()
     verification = parse_bullet_list(h2.get("Verification", ""))
 
     test_specification = h2.get("Test Specification", "").strip()

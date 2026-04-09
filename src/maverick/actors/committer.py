@@ -19,16 +19,17 @@ class CommitActor(Actor):
             tag = message.get("tag")
 
             try:
-                result = asyncio.run(
-                    self._do_commit(bead_id, title, cwd, tag)
-                )
+                result = asyncio.run(self._do_commit(bead_id, title, cwd, tag))
                 self.send(sender, {"type": "commit_result", **result})
             except Exception as exc:
-                self.send(sender, {
-                    "type": "commit_result",
-                    "success": False,
-                    "error": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "commit_result",
+                        "success": False,
+                        "error": str(exc),
+                    },
+                )
 
     async def _do_commit(self, bead_id, title, cwd, tag):
         from maverick.library.actions.beads import mark_bead_complete

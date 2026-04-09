@@ -98,9 +98,7 @@ class TestFormatError:
         )
 
         expected = (
-            "Error: Validation failed\n"
-            "  Missing required field: name\n"
-            "  Invalid email format"
+            "Error: Validation failed\n  Missing required field: name\n  Invalid email format"
         )
         assert result == expected
 
@@ -111,10 +109,7 @@ class TestFormatError:
             suggestion="Run 'maverick init' to create one",
         )
 
-        expected = (
-            "Error: Config file not found\n"
-            "Suggestion: Run 'maverick init' to create one"
-        )
+        expected = "Error: Config file not found\nSuggestion: Run 'maverick init' to create one"
         assert result == expected
 
     def test_message_with_details_and_suggestion(self) -> None:

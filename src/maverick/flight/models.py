@@ -83,9 +83,7 @@ class CompletionStatus(BaseModel):
 
     checked: int = Field(ge=0, description="Number of checked criteria")
     total: int = Field(ge=0, description="Total number of criteria")
-    percentage: float | None = Field(
-        description="Completion percentage (None if no criteria)"
-    )
+    percentage: float | None = Field(description="Completion percentage (None if no criteria)")
 
     @field_validator("percentage")
     @classmethod
@@ -140,9 +138,7 @@ class FlightPlan(BaseModel):
         description="Names of flight plans this plan depends on",
     )
     objective: str = Field(description="Plan objective")
-    success_criteria: tuple[SuccessCriterion, ...] = Field(
-        description="Success criteria"
-    )
+    success_criteria: tuple[SuccessCriterion, ...] = Field(description="Success criteria")
     scope: Scope = Field(description="Scope definition")
     context: str = Field(default="", description="Background context")
     constraints: tuple[str, ...] = Field(default=(), description="Constraints")
@@ -238,9 +234,7 @@ class AcceptanceCriterion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     text: str = Field(description="Criterion text")
-    trace_ref: str | None = Field(
-        default=None, description="Optional SC-### trace reference"
-    )
+    trace_ref: str | None = Field(default=None, description="Optional SC-### trace reference")
 
     @field_validator("text")
     @classmethod
@@ -304,13 +298,9 @@ class WorkUnit(BaseModel):
     parallel_group: str | None = Field(
         default=None, description="Optional parallel execution group"
     )
-    depends_on: tuple[str, ...] = Field(
-        default=(), description="IDs of prerequisite work units"
-    )
+    depends_on: tuple[str, ...] = Field(default=(), description="IDs of prerequisite work units")
     task: str = Field(description="Task description")
-    acceptance_criteria: tuple[AcceptanceCriterion, ...] = Field(
-        description="Acceptance criteria"
-    )
+    acceptance_criteria: tuple[AcceptanceCriterion, ...] = Field(description="Acceptance criteria")
     file_scope: FileScope = Field(description="File scope definition")
     instructions: str = Field(description="Implementation instructions")
     test_specification: str = Field(
@@ -377,8 +367,7 @@ class WorkUnit(BaseModel):
             "depends_on": list(self.depends_on),
             "task": self.task,
             "acceptance_criteria": [
-                {"text": ac.text, "trace_ref": ac.trace_ref}
-                for ac in self.acceptance_criteria
+                {"text": ac.text, "trace_ref": ac.trace_ref} for ac in self.acceptance_criteria
             ],
             "file_scope": {
                 "create": list(self.file_scope.create),
@@ -412,9 +401,7 @@ class ExecutionBatch(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     units: tuple[WorkUnit, ...] = Field(description="Work units in this batch")
-    parallel_group: str | None = Field(
-        default=None, description="Shared parallel group ID"
-    )
+    parallel_group: str | None = Field(default=None, description="Shared parallel group ID")
 
     @field_validator("units")
     @classmethod

@@ -7,7 +7,6 @@ ACP sessions per bead.
 """
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 
@@ -25,7 +24,8 @@ class FlySupervisorActor(Actor):
         msg_preview = str(message)[:120] if message else "None"
         print(
             f"FLY_SUPERVISOR: msg from={sender} preview={msg_preview}",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
 
         if isinstance(message, dict) and message.get("type") == "init":
@@ -56,11 +56,10 @@ class FlySupervisorActor(Actor):
         if isinstance(message, dict) and message.get("type") == "prompt_error":
             print(
                 f"FLY_SUPERVISOR: prompt error: {message.get('error')}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
-            self._escalate_to_human(
-                f"Agent prompt error: {message.get('error', 'unknown')}"
-            )
+            self._escalate_to_human(f"Agent prompt error: {message.get('error', 'unknown')}")
             return
 
         # Gate result
@@ -137,7 +136,8 @@ class FlySupervisorActor(Actor):
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: bead selection failed: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             self._complete()
             return
@@ -148,16 +148,19 @@ class FlySupervisorActor(Actor):
                 print(
                     f"FLY_SUPERVISOR: no beads ready, waiting "
                     f"({self._idle_polls}/{self._max_idle_polls})...",
-                    file=sys.stderr, flush=True,
+                    file=sys.stderr,
+                    flush=True,
                 )
                 import time
+
                 time.sleep(self._watch_interval)
                 self._next_bead()
                 return
 
             print(
-                f"FLY_SUPERVISOR: no more beads",
-                file=sys.stderr, flush=True,
+                "FLY_SUPERVISOR: no more beads",
+                file=sys.stderr,
+                flush=True,
             )
             self._complete()
             return
@@ -184,9 +187,9 @@ class FlySupervisorActor(Actor):
         self._load_bead_context(bead_id)
 
         print(
-            f"FLY_SUPERVISOR: processing bead {bead_id}: "
-            f"{select_result.get('title', '')[:60]}",
-            file=sys.stderr, flush=True,
+            f"FLY_SUPERVISOR: processing bead {bead_id}: {select_result.get('title', '')[:60]}",
+            file=sys.stderr,
+            flush=True,
         )
 
         # Tell agent actors to create new sessions for this bead
@@ -207,7 +210,7 @@ class FlySupervisorActor(Actor):
         # and match against the bead's title/description.
         self._current_work_unit_md = ""
         bead_title = self._current_bead.get("title", "")
-        bead_desc = self._current_bead.get("description", "")
+        self._current_bead.get("description", "")
 
         try:
             work_units = {}
@@ -240,13 +243,12 @@ class FlySupervisorActor(Actor):
                 # Match if bead title starts with the task description
                 # or task description starts with the bead title
                 if task_line and bead_title:
-                    if (bead_title[:60] in task_line
-                            or task_line[:60] in bead_title):
+                    if bead_title[:60] in task_line or task_line[:60] in bead_title:
                         self._current_work_unit_md = content
                         print(
-                            f"FLY_SUPERVISOR: matched work unit '{wu_id}' "
-                            f"for bead",
-                            file=sys.stderr, flush=True,
+                            f"FLY_SUPERVISOR: matched work unit '{wu_id}' for bead",
+                            file=sys.stderr,
+                            flush=True,
                         )
                         break
 
@@ -254,17 +256,17 @@ class FlySupervisorActor(Actor):
                 print(
                     f"FLY_SUPERVISOR: no work unit match for "
                     f"'{bead_title[:50]}', using all as context",
-                    file=sys.stderr, flush=True,
+                    file=sys.stderr,
+                    flush=True,
                 )
                 # Fallback: concatenate all work units so the agent
                 # has full context and can pick the right one
-                self._current_work_unit_md = "\n\n---\n\n".join(
-                    work_units.values()
-                )
+                self._current_work_unit_md = "\n\n---\n\n".join(work_units.values())
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: failed to load work unit: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
 
         # Load briefing context (once, cached across beads)
@@ -273,12 +275,13 @@ class FlySupervisorActor(Actor):
                 briefing_path = plans_dir / briefing_name
                 if briefing_path.exists():
                     try:
-                        self._briefing_context = briefing_path.read_text(
-                            encoding="utf-8"
-                        )[:8000]  # Cap at 8KB to avoid prompt bloat
+                        self._briefing_context = briefing_path.read_text(encoding="utf-8")[
+                            :8000
+                        ]  # Cap at 8KB to avoid prompt bloat
                         print(
                             f"FLY_SUPERVISOR: loaded briefing ({len(self._briefing_context)} chars)",
-                            file=sys.stderr, flush=True,
+                            file=sys.stderr,
+                            flush=True,
                         )
                     except Exception:
                         pass
@@ -317,10 +320,13 @@ class FlySupervisorActor(Actor):
                 f"{runway_hint}"
             )
 
-        self.send(self._implementer, {
-            "type": "implement",
-            "prompt": prompt,
-        })
+        self.send(
+            self._implementer,
+            {
+                "type": "implement",
+                "prompt": prompt,
+            },
+        )
 
     async def _select_next_bead(self):
         from maverick.library.actions.beads import select_next_bead
@@ -338,30 +344,38 @@ class FlySupervisorActor(Actor):
 
         if tool == "submit_implementation":
             print("FLY_SUPERVISOR: implementation submitted", file=sys.stderr, flush=True)
-            self.send(self._gate, {
-                "type": "gate",
-                "cwd": self._cwd,
-            })
+            self.send(
+                self._gate,
+                {
+                    "type": "gate",
+                    "cwd": self._cwd,
+                },
+            )
 
         elif tool == "submit_fix_result":
             print("FLY_SUPERVISOR: fix result submitted", file=sys.stderr, flush=True)
-            self.send(self._gate, {
-                "type": "gate",
-                "cwd": self._cwd,
-            })
+            self.send(
+                self._gate,
+                {
+                    "type": "gate",
+                    "cwd": self._cwd,
+                },
+            )
 
         elif tool == "submit_review":
             # Route differently if this is the aggregate review
             if self._in_aggregate_review:
                 findings = args.get("findings", [])
                 print(
-                    f"FLY_SUPERVISOR: aggregate review submitted "
-                    f"({len(findings)} findings)",
-                    file=sys.stderr, flush=True,
+                    f"FLY_SUPERVISOR: aggregate review submitted ({len(findings)} findings)",
+                    file=sys.stderr,
+                    flush=True,
                 )
-                self._handle_aggregate_review_complete({
-                    "findings": findings,
-                })
+                self._handle_aggregate_review_complete(
+                    {
+                        "findings": findings,
+                    }
+                )
                 return
 
             approved = args.get("approved", True)
@@ -369,7 +383,8 @@ class FlySupervisorActor(Actor):
             self._last_review_findings = findings
             print(
                 f"FLY_SUPERVISOR: review {'approved' if approved else f'rejected ({len(findings)} findings)'}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
 
             if approved:
@@ -385,10 +400,13 @@ class FlySupervisorActor(Actor):
                     file = f.get("file", "")
                     prompt += f"- **{severity}** `{file}`: {issue}\n"
 
-                self.send(self._implementer, {
-                    "type": "fix",
-                    "prompt": prompt,
-                })
+                self.send(
+                    self._implementer,
+                    {
+                        "type": "fix",
+                        "prompt": prompt,
+                    },
+                )
             else:
                 self._escalate_to_human(
                     "Review rounds exhausted",
@@ -399,48 +417,61 @@ class FlySupervisorActor(Actor):
         passed = message.get("passed", False)
         if passed:
             # Gate passed → AC check
-            self.send(self._ac, {
-                "type": "ac_check",
-                "description": self._current_bead.get("description", ""),
-                "cwd": self._cwd,
-            })
+            self.send(
+                self._ac,
+                {
+                    "type": "ac_check",
+                    "description": self._current_bead.get("description", ""),
+                    "cwd": self._cwd,
+                },
+            )
         elif self._gate_fix_attempts < MAX_GATE_FIX_ATTEMPTS:
             self._gate_fix_attempts += 1
             summary = message.get("summary", "Gate failed")
-            self.send(self._implementer, {
-                "type": "fix",
-                "prompt": f"Gate check failed:\n\n{summary}\n\nFix the issues.",
-            })
+            self.send(
+                self._implementer,
+                {
+                    "type": "fix",
+                    "prompt": f"Gate check failed:\n\n{summary}\n\nFix the issues.",
+                },
+            )
         else:
             summary = message.get("summary", "Gate failed")
-            self._escalate_to_human(
-                "Gate fix attempts exhausted", [summary]
-            )
+            self._escalate_to_human("Gate fix attempts exhausted", [summary])
 
     def _handle_ac_result(self, message):
         passed = message.get("passed", False)
         if passed:
-            self.send(self._spec, {
-                "type": "spec_check",
-                "cwd": self._cwd,
-            })
+            self.send(
+                self._spec,
+                {
+                    "type": "spec_check",
+                    "cwd": self._cwd,
+                },
+            )
         else:
             reasons = message.get("reasons", [])
-            self.send(self._implementer, {
-                "type": "fix",
-                "prompt": "AC check failed:\n\n" + "\n".join(f"- {r}" for r in reasons),
-            })
+            self.send(
+                self._implementer,
+                {
+                    "type": "fix",
+                    "prompt": "AC check failed:\n\n" + "\n".join(f"- {r}" for r in reasons),
+                },
+            )
 
     def _handle_spec_result(self, message):
         passed = message.get("passed", False)
         if passed:
             # Spec passed → review with enriched context
-            self.send(self._reviewer, {
-                "type": "review",
-                "bead_description": self._current_bead.get("description", ""),
-                "work_unit_md": self._current_work_unit_md,
-                "briefing_context": self._briefing_context,
-            })
+            self.send(
+                self._reviewer,
+                {
+                    "type": "review",
+                    "bead_description": self._current_bead.get("description", ""),
+                    "work_unit_md": self._current_work_unit_md,
+                    "briefing_context": self._briefing_context,
+                },
+            )
         elif self._spec_fix_attempts < MAX_SPEC_FIX_ATTEMPTS:
             self._spec_fix_attempts += 1
             findings = message.get("findings", [])
@@ -448,25 +479,29 @@ class FlySupervisorActor(Actor):
             for f in findings:
                 prompt += f"- {f}\n"
             prompt += "\nFix these issues."
-            self.send(self._implementer, {
-                "type": "fix",
-                "prompt": prompt,
-            })
+            self.send(
+                self._implementer,
+                {
+                    "type": "fix",
+                    "prompt": prompt,
+                },
+            )
         else:
             findings = message.get("findings", [])
-            self._escalate_to_human(
-                "Spec compliance fix attempts exhausted", findings
-            )
+            self._escalate_to_human("Spec compliance fix attempts exhausted", findings)
 
     def _commit_bead(self, tag=None):
         bead = self._current_bead
-        self.send(self._committer, {
-            "type": "commit",
-            "bead_id": bead.get("bead_id", ""),
-            "title": bead.get("title", ""),
-            "cwd": self._cwd,
-            "tag": tag,
-        })
+        self.send(
+            self._committer,
+            {
+                "type": "commit",
+                "bead_id": bead.get("bead_id", ""),
+                "title": bead.get("title", ""),
+                "cwd": self._cwd,
+                "tag": tag,
+            },
+        )
 
     def _handle_commit_result(self, message):
         bead = self._current_bead
@@ -493,9 +528,9 @@ class FlySupervisorActor(Actor):
         self._record_bead_outcome(message)
 
         print(
-            f"FLY_SUPERVISOR: bead {bead_id} committed "
-            f"(total: {len(self._completed_beads)})",
-            file=sys.stderr, flush=True,
+            f"FLY_SUPERVISOR: bead {bead_id} committed (total: {len(self._completed_beads)})",
+            file=sys.stderr,
+            flush=True,
         )
         # Next bead
         self._next_bead()
@@ -510,7 +545,8 @@ class FlySupervisorActor(Actor):
             print(
                 f"FLY_SUPERVISOR: running aggregate review across "
                 f"{len(self._completed_beads)} beads",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             self._run_aggregate_review()
         else:
@@ -526,32 +562,36 @@ class FlySupervisorActor(Actor):
         try:
             result = subprocess.run(
                 ["git", "diff", "--stat", "HEAD~" + str(len(self._completed_beads))],
-                capture_output=True, text=True, cwd=self._cwd, timeout=30,
+                capture_output=True,
+                text=True,
+                cwd=self._cwd,
+                timeout=30,
             )
             diff_stat = result.stdout[:4000] if result.stdout else "(no diff)"
         except Exception:
             diff_stat = "(could not generate diff)"
 
-        bead_list = "\n".join(
-            f"- {title}" for title in self._completed_titles
-        )
+        bead_list = "\n".join(f"- {title}" for title in self._completed_titles)
 
-        self.send(self._reviewer, {
-            "type": "aggregate_review",
-            "objective": self._flight_plan_name,
-            "bead_list": bead_list,
-            "diff_stat": diff_stat,
-            "bead_count": len(self._completed_beads),
-        })
+        self.send(
+            self._reviewer,
+            {
+                "type": "aggregate_review",
+                "objective": self._flight_plan_name,
+                "bead_list": bead_list,
+                "diff_stat": diff_stat,
+                "bead_count": len(self._completed_beads),
+            },
+        )
 
     def _handle_aggregate_review_complete(self, message):
         """Aggregate review done — finalize with findings attached."""
         findings = message.get("findings", [])
         if findings:
             print(
-                f"FLY_SUPERVISOR: aggregate review flagged "
-                f"{len(findings)} cross-bead concerns",
-                file=sys.stderr, flush=True,
+                f"FLY_SUPERVISOR: aggregate review flagged {len(findings)} cross-bead concerns",
+                file=sys.stderr,
+                flush=True,
             )
 
         self._aggregate_findings = findings
@@ -570,18 +610,22 @@ class FlySupervisorActor(Actor):
         print(
             f"FLY_SUPERVISOR: complete ({len(self._completed_beads)} beads"
             f"{', ' + str(len(aggregate)) + ' aggregate concerns' if has_concerns else ''})",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
         if self._workflow_sender:
-            self.send(self._workflow_sender, {
-                "type": "complete",
-                "success": True,
-                "beads_completed": len(self._completed_beads),
-                "completed_bead_ids": self._completed_beads,
-                "bead_events": self._bead_events,
-                "aggregate_review": aggregate,
-                "needs_human_review": has_concerns,
-            })
+            self.send(
+                self._workflow_sender,
+                {
+                    "type": "complete",
+                    "success": True,
+                    "beads_completed": len(self._completed_beads),
+                    "completed_bead_ids": self._completed_beads,
+                    "bead_events": self._bead_events,
+                    "aggregate_review": aggregate,
+                    "needs_human_review": has_concerns,
+                },
+            )
 
     # ------------------------------------------------------------------
     # Runway recording (best-effort)
@@ -594,7 +638,8 @@ class FlySupervisorActor(Actor):
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: runway record failed: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
 
     async def _async_record_outcome(self, commit_result):
@@ -603,11 +648,7 @@ class FlySupervisorActor(Actor):
         bead = self._current_bead
         review_result = {
             "issues_found": self._review_rounds,
-            "issues_fixed": (
-                self._review_rounds
-                if commit_result.get("success")
-                else 0
-            ),
+            "issues_fixed": (self._review_rounds if commit_result.get("success") else 0),
         }
 
         await record_bead_outcome(
@@ -621,7 +662,8 @@ class FlySupervisorActor(Actor):
                 f.get("issue", "")
                 for f in self._last_review_findings
                 if f.get("severity") in ("critical", "major")
-            ] or None,
+            ]
+            or None,
             cwd=self._cwd,
         )
 
@@ -634,7 +676,8 @@ class FlySupervisorActor(Actor):
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: runway review record failed: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
 
     async def _async_record_review(self, findings):
@@ -668,7 +711,8 @@ class FlySupervisorActor(Actor):
         except Exception as exc:
             print(
                 f"FLY_SUPERVISOR: human bead creation failed: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
         # Commit optimistically — human bead is independent, not blocking
         self._commit_bead(tag="needs-human-review")
@@ -686,11 +730,7 @@ class FlySupervisorActor(Actor):
         bead_id = bead.get("bead_id", "")
         bead_title = bead.get("title", bead_id)
 
-        findings_text = (
-            "\n".join(f"- {f}" for f in (findings or []))
-            if findings
-            else "None"
-        )
+        findings_text = "\n".join(f"- {f}" for f in (findings or [])) if findings else "None"
 
         review_def = BeadDefinition(
             title=f"Review: {bead_title[:150]}",
@@ -709,9 +749,7 @@ class FlySupervisorActor(Actor):
             labels=["assumption-review", "needs-human-review"],
         )
 
-        created = await client.create_bead(
-            review_def, parent_id=self._epic_id
-        )
+        created = await client.create_bead(review_def, parent_id=self._epic_id)
 
         # Record context as state metadata
         await client.set_state(
@@ -725,7 +763,7 @@ class FlySupervisorActor(Actor):
         )
 
         print(
-            f"FLY_SUPERVISOR: created human review bead "
-            f"{created.bd_id} for {bead_id}",
-            file=sys.stderr, flush=True,
+            f"FLY_SUPERVISOR: created human review bead {created.bd_id} for {bead_id}",
+            file=sys.stderr,
+            flush=True,
         )

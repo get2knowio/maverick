@@ -290,9 +290,7 @@ class TestCollectMetrics:
         }
 
         start = time() - 0.1  # 100ms ago
-        await collect_metrics(
-            input_data, None, None, collector=collector, start_time=start
-        )
+        await collect_metrics(input_data, None, None, collector=collector, start_time=start)
 
         metrics = await collector.get_metrics()
         # Duration should be approximately 100ms

@@ -539,9 +539,7 @@ class TestDetectProjectType:
         assert result.detection_method == "markers"
 
     @pytest.mark.asyncio
-    async def test_claude_json_error_falls_back_to_markers(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_claude_json_error_falls_back_to_markers(self, tmp_path: Path) -> None:
         """Claude JSON parse error falls back to marker detection."""
         (tmp_path / "package.json").write_text("{}")
 
@@ -563,9 +561,7 @@ class TestDetectProjectType:
         assert result.detection_method == "markers"
 
     @pytest.mark.asyncio
-    async def test_claude_api_error_raises_detection_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_claude_api_error_raises_detection_error(self, tmp_path: Path) -> None:
         """Claude API error raises DetectionError."""
         (tmp_path / "pyproject.toml").write_text("[project]")
 

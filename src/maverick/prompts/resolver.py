@@ -93,9 +93,7 @@ def resolve_prompt(
                     f"(policy: augment_only)"
                 )
             if project_root is None:
-                raise PromptConfigError(
-                    "project_root is required when prompt_file is configured"
-                )
+                raise PromptConfigError("project_root is required when prompt_file is configured")
             if Path(prompt_file).is_absolute():
                 raise PromptConfigError(
                     f"Absolute paths are not allowed for prompt_file: {prompt_file}"

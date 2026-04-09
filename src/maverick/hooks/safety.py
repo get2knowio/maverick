@@ -114,9 +114,7 @@ def parse_compound_command(cmd: str) -> list[str]:
                 brace_depth -= 1
                 current += char
             # Check for && or ||
-            elif (
-                i + 1 < len(cmd) and cmd[i : i + 2] in ("&&", "||") and brace_depth == 0
-            ):
+            elif i + 1 < len(cmd) and cmd[i : i + 2] in ("&&", "||") and brace_depth == 0:
                 if current.strip():
                     components.append(current.strip())
                 current = ""
@@ -157,9 +155,7 @@ def _check_compiled_patterns(
     return False, None, None
 
 
-def _check_custom_patterns(
-    cmd: str, patterns: list[str]
-) -> tuple[bool, str | None, str | None]:
+def _check_custom_patterns(cmd: str, patterns: list[str]) -> tuple[bool, str | None, str | None]:
     """Check if command matches any custom blocklist pattern.
 
     Args:
@@ -229,8 +225,7 @@ async def validate_bash_command(
             )
             if is_dangerous:
                 logger.warning(
-                    f"Dangerous command blocked: {component} "
-                    f"(pattern: {matched_pattern})"
+                    f"Dangerous command blocked: {component} (pattern: {matched_pattern})"
                 )
                 return _deny_response(
                     f"Dangerous command blocked: {matched_reason}", matched_pattern
@@ -243,8 +238,7 @@ async def validate_bash_command(
                 )
                 if is_dangerous:
                     logger.warning(
-                        f"Dangerous command blocked: {component} "
-                        f"(pattern: {matched_pattern})"
+                        f"Dangerous command blocked: {component} (pattern: {matched_pattern})"
                     )
                     return _deny_response(
                         f"Dangerous command blocked: {matched_reason}", matched_pattern
@@ -384,17 +378,14 @@ async def validate_file_write(
         for pattern in config.path_blocklist:
             if _matches_path_pattern(normalized, pattern):
                 logger.warning(
-                    f"Path blocked by custom blocklist: {file_path} "
-                    f"(pattern: {pattern})"
+                    f"Path blocked by custom blocklist: {file_path} (pattern: {pattern})"
                 )
                 return _deny_response(f"Path blocked: {pattern}", pattern)
 
         # Check default sensitive paths
         for pattern in config.sensitive_paths:
             if _matches_path_pattern(normalized, pattern):
-                logger.warning(
-                    f"Sensitive path blocked: {file_path} (pattern: {pattern})"
-                )
+                logger.warning(f"Sensitive path blocked: {file_path} (pattern: {pattern})")
                 return _deny_response(f"Sensitive path blocked: {pattern}", pattern)
 
         return {}

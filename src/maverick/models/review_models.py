@@ -326,9 +326,7 @@ class FindingTracker:
         """
         unresolved = []
         for tf in self._findings.values():
-            if tf.status == "blocked" or (
-                tf.status == "open" and len(tf.attempts) >= 3
-            ):
+            if tf.status == "blocked" or (tf.status == "open" and len(tf.attempts) >= 3):
                 unresolved.append(tf)
             elif len(tf.attempts) > 0:
                 last = tf.attempts[-1]

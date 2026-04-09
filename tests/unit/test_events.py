@@ -916,9 +916,7 @@ class TestAgentStreamChunkInteraction:
         assert step_started != step_completed
 
         # Step names should match
-        assert (
-            step_started.step_name == stream_chunk.step_name == step_completed.step_name
-        )
+        assert step_started.step_name == stream_chunk.step_name == step_completed.step_name
 
     def test_mixed_chunk_types_sequence(self) -> None:
         """Test a realistic sequence of different chunk types."""

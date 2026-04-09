@@ -25,9 +25,7 @@ DEFAULT_CONTEXT_LINES = 10
 MAX_PARENT_SEARCH_DEPTH = 10
 
 
-def _read_file_safely(
-    path: Path, max_lines: int = DEFAULT_MAX_FILE_LINES
-) -> tuple[str, bool]:
+def _read_file_safely(path: Path, max_lines: int = DEFAULT_MAX_FILE_LINES) -> tuple[str, bool]:
     """Read file with line limit to prevent memory issues.
 
     Args:

@@ -400,9 +400,7 @@ class TestFlightPlanRoundTrip:
     def test_round_trip_success_criteria_text(self, tmp_path: Path) -> None:
         """Success criteria text must survive round-trip."""
         original, reloaded = self._round_trip(tmp_path, SAMPLE_FLIGHT_PLAN_MD)
-        for orig, rt in zip(
-            original.success_criteria, reloaded.success_criteria, strict=True
-        ):
+        for orig, rt in zip(original.success_criteria, reloaded.success_criteria, strict=True):
             assert rt.text == orig.text
             assert rt.checked == orig.checked
 

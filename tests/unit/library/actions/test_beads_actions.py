@@ -106,9 +106,7 @@ class TestParseSpeckit:
         assert result.epic_definition["title"] == "001-test"
         assert result.epic_definition["bead_type"] == "epic"
         assert len(result.work_definitions) >= 1
-        assert "T001" in result.tasks_content or (
-            "Initialize project" in result.tasks_content
-        )
+        assert "T001" in result.tasks_content or ("Initialize project" in result.tasks_content)
 
     @pytest.mark.asyncio
     async def test_extracts_dependency_section(self, temp_dir: Path) -> None:
@@ -424,9 +422,7 @@ class TestSelectNextBead:
 
         mock_client = AsyncMock()
         mock_client.ready.return_value = [
-            ReadyBead(
-                id="b-1", title="Fix lint", priority=5, description="Fix all lint"
-            )
+            ReadyBead(id="b-1", title="Fix lint", priority=5, description="Fix all lint")
         ]
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
@@ -474,7 +470,7 @@ class TestSelectNextBead:
             result = await select_next_bead("")
 
         # Should pass None to client.ready (no parent filter)
-        mock_client.ready.assert_called_once_with(None, limit=1)
+        mock_client.ready.assert_called_once_with(None, limit=10)
         assert result.found is True
         assert result.bead_id == "b-2"
         assert result.epic_id == "auto-epic-99"
@@ -514,8 +510,8 @@ class TestSelectNextBead:
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
-        # show() called for bead description and epic flight_plan_name
-        assert mock_client.show.call_count == 2
+        # show() called for: label check, bead description, epic flight_plan_name
+        assert mock_client.show.call_count == 3
         assert result.description == "Fetched from show"
         assert result.flight_plan_name == "my-plan"
 
@@ -530,7 +526,7 @@ class TestSelectNextBead:
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
             result = await select_next_bead("")
 
-        mock_client.ready.assert_called_once_with(None, limit=1)
+        mock_client.ready.assert_called_once_with(None, limit=10)
         assert result.found is False
         assert result.done is True
         assert result.epic_id == ""

@@ -27,9 +27,7 @@ class TestCreateThenValidateWorkflow:
         with runner.isolated_filesystem():
             # Step 1: create the flight plan
             result_create = runner.invoke(cli, ["plan", "create", "test-plan"])
-            assert result_create.exit_code == 0, (
-                f"Create failed. Output: {result_create.output!r}"
-            )
+            assert result_create.exit_code == 0, f"Create failed. Output: {result_create.output!r}"
 
             # Step 2: verify the file was created
             plan_path = Path(".maverick/plans/test-plan/flight-plan.md")
@@ -50,9 +48,9 @@ class TestCreateThenValidateWorkflow:
             result = runner.invoke(cli, ["plan", "validate", "my-plan"])
             assert result.exit_code == 0
             output_lower = result.output.lower()
-            assert any(
-                word in output_lower for word in ("valid", "passed", "ok", "success")
-            ), f"Expected success message in output: {result.output!r}"
+            assert any(word in output_lower for word in ("valid", "passed", "ok", "success")), (
+                f"Expected success message in output: {result.output!r}"
+            )
 
     def test_create_with_custom_output_dir_then_validate(self) -> None:
         """Create in custom dir, then validate the created file."""
@@ -63,9 +61,7 @@ class TestCreateThenValidateWorkflow:
                 cli,
                 ["plan", "create", "api-feature", "--output-dir", custom_dir],
             )
-            assert result_create.exit_code == 0, (
-                f"Create failed. Output: {result_create.output!r}"
-            )
+            assert result_create.exit_code == 0, f"Create failed. Output: {result_create.output!r}"
 
             plan_path = Path(custom_dir) / "api-feature" / "flight-plan.md"
             assert plan_path.exists(), f"Expected file at {plan_path}"
@@ -183,9 +179,9 @@ class TestValidateFailures:
             )
             assert result.exit_code == 1
             output_lower = result.output.lower()
-            assert any(
-                word in output_lower for word in ("not found", "error", "no such")
-            ), f"Expected error message, got: {result.output!r}"
+            assert any(word in output_lower for word in ("not found", "error", "no such")), (
+                f"Expected error message, got: {result.output!r}"
+            )
 
     def test_file_missing_frontmatter_fails(self) -> None:
         """Validating a file with no YAML frontmatter exits 1."""

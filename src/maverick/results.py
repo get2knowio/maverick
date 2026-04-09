@@ -186,11 +186,7 @@ class StepResult:
         """
         if hasattr(item, "to_dict"):
             return item.to_dict()
-        return (
-            str(item)
-            if not isinstance(item, (str, int, float, bool, type(None)))
-            else item
-        )
+        return str(item) if not isinstance(item, (str, int, float, bool, type(None))) else item
 
 
 @dataclass(frozen=True, slots=True)

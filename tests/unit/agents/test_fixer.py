@@ -70,8 +70,7 @@ class TestFixerAgentInitialization:
         expected_tools = set(AUTONOMOUS_FIXER_TOOLS)
         actual_tools = set(agent.allowed_tools)
         assert actual_tools == expected_tools, (
-            f"FixerAgent tools mismatch. "
-            f"Expected: {expected_tools}, Got: {actual_tools}"
+            f"FixerAgent tools mismatch. Expected: {expected_tools}, Got: {actual_tools}"
         )
 
     def test_allowed_tools_has_search(self, agent: FixerAgent) -> None:

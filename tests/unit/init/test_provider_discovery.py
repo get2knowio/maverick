@@ -80,18 +80,14 @@ class TestProviderDiscoveryResult:
 
     def test_found_providers_empty(self) -> None:
         result = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),),
             default_provider=None,
         )
         assert result.found_providers == ()
 
     def test_to_dict(self) -> None:
         result = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
             default_provider="claude",
             duration_ms=5,
         )
@@ -110,9 +106,7 @@ class TestProviderDiscoveryResult:
 class TestDiscoverProviders:
     @pytest.mark.asyncio
     async def test_all_providers_found(self) -> None:
-        with patch(
-            "maverick.init.provider_discovery.shutil.which", return_value="/usr/bin/x"
-        ):
+        with patch("maverick.init.provider_discovery.shutil.which", return_value="/usr/bin/x"):
             result = await discover_providers()
 
         assert len(result.providers) == 3
@@ -165,9 +159,7 @@ class TestDiscoverProviders:
     @pytest.mark.asyncio
     async def test_claude_preferred_over_copilot(self) -> None:
         """Claude takes priority over Copilot when both are available."""
-        with patch(
-            "maverick.init.provider_discovery.shutil.which", return_value="/usr/bin/x"
-        ):
+        with patch("maverick.init.provider_discovery.shutil.which", return_value="/usr/bin/x"):
             result = await discover_providers()
 
         assert result.default_provider == "claude"

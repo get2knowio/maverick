@@ -130,8 +130,7 @@ class WorkspaceManager:
             )
         except JjError as e:
             raise WorkspaceCloneError(
-                f"Failed to clone {self._user_repo_path} "
-                f"into {self.workspace_path}: {e}",
+                f"Failed to clone {self._user_repo_path} into {self.workspace_path}: {e}",
                 workspace_path=str(self.workspace_path),
             ) from e
 

@@ -11,7 +11,6 @@ needed. The supervisor reads tool call data directly.
 from __future__ import annotations
 
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -78,9 +77,7 @@ class RefuelSupervisor:
 
         from maverick.actors.inbox import InboxActor
 
-        self._actor_system = ActorSystem(
-            "multiprocTCPBase", transientUnique=True
-        )
+        self._actor_system = ActorSystem("multiprocTCPBase", transientUnique=True)
         self._inbox_addr = self._actor_system.createActor(
             InboxActor, globalName="supervisor-inbox"
         )
@@ -113,9 +110,7 @@ class RefuelSupervisor:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: self._actor_system.ask(
-                self._inbox_addr, "get_latest", timeout=timeout
-            ),
+            lambda: self._actor_system.ask(self._inbox_addr, "get_latest", timeout=timeout),
         )
         return result
 
@@ -177,24 +172,13 @@ class RefuelSupervisor:
         elapsed = time.monotonic() - t0
 
         create_result = self._find_last(MessageType.CREATE_BEADS_RESULT)
-        success = (
-            create_result is not None
-            and create_result.payload.get("success", False)
-        )
+        success = create_result is not None and create_result.payload.get("success", False)
 
         return RefuelOutcome(
             success=success,
             specs=self._specs,
-            epic_id=(
-                create_result.payload.get("epic_id", "")
-                if create_result
-                else ""
-            ),
-            bead_count=(
-                create_result.payload.get("bead_count", 0)
-                if create_result
-                else 0
-            ),
+            epic_id=(create_result.payload.get("epic_id", "") if create_result else ""),
+            bead_count=(create_result.payload.get("bead_count", 0) if create_result else 0),
             fix_rounds=self._fix_rounds,
             message_log=list(self._message_log),
             duration_seconds=elapsed,
@@ -204,15 +188,11 @@ class RefuelSupervisor:
         """Routing policy."""
 
         match message.msg_type:
-
             case MessageType.OUTLINE_RESULT:
                 # Data came directly from MCP tool call — already structured
                 self._outline_data = message.payload
                 work_units = message.payload.get("work_units", [])
-                unit_ids = [
-                    wu.get("id", "") for wu in work_units
-                    if isinstance(wu, dict)
-                ]
+                unit_ids = [wu.get("id", "") for wu in work_units if isinstance(wu, dict)]
 
                 outline_json = json.dumps(self._outline_data)
 
@@ -291,13 +271,9 @@ class RefuelSupervisor:
                 fix_data = message.payload
                 if fix_data.get("work_units") or fix_data.get("details"):
                     if fix_data.get("work_units"):
-                        self._outline_data = {
-                            "work_units": fix_data["work_units"]
-                        }
+                        self._outline_data = {"work_units": fix_data["work_units"]}
                     if fix_data.get("details"):
-                        self._detail_data = {
-                            "details": fix_data["details"]
-                        }
+                        self._detail_data = {"details": fix_data["details"]}
                     self._specs = self._merge_to_specs()
                     return [
                         self._make_message(
@@ -314,8 +290,7 @@ class RefuelSupervisor:
                     logger.warning(
                         "refuel_supervisor.fix_empty_payload",
                         round=self._fix_rounds,
-                        msg="Agent did not call submit_fix tool; "
-                        "proceeding with existing specs",
+                        msg="Agent did not call submit_fix tool; proceeding with existing specs",
                     )
                     extracted_deps = self._extract_deps()
                     return [
@@ -350,16 +325,8 @@ class RefuelSupervisor:
             WorkUnitSpec,
         )
 
-        work_units = (
-            self._outline_data.get("work_units", [])
-            if self._outline_data
-            else []
-        )
-        details = (
-            self._detail_data.get("details", [])
-            if self._detail_data
-            else []
-        )
+        work_units = self._outline_data.get("work_units", []) if self._outline_data else []
+        details = self._detail_data.get("details", []) if self._detail_data else []
 
         # Index details by ID
         detail_map: dict[str, dict[str, Any]] = {}
@@ -384,13 +351,9 @@ class RefuelSupervisor:
                 "depends_on": wu.get("depends_on", []),
                 "file_scope": wu.get("file_scope", {}),
                 "instructions": detail.get("instructions", ""),
-                "acceptance_criteria": detail.get(
-                    "acceptance_criteria", []
-                ),
+                "acceptance_criteria": detail.get("acceptance_criteria", []),
                 "verification": detail.get("verification", []),
-                "test_specification": detail.get(
-                    "test_specification", ""
-                ),
+                "test_specification": detail.get("test_specification", ""),
             }
 
             try:
@@ -412,9 +375,7 @@ class RefuelSupervisor:
         for spec in self._specs:
             sid = spec.id if hasattr(spec, "id") else spec.get("id", "")
             dep_list = (
-                spec.depends_on
-                if hasattr(spec, "depends_on")
-                else spec.get("depends_on", [])
+                spec.depends_on if hasattr(spec, "depends_on") else spec.get("depends_on", [])
             )
             for dep_id in dep_list:
                 deps.append([sid, dep_id])
@@ -428,7 +389,7 @@ class RefuelSupervisor:
         sc_list = getattr(self._flight_plan, "success_criteria", [])
         sc_map = {}
         for i, sc in enumerate(sc_list):
-            ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
+            ref = getattr(sc, "ref", None) or f"SC-{i + 1:03d}"
             text = getattr(sc, "text", str(sc))
             sc_map[ref] = text
 

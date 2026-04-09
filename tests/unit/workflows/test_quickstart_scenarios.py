@@ -128,9 +128,7 @@ class TestQuickstartHappyPath:
         assert last.success is False
 
         # StepCompleted(success=False) present
-        failed_events = [
-            e for e in events if isinstance(e, StepCompleted) and not e.success
-        ]
+        failed_events = [e for e in events if isinstance(e, StepCompleted) and not e.success]
         assert len(failed_events) == 1
         assert failed_events[0].step_name == "my_step"
 
@@ -138,9 +136,7 @@ class TestQuickstartHappyPath:
 class TestQuickstartConfigResolution:
     """Verify resolve_step_config() as shown in quickstart.md."""
 
-    def test_resolve_step_config_returns_step_config(
-        self, workflow: _QuickstartWorkflow
-    ) -> None:
+    def test_resolve_step_config_returns_step_config(self, workflow: _QuickstartWorkflow) -> None:
         """resolve_step_config() returns a StepConfig."""
         from maverick.executor.config import StepConfig
 
@@ -177,15 +173,9 @@ class TestQuickstartProgressEvents:
         class _OutputWorkflow(PythonWorkflow):
             async def _run(self, inputs: dict[str, Any]) -> Any:
                 await self.emit_step_started("my_step")
-                await self.emit_output(
-                    "my_step", "Processing item 3/10...", level="info"
-                )
-                await self.emit_output(
-                    "my_step", "All items processed", level="success"
-                )
-                await self.emit_output(
-                    "my_step", "Skipping optional check", level="warning"
-                )
+                await self.emit_output("my_step", "Processing item 3/10...", level="info")
+                await self.emit_output("my_step", "All items processed", level="success")
+                await self.emit_output("my_step", "Skipping optional check", level="warning")
                 await self.emit_step_completed("my_step")
                 return None
 
@@ -259,9 +249,7 @@ class TestQuickstartCheckpointing:
             async def _run(self, inputs: dict[str, Any]) -> Any:
                 # Load existing checkpoint (if resuming)
                 checkpoint = await self.load_checkpoint()
-                completed_beads = (
-                    checkpoint.get("completed_beads", []) if checkpoint else []
-                )
+                completed_beads = checkpoint.get("completed_beads", []) if checkpoint else []
 
                 # Process a "bead"
                 bead_id = "bead-001"

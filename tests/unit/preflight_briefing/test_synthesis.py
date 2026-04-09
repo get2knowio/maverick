@@ -91,9 +91,7 @@ class TestSynthesizePreflightBriefing:
         assert doc.key_criteria == ("Tests pass", "Lint clean")
 
     def test_open_questions_from_contrarian(self) -> None:
-        contrarian = _make_contrarian(
-            missing_considerations=("Rate limiting?", "Error handling?")
-        )
+        contrarian = _make_contrarian(missing_considerations=("Rate limiting?", "Error handling?"))
         doc = synthesize_preflight_briefing(
             "plan",
             _make_scopist(),
@@ -130,9 +128,7 @@ class TestSynthesizePreflightBriefing:
         analyst = _make_codebase_analyst()
         criteria = _make_criteria_writer()
         contrarian = _make_contrarian()
-        doc = synthesize_preflight_briefing(
-            "plan", scopist, analyst, criteria, contrarian
-        )
+        doc = synthesize_preflight_briefing("plan", scopist, analyst, criteria, contrarian)
         assert doc.scopist is scopist
         assert doc.codebase_analyst is analyst
         assert doc.criteria_writer is criteria

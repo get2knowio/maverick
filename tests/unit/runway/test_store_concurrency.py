@@ -11,9 +11,7 @@ from maverick.runway.store import RunwayStore
 class TestConcurrentAppends:
     """Verify concurrent coroutine appends don't lose records."""
 
-    async def test_concurrent_bead_outcome_appends(
-        self, initialized_store: RunwayStore
-    ) -> None:
+    async def test_concurrent_bead_outcome_appends(self, initialized_store: RunwayStore) -> None:
         """Multiple coroutines appending simultaneously should not lose data."""
         count = 20
 
@@ -26,18 +24,14 @@ class TestConcurrentAppends:
         outcomes = await initialized_store.get_bead_outcomes()
         assert len(outcomes) == count
 
-    async def test_concurrent_mixed_appends(
-        self, initialized_store: RunwayStore
-    ) -> None:
+    async def test_concurrent_mixed_appends(self, initialized_store: RunwayStore) -> None:
         """Appends to different JSONL files concurrently."""
         from maverick.runway.models import FixAttemptRecord, RunwayReviewFinding
 
         tasks = []
         for i in range(10):
             tasks.append(
-                initialized_store.append_bead_outcome(
-                    BeadOutcome(bead_id=f"b{i}", epic_id="e1")
-                )
+                initialized_store.append_bead_outcome(BeadOutcome(bead_id=f"b{i}", epic_id="e1"))
             )
             tasks.append(
                 initialized_store.append_review_finding(

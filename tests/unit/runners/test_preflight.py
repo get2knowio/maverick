@@ -370,9 +370,7 @@ class TestPreflightValidator:
         assert result.total_duration_ms == 0
 
     @pytest.mark.asyncio
-    async def test_run_with_all_successful(
-        self, mock_successful_runner: MagicMock
-    ) -> None:
+    async def test_run_with_all_successful(self, mock_successful_runner: MagicMock) -> None:
         """Test run() with all validations passing."""
         runner2 = MagicMock()
         runner2.__class__.__name__ = "MockSuccessRunner2"
@@ -473,9 +471,7 @@ class TestPreflightValidator:
         """Test that exceptions in validate() are caught and reported."""
         error_runner = MagicMock()
         error_runner.__class__.__name__ = "ErrorRunner"
-        error_runner.validate = AsyncMock(
-            side_effect=RuntimeError("Something went wrong")
-        )
+        error_runner.validate = AsyncMock(side_effect=RuntimeError("Something went wrong"))
 
         validator = PreflightValidator(runners=[error_runner])
 
@@ -545,9 +541,7 @@ class TestPreflightValidator:
         assert any("timed out" in err for err in result.all_errors)
 
     @pytest.mark.asyncio
-    async def test_default_config_is_used(
-        self, mock_successful_runner: MagicMock
-    ) -> None:
+    async def test_default_config_is_used(self, mock_successful_runner: MagicMock) -> None:
         """Test that default config is used when not provided."""
         validator = PreflightValidator(runners=[mock_successful_runner])
 

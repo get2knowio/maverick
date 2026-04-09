@@ -112,37 +112,25 @@ class MCPToolValidator:
             self._validate_array(value, schema, path, errors)
         elif schema_type == "string":
             if not is_string_value(value):
-                errors.append(
-                    f"{path or 'root'}: expected string, got {type(value).__name__}"
-                )
+                errors.append(f"{path or 'root'}: expected string, got {type(value).__name__}")
         elif schema_type == "integer":
             if not isinstance(value, int) or isinstance(value, bool):
-                errors.append(
-                    f"{path or 'root'}: expected integer, got {type(value).__name__}"
-                )
+                errors.append(f"{path or 'root'}: expected integer, got {type(value).__name__}")
         elif schema_type == "number":
             if not isinstance(value, (int, float)) or isinstance(value, bool):
-                errors.append(
-                    f"{path or 'root'}: expected number, got {type(value).__name__}"
-                )
+                errors.append(f"{path or 'root'}: expected number, got {type(value).__name__}")
         elif schema_type == "boolean":
             if not isinstance(value, bool):
-                errors.append(
-                    f"{path or 'root'}: expected boolean, got {type(value).__name__}"
-                )
+                errors.append(f"{path or 'root'}: expected boolean, got {type(value).__name__}")
         elif schema_type == "null" and value is not None:
-            errors.append(
-                f"{path or 'root'}: expected null, got {type(value).__name__}"
-            )
+            errors.append(f"{path or 'root'}: expected null, got {type(value).__name__}")
 
     def _validate_object(
         self, value: Any, schema: dict[str, Any], path: str, errors: list[str]
     ) -> None:
         """Validate an object value against an object schema."""
         if not is_dict_value(value):
-            errors.append(
-                f"{path or 'root'}: expected object, got {type(value).__name__}"
-            )
+            errors.append(f"{path or 'root'}: expected object, got {type(value).__name__}")
             return
 
         # Check required fields
@@ -164,9 +152,7 @@ class MCPToolValidator:
     ) -> None:
         """Validate an array value against an array schema."""
         if not is_list_value(value):
-            errors.append(
-                f"{path or 'root'}: expected array, got {type(value).__name__}"
-            )
+            errors.append(f"{path or 'root'}: expected array, got {type(value).__name__}")
             return
 
         items_schema = schema.get("items")

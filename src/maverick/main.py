@@ -150,9 +150,7 @@ def cli(
             missing_deps = [dep for dep in dep_statuses if not dep.available]
             if missing_deps:
                 for dep in missing_deps:
-                    suggestion = (
-                        f"Install from {dep.install_url}" if dep.install_url else None
-                    )
+                    suggestion = f"Install from {dep.install_url}" if dep.install_url else None
                     error_msg = format_error(
                         dep.error or f"{dep.name} is not available",
                         suggestion=suggestion,
@@ -191,7 +189,7 @@ cli.add_command(uninstall)
 cli.add_command(workspace)
 
 # Internal commands (used by actor-mailbox infrastructure)
-from maverick.cli.commands.serve_inbox import serve_inbox
+from maverick.cli.commands.serve_inbox import serve_inbox  # noqa: E402
 
 cli.add_command(serve_inbox)
 

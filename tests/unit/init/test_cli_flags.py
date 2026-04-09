@@ -405,9 +405,7 @@ class TestSkipProvidersFlag:
                 new_callable=AsyncMock,
             ) as mock_discover,
         ):
-            result = cli_runner.invoke(
-                cli, ["init", "--type", "python", "--skip-providers"]
-            )
+            result = cli_runner.invoke(cli, ["init", "--type", "python", "--skip-providers"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         mock_discover.assert_not_called()
@@ -473,9 +471,7 @@ class TestSkipProvidersFlag:
         )
 
         discovery = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
             default_provider="claude",
         )
 
@@ -546,9 +542,7 @@ class TestSkipProvidersFlag:
         )
 
         discovery = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
             default_provider="claude",
         )
 

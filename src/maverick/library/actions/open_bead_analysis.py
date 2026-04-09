@@ -99,16 +99,12 @@ class OpenBeadAnalysisResult:
         if self.file_overlaps:
             lines.append("### File Scope Overlaps")
             lines.append("")
-            lines.append(
-                "These files are in-scope for both this plan and an open epic:"
-            )
+            lines.append("These files are in-scope for both this plan and an open epic:")
             lines.append("")
             # Group by epic
             by_epic: dict[str, list[str]] = {}
             for overlap in self.file_overlaps:
-                by_epic.setdefault(overlap.epic_flight_plan_name, []).append(
-                    overlap.file_path
-                )
+                by_epic.setdefault(overlap.epic_flight_plan_name, []).append(overlap.file_path)
             for plan_name, files in by_epic.items():
                 lines.append(f"**{plan_name}**:")
                 for f in files:

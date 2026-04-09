@@ -57,8 +57,7 @@ def create(name: str, plans_dir: str) -> None:
     # Guard: --output-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
         console.print(
-            f"[red]Error:[/red] '[bold]{plans_dir}[/bold]' exists but"
-            " is not a directory.",
+            f"[red]Error:[/red] '[bold]{plans_dir}[/bold]' exists but is not a directory.",
         )
         raise SystemExit(ExitCode.FAILURE)
 
@@ -79,8 +78,7 @@ def create(name: str, plans_dir: str) -> None:
         plan_dir.mkdir(parents=True, exist_ok=True)
     except PermissionError:
         console.print(
-            f"[red]Error:[/red] Permission denied creating directory "
-            f"'[bold]{plan_dir}[/bold]'.",
+            f"[red]Error:[/red] Permission denied creating directory '[bold]{plan_dir}[/bold]'.",
         )
         raise SystemExit(ExitCode.FAILURE) from None
 
@@ -90,12 +88,10 @@ def create(name: str, plans_dir: str) -> None:
         target_file.write_text(skeleton, encoding="utf-8")
     except PermissionError:
         console.print(
-            f"[red]Error:[/red] Permission denied writing to "
-            f"'[bold]{target_file}[/bold]'.",
+            f"[red]Error:[/red] Permission denied writing to '[bold]{target_file}[/bold]'.",
         )
         raise SystemExit(ExitCode.FAILURE) from None
 
     console.print(
-        f"[green]Created[/green] flight plan '[bold]{name}[/bold]' at "
-        f"[dim]{target_file}[/dim]",
+        f"[green]Created[/green] flight plan '[bold]{name}[/bold]' at [dim]{target_file}[/dim]",
     )

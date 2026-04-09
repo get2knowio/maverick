@@ -113,9 +113,7 @@ class TestMockFixtures:
         assert messages[2].usage["input_tokens"] == 150
 
     @pytest.mark.asyncio
-    async def test_mock_sdk_client_query_tracking(
-        self, mock_sdk_client: MockSDKClient
-    ) -> None:
+    async def test_mock_sdk_client_query_tracking(self, mock_sdk_client: MockSDKClient) -> None:
         """Test that queries are tracked by the mock SDK client.
 
         Demonstrates:
@@ -213,9 +211,7 @@ class TestMockFixtures:
         assert messages3[1].message_type == "ResultMessage"
 
     @pytest.mark.asyncio
-    async def test_mock_sdk_client_context_manager(
-        self, mock_sdk_client: MockSDKClient
-    ) -> None:
+    async def test_mock_sdk_client_context_manager(self, mock_sdk_client: MockSDKClient) -> None:
         """Test using mock SDK client as async context manager.
 
         Demonstrates:

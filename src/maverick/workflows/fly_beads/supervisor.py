@@ -156,23 +156,16 @@ class BeadSupervisor:
 
         # Extract outcome from the last COMMIT_RESULT
         commit_result = self._find_last_message(MessageType.COMMIT_RESULT)
-        committed = commit_result is not None and commit_result.payload.get(
-            "success", False
-        )
+        committed = commit_result is not None and commit_result.payload.get("success", False)
         needs_review = (
-            commit_result is not None
-            and commit_result.payload.get("tag") == "needs-human-review"
+            commit_result is not None and commit_result.payload.get("tag") == "needs-human-review"
         )
 
         return BeadOutcome(
             bead_id=self._bead_id,
             committed=committed,
             needs_human_review=needs_review,
-            commit_sha=(
-                commit_result.payload.get("commit_sha")
-                if commit_result
-                else None
-            ),
+            commit_sha=(commit_result.payload.get("commit_sha") if commit_result else None),
             message_log=list(self._message_log),
             review_rounds=self._review_rounds,
             gate_attempts=self._gate_fix_attempts,
@@ -187,7 +180,6 @@ class BeadSupervisor:
         500-line bead loop into an explicit, testable match statement.
         """
         match message.msg_type:
-
             case MessageType.IMPLEMENT_RESULT:
                 # Implementation done → run gate
                 return [
@@ -324,9 +316,7 @@ class BeadSupervisor:
                             sender="supervisor",
                             recipient="implementer",
                             payload={
-                                "review_findings": message.payload.get(
-                                    "findings", []
-                                ),
+                                "review_findings": message.payload.get("findings", []),
                             },
                             in_reply_to=message.sequence,
                         )

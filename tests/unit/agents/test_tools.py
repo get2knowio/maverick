@@ -302,9 +302,7 @@ class TestToolSetRelationships:
         ]
 
         # Filter to read-only (no Write, no Edit)
-        read_only_sets = [
-            s for s in non_empty_sets if "Write" not in s and "Edit" not in s
-        ]
+        read_only_sets = [s for s in non_empty_sets if "Write" not in s and "Edit" not in s]
 
         # REVIEWER_TOOLS should be the only read-only set
         assert read_only_sets == [REVIEWER_TOOLS]

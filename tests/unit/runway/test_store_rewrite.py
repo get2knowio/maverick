@@ -36,9 +36,7 @@ def initialized_store(tmp_path: Path) -> RunwayStore:
 
     # Seed review-findings.jsonl
     findings_file = episodic / "review-findings.jsonl"
-    findings_file.write_text(
-        json.dumps({"finding_id": "F1", "bead_id": "old-1"}) + "\n"
-    )
+    findings_file.write_text(json.dumps({"finding_id": "F1", "bead_id": "old-1"}) + "\n")
 
     # Seed fix-attempts.jsonl
     attempts_file = episodic / "fix-attempts.jsonl"
@@ -116,9 +114,7 @@ async def test_rewrite_review_findings_typed(initialized_store: RunwayStore) -> 
 async def test_rewrite_fix_attempts_typed(initialized_store: RunwayStore) -> None:
     """Typed rewrite method should work with FixAttemptRecord objects."""
     attempts = [
-        FixAttemptRecord(
-            attempt_id="A10", finding_id="F10", bead_id="b1", succeeded=True
-        ),
+        FixAttemptRecord(attempt_id="A10", finding_id="F10", bead_id="b1", succeeded=True),
     ]
     await initialized_store.rewrite_fix_attempts(attempts)
 

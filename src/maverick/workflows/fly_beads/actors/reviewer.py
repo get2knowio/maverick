@@ -114,9 +114,13 @@ class ReviewerActor:
         )
 
         inbox_data = await self._read_inbox_with_retry(session_id)
-        payload = inbox_data.get("arguments", {}) if inbox_data else {
-            "approved": True,
-        }
+        payload = (
+            inbox_data.get("arguments", {})
+            if inbox_data
+            else {
+                "approved": True,
+            }
+        )
         payload["review_round"] = self._review_count
 
         return [
@@ -170,9 +174,13 @@ class ReviewerActor:
         )
 
         inbox_data = await self._read_inbox_with_retry(session_id)
-        payload = inbox_data.get("arguments", {}) if inbox_data else {
-            "approved": True,
-        }
+        payload = (
+            inbox_data.get("arguments", {})
+            if inbox_data
+            else {
+                "approved": True,
+            }
+        )
         payload["review_round"] = self._review_count
 
         return [
@@ -193,9 +201,7 @@ class ReviewerActor:
             return data
 
         for retry in range(max_retries):
-            logger.info(
-                "reviewer_actor.inbox_retry", retry=retry + 1
-            )
+            logger.info("reviewer_actor.inbox_retry", retry=retry + 1)
             await self._executor.prompt_session(
                 session_id=session_id,
                 prompt_text=(
@@ -218,15 +224,11 @@ class ReviewerActor:
     def _read_inbox_file(self) -> dict[str, Any] | None:
         if self._inbox_path.exists():
             try:
-                data = json.loads(
-                    self._inbox_path.read_text(encoding="utf-8")
-                )
+                data = json.loads(self._inbox_path.read_text(encoding="utf-8"))
                 self._inbox_path.unlink()
                 return data
             except Exception as exc:
-                logger.warning(
-                    "reviewer_actor.inbox_read_failed", error=str(exc)
-                )
+                logger.warning("reviewer_actor.inbox_read_failed", error=str(exc))
         return None
 
     def get_state_snapshot(self) -> dict[str, Any]:

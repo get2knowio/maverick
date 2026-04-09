@@ -211,9 +211,7 @@ class TestBriefingDocument:
                 integration_points=(),
                 summary="nav",
             ),
-            structuralist=StructuralistBrief(
-                entities=(), interfaces=(), summary="struct"
-            ),
+            structuralist=StructuralistBrief(entities=(), interfaces=(), summary="struct"),
             recon=ReconBrief(
                 risks=(),
                 ambiguities=(),

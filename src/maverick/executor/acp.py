@@ -212,9 +212,7 @@ class AcpStepExecutor:
 
         # Resolve instructions: explicit caller instructions take priority,
         # then fall back to the agent's own instructions property.
-        effective_instructions = instructions or getattr(
-            agent_instance, "instructions", None
-        )
+        effective_instructions = instructions or getattr(agent_instance, "instructions", None)
 
         # Append output schema to prompt so the agent knows the exact structure
         if output_schema is not None:
@@ -232,11 +230,7 @@ class AcpStepExecutor:
 
         # Prepend system instructions when available
         if effective_instructions:
-            prompt_text = (
-                f"[SYSTEM INSTRUCTIONS]\n"
-                f"{effective_instructions}\n\n"
-                f"---\n\n{raw_prompt}"
-            )
+            prompt_text = f"[SYSTEM INSTRUCTIONS]\n{effective_instructions}\n\n---\n\n{raw_prompt}"
         else:
             prompt_text = raw_prompt
 
@@ -248,10 +242,7 @@ class AcpStepExecutor:
 
         # --- Resolve effective retry ---
         max_attempts = 1
-        if (
-            effective_config.max_retries is not None
-            and effective_config.max_retries > 0
-        ):
+        if effective_config.max_retries is not None and effective_config.max_retries > 0:
             max_attempts = effective_config.max_retries + 1
         elif (
             effective_config.retry_policy is not None
@@ -267,9 +258,7 @@ class AcpStepExecutor:
 
         # --- Execute with retry ---
         output: Any = None
-        allowed_tools_frozen = (
-            frozenset(allowed_tools) if allowed_tools is not None else None
-        )
+        allowed_tools_frozen = frozenset(allowed_tools) if allowed_tools is not None else None
         cwd_str = str(cwd) if cwd is not None else str(Path.cwd())
 
         model_label: str | None = None
@@ -424,9 +413,7 @@ class AcpStepExecutor:
             allowed_tools=allowed_tools_frozen,
         )
 
-        session = await cached.conn.new_session(
-            cwd=cwd_str, mcp_servers=mcp_servers or []
-        )
+        session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])
         session_id = session.session_id
 
         # Set model if configured
@@ -522,9 +509,7 @@ class AcpStepExecutor:
                 session_id=session_id,
             )
             if effective_config.timeout is not None:
-                await asyncio.wait_for(
-                    coro, timeout=float(effective_config.timeout)
-                )
+                await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
             else:
                 await coro
         except TimeoutError as exc:
@@ -603,9 +588,7 @@ class AcpStepExecutor:
 
         command_args = provider_config.command
         if not command_args:
-            raise CLINotFoundError(
-                f"Provider '{provider_name}' has an empty command list"
-            )
+            raise CLINotFoundError(f"Provider '{provider_name}' has an empty command list")
 
         command = command_args[0]
         args = tuple(command_args[1:])
@@ -642,7 +625,10 @@ class AcpStepExecutor:
             # agents that produce large tool-call messages (e.g., Write tool
             # with full file contents).
             ctx = spawn_agent_process(
-                client, command, *args, env=env,
+                client,
+                command,
+                *args,
+                env=env,
                 transport_kwargs={"limit": 1_048_576},
             )
             conn, proc = await ctx.__aenter__()
@@ -654,8 +640,7 @@ class AcpStepExecutor:
             ) from exc
         except OSError as exc:
             raise ProcessError(
-                f"Failed to spawn agent subprocess for provider "
-                f"'{provider_name}': {exc}"
+                f"Failed to spawn agent subprocess for provider '{provider_name}': {exc}"
             ) from exc
 
         # Give the client a reference to the connection for circuit breaker cancellation
@@ -673,8 +658,7 @@ class AcpStepExecutor:
             ) from exc
         except Exception as exc:
             raise NetworkError(
-                f"Unexpected error during ACP initialize for provider "
-                f"'{provider_name}': {exc}"
+                f"Unexpected error during ACP initialize for provider '{provider_name}': {exc}"
             ) from exc
 
         cached = CachedConnection(
@@ -735,9 +719,7 @@ class AcpStepExecutor:
             await _wait_for_process(stale.proc)
 
         # Spawn a fresh connection
-        new_cached = await self._get_or_create_connection(
-            provider_name, provider_config
-        )
+        new_cached = await self._get_or_create_connection(provider_name, provider_config)
 
         self._logger.info(
             "acp_executor.reconnect_success",
@@ -827,9 +809,7 @@ class AcpStepExecutor:
             except AcpRequestError:
                 # Attempt one transparent reconnect, then retry session creation once.
                 try:
-                    current_cached[0] = await self._reconnect(
-                        provider_name, provider_config
-                    )
+                    current_cached[0] = await self._reconnect(provider_name, provider_config)
                     conn = current_cached[0].conn
                     client = current_cached[0].client
                     client.reset(
@@ -905,24 +885,19 @@ class AcpStepExecutor:
                     session_id=session_id,
                 )
                 if effective_config.timeout is not None:
-                    await asyncio.wait_for(
-                        coro, timeout=float(effective_config.timeout)
-                    )
+                    await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
                 else:
                     await coro
             except TimeoutError as exc:
                 raise MaverickTimeoutError(
-                    f"ACP step '{step_name}' timed out after "
-                    f"{effective_config.timeout}s",
+                    f"ACP step '{step_name}' timed out after {effective_config.timeout}s",
                     timeout_seconds=float(effective_config.timeout or 0),
                 ) from exc
             except AcpRequestError:
                 # Attempt one transparent reconnect and retry the full
                 # session + prompt once before surfacing as NetworkError.
                 try:
-                    current_cached[0] = await self._reconnect(
-                        provider_name, provider_config
-                    )
+                    current_cached[0] = await self._reconnect(provider_name, provider_config)
                     conn = current_cached[0].conn
                     client = current_cached[0].client
                     client.reset(
@@ -938,17 +913,14 @@ class AcpStepExecutor:
                         session_id=retry_session_id,
                     )
                     if effective_config.timeout is not None:
-                        await asyncio.wait_for(
-                            retry_coro, timeout=float(effective_config.timeout)
-                        )
+                        await asyncio.wait_for(retry_coro, timeout=float(effective_config.timeout))
                     else:
                         await retry_coro
                     # Update session_id so response_complete log is accurate
                     session_id = retry_session_id
                 except AcpRequestError as retry_exc:
                     raise NetworkError(
-                        f"ACP request failed for step '{step_name}' after "
-                        f"reconnect: {retry_exc}",
+                        f"ACP request failed for step '{step_name}' after reconnect: {retry_exc}",
                     ) from retry_exc
 
             # Check circuit breaker

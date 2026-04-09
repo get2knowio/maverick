@@ -42,9 +42,7 @@ def synthesize_briefing(
     """
     key_decisions = tuple(adr.title for adr in navigator.architecture_decisions)
 
-    key_risks = tuple(
-        risk.description for risk in recon.risks if risk.severity == "high"
-    )
+    key_risks = tuple(risk.description for risk in recon.risks if risk.severity == "high")
 
     open_questions = tuple(ambiguity.question for ambiguity in recon.ambiguities)
 

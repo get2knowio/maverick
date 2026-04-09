@@ -145,9 +145,7 @@ class TestJjRepositoryCurrentBranch:
     """Tests for current_branch()."""
 
     @pytest.mark.asyncio
-    async def test_returns_bookmark(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_returns_bookmark(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(
             changes=(
                 JjChangeInfo(
@@ -176,9 +174,7 @@ class TestJjRepositoryCurrentBranch:
         assert await repo.current_branch() == "kxyz"
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_status(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_falls_back_to_status(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(changes=())
         mock_client.status.return_value = JjStatusResult(
             working_copy_change_id="wxyz",
@@ -186,9 +182,7 @@ class TestJjRepositoryCurrentBranch:
         assert await repo.current_branch() == "wxyz"
 
     @pytest.mark.asyncio
-    async def test_unknown_when_no_info(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_unknown_when_no_info(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(changes=())
         mock_client.status.return_value = JjStatusResult()
         assert await repo.current_branch() == "unknown"
@@ -203,34 +197,26 @@ class TestJjRepositoryDiff:
     """Tests for diff()."""
 
     @pytest.mark.asyncio
-    async def test_diff_default_head(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_diff_default_head(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         result = await repo.diff()
         assert result == "diff text"
         mock_client.diff.assert_called_once_with(revision="@", from_rev="@-")
 
     @pytest.mark.asyncio
-    async def test_diff_custom_base(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_diff_custom_base(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         await repo.diff(base="main")
         mock_client.diff.assert_called_once_with(revision="@", from_rev="main")
 
     @pytest.mark.asyncio
-    async def test_diff_with_head(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_diff_with_head(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         await repo.diff(base="main", head="feature")
         mock_client.diff.assert_called_once_with(revision="feature", from_rev="main")
 
     @pytest.mark.asyncio
-    async def test_diff_head_translates(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_diff_head_translates(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(output="diff text")
         await repo.diff(base="HEAD", head="HEAD")
         mock_client.diff.assert_called_once_with(revision="@-", from_rev="@-")
@@ -245,9 +231,7 @@ class TestJjRepositoryDiffStats:
     """Tests for diff_stats()."""
 
     @pytest.mark.asyncio
-    async def test_returns_diff_stats(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_returns_diff_stats(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff_stat.return_value = JjDiffStatResult(
             files_changed=2,
             insertions=5,
@@ -280,9 +264,7 @@ class TestJjRepositoryGetChangedFiles:
     """Tests for get_changed_files()."""
 
     @pytest.mark.asyncio
-    async def test_returns_files(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_returns_files(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(
             output="diff --git a/foo.py b/foo.py\n+stuff\n"
         )
@@ -290,9 +272,7 @@ class TestJjRepositoryGetChangedFiles:
         assert files == ["foo.py"]
 
     @pytest.mark.asyncio
-    async def test_translates_head(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_translates_head(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.diff.return_value = JjDiffResult(output="")
         await repo.get_changed_files(ref="HEAD")
         mock_client.diff.assert_called_once_with(revision="@", from_rev="@-")
@@ -307,9 +287,7 @@ class TestJjRepositoryLog:
     """Tests for log()."""
 
     @pytest.mark.asyncio
-    async def test_returns_commit_infos(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_returns_commit_infos(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(
             changes=(
                 JjChangeInfo(
@@ -339,9 +317,7 @@ class TestJjRepositoryLog:
         mock_client.log.assert_called_once_with(revset="@-", limit=5)
 
     @pytest.mark.asyncio
-    async def test_empty_commit_id(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_empty_commit_id(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(
             changes=(
                 JjChangeInfo(
@@ -364,9 +340,7 @@ class TestJjRepositoryStatus:
     """Tests for status()."""
 
     @pytest.mark.asyncio
-    async def test_parses_status(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_parses_status(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.status.return_value = JjStatusResult(
             output="M src/main.py\nA new_file.py\n",
             working_copy_change_id="kxyz",
@@ -381,9 +355,7 @@ class TestJjRepositoryStatus:
         assert status.behind == 0
 
     @pytest.mark.asyncio
-    async def test_empty_status(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_empty_status(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.status.return_value = JjStatusResult(output="")
         status = await repo.status()
         assert status.unstaged == ()
@@ -400,9 +372,7 @@ class TestJjRepositoryCommitMessages:
     """Tests for commit_messages()."""
 
     @pytest.mark.asyncio
-    async def test_returns_descriptions(
-        self, repo: JjRepository, mock_client: AsyncMock
-    ) -> None:
+    async def test_returns_descriptions(self, repo: JjRepository, mock_client: AsyncMock) -> None:
         mock_client.log.return_value = JjLogResult(
             changes=(
                 JjChangeInfo(change_id="a", commit_id="a1", description="first"),

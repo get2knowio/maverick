@@ -497,9 +497,7 @@ class TestSendWorkflowUpdate:
         # Verify response
         response_data = json.loads(result["content"][0]["text"])
         assert response_data["success"] is True
-        assert (
-            response_data["message"] == "Notifications disabled (no topic configured)"
-        )
+        assert response_data["message"] == "Notifications disabled (no topic configured)"
         assert "notification_id" not in response_data
 
     @pytest.mark.asyncio
@@ -813,9 +811,7 @@ class TestSendNotification:
         # Verify response
         response_data = json.loads(result["content"][0]["text"])
         assert response_data["success"] is True
-        assert (
-            response_data["message"] == "Notifications disabled (no topic configured)"
-        )
+        assert response_data["message"] == "Notifications disabled (no topic configured)"
         assert "notification_id" not in response_data
 
     @pytest.mark.asyncio
@@ -832,9 +828,7 @@ class TestSendNotification:
             return_value=mock_aiohttp_session,
         ):
             # Test uppercase priority
-            result = await send_notification.handler(
-                {"message": "Test", "priority": "HIGH"}
-            )
+            result = await send_notification.handler({"message": "Test", "priority": "HIGH"})
 
             # Verify success
             response_data = json.loads(result["content"][0]["text"])

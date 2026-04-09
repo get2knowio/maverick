@@ -323,9 +323,7 @@ class CommandRunner:
 
                 try:
                     # Give grace period for graceful shutdown
-                    await asyncio.wait_for(
-                        process.wait(), timeout=TERMINATION_GRACE_PERIOD
-                    )
+                    await asyncio.wait_for(process.wait(), timeout=TERMINATION_GRACE_PERIOD)
                 except TimeoutError:
                     # Force kill if still running
                     process.kill()
@@ -335,17 +333,13 @@ class CommandRunner:
                 # Try to get any output that was captured
                 if process.stdout:
                     try:
-                        partial_stdout = await asyncio.wait_for(
-                            process.stdout.read(), timeout=0.1
-                        )
+                        partial_stdout = await asyncio.wait_for(process.stdout.read(), timeout=0.1)
                         stdout_str = partial_stdout.decode("utf-8", errors="replace")
                     except (TimeoutError, Exception):
                         pass
                 if process.stderr:
                     try:
-                        partial_stderr = await asyncio.wait_for(
-                            process.stderr.read(), timeout=0.1
-                        )
+                        partial_stderr = await asyncio.wait_for(process.stderr.read(), timeout=0.1)
                         stderr_str = partial_stderr.decode("utf-8", errors="replace")
                     except (TimeoutError, Exception):
                         pass
@@ -463,9 +457,7 @@ class CommandRunner:
                 assert self._process is not None
                 self._process.terminate()
                 try:
-                    await asyncio.wait_for(
-                        self._process.wait(), timeout=TERMINATION_GRACE_PERIOD
-                    )
+                    await asyncio.wait_for(self._process.wait(), timeout=TERMINATION_GRACE_PERIOD)
                 except TimeoutError:
                     self._process.kill()
             except asyncio.CancelledError:

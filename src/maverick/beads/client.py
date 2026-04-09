@@ -158,10 +158,7 @@ class BeadClient:
             data = json.loads(result.stdout)
             bd_id = data.get("id") or data.get("bead_id", "")
             if not bd_id:
-                msg = (
-                    f"bd create returned no ID for "
-                    f"'{definition.title}': {result.stdout}"
-                )
+                msg = f"bd create returned no ID for '{definition.title}': {result.stdout}"
                 raise BeadCreationError(
                     msg,
                     bead_title=definition.title,
@@ -429,9 +426,7 @@ class BeadClient:
 
         result = await self._runner.run(cmd, cwd=self._cwd)
         if not result.success:
-            raise BeadError(
-                f"Failed to set state on bead {bead_id}: {result.stderr.strip()}"
-            )
+            raise BeadError(f"Failed to set state on bead {bead_id}: {result.stderr.strip()}")
 
         logger.debug(
             "bead_state_set",

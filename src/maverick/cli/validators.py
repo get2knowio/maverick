@@ -171,11 +171,7 @@ def check_git_auth() -> DependencyStatus:
             )
         else:
             # Not authenticated
-            error_msg = (
-                result.stderr.strip()
-                if result.stderr
-                else "Authentication check failed"
-            )
+            error_msg = result.stderr.strip() if result.stderr else "Authentication check failed"
 
             return DependencyStatus(
                 name="gh-auth",
@@ -195,9 +191,6 @@ def check_git_auth() -> DependencyStatus:
         return DependencyStatus(
             name="gh-auth",
             available=False,
-            error=(
-                f"Error checking authentication: {e!s}. "
-                "Run 'gh auth login' to authenticate"
-            ),
+            error=(f"Error checking authentication: {e!s}. Run 'gh auth login' to authenticate"),
             install_url="https://cli.github.com/",
         )

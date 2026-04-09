@@ -94,9 +94,7 @@ class TestOutputSchemaValidationError:
         )
         assert "failing_step" in str(exc)
 
-    def test_str_includes_schema_class_name(
-        self, validation_error: ValidationError
-    ) -> None:
+    def test_str_includes_schema_class_name(self, validation_error: ValidationError) -> None:
         """str() message includes schema class name."""
         exc = OutputSchemaValidationError(
             step_name="my_step",
@@ -105,9 +103,7 @@ class TestOutputSchemaValidationError:
         )
         assert "_SampleSchema" in str(exc)
 
-    def test_can_catch_as_executor_error(
-        self, validation_error: ValidationError
-    ) -> None:
+    def test_can_catch_as_executor_error(self, validation_error: ValidationError) -> None:
         """OutputSchemaValidationError can be caught as ExecutorError."""
         with pytest.raises(ExecutorError):
             raise OutputSchemaValidationError(

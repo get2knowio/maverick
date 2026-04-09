@@ -79,9 +79,7 @@ class UsageStats(BaseModel):
 
     input_tokens: int = Field(ge=0, description="Number of tokens in input/prompt")
     output_tokens: int = Field(ge=0, description="Number of tokens in response")
-    total_cost: float | None = Field(
-        default=None, ge=0, description="Estimated cost in USD"
-    )
+    total_cost: float | None = Field(default=None, ge=0, description="Estimated cost in USD")
     duration_ms: int = Field(ge=0, description="Execution time in milliseconds")
 
     @property
@@ -130,9 +128,7 @@ class ReviewFinding(BaseModel):
         ge=1,
         description="Line number (1-indexed) or None for file-level findings",
     )
-    message: str = Field(
-        min_length=10, description="Clear description of the issue found"
-    )
+    message: str = Field(min_length=10, description="Clear description of the issue found")
     suggestion: str = Field(
         default="",
         description="Actionable fix recommendation with code example if applicable",
@@ -213,9 +209,7 @@ class ReviewResult(BaseModel):
     errors: list[str] = Field(
         default_factory=list, description="Non-fatal errors encountered during review"
     )
-    usage: UsageStats | None = Field(
-        default=None, description="Token usage and cost statistics"
-    )
+    usage: UsageStats | None = Field(default=None, description="Token usage and cost statistics")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -267,9 +261,7 @@ class ReviewResult(BaseModel):
             >>> result.findings_by_severity[ReviewSeverity.CRITICAL]
             [ReviewFinding(...), ...]
         """
-        result: dict[ReviewSeverity, list[ReviewFinding]] = {
-            s: [] for s in ReviewSeverity
-        }
+        result: dict[ReviewSeverity, list[ReviewFinding]] = {s: [] for s in ReviewSeverity}
         for finding in self.findings:
             result[finding.severity].append(finding)
         return result
@@ -317,15 +309,11 @@ class ReviewContext(BaseModel):
     """
 
     branch: str = Field(description="Feature branch name to review")
-    base_branch: str = Field(
-        default="main", description="Base branch for diff comparison"
-    )
+    base_branch: str = Field(default="main", description="Base branch for diff comparison")
     file_list: list[str] | None = Field(
         default=None, description="Specific files to review (None = all changed)"
     )
-    cwd: Path = Field(
-        default_factory=Path.cwd, description="Working directory for git operations"
-    )
+    cwd: Path = Field(default_factory=Path.cwd, description="Working directory for git operations")
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,

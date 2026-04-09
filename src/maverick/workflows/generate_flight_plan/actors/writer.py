@@ -28,7 +28,7 @@ class PlanWriterActor:
         payload = message.payload
         flight_plan_content = payload.get("flight_plan_markdown", "")
         briefing_content = payload.get("briefing_markdown", "")
-        plan_name = payload.get("plan_name", "plan")
+        payload.get("plan_name", "plan")
 
         self._output_dir.mkdir(parents=True, exist_ok=True)
 

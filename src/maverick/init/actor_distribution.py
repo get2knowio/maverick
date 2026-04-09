@@ -8,7 +8,7 @@ routing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from maverick.logging import get_logger
@@ -156,11 +156,7 @@ def distribute_models(
     # Build available model pool: list of (provider, model_id, capability)
     pool: list[tuple[str, str, str]] = []
     for prov_name, prov_data in providers.items():
-        models = (
-            prov_data.models
-            if hasattr(prov_data, "models")
-            else prov_data.get("models", [])
-        )
+        models = prov_data.models if hasattr(prov_data, "models") else prov_data.get("models", [])
         for model_id in models:
             cap = _get_model_capability(model_id)
             pool.append((prov_name, model_id, cap))
@@ -169,9 +165,7 @@ def distribute_models(
         default_provider = next(iter(providers), "claude")
 
     # Track provider usage to spread load across providers
-    provider_usage: dict[str, int] = {
-        prov: 0 for prov in providers
-    }
+    provider_usage: dict[str, int] = dict.fromkeys(providers, 0)
 
     result: dict[str, dict[str, ActorConfig]] = {}
 
@@ -179,12 +173,8 @@ def distribute_models(
         result[workflow] = {}
 
         for actor_name, needed_cap in actors.items():
-            config = _find_best_model(
-                pool, needed_cap, default_provider, provider_usage
-            )
-            provider_usage[config.provider] = (
-                provider_usage.get(config.provider, 0) + 1
-            )
+            config = _find_best_model(pool, needed_cap, default_provider, provider_usage)
+            provider_usage[config.provider] = provider_usage.get(config.provider, 0) + 1
 
             # Add timeout if actor has one
             timeout = ACTOR_TIMEOUTS.get(actor_name)
@@ -214,9 +204,7 @@ def _find_best_model(
     provider is preferred to spread load across providers.
     """
     usage = provider_usage or {}
-    fallback_caps = CAPABILITY_FALLBACK.get(
-        needed_capability, [needed_capability]
-    )
+    fallback_caps = CAPABILITY_FALLBACK.get(needed_capability, [needed_capability])
 
     for cap in fallback_caps:
         # Collect all matching models
@@ -250,9 +238,7 @@ def _find_best_model(
             )
 
     # Fallback: least-used provider's first model
-    fallback = [
-        (prov, mid) for prov, mid, _ in pool
-    ]
+    fallback = [(prov, mid) for prov, mid, _ in pool]
     if fallback:
         fallback.sort(key=_by_usage)
         return ActorConfig(provider=fallback[0][0], model_id=fallback[0][1])

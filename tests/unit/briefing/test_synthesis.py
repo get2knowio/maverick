@@ -87,13 +87,9 @@ class TestSynthesizeBriefing:
     def test_key_risks_from_high_severity_only(self) -> None:
         recon = _make_recon(
             risks=(
-                RiskFlag(
-                    description="Minor issue", severity="low", mitigation="Ignore"
-                ),
+                RiskFlag(description="Minor issue", severity="low", mitigation="Ignore"),
                 RiskFlag(description="Critical bug", severity="high", mitigation="Fix"),
-                RiskFlag(
-                    description="Medium issue", severity="medium", mitigation="Watch"
-                ),
+                RiskFlag(description="Medium issue", severity="medium", mitigation="Watch"),
             )
         )
         doc = synthesize_briefing(

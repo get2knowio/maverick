@@ -134,9 +134,7 @@ async def land(
     cwd: Path | None = ws_path if manager.exists else None
 
     if not manager.exists:
-        console.print(
-            format_warning("No workspace found. Operating in current directory.")
-        )
+        console.print(format_warning("No workspace found. Operating in current directory."))
 
     # ── 1. Check there are commits to land ──────────────────────────
     curation_ctx = await gather_curation_context(base, cwd=cwd)
@@ -167,9 +165,7 @@ async def land(
         if result["success"]:
             absorb = "yes" if result["absorb_ran"] else "no"
             squashed = result["squashed_count"]
-            console.print(
-                f"Heuristic curation: absorb={absorb}, squashed={squashed} commits."
-            )
+            console.print(f"Heuristic curation: absorb={absorb}, squashed={squashed} commits.")
         else:
             err_console.print(
                 format_error(
@@ -238,12 +234,8 @@ async def _approve(
     branch_name = branch or f"maverick/{project_name}"
 
     if not yes:
-        console.print(
-            f"\n  Proposed: {len(commits)} curated commit(s) to merge into local repo\n"
-        )
-        answer = console.input(
-            "  [A]pprove and merge  [E]ject to git branch  [C]ancel? "
-        )
+        console.print(f"\n  Proposed: {len(commits)} curated commit(s) to merge into local repo\n")
+        answer = console.input("  [A]pprove and merge  [E]ject to git branch  [C]ancel? ")
         choice = answer.strip().lower()[:1]
         if choice == "e":
             await _eject(
@@ -312,9 +304,7 @@ async def _approve(
     # workspace cwd.  Fall back to user_repo when there's no workspace.
     repo_path_resolved = user_repo or Path.cwd().resolve()
     consolidation_cwd = cwd or repo_path_resolved
-    await _maybe_consolidate(
-        consolidation_cwd, no_consolidate, user_repo=repo_path_resolved
-    )
+    await _maybe_consolidate(consolidation_cwd, no_consolidate, user_repo=repo_path_resolved)
 
     # Teardown workspace
     if manager.exists:
@@ -486,9 +476,7 @@ async def _maybe_consolidate(
             if user_repo is not None and runway_cwd != user_repo:
                 _sync_runway_semantics(runway_cwd, user_repo)
         else:
-            console.print(
-                format_warning(f"Runway consolidation failed: {result.error}")
-            )
+            console.print(format_warning(f"Runway consolidation failed: {result.error}"))
     except Exception as exc:
         # Best-effort — never block landing
         console.print(format_warning(f"Runway consolidation failed: {exc}"))
@@ -635,8 +623,7 @@ async def _agent_curate(
             format_error(
                 f"Curation failed: {result['error']}",
                 details=[
-                    f"Executed {result['executed_count']}"
-                    f"/{result['total_count']} steps.",
+                    f"Executed {result['executed_count']}/{result['total_count']} steps.",
                     f"Snapshot ID: {result['snapshot_id']} (for manual recovery).",
                 ],
                 suggestion=("Repository was rolled back to pre-curation state."),
@@ -695,9 +682,7 @@ def _display_human_review_manifest(cwd: Path) -> None:
 
     needs_review = [i for i in items if i.get("status") == "needs-human-review"]
     if not needs_review:
-        console.print(
-            format_success("All beads passed review cleanly.")
-        )
+        console.print(format_success("All beads passed review cleanly."))
         return
 
     console.print()
@@ -707,10 +692,13 @@ def _display_human_review_manifest(cwd: Path) -> None:
     table.add_column("Key Findings")
 
     for item in needs_review:
-        findings_str = "\n".join(
-            f"  - {f[:100]}..." if len(f) > 100 else f"  - {f}"
-            for f in item.get("key_findings", [])
-        ) or "(no findings captured)"
+        findings_str = (
+            "\n".join(
+                f"  - {f[:100]}..." if len(f) > 100 else f"  - {f}"
+                for f in item.get("key_findings", [])
+            )
+            or "(no findings captured)"
+        )
         table.add_row(
             item.get("bead_id", "?"),
             item.get("title", "?")[:40],
@@ -719,7 +707,7 @@ def _display_human_review_manifest(cwd: Path) -> None:
 
     panel = Panel(
         table,
-        title=f"Human Review Required ({len(needs_review)} bead{'s' if len(needs_review) != 1 else ''})",
+        title=f"Human Review Required ({len(needs_review)} bead{'s' if len(needs_review) != 1 else ''})",  # noqa: E501
         border_style="yellow",
     )
     console.print(panel)

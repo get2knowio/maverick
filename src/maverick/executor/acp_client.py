@@ -36,14 +36,10 @@ logger = get_logger(__name__)
 MAX_SAME_TOOL_CALLS: int = 100
 
 #: Tools that are always denied in deny_dangerous mode
-_DANGEROUS_TOOL_PATTERNS: frozenset[str] = frozenset(
-    {"Bash", "Write", "Edit", "NotebookEdit"}
-)
+_DANGEROUS_TOOL_PATTERNS: frozenset[str] = frozenset({"Bash", "Write", "Edit", "NotebookEdit"})
 
 #: Tools that are always allowed in deny_dangerous mode
-_SAFE_TOOL_PATTERNS: frozenset[str] = frozenset(
-    {"Read", "Glob", "Grep", "WebSearch", "WebFetch"}
-)
+_SAFE_TOOL_PATTERNS: frozenset[str] = frozenset({"Read", "Glob", "Grep", "WebSearch", "WebFetch"})
 
 
 @dataclass
@@ -177,9 +173,7 @@ class MaverickAcpClient(Client):
         elif isinstance(update, ToolCallStart):
             # Track circuit breaker
             title = update.title or "unknown_tool"
-            self._state.tool_call_counts[title] = (
-                self._state.tool_call_counts.get(title, 0) + 1
-            )
+            self._state.tool_call_counts[title] = self._state.tool_call_counts.get(title, 0) + 1
             logger.debug(
                 "acp_client.tool_call_start",
                 tool=title,
@@ -296,9 +290,7 @@ def _extract_text_content(content: Any) -> str:
     return ""
 
 
-async def _fire_callback(
-    callback: EventCallback | None, chunk: AgentStreamChunk
-) -> None:
+async def _fire_callback(callback: EventCallback | None, chunk: AgentStreamChunk) -> None:
     """Await async callback directly (best-effort; exceptions are swallowed).
 
     Because session_update is async, we can await the callback directly rather
@@ -334,9 +326,7 @@ def _make_allow_response(options: list[PermissionOption]) -> RequestPermissionRe
         return RequestPermissionResponse(
             outcome=AllowedOutcome(option_id=options[0].option_id, outcome="selected")
         )
-    return RequestPermissionResponse(
-        outcome=AllowedOutcome(option_id="", outcome="selected")
-    )
+    return RequestPermissionResponse(outcome=AllowedOutcome(option_id="", outcome="selected"))
 
 
 def _make_deny_response() -> RequestPermissionResponse:

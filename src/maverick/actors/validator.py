@@ -23,7 +23,7 @@ class ValidatorActor(Actor):
             self._sc_count = len(sc_list)
             self._sc_refs = []
             for i, sc in enumerate(sc_list):
-                ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
+                ref = getattr(sc, "ref", None) or f"SC-{i + 1:03d}"
                 self._sc_refs.append(ref)
             self.send(sender, {"type": "init_ok"})
 
@@ -43,21 +43,28 @@ class ValidatorActor(Actor):
                 self.send(sender, {"type": "validation_result", "passed": True})
 
             except SCCoverageError as exc:
-                self.send(sender, {
-                    "type": "validation_result",
-                    "passed": False,
-                    "error_type": "coverage",
-                    "gaps": list(exc.gaps) if exc.gaps else [],
-                    "message": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "validation_result",
+                        "passed": False,
+                        "error_type": "coverage",
+                        "gaps": list(exc.gaps) if exc.gaps else [],
+                        "message": str(exc),
+                    },
+                )
 
             except Exception as exc:
                 import sys
+
                 print(f"VALIDATOR: error: {exc}", file=sys.stderr, flush=True)
-                self.send(sender, {
-                    "type": "validation_result",
-                    "passed": False,
-                    "error_type": "other",
-                    "gaps": [],
-                    "message": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "validation_result",
+                        "passed": False,
+                        "error_type": "other",
+                        "gaps": [],
+                        "message": str(exc),
+                    },
+                )

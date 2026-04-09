@@ -37,9 +37,7 @@ class TestGetProjectConventions:
         """Test reads project_conventions from maverick.yaml."""
         config_path = tmp_path / "maverick.yaml"
         config_path.write_text(
-            "project_conventions: |\n"
-            "  Use structlog for logging.\n"
-            "  Use tenacity for retries.\n"
+            "project_conventions: |\n  Use structlog for logging.\n  Use tenacity for retries.\n"
         )
         result = get_project_conventions(config_path)
         assert "structlog" in result
@@ -72,9 +70,7 @@ class TestRenderPromptWithConventions:
         """Test render_prompt substitutes $project_conventions from config."""
         config_path = tmp_path / "maverick.yaml"
         config_path.write_text(
-            "project_type: python\n"
-            "project_conventions: |\n"
-            "  Use structlog for logging.\n"
+            "project_type: python\nproject_conventions: |\n  Use structlog for logging.\n"
         )
         base = "Hello. $project_conventions Goodbye."
         result = render_prompt(base, project_type="python", config_path=config_path)

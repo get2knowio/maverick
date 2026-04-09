@@ -115,9 +115,7 @@ async def test_mock_sdk_client_basic_usage(
     Boilerplate: 8 lines (3 fixtures + 5 test logic)
     """
     # Queue a sequence of messages
-    mock_sdk_client.queue_response(
-        [mock_text_message("Processing..."), mock_result_message()]
-    )
+    mock_sdk_client.queue_response([mock_text_message("Processing..."), mock_result_message()])
 
     # Collect messages
     messages = []
@@ -418,9 +416,7 @@ async def test_agent_with_config_and_mock_client(
     Boilerplate: 11 lines (4 fixtures + 7 test logic)
     """
     # Setup mock response
-    mock_sdk_client.queue_response(
-        [mock_text_message("Review complete"), mock_result_message()]
-    )
+    mock_sdk_client.queue_response([mock_text_message("Review complete"), mock_result_message()])
 
     # Verify config is available
     assert sample_config.model.model_id == "claude-sonnet-4-5-20250929"

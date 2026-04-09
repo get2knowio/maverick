@@ -279,9 +279,7 @@ class TestMarkerFileMap:
             assert isinstance(project_type, ProjectType), (
                 f"First element for {filename} is not ProjectType"
             )
-            assert isinstance(priority, int), (
-                f"Second element for {filename} is not int"
-            )
+            assert isinstance(priority, int), f"Second element for {filename} is not int"
             assert priority >= 1, f"Priority for {filename} should be >= 1"
 
     def test_marker_file_map_project_type_associations(self) -> None:
@@ -1345,9 +1343,7 @@ class TestInitResult:
         git_info = GitRemoteInfo()
         config = InitConfig()
         discovery = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
             default_provider="claude",
         )
 
@@ -1381,9 +1377,7 @@ class TestModelNameMap:
     def test_all_values_are_full_model_ids(self) -> None:
         """Test that all values start with 'claude-'."""
         for name, model_id in MODEL_NAME_MAP.items():
-            assert model_id.startswith("claude-"), (
-                f"{name} maps to invalid ID: {model_id}"
-            )
+            assert model_id.startswith("claude-"), f"{name} maps to invalid ID: {model_id}"
 
     def test_opus_maps_to_correct_model(self) -> None:
         """Test opus maps to correct full model ID."""

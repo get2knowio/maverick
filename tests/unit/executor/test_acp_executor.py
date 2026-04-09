@@ -214,9 +214,7 @@ class TestAcpStepExecutorBasicExecute:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value=""
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
                     step_name="s",
                     agent_name="tracking",
@@ -232,9 +230,7 @@ class TestAcpStepExecutorBasicExecute:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="output"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="output"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -286,9 +282,7 @@ class TestInstructionsPrepended:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value=""
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -322,9 +316,7 @@ class TestInstructionsPrepended:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value=""
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -641,9 +633,7 @@ class TestConnectionCaching:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _CountingContextManager()
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s1",
                     agent_name="test_agent",
@@ -694,9 +684,7 @@ class TestConnectionCaching:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.side_effect = side_effects
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s1",
                     agent_name="test_agent",
@@ -732,9 +720,7 @@ class TestCleanup:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = fake_ctx
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -752,9 +738,7 @@ class TestCleanup:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -778,9 +762,7 @@ class TestCleanup:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -816,9 +798,7 @@ class TestLifecycleLogging:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -838,9 +818,7 @@ class TestLifecycleLogging:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -871,9 +849,7 @@ class TestLifecycleLogging:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -910,18 +886,12 @@ class TestMultiProviderScenarios:
         mock_conn, mock_proc = _mock_spawn_context()
         captured_commands: list[str] = []
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             captured_commands.append(command)
             return _FakeAsyncContextManager(mock_conn, mock_proc)
 
-        with patch(
-            "maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect
-        ):
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+        with patch("maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -948,18 +918,12 @@ class TestMultiProviderScenarios:
         mock_conn, mock_proc = _mock_spawn_context()
         captured_commands: list[str] = []
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             captured_commands.append(command)
             return _FakeAsyncContextManager(mock_conn, mock_proc)
 
-        with patch(
-            "maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect
-        ):
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="out"
-            ):
+        with patch("maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 # No explicit provider — should use the default ("claude")
                 await executor.execute(
                     step_name="s",
@@ -1037,9 +1001,7 @@ class TestErrorResilience:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="success"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="success"):
                 with patch("maverick.executor.acp.wait_exponential"):
                     result = await executor.execute(
                         step_name="s",
@@ -1135,15 +1097,11 @@ class TestTransparentReconnect:
 
         # Second connection (after reconnect): new_session and prompt succeed
         mock_conn2, mock_proc2 = _mock_spawn_context()
-        mock_conn2.new_session = AsyncMock(
-            return_value=MagicMock(session_id="sess-reconnect")
-        )
+        mock_conn2.new_session = AsyncMock(return_value=MagicMock(session_id="sess-reconnect"))
 
         spawn_call_count = 0
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             nonlocal spawn_call_count
             spawn_call_count += 1
             if spawn_call_count == 1:
@@ -1206,9 +1164,7 @@ class TestTransparentReconnect:
 
         spawn_call_count = 0
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             nonlocal spawn_call_count
             spawn_call_count += 1
             if spawn_call_count == 1:
@@ -1244,9 +1200,7 @@ class TestTransparentReconnect:
         mock_conn2, mock_proc2 = _mock_spawn_context()
         spawn_call_count = 0
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             nonlocal spawn_call_count
             spawn_call_count += 1
             if spawn_call_count == 1:
@@ -1257,9 +1211,7 @@ class TestTransparentReconnect:
             "maverick.executor.acp.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="ok"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -1282,9 +1234,7 @@ class TestTransparentReconnect:
         mock_conn2, mock_proc2 = _mock_spawn_context()
         spawn_call_count = 0
 
-        def _spawn_side_effect(
-            client: Any, command: str, *args: Any, **kwargs: Any
-        ) -> Any:
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
             nonlocal spawn_call_count
             spawn_call_count += 1
             if spawn_call_count == 1:
@@ -1302,9 +1252,7 @@ class TestTransparentReconnect:
             "maverick.executor.acp.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="ok"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
                 await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -1633,9 +1581,7 @@ class TestModelValidation:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="done"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="done"):
                 result = await executor.execute(
                     step_name="s",
                     agent_name="test_agent",
@@ -1656,9 +1602,7 @@ class TestModelValidation:
 
         with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
-            with patch.object(
-                MaverickAcpClient, "get_accumulated_text", return_value="ok"
-            ):
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
                 result = await executor.execute(
                     step_name="s",
                     agent_name="test_agent",

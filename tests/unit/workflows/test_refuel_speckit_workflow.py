@@ -161,9 +161,7 @@ class TestRefuelSpeckitWorkflow:
             patch(
                 f"{_MODULE}.git_commit", new=AsyncMock(return_value=_COMMIT_RESULT)
             ) as mock_commit,
-            patch(
-                f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)
-            ) as mock_merge,
+            patch(f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)) as mock_merge,
         ):
             events, result = await _collect_events(workflow, {"spec": _SPEC})
 
@@ -200,27 +198,19 @@ class TestRefuelSpeckitWorkflow:
                 f"{_MODULE}.create_git_branch",
                 new=AsyncMock(return_value=_CHECKOUT_RESULT),
             ),
-            patch(
-                f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)
-            ),
+            patch(f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)),
             patch(
                 f"{_MODULE}.enrich_bead_descriptions",
                 new=AsyncMock(return_value=_ENRICHED_DEFINITIONS),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=_BEAD_RESULT)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)),
             patch(
                 f"{_MODULE}.git_commit", new=AsyncMock(return_value=_COMMIT_RESULT)
             ) as mock_commit,
-            patch(
-                f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)
-            ) as mock_merge,
+            patch(f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)) as mock_merge,
         ):
-            events, result = await _collect_events(
-                workflow, {"spec": _SPEC, "dry_run": True}
-            )
+            events, result = await _collect_events(workflow, {"spec": _SPEC, "dry_run": True})
 
         assert result is not None
         assert result.success is True
@@ -256,9 +246,7 @@ class TestRefuelSpeckitWorkflow:
                 new=AsyncMock(return_value=_ENRICHED_DEFINITIONS),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=_BEAD_RESULT)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)),
             patch(f"{_MODULE}.git_commit", new=AsyncMock(return_value=_COMMIT_RESULT)),
             patch(f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)),
         ):
@@ -312,12 +300,8 @@ class TestRefuelSpeckitWorkflow:
                 f"{_MODULE}.parse_speckit",
                 new=AsyncMock(return_value=empty_parse_result),
             ),
-            patch(
-                f"{_MODULE}.enrich_bead_descriptions", new=AsyncMock(return_value=[])
-            ),
-            patch(
-                f"{_MODULE}.create_beads", new=AsyncMock(return_value=empty_bead_result)
-            ),
+            patch(f"{_MODULE}.enrich_bead_descriptions", new=AsyncMock(return_value=[])),
+            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=empty_bead_result)),
             patch(
                 f"{_MODULE}.wire_dependencies",
                 new=AsyncMock(return_value=empty_wire_result),
@@ -347,17 +331,13 @@ class TestRefuelSpeckitWorkflow:
                 f"{_MODULE}.create_git_branch",
                 new=AsyncMock(return_value=_CHECKOUT_RESULT),
             ),
-            patch(
-                f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)
-            ),
+            patch(f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)),
             patch(
                 f"{_MODULE}.enrich_bead_descriptions",
                 new=AsyncMock(return_value=_ENRICHED_DEFINITIONS),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=_BEAD_RESULT)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)),
             patch(f"{_MODULE}.git_commit", new=AsyncMock(return_value=_COMMIT_RESULT)),
             patch(f"{_MODULE}.git_merge", new=AsyncMock(return_value=_MERGE_RESULT)),
         ):
@@ -381,9 +361,7 @@ class TestRefuelSpeckitWorkflow:
 
         # At least one StepStarted/StepCompleted pair per core step
         step_started_names = {e.step_name for e in events if isinstance(e, StepStarted)}
-        step_completed_names = {
-            e.step_name for e in events if isinstance(e, StepCompleted)
-        }
+        step_completed_names = {e.step_name for e in events if isinstance(e, StepCompleted)}
 
         for step_name in (
             CHECKOUT,
@@ -396,12 +374,8 @@ class TestRefuelSpeckitWorkflow:
             CHECKOUT_MAIN,
             MERGE,
         ):
-            assert step_name in step_started_names, (
-                f"{step_name} not in StepStarted events"
-            )
-            assert step_name in step_completed_names, (
-                f"{step_name} not in StepCompleted events"
-            )
+            assert step_name in step_started_names, f"{step_name} not in StepStarted events"
+            assert step_name in step_completed_names, f"{step_name} not in StepCompleted events"
 
     async def test_missing_spec_input_raises(
         self,
@@ -447,16 +421,12 @@ class TestRefuelSpeckitWorkflow:
                 f"{_MODULE}.create_git_branch",
                 new=AsyncMock(return_value=_CHECKOUT_RESULT),
             ),
-            patch(
-                f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)
-            ),
+            patch(f"{_MODULE}.parse_speckit", new=AsyncMock(return_value=_PARSE_RESULT)),
             patch(
                 f"{_MODULE}.enrich_bead_descriptions",
                 new=AsyncMock(return_value=_ENRICHED_DEFINITIONS),
             ),
-            patch(
-                f"{_MODULE}.create_beads", new=AsyncMock(return_value=no_epic_result)
-            ),
+            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=no_epic_result)),
             patch(
                 f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=_WIRE_RESULT)
             ) as mock_wire,

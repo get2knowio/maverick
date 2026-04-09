@@ -63,9 +63,7 @@ class TestGeneratorAgentInitialization:
         """
         assert generator.allowed_tools == []
 
-    def test_allowed_tools_uses_centralized_constants(
-        self, generator: ConcreteGenerator
-    ) -> None:
+    def test_allowed_tools_uses_centralized_constants(self, generator: ConcreteGenerator) -> None:
         """Test allowed tools uses GENERATOR_TOOLS from maverick.agents.tools.
 
         T013: Verify that GeneratorAgent uses the centralized GENERATOR_TOOLS
@@ -136,9 +134,7 @@ class TestQueryMethod:
         assert isinstance(result, str)
         assert "hello" in result
 
-    def test_build_prompt_with_empty_context(
-        self, generator: ConcreteGenerator
-    ) -> None:
+    def test_build_prompt_with_empty_context(self, generator: ConcreteGenerator) -> None:
         """Test build_prompt handles empty context gracefully."""
         result = generator.build_prompt({})
 

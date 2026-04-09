@@ -65,9 +65,7 @@ class TestFetchGitHubIssues:
         ]
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issues_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issues_data)))
 
             result = await fetch_github_issues(label="tech-debt")
 
@@ -184,9 +182,7 @@ class TestFetchGitHubIssues:
         ]
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issues_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issues_data)))
 
             result = await fetch_github_issues(label="bug")
 
@@ -208,9 +204,7 @@ class TestFetchGitHubIssues:
         ]
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issues_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issues_data)))
 
             result = await fetch_github_issues(label="tech-debt")
 
@@ -222,9 +216,7 @@ class TestFetchGitHubIssues:
         """Test handles GitHub CLI command failure gracefully."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    returncode=1, stderr="fatal: not a GitHub repository"
-                )
+                return_value=make_result(returncode=1, stderr="fatal: not a GitHub repository")
             )
 
             result = await fetch_github_issues(label="bug")
@@ -274,9 +266,7 @@ class TestFetchGitHubIssue:
         }
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issue_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issue_data)))
 
             result = await fetch_github_issue(issue_number=42)
 
@@ -305,9 +295,7 @@ class TestFetchGitHubIssue:
         }
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issue_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issue_data)))
 
             result = await fetch_github_issue(issue_number=50)
 
@@ -329,9 +317,7 @@ class TestFetchGitHubIssue:
         }
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issue_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issue_data)))
 
             result = await fetch_github_issue(issue_number=60)
 
@@ -366,9 +352,7 @@ class TestFetchGitHubIssue:
         }
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=json.dumps(issue_data))
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=json.dumps(issue_data)))
 
             await fetch_github_issue(issue_number=123)
 
@@ -385,9 +369,7 @@ class TestCreateGitHubPR:
         """Test creates PR with user-provided title."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/123\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/123\n")
             )
 
             result = await create_github_pr(
@@ -417,9 +399,7 @@ class TestCreateGitHubPR:
         """Test uses generated title when user title not provided."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/456\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/456\n")
             )
 
             result = await create_github_pr(
@@ -444,9 +424,7 @@ class TestCreateGitHubPR:
         """Test uses default title when neither user nor generated title provided."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/789\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/789\n")
             )
 
             result = await create_github_pr(
@@ -465,9 +443,7 @@ class TestCreateGitHubPR:
         """Test creates PR as draft when draft=True."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/100\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/100\n")
             )
 
             result = await create_github_pr(
@@ -490,9 +466,7 @@ class TestCreateGitHubPR:
         """Test creates non-draft PR when draft=False."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/200\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/200\n")
             )
 
             result = await create_github_pr(
@@ -515,9 +489,7 @@ class TestCreateGitHubPR:
         """Test sets correct base branch for PR."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/300\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/300\n")
             )
 
             result = await create_github_pr(
@@ -541,15 +513,12 @@ class TestCreateGitHubPR:
     async def test_includes_pr_body(self) -> None:
         """Test includes PR body in creation."""
         pr_body = (
-            "## Summary\n\nThis PR adds feature X\n\n"
-            "## Changes\n- Added file A\n- Updated file B"
+            "## Summary\n\nThis PR adds feature X\n\n## Changes\n- Added file A\n- Updated file B"
         )
 
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/400\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/400\n")
             )
 
             result = await create_github_pr(
@@ -579,9 +548,7 @@ class TestCreateGitHubPR:
 
         for pr_url, expected_number in test_cases:
             with patch("maverick.library.actions.github._runner") as mock_runner:
-                mock_runner.run = AsyncMock(
-                    return_value=make_result(stdout=f"{pr_url}\n")
-                )
+                mock_runner.run = AsyncMock(return_value=make_result(stdout=f"{pr_url}\n"))
 
                 result = await create_github_pr(
                     base_branch="main",
@@ -622,9 +589,7 @@ class TestCreateGitHubPR:
     async def test_handles_invalid_pr_url(self) -> None:
         """Test handles invalid PR URL format gracefully."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout="invalid-url-format\n")
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="invalid-url-format\n"))
 
             result = await create_github_pr(
                 base_branch="main",
@@ -643,9 +608,7 @@ class TestCreateGitHubPR:
         """Test user-provided title takes precedence over generated title."""
         with patch("maverick.library.actions.github._runner") as mock_runner:
             mock_runner.run = AsyncMock(
-                return_value=make_result(
-                    stdout="https://github.com/org/repo/pull/999\n"
-                )
+                return_value=make_result(stdout="https://github.com/org/repo/pull/999\n")
             )
 
             result = await create_github_pr(

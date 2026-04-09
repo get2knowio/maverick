@@ -96,8 +96,7 @@ class FlightPlanFile:
         for key in required_keys:
             if key not in fm:
                 raise FlightPlanValidationError(
-                    f"Flight plan {path} is missing required frontmatter "
-                    f"field: {key!r}",
+                    f"Flight plan {path} is missing required frontmatter field: {key!r}",
                     path=path,
                     field=key,
                 )
@@ -128,9 +127,7 @@ class FlightPlanFile:
                 scope=scope,
                 context=sections["context"],
                 constraints=tuple(sections["constraints"]),
-                verification_properties=sections.get(
-                    "verification_properties", ""
-                ),
+                verification_properties=sections.get("verification_properties", ""),
                 notes=sections["notes"],
                 source_path=path,
             )
@@ -224,9 +221,7 @@ class WorkUnitFile:
         try:
             content = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
-            raise WorkUnitNotFoundError(
-                f"Work unit file not found: {path}", path=path
-            ) from exc
+            raise WorkUnitNotFoundError(f"Work unit file not found: {path}", path=path) from exc
         except OSError as exc:
             raise WorkUnitValidationError(
                 f"Cannot read work unit file {path}: {exc}",
@@ -276,9 +271,7 @@ class WorkUnitFile:
                 acceptance_criteria=acceptance_criteria,
                 file_scope=file_scope,
                 instructions=sections["instructions"],
-                test_specification=sections.get(
-                    "test_specification", ""
-                ),
+                test_specification=sections.get("test_specification", ""),
                 verification=tuple(sections["verification"]),
                 provider_hints=sections["provider_hints"],
                 source_path=path,

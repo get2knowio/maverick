@@ -157,9 +157,7 @@ class BriefingActor:
     def _read_inbox_file(self) -> dict[str, Any] | None:
         if self._inbox_path.exists():
             try:
-                data = json.loads(
-                    self._inbox_path.read_text(encoding="utf-8")
-                )
+                data = json.loads(self._inbox_path.read_text(encoding="utf-8"))
                 self._inbox_path.unlink()
                 logger.info(
                     "briefing_actor.inbox_read",

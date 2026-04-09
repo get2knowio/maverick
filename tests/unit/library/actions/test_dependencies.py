@@ -106,9 +106,7 @@ class TestSyncDependencies:
         explicit_cmd = ["uv", "sync", "--frozen"]
 
         with patch("maverick.library.actions.dependencies._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout="Resolved 42 packages")
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="Resolved 42 packages"))
 
             result = await sync_dependencies(cwd=str(tmp_path), sync_cmd=explicit_cmd)
 
@@ -124,9 +122,7 @@ class TestSyncDependencies:
         (tmp_path / "uv.lock").touch()
 
         with patch("maverick.library.actions.dependencies._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout="Resolved 10 packages")
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout="Resolved 10 packages"))
 
             result = await sync_dependencies(cwd=str(tmp_path))
 
@@ -228,9 +224,7 @@ class TestSyncDependencies:
         expected_output = "Resolved 42 packages in 1.2s\nInstalled 3 packages"
 
         with patch("maverick.library.actions.dependencies._runner") as mock_runner:
-            mock_runner.run = AsyncMock(
-                return_value=make_result(stdout=expected_output)
-            )
+            mock_runner.run = AsyncMock(return_value=make_result(stdout=expected_output))
 
             result = await sync_dependencies(cwd=str(tmp_path))
 

@@ -45,8 +45,10 @@ def _build_server_definition(
         "command": maverick_bin,
         "args": [
             "serve-inbox",
-            "--tools", all_tools,
-            "--admin-port", str(admin_port),
+            "--tools",
+            all_tools,
+            "--admin-port",
+            str(admin_port),
         ],
     }
 
@@ -115,9 +117,7 @@ def _write_copilot_config(server_def: dict[str, Any]) -> Path | None:
         # Load existing config
         existing: dict[str, Any] = {}
         if config_path.exists():
-            existing = json.loads(
-                config_path.read_text(encoding="utf-8")
-            )
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
 
         # Merge our server into mcpServers
         if "mcpServers" not in existing:
@@ -160,9 +160,7 @@ def _write_gemini_config(
         # Load existing config
         existing: dict[str, Any] = {}
         if config_path.exists():
-            existing = json.loads(
-                config_path.read_text(encoding="utf-8")
-            )
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
 
         # Merge our server into mcpServers
         if "mcpServers" not in existing:

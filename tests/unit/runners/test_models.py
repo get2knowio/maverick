@@ -766,18 +766,10 @@ class TestCodeRabbitResult:
 
     def test_error_count_property(self) -> None:
         """Test error_count property counts only error-level findings."""
-        error1 = CodeRabbitFinding(
-            file="test.py", line=1, severity="error", message="error 1"
-        )
-        error2 = CodeRabbitFinding(
-            file="test.py", line=2, severity="error", message="error 2"
-        )
-        warning = CodeRabbitFinding(
-            file="test.py", line=3, severity="warning", message="warning"
-        )
-        info = CodeRabbitFinding(
-            file="test.py", line=4, severity="info", message="info"
-        )
+        error1 = CodeRabbitFinding(file="test.py", line=1, severity="error", message="error 1")
+        error2 = CodeRabbitFinding(file="test.py", line=2, severity="error", message="error 2")
+        warning = CodeRabbitFinding(file="test.py", line=3, severity="warning", message="warning")
+        info = CodeRabbitFinding(file="test.py", line=4, severity="info", message="info")
 
         result = CodeRabbitResult(
             findings=(error1, error2, warning, info),
@@ -787,9 +779,7 @@ class TestCodeRabbitResult:
 
     def test_warning_count_property(self) -> None:
         """Test warning_count property counts only warning-level findings."""
-        error = CodeRabbitFinding(
-            file="test.py", line=1, severity="error", message="error"
-        )
+        error = CodeRabbitFinding(file="test.py", line=1, severity="error", message="error")
         warning1 = CodeRabbitFinding(
             file="test.py", line=2, severity="warning", message="warning 1"
         )

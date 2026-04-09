@@ -34,9 +34,7 @@ class RunMetadata:
     run_id: str
     plan_name: str
     epic_id: str = ""
-    started_at: str = field(
-        default_factory=lambda: datetime.now(tz=UTC).isoformat()
-    )
+    started_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
     completed_at: str = ""
     status: str = "created"
 
@@ -45,9 +43,7 @@ def write_metadata(run_dir: Path, meta: RunMetadata) -> None:
     """Write metadata.json to a run directory."""
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / _METADATA_FILE
-    path.write_text(
-        json.dumps(asdict(meta), indent=2), encoding="utf-8"
-    )
+    path.write_text(json.dumps(asdict(meta), indent=2), encoding="utf-8")
 
 
 def read_metadata(run_dir: Path) -> RunMetadata | None:

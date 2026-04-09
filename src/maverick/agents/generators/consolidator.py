@@ -131,9 +131,7 @@ class ConsolidatorAgent(GeneratorAgent):
         if existing_summary:
             parts.append("## Existing Summary\n")
             parts.append(
-                self._truncate_input(
-                    existing_summary, _MAX_PROMPT_SIZE // 4, "existing_summary"
-                )
+                self._truncate_input(existing_summary, _MAX_PROMPT_SIZE // 4, "existing_summary")
             )
             parts.append("")
 
@@ -141,9 +139,7 @@ class ConsolidatorAgent(GeneratorAgent):
             outcomes_json = json.dumps(bead_outcomes, ensure_ascii=False, indent=2)
             parts.append(
                 f"## Bead Outcomes ({len(bead_outcomes)} records)\n```json\n"
-                + self._truncate_input(
-                    outcomes_json, _MAX_PROMPT_SIZE // 3, "bead_outcomes"
-                )
+                + self._truncate_input(outcomes_json, _MAX_PROMPT_SIZE // 3, "bead_outcomes")
                 + "\n```\n"
             )
 
@@ -151,9 +147,7 @@ class ConsolidatorAgent(GeneratorAgent):
             findings_json = json.dumps(review_findings, ensure_ascii=False, indent=2)
             parts.append(
                 f"## Review Findings ({len(review_findings)} records)\n```json\n"
-                + self._truncate_input(
-                    findings_json, _MAX_PROMPT_SIZE // 3, "review_findings"
-                )
+                + self._truncate_input(findings_json, _MAX_PROMPT_SIZE // 3, "review_findings")
                 + "\n```\n"
             )
 
@@ -161,9 +155,7 @@ class ConsolidatorAgent(GeneratorAgent):
             attempts_json = json.dumps(fix_attempts, ensure_ascii=False, indent=2)
             parts.append(
                 f"## Fix Attempts ({len(fix_attempts)} records)\n```json\n"
-                + self._truncate_input(
-                    attempts_json, _MAX_PROMPT_SIZE // 3, "fix_attempts"
-                )
+                + self._truncate_input(attempts_json, _MAX_PROMPT_SIZE // 3, "fix_attempts")
                 + "\n```\n"
             )
 

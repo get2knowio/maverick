@@ -93,18 +93,14 @@ def sanitize_string(text: str, config: LoggingConfig | None = None) -> str:
     # Apply custom patterns
     for pattern in config.sensitive_patterns:
         try:
-            result = re.sub(
-                pattern, "***CUSTOM_REDACTED***", result, flags=re.IGNORECASE
-            )
+            result = re.sub(pattern, "***CUSTOM_REDACTED***", result, flags=re.IGNORECASE)
         except re.error:
             logger.warning(f"Invalid custom sanitization pattern: {pattern}")
 
     return result
 
 
-def sanitize_inputs(
-    inputs: dict[str, Any], config: LoggingConfig | None = None
-) -> dict[str, Any]:
+def sanitize_inputs(inputs: dict[str, Any], config: LoggingConfig | None = None) -> dict[str, Any]:
     """Sanitize sensitive data from input dict.
 
     Args:
@@ -134,9 +130,7 @@ def sanitize_inputs(
         elif isinstance(value, dict):
             result[key] = sanitize_inputs(value, config)
         elif isinstance(value, list):
-            result[key] = [
-                sanitize_string(v, config) if isinstance(v, str) else v for v in value
-            ]
+            result[key] = [sanitize_string(v, config) if isinstance(v, str) else v for v in value]
         else:
             result[key] = value
 
@@ -202,9 +196,7 @@ async def log_tool_execution(
         sanitized = sanitize_inputs(tool_input, config)
 
         # Truncate output
-        output_summary = truncate_output(
-            str(output) if output else None, config.max_output_length
-        )
+        output_summary = truncate_output(str(output) if output else None, config.max_output_length)
 
         # Create log entry
         log_entry = ToolExecutionLog(
@@ -233,9 +225,7 @@ async def log_tool_execution(
         # Log detailed info at DEBUG level
         output_logger.debug(f"  Inputs: {log_entry.sanitized_inputs}")
         if output_summary:
-            output_logger.debug(
-                f"  Output: {output_summary[:DEBUG_OUTPUT_PREVIEW_LENGTH]}..."
-            )
+            output_logger.debug(f"  Output: {output_summary[:DEBUG_OUTPUT_PREVIEW_LENGTH]}...")
 
         return {}
 

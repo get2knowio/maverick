@@ -124,9 +124,7 @@ class TestPyGithubErrorHandling:
                 new=AsyncMock(return_value="owner/repo"),
             ),
         ):
-            mock_client.get_issue = AsyncMock(
-                side_effect=GitHubError("Issue not found")
-            )
+            mock_client.get_issue = AsyncMock(side_effect=GitHubError("Issue not found"))
             result = await github_get_issue.handler({"issue_number": 999})
 
         error_data = json.loads(result["content"][0]["text"])
@@ -144,9 +142,7 @@ class TestPyGithubErrorHandling:
         mock_issue = MagicMock()
         mock_client.github.get_repo.return_value = mock_repo
         mock_repo.get_issue.return_value = mock_issue
-        mock_issue.add_to_labels.side_effect = GithubException(
-            403, {"message": "Forbidden"}, None
-        )
+        mock_issue.add_to_labels.side_effect = GithubException(403, {"message": "Forbidden"}, None)
 
         with (
             patch(
@@ -158,9 +154,7 @@ class TestPyGithubErrorHandling:
                 new=AsyncMock(return_value="owner/repo"),
             ),
         ):
-            result = await github_add_labels.handler(
-                {"issue_number": 100, "labels": ["bug"]}
-            )
+            result = await github_add_labels.handler({"issue_number": 100, "labels": ["bug"]})
 
         error_data = json.loads(result["content"][0]["text"])
         assert error_data["isError"] is True
@@ -175,9 +169,7 @@ class TestPyGithubErrorHandling:
         mock_client.github = MagicMock()
         mock_repo = MagicMock()
         mock_client.github.get_repo.return_value = mock_repo
-        mock_repo.get_issue.side_effect = GithubException(
-            404, {"message": "Not Found"}, None
-        )
+        mock_repo.get_issue.side_effect = GithubException(404, {"message": "Not Found"}, None)
 
         with (
             patch(
@@ -266,9 +258,7 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock CommandRunner.run to return success
         async def mock_run(cmd, **kwargs):
-            return CommandResult(
-                returncode=0, stdout="output data", stderr="", duration_ms=100
-            )
+            return CommandResult(returncode=0, stdout="output data", stderr="", duration_ms=100)
 
         with patch(
             "maverick.tools.github.runner.CommandRunner.run",
@@ -289,9 +279,7 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock CommandRunner.run to return error
         async def mock_run(cmd, **kwargs):
-            return CommandResult(
-                returncode=1, stdout="", stderr="error message", duration_ms=100
-            )
+            return CommandResult(returncode=1, stdout="", stderr="error message", duration_ms=100)
 
         with patch(
             "maverick.tools.github.runner.CommandRunner.run",
@@ -316,9 +304,7 @@ class TestTimeoutAndExceptionHandling:
 
         # Mock CommandRunner.run to return success with output
         async def mock_run(cmd, **kwargs):
-            return CommandResult(
-                returncode=0, stdout="output", stderr="", duration_ms=100
-            )
+            return CommandResult(returncode=0, stdout="output", stderr="", duration_ms=100)
 
         with patch(
             "maverick.tools.github.runner.CommandRunner.run",

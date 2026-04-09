@@ -38,8 +38,7 @@ class DuplicateStepNameError(WorkflowError):
         """
         self.step_name = step_name
         super().__init__(
-            f"Duplicate step name: '{step_name}'. "
-            f"Step names must be unique within a workflow.",
+            f"Duplicate step name: '{step_name}'. Step names must be unique within a workflow.",
         )
 
 
@@ -127,7 +126,6 @@ class DuplicateComponentError(WorkflowError):
         self.component_type = component_type
         self.component_name = component_name
         message = (
-            f"Duplicate {component_type} registration: "
-            f"'{component_name}' is already registered"
+            f"Duplicate {component_type} registration: '{component_name}' is already registered"
         )
         super().__init__(message)

@@ -83,9 +83,7 @@ def _make_simple_decomp(num_units: int = 2) -> DecompositionOutput:
                 depends_on=deps,
                 task=f"Task {i}",
                 acceptance_criteria=[
-                    AcceptanceCriterionSpec(
-                        text=f"Criterion {i}", trace_ref=f"SC-{i:03d}"
-                    )
+                    AcceptanceCriterionSpec(text=f"Criterion {i}", trace_ref=f"SC-{i:03d}")
                 ],
                 file_scope=FileScopeSpec(protect=["src/config.py"]),
                 instructions=f"Do task {i}",
@@ -158,8 +156,7 @@ def _make_parallel_decomp() -> DecompositionOutput:
 
 def _make_bead_result(num_work_beads: int = 2) -> BeadCreationResult:
     work_beads = tuple(
-        {"bd_id": f"bead-{i}", "title": f"Bead {i}"}
-        for i in range(1, num_work_beads + 1)
+        {"bd_id": f"bead-{i}", "title": f"Bead {i}"} for i in range(1, num_work_beads + 1)
     )
     created_map = {f"Bead {i}": f"bead-{i}" for i in range(1, num_work_beads + 1)}
     return BeadCreationResult(
@@ -195,9 +192,7 @@ class TestErrorHandling:
     ) -> None:
         """Flight plan parse error surfaces as workflow failure."""
         fp = tmp_path / "bad-plan.md"
-        fp.write_text(
-            "This is not a valid flight plan YAML frontmatter.", encoding="utf-8"
-        )
+        fp.write_text("This is not a valid flight plan YAML frontmatter.", encoding="utf-8")
 
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
 
@@ -286,9 +281,7 @@ class TestErrorHandling:
         )
 
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(
-            circular_decomp
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(circular_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -296,9 +289,7 @@ class TestErrorHandling:
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(f"{_MODULE}.create_beads") as mock_create,
@@ -325,9 +316,7 @@ class TestErrorHandling:
         work_units_dir = tmp_path / ".maverick" / "plans" / "test-plan"
         work_units_dir.mkdir(parents=True, exist_ok=True)
         (work_units_dir / "001-old-unit.md").write_text("old content", encoding="utf-8")
-        (work_units_dir / "002-another-old.md").write_text(
-            "another old", encoding="utf-8"
-        )
+        (work_units_dir / "002-another-old.md").write_text("another old", encoding="utf-8")
 
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
 
@@ -336,9 +325,7 @@ class TestErrorHandling:
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(
@@ -402,9 +389,7 @@ Test objective.
                     id="single-unit",
                     sequence=1,
                     task="Do something",
-                    acceptance_criteria=[
-                        AcceptanceCriterionSpec(text="Done", trace_ref="SC-001")
-                    ],
+                    acceptance_criteria=[AcceptanceCriterionSpec(text="Done", trace_ref="SC-001")],
                     file_scope=FileScopeSpec(),
                     instructions="Do it",
                     verification=["test"],
@@ -456,9 +441,7 @@ Test objective.
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
         ):
@@ -487,9 +470,7 @@ Test objective.
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(
@@ -534,9 +515,7 @@ Test objective.
         )
 
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(
-            dangling_decomp
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(dangling_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -544,9 +523,7 @@ Test objective.
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(f"{_MODULE}.create_beads") as mock_create,
@@ -577,9 +554,7 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(
-            parallel_decomp
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -587,9 +562,7 @@ class TestParallelGroups:
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(
@@ -630,9 +603,7 @@ class TestParallelGroups:
         parallel_decomp = _make_parallel_decomp()
 
         # add-payments and add-refunds are in group-a; no inter-dependencies
-        group_a_units = [
-            wu for wu in parallel_decomp.work_units if wu.parallel_group == "group-a"
-        ]
+        group_a_units = [wu for wu in parallel_decomp.work_units if wu.parallel_group == "group-a"]
         assert len(group_a_units) == 2
 
         add_payments = next(wu for wu in group_a_units if wu.id == "add-payments")
@@ -653,9 +624,7 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(
-            parallel_decomp
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -663,9 +632,7 @@ class TestParallelGroups:
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(
@@ -685,9 +652,7 @@ class TestParallelGroups:
         # Parallel group count is in StepResult output, not StepCompleted event.
         # StepCompleted has no output field — use workflow.result.step_results.
         assert result is not None
-        validate_step_result = next(
-            sr for sr in result.step_results if sr.name == VALIDATE
-        )
+        validate_step_result = next(sr for sr in result.step_results if sr.name == VALIDATE)
         assert validate_step_result.output is not None
         # group-a is the only named parallel group
         assert validate_step_result.output.get("parallel_group_count", 0) >= 1
@@ -703,9 +668,7 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(
-            parallel_decomp
-        )
+        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -713,9 +676,7 @@ class TestParallelGroups:
             patch(
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(
-                    return_value=CodebaseContext(
-                        files=(), missing_files=(), total_size=0
-                    )
+                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
             patch(

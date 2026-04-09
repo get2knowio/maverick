@@ -77,9 +77,7 @@ class JjRepository:
         """
         jj_base = _translate_ref(base)
         if head:
-            result = await self._client.diff(
-                revision=_translate_ref(head), from_rev=jj_base
-            )
+            result = await self._client.diff(revision=_translate_ref(head), from_rev=jj_base)
         else:
             result = await self._client.diff(revision="@", from_rev=jj_base)
         return result.output

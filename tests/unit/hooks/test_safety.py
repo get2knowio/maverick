@@ -226,9 +226,7 @@ class TestValidateBashCommand:
             }
             # Should return empty dict (allow) because fail_closed=False
             try:
-                result = await validate_bash_command(
-                    input_data, None, None, config=config
-                )
+                result = await validate_bash_command(input_data, None, None, config=config)
                 assert result == {}
             except Exception:
                 pytest.fail("Should not raise exception when fail_closed=False")
@@ -377,17 +375,13 @@ class TestValidateFileWrite:
         config = SafetyConfig(fail_closed=False)
 
         # Force exception by mocking normalize_path
-        with patch(
-            "maverick.hooks.safety.normalize_path", side_effect=ValueError("Path error")
-        ):
+        with patch("maverick.hooks.safety.normalize_path", side_effect=ValueError("Path error")):
             input_data = {
                 "tool_name": "Write",
                 "tool_input": {"file_path": "/tmp/test.txt"},
             }
             try:
-                result = await validate_file_write(
-                    input_data, None, None, config=config
-                )
+                result = await validate_file_write(input_data, None, None, config=config)
                 assert result == {}
             except Exception:
                 pytest.fail("Should not raise exception when fail_closed=False")

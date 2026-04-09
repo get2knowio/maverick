@@ -86,9 +86,7 @@ class ImplementerActor:
         if payload.get("test_to_pass"):
             parts.append(f"## Test to Pass\n\n{payload['test_to_pass']}")
         if payload.get("verification_commands"):
-            parts.append(
-                f"## Verification Commands\n\n{payload['verification_commands']}"
-            )
+            parts.append(f"## Verification Commands\n\n{payload['verification_commands']}")
         if payload.get("runway_context"):
             parts.append(f"## Prior Context\n\n{payload['runway_context']}")
 
@@ -121,16 +119,16 @@ class ImplementerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry(
-            "submit_implementation", session_id
-        )
+        inbox_data = await self._read_inbox_with_retry("submit_implementation", session_id)
 
         return [
             Message(
                 msg_type=MessageType.IMPLEMENT_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload=inbox_data.get("arguments", {}) if inbox_data else {
+                payload=inbox_data.get("arguments", {})
+                if inbox_data
+                else {
                     "summary": "implementation completed (no tool call)",
                 },
                 in_reply_to=message.sequence,
@@ -153,8 +151,7 @@ class ImplementerActor:
             reasons = ac.get("reasons", [])
             if reasons:
                 parts.append(
-                    "## Acceptance Check Failures\n\n"
-                    + "\n".join(f"- {r}" for r in reasons)
+                    "## Acceptance Check Failures\n\n" + "\n".join(f"- {r}" for r in reasons)
                 )
 
         if payload.get("spec_failures"):
@@ -205,16 +202,16 @@ class ImplementerActor:
         )
         self._turns += 1
 
-        inbox_data = await self._read_inbox_with_retry(
-            "submit_fix_result", session_id
-        )
+        inbox_data = await self._read_inbox_with_retry("submit_fix_result", session_id)
 
         return [
             Message(
                 msg_type=MessageType.FIX_RESULT,
                 sender=self.name,
                 recipient="supervisor",
-                payload=inbox_data.get("arguments", {}) if inbox_data else {
+                payload=inbox_data.get("arguments", {})
+                if inbox_data
+                else {
                     "summary": "fixes applied (no tool call)",
                 },
                 in_reply_to=message.sequence,
@@ -231,7 +228,8 @@ class ImplementerActor:
         for retry in range(max_retries):
             logger.info(
                 "implementer_actor.inbox_retry",
-                tool=expected_tool, retry=retry + 1,
+                tool=expected_tool,
+                retry=retry + 1,
             )
             await self._executor.prompt_session(
                 session_id=session_id,
@@ -256,15 +254,11 @@ class ImplementerActor:
     def _read_inbox_file(self) -> dict[str, Any] | None:
         if self._inbox_path.exists():
             try:
-                data = json.loads(
-                    self._inbox_path.read_text(encoding="utf-8")
-                )
+                data = json.loads(self._inbox_path.read_text(encoding="utf-8"))
                 self._inbox_path.unlink()
                 return data
             except Exception as exc:
-                logger.warning(
-                    "implementer_actor.inbox_read_failed", error=str(exc)
-                )
+                logger.warning("implementer_actor.inbox_read_failed", error=str(exc))
         return None
 
     def get_state_snapshot(self) -> dict[str, Any]:

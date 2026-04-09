@@ -65,8 +65,7 @@ model:
 
         # Verify performance requirement
         assert elapsed < 0.1, (
-            f"Config loading took {elapsed * 1000:.2f}ms, "
-            f"expected < 100ms (SC-005 requirement)"
+            f"Config loading took {elapsed * 1000:.2f}ms, expected < 100ms (SC-005 requirement)"
         )
 
     def test_config_loading_warm_cache_under_100ms(
@@ -104,9 +103,7 @@ github:
         elapsed = time.perf_counter() - start
 
         assert config.github.owner == "test-org"
-        assert elapsed < 0.1, (
-            f"Warm config loading took {elapsed * 1000:.2f}ms, expected < 100ms"
-        )
+        assert elapsed < 0.1, f"Warm config loading took {elapsed * 1000:.2f}ms, expected < 100ms"
 
     def test_config_loading_defaults_only_under_100ms(
         self,
@@ -133,6 +130,5 @@ github:
 
         assert config.github.owner is None  # Verify defaults
         assert elapsed < 0.1, (
-            f"Defaults-only config loading took {elapsed * 1000:.2f}ms, "
-            f"expected < 100ms"
+            f"Defaults-only config loading took {elapsed * 1000:.2f}ms, expected < 100ms"
         )

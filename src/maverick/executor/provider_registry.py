@@ -81,9 +81,7 @@ class AgentProviderRegistry:
         self._default_name: str = defaults[0] if defaults else _DEFAULT_PROVIDER_NAME
 
     @classmethod
-    def from_config(
-        cls, providers: dict[str, AgentProviderConfig]
-    ) -> AgentProviderRegistry:
+    def from_config(cls, providers: dict[str, AgentProviderConfig]) -> AgentProviderRegistry:
         """Create registry with built-in provider resolution.
 
         When no providers are configured, synthesizes a default Claude provider.

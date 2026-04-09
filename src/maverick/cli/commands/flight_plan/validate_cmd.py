@@ -54,6 +54,4 @@ def validate(name: str, plans_dir: str) -> None:
             console.print(f"  [yellow]{issue.location}[/yellow]: {issue.message}")
         raise SystemExit(ExitCode.FAILURE)
 
-    console.print(
-        f"[green]Valid[/green] — flight plan [bold]{name}[/bold] passed all checks."
-    )
+    console.print(f"[green]Valid[/green] — flight plan [bold]{name}[/bold] passed all checks.")

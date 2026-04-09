@@ -172,9 +172,7 @@ class TestBeadClientAddDependency:
     """Tests for BeadClient.add_dependency()."""
 
     @pytest.mark.asyncio
-    async def test_add_dependency_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_add_dependency_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=0,
             stdout="",
@@ -222,9 +220,7 @@ class TestBeadClientReady:
     """Tests for BeadClient.ready()."""
 
     @pytest.mark.asyncio
-    async def test_ready_returns_beads(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_ready_returns_beads(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         import json
 
         mock_runner.run.return_value = CommandResult(
@@ -253,9 +249,7 @@ class TestBeadClientReady:
         assert "epic-1" in cmd
 
     @pytest.mark.asyncio
-    async def test_ready_empty_list(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_ready_empty_list(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=0,
             stdout="[]",
@@ -268,9 +262,7 @@ class TestBeadClientReady:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_ready_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_ready_failure_raises(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=1,
             stdout="",
@@ -315,9 +307,7 @@ class TestBeadClientClose:
         assert "--reason" in cmd
 
     @pytest.mark.asyncio
-    async def test_close_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_close_failure_raises(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=1,
             stdout="",
@@ -359,9 +349,7 @@ class TestBeadClientShow:
         assert result.title == "Task 1"
 
     @pytest.mark.asyncio
-    async def test_show_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_show_failure_raises(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=1,
             stdout="",
@@ -378,9 +366,7 @@ class TestBeadClientChildren:
     """Tests for BeadClient.children()."""
 
     @pytest.mark.asyncio
-    async def test_children_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_children_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         import json
 
         mock_runner.run.return_value = CommandResult(
@@ -400,9 +386,7 @@ class TestBeadClientChildren:
         assert result[0].id == "c-1"
 
     @pytest.mark.asyncio
-    async def test_children_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_children_failure_raises(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=1,
             stdout="",
@@ -447,9 +431,7 @@ class TestBeadClientSetState:
     """Tests for BeadClient.set_state()."""
 
     @pytest.mark.asyncio
-    async def test_set_state_success(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_set_state_success(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=0,
             stdout="",
@@ -467,9 +449,7 @@ class TestBeadClientSetState:
         assert "--reason" in cmd
 
     @pytest.mark.asyncio
-    async def test_set_state_failure_raises(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_set_state_failure_raises(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = CommandResult(
             returncode=1,
             stdout="",

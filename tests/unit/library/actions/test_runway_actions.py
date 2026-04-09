@@ -65,9 +65,7 @@ class TestRecordBeadOutcome:
             "maverick.library.actions.runway._get_store",
             side_effect=RuntimeError("boom"),
         ):
-            result = await record_bead_outcome(
-                bead_id="b1", epic_id="e1", cwd=runway_dir
-            )
+            result = await record_bead_outcome(bead_id="b1", epic_id="e1", cwd=runway_dir)
         assert result.success is False
         assert "boom" in (result.error or "")
 
@@ -101,9 +99,7 @@ class TestRecordReviewFindings:
 
     async def test_flat_format(self, runway_dir: Path) -> None:
         review_result = {
-            "issues_fixed": [
-                {"issue_id": "I1", "fixed": True, "description": "Fixed thing"}
-            ],
+            "issues_fixed": [{"issue_id": "I1", "fixed": True, "description": "Fixed thing"}],
             "issues_remaining": [{"issue_id": "I2", "description": "Still broken"}],
         }
         result = await record_review_findings(

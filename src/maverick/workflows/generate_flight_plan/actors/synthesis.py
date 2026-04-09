@@ -25,11 +25,11 @@ class SynthesisActor:
         if message.msg_type != MessageType.SYNTHESIS_REQUEST:
             return []
 
-        from maverick.preflight_briefing.synthesis import (
-            synthesize_preflight_briefing,
-        )
         from maverick.preflight_briefing.serializer import (
             serialize_briefing_to_markdown,
+        )
+        from maverick.preflight_briefing.synthesis import (
+            synthesize_preflight_briefing,
         )
 
         payload = message.payload

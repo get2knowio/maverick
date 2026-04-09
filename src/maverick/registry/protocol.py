@@ -33,9 +33,7 @@ class Registry(Protocol[T]):
     Supports decorator-based registration and type-safe lookups.
     """
 
-    def register(
-        self, name: str, component: T | None = None
-    ) -> T | Callable[[T], T]: ...
+    def register(self, name: str, component: T | None = None) -> T | Callable[[T], T]: ...
 
     def get(self, name: str) -> T: ...
 

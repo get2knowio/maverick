@@ -23,11 +23,14 @@ class GateActor(Actor):
                 result = asyncio.run(self._run_gate())
                 self.send(sender, {"type": "gate_result", **result})
             except Exception as exc:
-                self.send(sender, {
-                    "type": "gate_result",
-                    "passed": False,
-                    "summary": f"Gate error: {exc}",
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "gate_result",
+                        "passed": False,
+                        "summary": f"Gate error: {exc}",
+                    },
+                )
 
     async def _run_gate(self):
         from maverick.library.actions.validation import (

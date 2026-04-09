@@ -99,12 +99,8 @@ class PreflightResult:
             results=tuple(results),
             total_duration_ms=total_duration_ms,
             failed_components=tuple(r.component for r in failed),
-            all_errors=tuple(
-                f"[{r.component}] {err}" for r in failed for err in r.errors
-            ),
-            all_warnings=tuple(
-                f"[{r.component}] {warn}" for r in results for warn in r.warnings
-            ),
+            all_errors=tuple(f"[{r.component}] {err}" for r in failed for err in r.errors),
+            all_warnings=tuple(f"[{r.component}] {warn}" for r in results for warn in r.warnings),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -192,9 +188,7 @@ class PreflightValidator:
             return ValidationResult(
                 success=False,
                 component=component_name,
-                errors=(
-                    f"Validation timed out after {self._config.timeout_per_check}s",
-                ),
+                errors=(f"Validation timed out after {self._config.timeout_per_check}s",),
                 duration_ms=duration_ms,
             )
         except Exception as e:
@@ -282,10 +276,7 @@ class CustomToolValidator:
 
             if tool_path is None:
                 hint_suffix = f" {tool.hint}" if tool.hint else ""
-                message = (
-                    f"Tool '{tool.name}' ({tool.command}) not found on PATH."
-                    f"{hint_suffix}"
-                )
+                message = f"Tool '{tool.name}' ({tool.command}) not found on PATH.{hint_suffix}"
 
                 if tool.required:
                     errors.append(message)

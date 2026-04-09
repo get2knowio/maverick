@@ -13,16 +13,12 @@ from maverick.runners.validation import ValidationRunner
 
 @pytest.fixture
 def mock_command_result_success():
-    return CommandResult(
-        returncode=0, stdout="OK", stderr="", duration_ms=100, timed_out=False
-    )
+    return CommandResult(returncode=0, stdout="OK", stderr="", duration_ms=100, timed_out=False)
 
 
 @pytest.fixture
 def mock_command_result_failure():
-    return CommandResult(
-        returncode=1, stdout="", stderr="Error", duration_ms=100, timed_out=False
-    )
+    return CommandResult(returncode=1, stdout="", stderr="Error", duration_ms=100, timed_out=False)
 
 
 class TestValidationRunner:

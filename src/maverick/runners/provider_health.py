@@ -65,8 +65,7 @@ class AcpProviderHealthCheck:
                 success=False,
                 component=component,
                 errors=(
-                    f"Binary '{binary}' for provider '{self.provider_name}' "
-                    f"not found on PATH",
+                    f"Binary '{binary}' for provider '{self.provider_name}' not found on PATH",
                 ),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
@@ -128,9 +127,7 @@ class AcpProviderHealthCheck:
             return ValidationResult(
                 success=False,
                 component=component,
-                errors=(
-                    f"Binary '{command}' for provider '{self.provider_name}' not found",
-                ),
+                errors=(f"Binary '{command}' for provider '{self.provider_name}' not found",),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
         except OSError as exc:
@@ -155,8 +152,7 @@ class AcpProviderHealthCheck:
                 success=False,
                 component=component,
                 errors=(
-                    f"ACP initialize handshake failed for provider "
-                    f"'{self.provider_name}': {exc}",
+                    f"ACP initialize handshake failed for provider '{self.provider_name}': {exc}",
                 ),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )

@@ -181,8 +181,7 @@ class PRDescriptionGenerator(GeneratorAgent):
             else:
                 failures_str = "\n".join(f"- {failure}" for failure in failures)
                 prompt_parts.append(
-                    f"\n**Validation Status**:\n"
-                    f"Validation FAILED with errors:\n{failures_str}"
+                    f"\n**Validation Status**:\nValidation FAILED with errors:\n{failures_str}"
                 )
 
         sections_str = ", ".join(self._sections)

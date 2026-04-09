@@ -68,9 +68,7 @@ class MetricsCollector:
         async with self._lock:
             self._entries.clear()
 
-    def _aggregate(
-        self, entries: list[ToolMetricEntry], tool_name: str | None
-    ) -> ToolMetrics:
+    def _aggregate(self, entries: list[ToolMetricEntry], tool_name: str | None) -> ToolMetrics:
         """Aggregate metric entries into summary.
 
         Args:

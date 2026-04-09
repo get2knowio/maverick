@@ -21,9 +21,7 @@ class TestDuplicateComponentError:
 
     def test_duplicate_action_error(self) -> None:
         """Test duplicate action registration error."""
-        error = DuplicateComponentError(
-            component_type="action", component_name="validate_files"
-        )
+        error = DuplicateComponentError(component_type="action", component_name="validate_files")
         message = str(error)
         assert "action" in message
         assert "validate_files" in message
@@ -33,9 +31,7 @@ class TestDuplicateComponentError:
 
     def test_duplicate_agent_error(self) -> None:
         """Test duplicate agent registration error."""
-        error = DuplicateComponentError(
-            component_type="agent", component_name="code_reviewer"
-        )
+        error = DuplicateComponentError(component_type="agent", component_name="code_reviewer")
         message = str(error)
         assert "agent" in message
         assert "code_reviewer" in message
@@ -52,9 +48,7 @@ class TestReferenceResolutionError:
 
     def test_basic_reference_error(self) -> None:
         """Test basic reference error without suggestions."""
-        error = ReferenceResolutionError(
-            reference_type="agent", reference_name="unknown_agent"
-        )
+        error = ReferenceResolutionError(reference_type="agent", reference_name="unknown_agent")
         message = str(error)
         assert "agent" in message
         assert "unknown_agent" in message
@@ -136,9 +130,7 @@ class TestCheckpointNotFoundError:
 
     def test_checkpoint_error_with_checkpoint_id(self) -> None:
         """Test checkpoint error with both workflow and checkpoint IDs."""
-        error = CheckpointNotFoundError(
-            workflow_id="fly-123", checkpoint_id="after_validation"
-        )
+        error = CheckpointNotFoundError(workflow_id="fly-123", checkpoint_id="after_validation")
         message = str(error)
         assert "fly-123" in message
         assert "after_validation" in message

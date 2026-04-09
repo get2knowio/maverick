@@ -38,9 +38,7 @@ async def init_workspace(branch_name: str) -> WorkspaceState:
             # Checkout existing branch
             checkout_result = await _runner.run(["git", "checkout", branch_name])
             if not checkout_result.success:
-                raise RuntimeError(
-                    f"Failed to checkout branch: {checkout_result.stderr}"
-                )
+                raise RuntimeError(f"Failed to checkout branch: {checkout_result.stderr}")
         else:
             # Create new branch from base
             checkout_result = await _runner.run(["git", "checkout", "-b", branch_name])

@@ -118,9 +118,7 @@ class TestVerifyPrerequisites:
 
             if command == "gh":
                 # gh --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"gh version 2.0.0", b"")
-                )
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
                 mock_process.returncode = 0
             elif command == "git" and "rev-parse" in args:
                 # git rev-parse fails
@@ -170,9 +168,7 @@ class TestVerifyPrerequisites:
 
             if command == "gh":
                 # gh --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"gh version 2.0.0", b"")
-                )
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
                 mock_process.returncode = 0
             elif command == "git" and "remote" in args and "get-url" in args:
                 # git remote get-url origin fails
@@ -245,9 +241,7 @@ class TestVerifyPrerequisites:
 
             if command == "gh":
                 # gh --version succeeds
-                mock_process.communicate = AsyncMock(
-                    return_value=(b"gh version 2.0.0", b"")
-                )
+                mock_process.communicate = AsyncMock(return_value=(b"gh version 2.0.0", b""))
                 mock_process.returncode = 0
                 return mock_process
             elif command == "git":
@@ -436,9 +430,7 @@ class TestVerifyGitHubPrerequisites:
         # Mock get_runner to return a mock runner
         mock_runner = AsyncMock()
         mock_runner.run = AsyncMock(
-            return_value=CommandResult(
-                returncode=0, stdout="success", stderr="", duration_ms=100
-            )
+            return_value=CommandResult(returncode=0, stdout="success", stderr="", duration_ms=100)
         )
 
         with patch(

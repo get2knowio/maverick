@@ -35,9 +35,7 @@ class TestFetchIssue:
         mock_runner = MagicMock()
         mock_runner.get_issue = AsyncMock(return_value=mock_issue)
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             result = await fetch_issue(42, Path("/repo"))
 
         assert result["number"] == 42
@@ -47,13 +45,9 @@ class TestFetchIssue:
     async def test_fetch_issue_not_found_raises_error(self) -> None:
         """Test fetch_issue raises GitHubError when issue not found."""
         mock_runner = MagicMock()
-        mock_runner.get_issue = AsyncMock(
-            side_effect=RuntimeError("could not find issue")
-        )
+        mock_runner.get_issue = AsyncMock(side_effect=RuntimeError("could not find issue"))
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             with pytest.raises(GitHubError) as exc_info:
                 await fetch_issue(999, Path("/repo"))
 
@@ -63,13 +57,9 @@ class TestFetchIssue:
     async def test_fetch_issue_rate_limit_raises_error(self) -> None:
         """Test fetch_issue raises GitHubError on rate limit."""
         mock_runner = MagicMock()
-        mock_runner.get_issue = AsyncMock(
-            side_effect=RuntimeError("API rate limit exceeded")
-        )
+        mock_runner.get_issue = AsyncMock(side_effect=RuntimeError("API rate limit exceeded"))
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             with pytest.raises(GitHubError) as exc_info:
                 await fetch_issue(42, Path("/repo"))
 
@@ -81,9 +71,7 @@ class TestFetchIssue:
         mock_runner = MagicMock()
         mock_runner.get_issue = AsyncMock(side_effect=GitHubAuthError())
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             with pytest.raises(GitHubError) as exc_info:
                 await fetch_issue(42, Path("/repo"))
 
@@ -120,9 +108,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(return_value=mock_issues)
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             result = await list_issues(Path("/repo"))
 
         assert len(result) == 2
@@ -135,9 +121,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(return_value=[])
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             result = await list_issues(Path("/repo"))
 
         assert result == []
@@ -148,9 +132,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(return_value=[])
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             await list_issues(Path("/repo"), state="closed")
 
             mock_runner.list_issues.assert_called_once()
@@ -163,9 +145,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(return_value=[])
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             await list_issues(Path("/repo"), labels=["bug"])
 
             mock_runner.list_issues.assert_called_once()
@@ -188,9 +168,7 @@ class TestListIssues:
         mock_cmd_runner = MagicMock()
         mock_cmd_runner.run = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "maverick.utils.github._get_command_runner", return_value=mock_cmd_runner
-        ):
+        with patch("maverick.utils.github._get_command_runner", return_value=mock_cmd_runner):
             result = await list_issues(Path("/repo"), labels=["bug", "critical"])
 
             # Should use CommandRunner for multiple labels
@@ -207,9 +185,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(return_value=[])
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             await list_issues(Path("/repo"), limit=50)
 
             mock_runner.list_issues.assert_called_once()
@@ -220,13 +196,9 @@ class TestListIssues:
     async def test_list_issues_error_raises_github_error(self) -> None:
         """Test list_issues raises GitHubError on failure."""
         mock_runner = MagicMock()
-        mock_runner.list_issues = AsyncMock(
-            side_effect=RuntimeError("failed to list issues")
-        )
+        mock_runner.list_issues = AsyncMock(side_effect=RuntimeError("failed to list issues"))
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             with pytest.raises(GitHubError):
                 await list_issues(Path("/repo"))
 
@@ -236,9 +208,7 @@ class TestListIssues:
         mock_runner = MagicMock()
         mock_runner.list_issues = AsyncMock(side_effect=GitHubAuthError())
 
-        with patch(
-            "maverick.utils.github._get_github_runner", return_value=mock_runner
-        ):
+        with patch("maverick.utils.github._get_github_runner", return_value=mock_runner):
             with pytest.raises(GitHubError) as exc_info:
                 await list_issues(Path("/repo"))
 
@@ -264,9 +234,7 @@ class TestCheckGhAuth:
         mock_cmd_runner = MagicMock()
         mock_cmd_runner.run = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "maverick.utils.github._get_command_runner", return_value=mock_cmd_runner
-        ):
+        with patch("maverick.utils.github._get_command_runner", return_value=mock_cmd_runner):
             result = await check_gh_auth(Path("/repo"))
 
         assert result is True
@@ -287,9 +255,7 @@ class TestCheckGhAuth:
         mock_cmd_runner = MagicMock()
         mock_cmd_runner.run = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "maverick.utils.github._get_command_runner", return_value=mock_cmd_runner
-        ):
+        with patch("maverick.utils.github._get_command_runner", return_value=mock_cmd_runner):
             result = await check_gh_auth(Path("/repo"))
 
         assert result is False

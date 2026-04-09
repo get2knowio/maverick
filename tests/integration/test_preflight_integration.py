@@ -215,9 +215,7 @@ class TestPreflightIntegration:
         # Use patch to control shutil.which behavior
         with patch("maverick.runners.preflight.shutil.which") as mock_which:
             # python3 exists, nonexistent_tool doesn't
-            mock_which.side_effect = (
-                lambda cmd: "/usr/bin/python3" if cmd == "python3" else None
-            )
+            mock_which.side_effect = lambda cmd: "/usr/bin/python3" if cmd == "python3" else None
 
             tool_validator = CustomToolValidator(custom_tools=custom_tools)
             result = await tool_validator.validate()
@@ -372,9 +370,7 @@ class TestPreflightIntegration:
             CustomToolConfig(name="Git", command="git", required=True),
         ]
 
-        with patch(
-            "maverick.runners.preflight.shutil.which", return_value="/usr/bin/git"
-        ):
+        with patch("maverick.runners.preflight.shutil.which", return_value="/usr/bin/git"):
             tool_validator = CustomToolValidator(custom_tools=custom_tools)
             # Add tool validator to runners list
             # type: ignore[list-item]
@@ -393,9 +389,7 @@ class TestPreflightIntegration:
         assert "GitHubRunner" in result.failed_components
 
         # CustomToolValidator should have succeeded
-        custom_result = next(
-            (r for r in result.results if r.component == "CustomTools"), None
-        )
+        custom_result = next((r for r in result.results if r.component == "CustomTools"), None)
         assert custom_result is not None
         assert custom_result.success is True
 
@@ -434,16 +428,12 @@ class TestPreflightIntegration:
         assert len(result.results) == 2
 
         # Exception runner should have failed with error message
-        exc_result = next(
-            (r for r in result.results if r.component == "ExceptionRunner"), None
-        )
+        exc_result = next((r for r in result.results if r.component == "ExceptionRunner"), None)
         assert exc_result is not None
         assert exc_result.success is False
         assert any("error" in err.lower() for err in exc_result.errors)
 
         # Normal runner should still succeed
-        normal_result = next(
-            (r for r in result.results if r.component == "NormalRunner"), None
-        )
+        normal_result = next((r for r in result.results if r.component == "NormalRunner"), None)
         assert normal_result is not None
         assert normal_result.success is True

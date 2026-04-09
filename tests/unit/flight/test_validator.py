@@ -23,9 +23,7 @@ from .conftest import VALID_FLIGHT_PLAN_CONTENT
 class TestValidateFlightPlanFileValid:
     """Valid files produce no issues."""
 
-    def test_valid_file_returns_empty_list(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_valid_file_returns_empty_list(self, write_flight_plan: Callable[..., Path]) -> None:
         """A fully valid flight plan returns an empty issue list."""
         path = write_flight_plan(VALID_FLIGHT_PLAN_CONTENT)
         issues = validate_flight_plan_file(path)
@@ -40,9 +38,7 @@ class TestValidateFlightPlanFileValid:
 class TestFrontmatterBlockingRules:
     """V1-V3 are blocking -- section checks are skipped when frontmatter fails."""
 
-    def test_empty_file_triggers_v1(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_empty_file_triggers_v1(self, write_flight_plan: Callable[..., Path]) -> None:
         """Empty file (0 bytes) triggers V1 -- missing opening delimiter."""
         path = write_flight_plan("")
         issues = validate_flight_plan_file(path)
@@ -72,9 +68,7 @@ class TestFrontmatterBlockingRules:
         locations = [i.location for i in issues]
         assert any("frontmatter" in loc.lower() or "V2" in loc for loc in locations)
 
-    def test_malformed_yaml_triggers_v3(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_malformed_yaml_triggers_v3(self, write_flight_plan: Callable[..., Path]) -> None:
         """Invalid YAML in frontmatter triggers V3."""
         content = "---\nname: [unclosed bracket\n---\n\n## Objective\n\nText.\n"
         path = write_flight_plan(content)
@@ -111,9 +105,7 @@ class TestFrontmatterFieldRules:
         lines = VALID_FLIGHT_PLAN_CONTENT.splitlines(keepends=True)
         return "".join(line for line in lines if not line.startswith(f"{field}:"))
 
-    def test_missing_name_triggers_v4(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_missing_name_triggers_v4(self, write_flight_plan: Callable[..., Path]) -> None:
         """Frontmatter without 'name' field triggers V4."""
         path = write_flight_plan(self._content_without("name"))
         issues = validate_flight_plan_file(path)
@@ -121,9 +113,7 @@ class TestFrontmatterFieldRules:
         locations = [i.location for i in issues]
         assert any("name" in loc.lower() or "V4" in loc for loc in locations)
 
-    def test_empty_name_triggers_v4(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_empty_name_triggers_v4(self, write_flight_plan: Callable[..., Path]) -> None:
         """Frontmatter with name: '' (empty string) triggers V4."""
         content = VALID_FLIGHT_PLAN_CONTENT.replace("name: test-plan", "name: ''")
         path = write_flight_plan(content)
@@ -132,9 +122,7 @@ class TestFrontmatterFieldRules:
         locations = [i.location for i in issues]
         assert any("name" in loc.lower() or "V4" in loc for loc in locations)
 
-    def test_missing_version_triggers_v5(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_missing_version_triggers_v5(self, write_flight_plan: Callable[..., Path]) -> None:
         """Frontmatter without 'version' field triggers V5."""
         path = write_flight_plan(self._content_without("version"))
         issues = validate_flight_plan_file(path)
@@ -142,9 +130,7 @@ class TestFrontmatterFieldRules:
         locations = [i.location for i in issues]
         assert any("version" in loc.lower() or "V5" in loc for loc in locations)
 
-    def test_empty_version_triggers_v5(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_empty_version_triggers_v5(self, write_flight_plan: Callable[..., Path]) -> None:
         """Frontmatter with version: '' triggers V5."""
         content = VALID_FLIGHT_PLAN_CONTENT.replace('version: "1.0"', "version: ''")
         path = write_flight_plan(content)
@@ -153,9 +139,7 @@ class TestFrontmatterFieldRules:
         locations = [i.location for i in issues]
         assert any("version" in loc.lower() or "V5" in loc for loc in locations)
 
-    def test_missing_created_triggers_v6(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_missing_created_triggers_v6(self, write_flight_plan: Callable[..., Path]) -> None:
         """Frontmatter without 'created' field triggers V6."""
         path = write_flight_plan(self._content_without("created"))
         issues = validate_flight_plan_file(path)
@@ -197,9 +181,7 @@ class TestSectionRules:
         messages = [i.message.lower() for i in issues]
         assert any("objective" in m for m in messages)
 
-    def test_empty_objective_triggers_v7(
-        self, write_flight_plan: Callable[..., Path]
-    ) -> None:
+    def test_empty_objective_triggers_v7(self, write_flight_plan: Callable[..., Path]) -> None:
         """## Objective section present but empty triggers V7."""
         content = VALID_FLIGHT_PLAN_CONTENT.replace(
             "## Objective\n\nThis is the objective text.\n",

@@ -47,9 +47,7 @@ class CLINotFoundError(AgentError):
 
     def __init__(
         self,
-        message: str = (
-            "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"
-        ),
+        message: str = ("Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"),
         cli_path: str | None = None,
     ) -> None:
         """Initialize the CLINotFoundError.

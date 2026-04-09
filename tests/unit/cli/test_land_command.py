@@ -130,9 +130,7 @@ class TestApprovePath:
                 cwd=Path("/tmp/workspace"),
             )
 
-        mock_client.bookmark_set.assert_awaited_once_with(
-            "maverick/myproject", revision="@-"
-        )
+        mock_client.bookmark_set.assert_awaited_once_with("maverick/myproject", revision="@-")
         mock_client.git_push.assert_awaited_once_with(bookmark="maverick/myproject")
         mock_merge.assert_awaited_once()
         mock_manager.teardown.assert_awaited_once()
@@ -166,9 +164,7 @@ class TestApprovePath:
                 cwd=Path("/tmp/workspace"),
             )
 
-        mock_client.bookmark_set.assert_awaited_once_with(
-            "custom/branch", revision="@-"
-        )
+        mock_client.bookmark_set.assert_awaited_once_with("custom/branch", revision="@-")
 
     @pytest.mark.asyncio
     async def test_approve_no_workspace_returns_early(self) -> None:
@@ -298,9 +294,7 @@ class TestEjectPath:
         mock_client.bookmark_set.assert_awaited_once_with(
             "maverick/preview/myproject", revision="@-"
         )
-        mock_client.git_push.assert_awaited_once_with(
-            bookmark="maverick/preview/myproject"
-        )
+        mock_client.git_push.assert_awaited_once_with(bookmark="maverick/preview/myproject")
 
     @pytest.mark.asyncio
     async def test_eject_custom_branch(self) -> None:
@@ -439,9 +433,7 @@ class TestFinalizePath:
             patch("maverick.cli.commands.land.Path") as mock_path,
             _mock_command_runner(),
         ):
-            mock_path.cwd.return_value.resolve.return_value = Path(
-                "/home/user/myproject"
-            )
+            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/myproject")
             await _finalize(base="main", branch=None)
 
         mock_merge.assert_awaited_once()

@@ -51,32 +51,22 @@ class TestBeadOutcomeAppendAndRead:
         assert outcomes[0].bead_id == "bead-001"
 
     async def test_filter_by_bead_id(self, initialized_store: RunwayStore) -> None:
-        await initialized_store.append_bead_outcome(
-            BeadOutcome(bead_id="b1", epic_id="e1")
-        )
-        await initialized_store.append_bead_outcome(
-            BeadOutcome(bead_id="b2", epic_id="e1")
-        )
+        await initialized_store.append_bead_outcome(BeadOutcome(bead_id="b1", epic_id="e1"))
+        await initialized_store.append_bead_outcome(BeadOutcome(bead_id="b2", epic_id="e1"))
         results = await initialized_store.get_bead_outcomes(bead_id="b1")
         assert len(results) == 1
         assert results[0].bead_id == "b1"
 
     async def test_filter_by_epic_id(self, initialized_store: RunwayStore) -> None:
-        await initialized_store.append_bead_outcome(
-            BeadOutcome(bead_id="b1", epic_id="e1")
-        )
-        await initialized_store.append_bead_outcome(
-            BeadOutcome(bead_id="b2", epic_id="e2")
-        )
+        await initialized_store.append_bead_outcome(BeadOutcome(bead_id="b1", epic_id="e1"))
+        await initialized_store.append_bead_outcome(BeadOutcome(bead_id="b2", epic_id="e2"))
         results = await initialized_store.get_bead_outcomes(epic_id="e2")
         assert len(results) == 1
         assert results[0].epic_id == "e2"
 
     async def test_limit(self, initialized_store: RunwayStore) -> None:
         for i in range(5):
-            await initialized_store.append_bead_outcome(
-                BeadOutcome(bead_id=f"b{i}", epic_id="e1")
-            )
+            await initialized_store.append_bead_outcome(BeadOutcome(bead_id=f"b{i}", epic_id="e1"))
         results = await initialized_store.get_bead_outcomes(limit=2)
         assert len(results) == 2
         # Should return last 2
@@ -135,9 +125,7 @@ class TestFixAttemptAppendAndRead:
 class TestSemanticFiles:
     """Tests for semantic file operations."""
 
-    async def test_read_nonexistent_returns_none(
-        self, initialized_store: RunwayStore
-    ) -> None:
+    async def test_read_nonexistent_returns_none(self, initialized_store: RunwayStore) -> None:
         result = await initialized_store.read_semantic_file("missing.md")
         assert result is None
 
@@ -221,9 +209,7 @@ class TestBM25Query:
 
     async def test_query_max_passages(self, initialized_store: RunwayStore) -> None:
         # Write many paragraphs
-        paragraphs = "\n\n".join(
-            f"Section {i}: the topic is testing." for i in range(20)
-        )
+        paragraphs = "\n\n".join(f"Section {i}: the topic is testing." for i in range(20))
         await initialized_store.write_semantic_file("big.md", paragraphs)
         result = await initialized_store.query("testing", max_passages=3)
         assert len(result.passages) <= 3

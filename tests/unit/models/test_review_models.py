@@ -354,9 +354,7 @@ class TestFindingTracker:
         """Recording fixed outcome should update status."""
         tracker = FindingTracker(sample_review_result)
 
-        tracker.record_outcome(
-            FixOutcome(id="F001", outcome="fixed", explanation="Done")
-        )
+        tracker.record_outcome(FixOutcome(id="F001", outcome="fixed", explanation="Done"))
 
         assert tracker.get_fixed_count() == 1
         assert len(tracker.get_actionable_findings()) == 2
@@ -370,9 +368,7 @@ class TestFindingTracker:
         """Recording blocked outcome should update status."""
         tracker = FindingTracker(sample_review_result)
 
-        tracker.record_outcome(
-            FixOutcome(id="F001", outcome="blocked", explanation="Cannot fix")
-        )
+        tracker.record_outcome(FixOutcome(id="F001", outcome="blocked", explanation="Cannot fix"))
 
         assert tracker.get_blocked_count() == 1
         assert len(tracker.get_actionable_findings()) == 2
@@ -393,9 +389,7 @@ class TestFindingTracker:
         assert len(tf.attempts) == 1
         assert tf.attempts[0].outcome == "deferred"
 
-    def test_deferred_exceeds_retry_limit(
-        self, sample_review_result: ReviewResult
-    ) -> None:
+    def test_deferred_exceeds_retry_limit(self, sample_review_result: ReviewResult) -> None:
         """Deferred items should stop being actionable after 3 attempts."""
         tracker = FindingTracker(sample_review_result)
 
@@ -418,9 +412,7 @@ class TestFindingTracker:
         tracker = FindingTracker(sample_review_result)
 
         for finding_id in ["F001", "F002", "F003"]:
-            tracker.record_outcome(
-                FixOutcome(id=finding_id, outcome="fixed", explanation="Done")
-            )
+            tracker.record_outcome(FixOutcome(id=finding_id, outcome="fixed", explanation="Done"))
 
         assert tracker.is_complete()
 
@@ -439,28 +431,18 @@ class TestFindingTracker:
         """is_complete should return True when all are fixed or blocked."""
         tracker = FindingTracker(sample_review_result)
 
-        tracker.record_outcome(
-            FixOutcome(id="F001", outcome="fixed", explanation="Done")
-        )
-        tracker.record_outcome(
-            FixOutcome(id="F002", outcome="blocked", explanation="Cannot")
-        )
-        tracker.record_outcome(
-            FixOutcome(id="F003", outcome="fixed", explanation="Done")
-        )
+        tracker.record_outcome(FixOutcome(id="F001", outcome="fixed", explanation="Done"))
+        tracker.record_outcome(FixOutcome(id="F002", outcome="blocked", explanation="Cannot"))
+        tracker.record_outcome(FixOutcome(id="F003", outcome="fixed", explanation="Done"))
 
         assert tracker.is_complete()
 
-    def test_get_actionable_with_groups(
-        self, sample_review_result: ReviewResult
-    ) -> None:
+    def test_get_actionable_with_groups(self, sample_review_result: ReviewResult) -> None:
         """get_actionable_with_groups should preserve group structure."""
         tracker = FindingTracker(sample_review_result)
 
         # Fix one item from group 1
-        tracker.record_outcome(
-            FixOutcome(id="F001", outcome="fixed", explanation="Done")
-        )
+        tracker.record_outcome(FixOutcome(id="F001", outcome="fixed", explanation="Done"))
 
         groups = tracker.get_actionable_with_groups()
 
@@ -489,23 +471,15 @@ class TestFindingTracker:
         tracker = FindingTracker(sample_review_result)
 
         with pytest.raises(KeyError):
-            tracker.record_outcome(
-                FixOutcome(id="UNKNOWN", outcome="fixed", explanation="?")
-            )
+            tracker.record_outcome(FixOutcome(id="UNKNOWN", outcome="fixed", explanation="?"))
 
     def test_get_summary(self, sample_review_result: ReviewResult) -> None:
         """get_summary should return correct counts."""
         tracker = FindingTracker(sample_review_result)
 
-        tracker.record_outcome(
-            FixOutcome(id="F001", outcome="fixed", explanation="Done")
-        )
-        tracker.record_outcome(
-            FixOutcome(id="F002", outcome="blocked", explanation="Cannot")
-        )
-        tracker.record_outcome(
-            FixOutcome(id="F003", outcome="deferred", explanation="Later")
-        )
+        tracker.record_outcome(FixOutcome(id="F001", outcome="fixed", explanation="Done"))
+        tracker.record_outcome(FixOutcome(id="F002", outcome="blocked", explanation="Cannot"))
+        tracker.record_outcome(FixOutcome(id="F003", outcome="deferred", explanation="Later"))
 
         summary = tracker.get_summary()
 

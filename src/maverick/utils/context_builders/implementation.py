@@ -82,9 +82,7 @@ def build_implementation_context(
 
     # Read conventions
     conventions_content = _read_conventions(conventions_path)
-    conventions_lines = (
-        conventions_content.count("\n") + 1 if conventions_content else 0
-    )
+    conventions_lines = conventions_content.count("\n") + 1 if conventions_content else 0
 
     # Check for secrets and log warnings
     content_pairs = [(tasks_content, "tasks"), (conventions_content, "conventions")]

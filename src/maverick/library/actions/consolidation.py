@@ -245,9 +245,7 @@ async def consolidate_runway(
 
         # Check thresholds
         cutoff = datetime.now() - timedelta(days=max_age_days)
-        has_old = any(
-            (_parse_timestamp(o.timestamp) or datetime.min) < cutoff for o in outcomes
-        )
+        has_old = any((_parse_timestamp(o.timestamp) or datetime.min) < cutoff for o in outcomes)
 
         if not force and total_records < max_records and not has_old:
             return RunwayConsolidationResult(
@@ -266,9 +264,7 @@ async def consolidate_runway(
         per_file_max = max(max_records // 3, 10)
 
         # Partition records
-        keep_outcomes, consolidate_outcomes = _partition_outcomes(
-            outcomes, cutoff, per_file_max
-        )
+        keep_outcomes, consolidate_outcomes = _partition_outcomes(outcomes, cutoff, per_file_max)
         consolidated_bead_ids = {o.bead_id for o in consolidate_outcomes}
 
         keep_findings, consolidate_findings = _partition_findings(
@@ -279,9 +275,7 @@ async def consolidate_runway(
         )
 
         records_pruned = (
-            len(consolidate_outcomes)
-            + len(consolidate_findings)
-            + len(consolidate_attempts)
+            len(consolidate_outcomes) + len(consolidate_findings) + len(consolidate_attempts)
         )
 
         if records_pruned == 0 and not force:
@@ -306,19 +300,13 @@ async def consolidate_runway(
             synthesis_attempts = [a.to_dict() for a in attempts]
         else:
             synthesis_outcomes = (
-                [o.to_dict() for o in consolidate_outcomes]
-                if consolidate_outcomes
-                else []
+                [o.to_dict() for o in consolidate_outcomes] if consolidate_outcomes else []
             )
             synthesis_findings = (
-                [f.to_dict() for f in consolidate_findings]
-                if consolidate_findings
-                else []
+                [f.to_dict() for f in consolidate_findings] if consolidate_findings else []
             )
             synthesis_attempts = (
-                [a.to_dict() for a in consolidate_attempts]
-                if consolidate_attempts
-                else []
+                [a.to_dict() for a in consolidate_attempts] if consolidate_attempts else []
             )
 
         has_data = synthesis_outcomes or synthesis_findings or synthesis_attempts
@@ -423,9 +411,7 @@ async def consolidate_from_runs(
         checkpoint_path = run_path / "checkpoint.json"
         if checkpoint_path.exists():
             try:
-                cp = _json.loads(
-                    checkpoint_path.read_text(encoding="utf-8")
-                )
+                cp = _json.loads(checkpoint_path.read_text(encoding="utf-8"))
                 steps = cp.get("step_results", [])
                 for s in steps:
                     if s.get("name") == "implement_and_validate":
@@ -439,9 +425,7 @@ async def consolidate_from_runs(
                 chain_depth = ud.get("chain_depth", {})
                 total_escalations += sum(chain_depth.values())
                 run_info["chain_depth"] = chain_depth
-                run_info["completed_beads"] = len(
-                    ud.get("completed_bead_ids", [])
-                )
+                run_info["completed_beads"] = len(ud.get("completed_bead_ids", []))
             except Exception:
                 pass
 
@@ -454,13 +438,9 @@ async def consolidate_from_runs(
                 if review_dir.is_dir():
                     for rfile in review_dir.glob("*.json"):
                         try:
-                            data = _json.loads(
-                                rfile.read_text(encoding="utf-8")
-                            )
+                            data = _json.loads(rfile.read_text(encoding="utf-8"))
                             for g in data.get("groups", []):
-                                review_findings_count += len(
-                                    g.get("findings", [])
-                                )
+                                review_findings_count += len(g.get("findings", []))
                         except Exception:
                             pass
 
@@ -477,9 +457,7 @@ async def consolidate_from_runs(
         "total_beads_processed": total_beads,
         "total_retries": total_retries,
         "total_escalations": total_escalations,
-        "avg_impl_time_seconds": (
-            sum(impl_times) // len(impl_times) if impl_times else 0
-        ),
+        "avg_impl_time_seconds": (sum(impl_times) // len(impl_times) if impl_times else 0),
         "max_impl_time_seconds": max(impl_times) if impl_times else 0,
     }
 

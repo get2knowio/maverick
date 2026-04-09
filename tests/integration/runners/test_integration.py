@@ -73,9 +73,7 @@ class TestGitHubCLIRunnerIntegration:
     These tests require GitHub CLI to be installed and authenticated.
     """
 
-    @pytest.mark.skipif(
-        not GH_AUTHENTICATED, reason="Requires gh CLI installed and authenticated"
-    )
+    @pytest.mark.skipif(not GH_AUTHENTICATED, reason="Requires gh CLI installed and authenticated")
     @pytest.mark.asyncio
     async def test_list_issues(self) -> None:
         """Test listing issues from the current repository."""

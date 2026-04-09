@@ -467,9 +467,7 @@ def _detect_from_markers(markers: list[ProjectMarker]) -> ProjectDetectionResult
             confidence=DetectionConfidence.LOW,
             findings=("No marker files found",),
             markers=(),
-            validation_commands=ValidationCommands.for_project_type(
-                ProjectType.UNKNOWN
-            ),
+            validation_commands=ValidationCommands.for_project_type(ProjectType.UNKNOWN),
             detection_method="markers",
         )
 
@@ -496,9 +494,7 @@ def _detect_from_markers(markers: list[ProjectMarker]) -> ProjectDetectionResult
         confidence = DetectionConfidence.LOW
 
     # Build findings
-    findings = tuple(
-        f"{marker.file_name} found at {marker.file_path}" for marker in markers
-    )
+    findings = tuple(f"{marker.file_name} found at {marker.file_path}" for marker in markers)
 
     return ProjectDetectionResult(
         primary_type=primary_type,

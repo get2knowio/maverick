@@ -57,8 +57,7 @@ class OutputValidationError(MaverickError):
         self.parse_error = parse_error
         self.stage = stage
         super().__init__(
-            f"Output validation failed at {stage} stage for {expected_model}: "
-            f"{parse_error}"
+            f"Output validation failed at {stage} stage for {expected_model}: {parse_error}"
         )
 
 

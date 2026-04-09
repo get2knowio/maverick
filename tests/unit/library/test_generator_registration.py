@@ -25,9 +25,7 @@ class TestRegisterAllGenerators:
         """Create a fresh ComponentRegistry for testing."""
         return ComponentRegistry()
 
-    def test_registers_commit_message_generator(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registers_commit_message_generator(self, registry: ComponentRegistry) -> None:
         """Test that commit_message_generator is registered."""
         register_all_generators(registry)
 
@@ -51,9 +49,7 @@ class TestRegisterAllGenerators:
         generator_class = registry.generators.get("pr_title_generator")
         assert generator_class is PRTitleGenerator
 
-    def test_registers_all_expected_generators(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registers_all_expected_generators(self, registry: ComponentRegistry) -> None:
         """Test that all expected generators are registered."""
         register_all_generators(registry)
 
@@ -78,9 +74,7 @@ class TestRegisterAllGenerators:
         with pytest.raises(Exception):  # DuplicateComponentError
             register_all_generators(registry)
 
-    def test_registered_generators_can_be_instantiated(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registered_generators_can_be_instantiated(self, registry: ComponentRegistry) -> None:
         """Test that registered generators can be instantiated."""
         register_all_generators(registry)
 
@@ -97,9 +91,7 @@ class TestRegisterAllGenerators:
         pr_title = pr_title_class()
         assert pr_title is not None
 
-    def test_registered_generators_have_correct_names(
-        self, registry: ComponentRegistry
-    ) -> None:
+    def test_registered_generators_have_correct_names(self, registry: ComponentRegistry) -> None:
         """Test that registered generators have the expected class names."""
         register_all_generators(registry)
 
@@ -108,13 +100,8 @@ class TestRegisterAllGenerators:
             registry.generators.get("commit_message_generator").__name__
             == "CommitMessageGenerator"
         )
-        assert (
-            registry.generators.get("pr_body_generator").__name__
-            == "PRDescriptionGenerator"
-        )
-        assert (
-            registry.generators.get("pr_title_generator").__name__ == "PRTitleGenerator"
-        )
+        assert registry.generators.get("pr_body_generator").__name__ == "PRDescriptionGenerator"
+        assert registry.generators.get("pr_title_generator").__name__ == "PRTitleGenerator"
 
     def test_generators_have_correct_instance_attributes(
         self, registry: ComponentRegistry

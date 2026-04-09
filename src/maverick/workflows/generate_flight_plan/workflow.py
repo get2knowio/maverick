@@ -197,15 +197,13 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
         # Check if executor supports multi-turn (actor-mailbox path)
-        _can_use_supervisor = (
-            self._step_executor is not None
-            and hasattr(self._step_executor, "create_session")
+        _can_use_supervisor = self._step_executor is not None and hasattr(
+            self._step_executor, "create_session"
         )
 
         # Use Thespian actor system when available and executor supports it
-        _can_use_thespian = (
-            self._step_executor is not None
-            and hasattr(self._step_executor, "create_session")
+        _can_use_thespian = self._step_executor is not None and hasattr(
+            self._step_executor, "create_session"
         )
 
         if _can_use_thespian:
@@ -285,9 +283,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     or not analyst_result.output
                     or not criteria_result.output
                 ):
-                    raise WorkflowError(
-                        "One or more briefing agents returned no output"
-                    )
+                    raise WorkflowError("One or more briefing agents returned no output")
 
                 # Sequential: Contrarian reviews all 3
                 contrarian_prompt = build_preflight_contrarian_prompt(
@@ -358,9 +354,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 timeout=600,
             )
         except OutputSchemaValidationError:
-            await self.emit_step_failed(
-                GENERATE, "Agent output failed schema validation"
-            )
+            await self.emit_step_failed(GENERATE, "Agent output failed schema validation")
             raise
         except Exception as exc:
             await self.emit_step_failed(GENERATE, str(exc))
@@ -499,8 +493,10 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 command=_maverick_bin,
                 args=[
                     "serve-inbox",
-                    "--tools", tool_name,
-                    "--output", str(inbox_dir / f"{agent_name}-inbox.json"),
+                    "--tools",
+                    tool_name,
+                    "--output",
+                    str(inbox_dir / f"{agent_name}-inbox.json"),
                 ],
                 env=[],
             )
@@ -623,7 +619,9 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time; time.sleep(1)
+                import time
+
+                time.sleep(1)
             except Exception:
                 pass
 
@@ -637,6 +635,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 asys.shutdown()
             except Exception:
                 pass
+
         atexit.register(_cleanup)
 
         try:
@@ -655,47 +654,63 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 (criteria, "submit_criteria"),
                 (contrarian, "submit_challenge"),
             ]:
-                asys.ask(addr, {
-                    "type": "init",
-                    "mcp_tool": tool,
-                    "admin_port": THESPIAN_PORT,
-                    "cwd": cwd,
-                }, timeout=10)
+                asys.ask(
+                    addr,
+                    {
+                        "type": "init",
+                        "mcp_tool": tool,
+                        "admin_port": THESPIAN_PORT,
+                        "cwd": cwd,
+                    },
+                    timeout=10,
+                )
 
             # Create generator
             gen = asys.createActor(GeneratorActor)
-            asys.ask(gen, {
-                "type": "init",
-                "admin_port": THESPIAN_PORT,
-                "cwd": cwd,
-            }, timeout=10)
+            asys.ask(
+                gen,
+                {
+                    "type": "init",
+                    "admin_port": THESPIAN_PORT,
+                    "cwd": cwd,
+                },
+                timeout=10,
+            )
 
             # Create deterministic actors
             validator = asys.createActor(PlanValidatorActor)
             writer = asys.createActor(PlanWriterActor)
-            asys.ask(writer, {
-                "type": "init",
-                "output_dir": str(plan_dir),
-            }, timeout=10)
+            asys.ask(
+                writer,
+                {
+                    "type": "init",
+                    "output_dir": str(plan_dir),
+                },
+                timeout=10,
+            )
 
             # Create supervisor
             supervisor = asys.createActor(
                 PlanSupervisorActor,
                 globalName="supervisor-inbox",
             )
-            asys.ask(supervisor, {
-                "type": "init",
-                "prd_content": prd_content,
-                "plan_name": name,
-                "skip_briefing": skip_briefing,
-                "scopist_addr": scopist,
-                "analyst_addr": analyst,
-                "criteria_addr": criteria,
-                "contrarian_addr": contrarian,
-                "generator_addr": gen,
-                "validator_addr": validator,
-                "writer_addr": writer,
-            }, timeout=10)
+            asys.ask(
+                supervisor,
+                {
+                    "type": "init",
+                    "prd_content": prd_content,
+                    "plan_name": name,
+                    "skip_briefing": skip_briefing,
+                    "scopist_addr": scopist,
+                    "analyst_addr": analyst,
+                    "criteria_addr": criteria,
+                    "contrarian_addr": contrarian,
+                    "generator_addr": gen,
+                    "validator_addr": validator,
+                    "writer_addr": writer,
+                },
+                timeout=10,
+            )
 
             await self.emit_output(
                 BRIEFING,

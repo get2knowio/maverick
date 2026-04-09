@@ -10,12 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from maverick.library.actions.validation import run_independent_gate
-from maverick.workflows.fly_beads.constants import DEFAULT_VALIDATION_STAGES
 from maverick.logging import get_logger
 from maverick.workflows.fly_beads.actors.protocol import (
     Message,
     MessageType,
 )
+from maverick.workflows.fly_beads.constants import DEFAULT_VALIDATION_STAGES
 
 logger = get_logger(__name__)
 

@@ -26,9 +26,7 @@ from maverick.tools.github import create_github_tools_server
 
 # Performance thresholds (configurable via environment variables)
 # More generous defaults to account for CI/CD environments with variable performance
-PERF_THRESHOLD_BASIC = float(
-    os.getenv("MAVERICK_PERF_THRESHOLD_BASIC", "15.0")
-)  # Basic tool ops
+PERF_THRESHOLD_BASIC = float(os.getenv("MAVERICK_PERF_THRESHOLD_BASIC", "15.0"))  # Basic tool ops
 PERF_THRESHOLD_SERVER_CREATION = float(
     os.getenv("MAVERICK_PERF_THRESHOLD_SERVER_CREATION", "10.0")
 )  # Server setup
@@ -40,9 +38,7 @@ PERF_THRESHOLD_PARALLEL = float(
 )  # 3 parallel calls
 
 # Skip performance tests in CI if desired
-SKIP_PERF_TESTS_IN_CI = (
-    os.getenv("MAVERICK_SKIP_PERF_TESTS_IN_CI", "false").lower() == "true"
-)
+SKIP_PERF_TESTS_IN_CI = os.getenv("MAVERICK_SKIP_PERF_TESTS_IN_CI", "false").lower() == "true"
 
 
 def is_gh_authenticated() -> bool:
@@ -297,9 +293,7 @@ class TestGitHubToolsPerformance:
             assert isinstance(response_data["issues"], list)
 
     @pytest.mark.asyncio
-    async def test_get_issue_performance_under_5_seconds(
-        self, valid_issue_number: int
-    ) -> None:
+    async def test_get_issue_performance_under_5_seconds(self, valid_issue_number: int) -> None:
         """Test github_get_issue executes in under 5 seconds.
 
         This test verifies that getting a specific issue (if it exists)
@@ -344,8 +338,7 @@ class TestGitHubToolsPerformance:
         # Server creation should be fast (configurable threshold for CI/CD)
         # Note: Verification involves subprocess calls so 10s is reasonable
         assert elapsed < PERF_THRESHOLD_SERVER_CREATION, (
-            f"Server creation took {elapsed:.2f}s, "
-            f"expected < {PERF_THRESHOLD_SERVER_CREATION}s"
+            f"Server creation took {elapsed:.2f}s, expected < {PERF_THRESHOLD_SERVER_CREATION}s"
         )
 
         # Verify server config is valid
@@ -408,8 +401,7 @@ class TestGitHubToolsPerformance:
         # Parallel calls should be faster than sequential
         # (configurable threshold for CI/CD overhead)
         assert elapsed < PERF_THRESHOLD_PARALLEL, (
-            f"3 parallel calls took {elapsed:.2f}s, "
-            f"expected < {PERF_THRESHOLD_PARALLEL}s"
+            f"3 parallel calls took {elapsed:.2f}s, expected < {PERF_THRESHOLD_PARALLEL}s"
         )
 
         # Verify all results are valid
@@ -442,9 +434,7 @@ class TestGitHubToolsErrorHandling:
         assert server_config["name"] == "github-tools"
 
     @pytest.mark.asyncio
-    async def test_verify_prerequisites_outside_git_repo_fails(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_verify_prerequisites_outside_git_repo_fails(self, tmp_path: Path) -> None:
         """Test that verify_github_prerequisites fails outside a git repository.
 
         This test verifies the explicit verification function correctly detects

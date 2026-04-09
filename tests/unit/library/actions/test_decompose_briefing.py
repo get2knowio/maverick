@@ -34,9 +34,7 @@ def _make_briefing(
             integration_points=(),
             summary="Nav",
         ),
-        structuralist=StructuralistBrief(
-            entities=entities, interfaces=(), summary="Struct"
-        ),
+        structuralist=StructuralistBrief(entities=entities, interfaces=(), summary="Struct"),
         recon=ReconBrief(
             risks=risks,
             ambiguities=ambiguities,

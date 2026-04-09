@@ -152,9 +152,7 @@ class TestGitHubClient:
 
         await client.list_issues("owner/repo", labels=["bug", "priority"])
 
-        mock_repo.get_issues.assert_called_once_with(
-            state="open", labels=["bug", "priority"]
-        )
+        mock_repo.get_issues.assert_called_once_with(state="open", labels=["bug", "priority"])
 
     @pytest.mark.asyncio
     async def test_get_issue(self, client, mock_github):
@@ -175,9 +173,7 @@ class TestGitHubClient:
         from github import GithubException
 
         mock_repo = MagicMock()
-        mock_repo.get_issue.side_effect = GithubException(
-            404, {"message": "Not Found"}, None
-        )
+        mock_repo.get_issue.side_effect = GithubException(404, {"message": "Not Found"}, None)
         mock_github.get_repo.return_value = mock_repo
 
         with pytest.raises(GitHubError, match="not found"):
@@ -247,9 +243,7 @@ class TestGitHubClient:
         from github import GithubException
 
         mock_repo = MagicMock()
-        mock_repo.create_issue.side_effect = GithubException(
-            403, {"message": "Forbidden"}, None
-        )
+        mock_repo.create_issue.side_effect = GithubException(403, {"message": "Forbidden"}, None)
         mock_github.get_repo.return_value = mock_repo
 
         with pytest.raises(GitHubError, match="Failed to create issue"):
@@ -306,9 +300,7 @@ class TestGitHubClient:
         mock_repo.get_pull.return_value = mock_pr
         mock_github.get_repo.return_value = mock_repo
 
-        result = await client.update_pr(
-            "owner/repo", 123, title="New Title", body="New Body"
-        )
+        result = await client.update_pr("owner/repo", 123, title="New Title", body="New Body")
 
         assert result == mock_pr
         mock_pr.edit.assert_called_once_with(title="New Title", body="New Body")
@@ -379,9 +371,7 @@ class TestGitHubClient:
         """Test getting a non-existent repository."""
         from github import GithubException
 
-        mock_github.get_repo.side_effect = GithubException(
-            404, {"message": "Not Found"}, None
-        )
+        mock_github.get_repo.side_effect = GithubException(404, {"message": "Not Found"}, None)
 
         with pytest.raises(GitHubError, match="not found"):
             await client.get_repo_info("owner/nonexistent")

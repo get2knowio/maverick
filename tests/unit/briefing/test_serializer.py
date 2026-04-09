@@ -25,9 +25,7 @@ def _make_minimal_doc() -> BriefingDocument:
             integration_points=(),
             summary="Nav summary",
         ),
-        structuralist=StructuralistBrief(
-            entities=(), interfaces=(), summary="Struct summary"
-        ),
+        structuralist=StructuralistBrief(entities=(), interfaces=(), summary="Struct summary"),
         recon=ReconBrief(
             risks=(),
             ambiguities=(),
@@ -81,9 +79,7 @@ class TestSerializeBriefing:
         assert "- API breakage" in result
 
     def test_open_questions_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(
-            update={"open_questions": ("Auth mechanism?",)}
-        )
+        doc = _make_minimal_doc().model_copy(update={"open_questions": ("Auth mechanism?",)})
         result = serialize_briefing(doc)
         assert "## Open Questions" in result
         assert "- Auth mechanism?" in result

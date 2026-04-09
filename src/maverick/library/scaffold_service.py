@@ -147,9 +147,7 @@ class ScaffoldService:
         try:
             request.output_path.write_text(content, encoding="utf-8")
         except OSError as e:
-            raise TemplateRenderError(
-                request.template, f"Failed to write output file: {e}"
-            ) from e
+            raise TemplateRenderError(request.template, f"Failed to write output file: {e}") from e
 
         return ScaffoldResult(success=True, output_path=request.output_path)
 

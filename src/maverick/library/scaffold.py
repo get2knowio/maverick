@@ -217,9 +217,7 @@ def validate_workflow_name(name: str) -> None:
         raise InvalidNameError(name, "must start with lowercase letter")
 
     if not re.match(pattern, name):
-        raise InvalidNameError(
-            name, "must contain only lowercase letters, numbers, and hyphens"
-        )
+        raise InvalidNameError(name, "must contain only lowercase letters, numbers, and hyphens")
 
 
 def get_default_output_dir() -> Path:

@@ -27,18 +27,16 @@ class GeneratorActor(Actor):
             self._executor = None
             self._session_id = None
             self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(
-                target=self._loop.run_forever, daemon=True
-            )
+            self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
             self._thread.start()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "shutdown":
             if self._executor:
                 try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._executor.cleanup(), self._loop
-                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
+                        timeout=5
+                    )
                 except Exception:
                     pass
             self.send(sender, {"type": "shutdown_ok"})
@@ -46,42 +44,44 @@ class GeneratorActor(Actor):
         elif msg_type == "generate":
             print("GENERATOR: starting prompt...", file=sys.stderr, flush=True)
             try:
-                future = asyncio.run_coroutine_threadsafe(
-                    self._send_prompt(message), self._loop
-                )
+                future = asyncio.run_coroutine_threadsafe(self._send_prompt(message), self._loop)
                 future.result(timeout=1800)
                 print("GENERATOR: prompt completed!", file=sys.stderr, flush=True)
                 self.send(sender, {"type": "prompt_sent", "phase": "generate"})
             except Exception as exc:
                 print(f"GENERATOR: FAILED: {exc}", file=sys.stderr, flush=True)
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "generate",
-                    "error": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "prompt_error",
+                        "phase": "generate",
+                        "error": str(exc),
+                    },
+                )
 
     async def _ensure_executor(self):
         if self._executor is None:
             from maverick.executor import create_default_executor
+
             self._executor = create_default_executor()
 
     async def _new_session(self):
         from pathlib import Path
 
         from acp.schema import McpServerStdio
+
         await self._ensure_executor()
 
-        maverick_bin = (
-            shutil.which("maverick")
-            or str(Path(sys.executable).parent / "maverick")
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
             args=[
                 "serve-inbox",
-                "--tools", "submit_flight_plan",
-                "--admin-port", str(self._admin_port),
+                "--tools",
+                "submit_flight_plan",
+                "--admin-port",
+                str(self._admin_port),
             ],
             env=[],
         )
@@ -138,5 +138,6 @@ class GeneratorActor(Actor):
             f"GENERATOR: result success={success}, "
             f"text_len={len(text)}, output_type={type(output).__name__}, "
             f"output_preview={str(output)[:500]}",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )

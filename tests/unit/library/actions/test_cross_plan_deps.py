@@ -87,9 +87,7 @@ class TestResolvePlanEpicIds:
             client.query = AsyncMock(return_value=[mock_summary])
             client.show = AsyncMock(return_value=mock_details)
 
-            resolved, errors = await resolve_plan_epic_ids(
-                ("add-auth",), cwd=Path("/tmp")
-            )
+            resolved, errors = await resolve_plan_epic_ids(("add-auth",), cwd=Path("/tmp"))
 
         assert len(resolved) == 1
         assert resolved[0].plan_name == "add-auth"
@@ -103,9 +101,7 @@ class TestResolvePlanEpicIds:
             client = MockClient.return_value
             client.query = AsyncMock(return_value=[])
 
-            resolved, errors = await resolve_plan_epic_ids(
-                ("nonexistent-plan",), cwd=Path("/tmp")
-            )
+            resolved, errors = await resolve_plan_epic_ids(("nonexistent-plan",), cwd=Path("/tmp"))
 
         assert resolved == []
         assert len(errors) == 1
@@ -117,9 +113,7 @@ class TestResolvePlanEpicIds:
             client = MockClient.return_value
             client.query = AsyncMock(side_effect=RuntimeError("bd not available"))
 
-            resolved, errors = await resolve_plan_epic_ids(
-                ("plan-a",), cwd=Path("/tmp")
-            )
+            resolved, errors = await resolve_plan_epic_ids(("plan-a",), cwd=Path("/tmp"))
 
         assert resolved == []
         assert len(errors) == 1
@@ -143,9 +137,7 @@ class TestResolvePlanEpicIds:
             client.query = AsyncMock(return_value=[epic1, epic2])
             client.show = AsyncMock(side_effect=[details1, details2])
 
-            resolved, errors = await resolve_plan_epic_ids(
-                ("plan-a", "plan-c"), cwd=Path("/tmp")
-            )
+            resolved, errors = await resolve_plan_epic_ids(("plan-a", "plan-c"), cwd=Path("/tmp"))
 
         assert len(resolved) == 1
         assert resolved[0].plan_name == "plan-a"

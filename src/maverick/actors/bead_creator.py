@@ -27,11 +27,14 @@ class BeadCreatorActor(Actor):
                 result = asyncio.run(self._create_beads(message))
                 self.send(sender, {"type": "beads_created", **result})
             except Exception as exc:
-                self.send(sender, {
-                    "type": "beads_created",
-                    "success": False,
-                    "error": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "beads_created",
+                        "success": False,
+                        "error": str(exc),
+                    },
+                )
 
     async def _create_beads(self, message):
         from maverick.library.actions.beads import (
@@ -51,10 +54,7 @@ class BeadCreatorActor(Actor):
             "priority": 1,
             "category": "user_story",
             "description": plan_objective,
-            "task_list": [
-                s.id if hasattr(s, "id") else s.get("id", "")
-                for s in specs
-            ],
+            "task_list": [s.id if hasattr(s, "id") else s.get("id", "") for s in specs],
         }
 
         work_defs = []
@@ -62,18 +62,18 @@ class BeadCreatorActor(Actor):
             sid = s.id if hasattr(s, "id") else s.get("id", "")
             task = s.task if hasattr(s, "task") else s.get("task", "")
             instructions = (
-                s.instructions
-                if hasattr(s, "instructions")
-                else s.get("instructions", "")
+                s.instructions if hasattr(s, "instructions") else s.get("instructions", "")
             )
-            work_defs.append({
-                "title": task[:490],
-                "bead_type": "task",
-                "priority": 2,
-                "category": "user_story",
-                "description": (instructions or task)[:500],
-                "user_story_id": sid,
-            })
+            work_defs.append(
+                {
+                    "title": task[:490],
+                    "bead_type": "task",
+                    "priority": 2,
+                    "category": "user_story",
+                    "description": (instructions or task)[:500],
+                    "user_story_id": sid,
+                }
+            )
 
         creation_result = await create_beads(
             epic_definition=epic_def,
@@ -83,6 +83,7 @@ class BeadCreatorActor(Actor):
         dep_result = None
         if extracted_deps:
             import json
+
             dep_result = await wire_dependencies(
                 work_definitions=work_defs,
                 created_map=creation_result.created_map,

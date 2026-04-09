@@ -30,12 +30,14 @@ class RefuelSupervisorActor(Actor):
 
     def receiveMessage(self, message, sender):
         import sys
+
         # Log every message for debugging
         msg_preview = str(message)[:200] if message else "None"
         print(
             f"SUPERVISOR: received msg type={type(message).__name__} "
             f"from={sender} preview={msg_preview}",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
 
         # --- Init: receive config and child actor addresses ---
@@ -59,15 +61,22 @@ class RefuelSupervisorActor(Actor):
 
         # --- Tool call from MCP server (via Thespian tell) ---
         if isinstance(message, dict) and "tool" in message:
-            print(f"SUPERVISOR: tool call received: {message.get('tool')}", file=sys.stderr, flush=True)
+            print(
+                f"SUPERVISOR: tool call received: {message.get('tool')}",
+                file=sys.stderr,
+                flush=True,
+            )
             self._handle_tool_call(message)
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
-            print(f"SUPERVISOR: prompt_error phase={message.get('phase')} error={message.get('error')}", file=sys.stderr, flush=True)
+            print(
+                f"SUPERVISOR: prompt_error phase={message.get('phase')} error={message.get('error')}",
+                file=sys.stderr,
+                flush=True,
+            )
             self._handle_error(
-                f"Decomposer error ({message.get('phase')}): "
-                f"{message.get('error')}"
+                f"Decomposer error ({message.get('phase')}): {message.get('error')}"
             )
             return
 
@@ -113,10 +122,13 @@ class RefuelSupervisorActor(Actor):
 
     def _start_outline(self):
         """Kick off the outline phase."""
-        self.send(self._decomposer, {
-            "type": "outline_request",
-            **self._initial_payload,
-        })
+        self.send(
+            self._decomposer,
+            {
+                "type": "outline_request",
+                **self._initial_payload,
+            },
+        )
 
     def _handle_prompt_sent(self, phase):
         """Check if expected tool call arrived; nudge if not."""
@@ -141,7 +153,8 @@ class RefuelSupervisorActor(Actor):
         if self._nudge_count >= MAX_NUDGES:
             print(
                 f"SUPERVISOR: max nudges reached for {phase}, skipping",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             return
 
@@ -149,12 +162,16 @@ class RefuelSupervisorActor(Actor):
         print(
             f"SUPERVISOR: prompt completed but no {tool_name} received, "
             f"nudging decomposer (attempt {self._nudge_count})",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
-        self.send(self._decomposer, {
-            "type": "nudge",
-            "expected_tool": tool_name,
-        })
+        self.send(
+            self._decomposer,
+            {
+                "type": "nudge",
+                "expected_tool": tool_name,
+            },
+        )
 
     def _handle_tool_call(self, message):
         """Route MCP tool call to appropriate handler."""
@@ -165,31 +182,33 @@ class RefuelSupervisorActor(Actor):
         if tool == "submit_outline":
             self._outline = args
             unit_ids = [
-                wu.get("id", "")
-                for wu in args.get("work_units", [])
-                if isinstance(wu, dict)
+                wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
             ]
             outline_json = json.dumps(args)
 
-            self.send(self._decomposer, {
-                "type": "detail_request",
-                "unit_ids": unit_ids,
-                "outline_json": outline_json,
-                "flight_plan_content": self._initial_payload.get(
-                    "flight_plan_content", ""
-                ),
-                "verification_properties": self._initial_payload.get(
-                    "verification_properties", ""
-                ),
-            })
+            self.send(
+                self._decomposer,
+                {
+                    "type": "detail_request",
+                    "unit_ids": unit_ids,
+                    "outline_json": outline_json,
+                    "flight_plan_content": self._initial_payload.get("flight_plan_content", ""),
+                    "verification_properties": self._initial_payload.get(
+                        "verification_properties", ""
+                    ),
+                },
+            )
 
         elif tool == "submit_details":
             self._details = args
             self._specs = self._merge_to_specs()
-            self.send(self._validator, {
-                "type": "validate",
-                "specs": self._specs,
-            })
+            self.send(
+                self._validator,
+                {
+                    "type": "validate",
+                    "specs": self._specs,
+                },
+            )
 
         elif tool == "submit_fix":
             if args.get("work_units"):
@@ -197,64 +216,82 @@ class RefuelSupervisorActor(Actor):
             if args.get("details"):
                 self._details = {"details": args["details"]}
             self._specs = self._merge_to_specs()
-            self.send(self._validator, {
-                "type": "validate",
-                "specs": self._specs,
-            })
+            self.send(
+                self._validator,
+                {
+                    "type": "validate",
+                    "specs": self._specs,
+                },
+            )
 
     def _handle_validation(self, message):
         """Route validation result."""
         if message.get("passed"):
             deps = self._extract_deps()
-            self.send(self._bead_creator, {
-                "type": "create_beads",
-                "specs": self._specs,
-                "deps": deps,
-            })
+            self.send(
+                self._bead_creator,
+                {
+                    "type": "create_beads",
+                    "specs": self._specs,
+                    "deps": deps,
+                },
+            )
         elif self._fix_rounds < MAX_FIX_ROUNDS:
             self._fix_rounds += 1
             gaps = message.get("gaps", [])
             enriched = self._enrich_gaps(gaps)
-            self.send(self._decomposer, {
-                "type": "fix_request",
-                "coverage_gaps": enriched,
-                "overloaded": message.get("overloaded", []),
-            })
+            self.send(
+                self._decomposer,
+                {
+                    "type": "fix_request",
+                    "coverage_gaps": enriched,
+                    "overloaded": message.get("overloaded", []),
+                },
+            )
         else:
             # Exhausted — proceed with what we have
             deps = self._extract_deps()
-            self.send(self._bead_creator, {
-                "type": "create_beads",
-                "specs": self._specs,
-                "deps": deps,
-            })
+            self.send(
+                self._bead_creator,
+                {
+                    "type": "create_beads",
+                    "specs": self._specs,
+                    "deps": deps,
+                },
+            )
 
     def _handle_beads_created(self, message):
         """Decomposition complete — shutdown agents, reply to workflow."""
         if self._decomposer:
             self.send(self._decomposer, {"type": "shutdown"})
         if self._workflow_sender:
-            self.send(self._workflow_sender, {
-                "type": "complete",
-                "success": message.get("success", False),
-                "epic_id": message.get("epic_id", ""),
-                "bead_count": message.get("bead_count", 0),
-                "specs": self._specs,
-                "fix_rounds": self._fix_rounds,
-            })
+            self.send(
+                self._workflow_sender,
+                {
+                    "type": "complete",
+                    "success": message.get("success", False),
+                    "epic_id": message.get("epic_id", ""),
+                    "bead_count": message.get("bead_count", 0),
+                    "specs": self._specs,
+                    "fix_rounds": self._fix_rounds,
+                },
+            )
 
     def _handle_error(self, error_msg):
         """Report error to workflow — shutdown agents first."""
         if self._decomposer:
             self.send(self._decomposer, {"type": "shutdown"})
         if self._workflow_sender:
-            self.send(self._workflow_sender, {
-                "type": "complete",
-                "success": False,
-                "error": error_msg,
-                "specs": self._specs,
-                "fix_rounds": self._fix_rounds,
-            })
+            self.send(
+                self._workflow_sender,
+                {
+                    "type": "complete",
+                    "success": False,
+                    "error": error_msg,
+                    "specs": self._specs,
+                    "fix_rounds": self._fix_rounds,
+                },
+            )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -264,16 +301,8 @@ class RefuelSupervisorActor(Actor):
         """Merge outline + details into WorkUnitSpec list."""
         from maverick.workflows.refuel_maverick.models import WorkUnitSpec
 
-        work_units = (
-            self._outline.get("work_units", [])
-            if self._outline
-            else []
-        )
-        details = (
-            self._details.get("details", [])
-            if self._details
-            else []
-        )
+        work_units = self._outline.get("work_units", []) if self._outline else []
+        details = self._details.get("details", []) if self._details else []
 
         detail_map = {}
         for d in details:
@@ -309,9 +338,7 @@ class RefuelSupervisorActor(Actor):
         for spec in self._specs:
             sid = spec.id if hasattr(spec, "id") else spec.get("id", "")
             dep_list = (
-                spec.depends_on
-                if hasattr(spec, "depends_on")
-                else spec.get("depends_on", [])
+                spec.depends_on if hasattr(spec, "depends_on") else spec.get("depends_on", [])
             )
             for dep_id in dep_list:
                 deps.append([sid, dep_id])
@@ -325,7 +352,7 @@ class RefuelSupervisorActor(Actor):
         sc_list = getattr(flight_plan, "success_criteria", [])
         sc_map = {}
         for i, sc in enumerate(sc_list):
-            ref = getattr(sc, "ref", None) or f"SC-{i+1:03d}"
+            ref = getattr(sc, "ref", None) or f"SC-{i + 1:03d}"
             text = getattr(sc, "text", str(sc))
             sc_map[ref] = text
 

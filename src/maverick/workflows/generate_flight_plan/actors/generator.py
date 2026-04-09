@@ -126,15 +126,11 @@ class GeneratorActor:
     def _read_inbox_file(self) -> dict[str, Any] | None:
         if self._inbox_path.exists():
             try:
-                data = json.loads(
-                    self._inbox_path.read_text(encoding="utf-8")
-                )
+                data = json.loads(self._inbox_path.read_text(encoding="utf-8"))
                 self._inbox_path.unlink()
                 return data
             except Exception as exc:
-                logger.warning(
-                    "generator_actor.inbox_read_failed", error=str(exc)
-                )
+                logger.warning("generator_actor.inbox_read_failed", error=str(exc))
         return None
 
     def get_state_snapshot(self) -> dict[str, Any]:

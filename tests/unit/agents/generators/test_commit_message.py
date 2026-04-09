@@ -47,8 +47,7 @@ class TestCommitMessageGeneratorSystemPrompt:
 
         # Should mention conventional commits or commit format
         assert any(
-            term in prompt
-            for term in ["conventional commit", "commit format", "type(scope)"]
+            term in prompt for term in ["conventional commit", "commit format", "type(scope)"]
         )
 
     def test_system_prompt_lists_commit_types(self) -> None:
@@ -100,10 +99,7 @@ class TestCommitMessageGeneratorPromptBuilding:
         generator = CommitMessageGenerator()
 
         context = {
-            "diff": (
-                "diff --git a/migrations/001.sql b/migrations/001.sql"
-                "\n+CREATE TABLE users;"
-            ),
+            "diff": ("diff --git a/migrations/001.sql b/migrations/001.sql\n+CREATE TABLE users;"),
             "file_stats": {"migrations/001.sql": {"additions": 1, "deletions": 0}},
             "scope_hint": "database",
         }
@@ -148,9 +144,7 @@ class TestCommitMessageGeneratorPromptBuilding:
         generator = CommitMessageGenerator()
 
         # Create a diff larger than 100KB
-        large_diff = (
-            "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 200
-        )
+        large_diff = "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 200
 
         assert len(large_diff) > MAX_DIFF_SIZE
 

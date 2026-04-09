@@ -224,9 +224,7 @@ class TestCurrentBranch:
         branch = repo.current_branch()
         assert branch == "main"
 
-    def test_current_branch_returns_sha_for_detached_head(
-        self, temp_git_repo: Path
-    ) -> None:
+    def test_current_branch_returns_sha_for_detached_head(self, temp_git_repo: Path) -> None:
         """Test current_branch returns commit SHA for detached HEAD."""
         repo = GitRepository(temp_git_repo)
 
@@ -339,9 +337,7 @@ class TestCreateBranch:
         repo.create_branch("feature-y", checkout=False)
         assert repo.current_branch() == original
 
-    def test_create_branch_raises_branch_exists_error(
-        self, temp_git_repo: Path
-    ) -> None:
+    def test_create_branch_raises_branch_exists_error(self, temp_git_repo: Path) -> None:
         """Test create_branch raises BranchExistsError for existing branch."""
         repo = GitRepository(temp_git_repo)
         # Rename to main
@@ -396,9 +392,7 @@ class TestCheckout:
 
         # Switch back and modify README.md without committing
         # Detect the original default branch (may be "main" or "master")
-        default_branch = next(
-            b.name for b in Repo(temp_git_repo).branches if b.name != "other"
-        )
+        default_branch = next(b.name for b in Repo(temp_git_repo).branches if b.name != "other")
         repo.checkout(default_branch)
         readme.write_text("# Uncommitted local changes\n")
 
@@ -532,9 +526,7 @@ class TestStash:
         assert result is True
         assert repo.is_dirty() is False
 
-    def test_stash_returns_false_when_nothing_to_stash(
-        self, temp_git_repo: Path
-    ) -> None:
+    def test_stash_returns_false_when_nothing_to_stash(self, temp_git_repo: Path) -> None:
         """Test stash returns False when nothing to stash."""
         repo = GitRepository(temp_git_repo)
         result = repo.stash()
@@ -735,9 +727,7 @@ class TestRepositoryInfo:
         assert url is not None
         assert str(remote_path) in url
 
-    def test_get_remote_url_returns_none_for_missing_remote(
-        self, temp_git_repo: Path
-    ) -> None:
+    def test_get_remote_url_returns_none_for_missing_remote(self, temp_git_repo: Path) -> None:
         """Test get_remote_url returns None when remote doesn't exist."""
         repo = GitRepository(temp_git_repo)
         url = repo.get_remote_url("nonexistent")
@@ -924,9 +914,7 @@ class TestAsyncGitRepository:
             AsyncGitRepository(non_git_dir)
 
     @pytest.mark.asyncio
-    async def test_async_operations_dont_block_event_loop(
-        self, temp_git_repo: Path
-    ) -> None:
+    async def test_async_operations_dont_block_event_loop(self, temp_git_repo: Path) -> None:
         """Test multiple async operations can run concurrently."""
         import asyncio
 

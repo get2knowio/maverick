@@ -142,9 +142,7 @@ class CommitMessageGenerator(GeneratorAgent):
         Returns:
             Formatted prompt for Claude.
         """
-        prompt_parts = [
-            "Generate a conventional commit message for the following changes:\n"
-        ]
+        prompt_parts = ["Generate a conventional commit message for the following changes:\n"]
 
         # Add scope hint if provided
         if scope_hint:

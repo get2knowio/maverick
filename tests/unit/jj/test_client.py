@@ -32,12 +32,8 @@ class TestVerifyAvailable:
         assert await jj_client.verify_available()
 
     @pytest.mark.asyncio
-    async def test_not_available(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=127, stderr="command not found: jj"
-        )
+    async def test_not_available(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=127, stderr="command not found: jj")
         assert not await jj_client.verify_available()
 
 
@@ -105,9 +101,7 @@ class TestGitFetch:
     """Tests for JjClient.git_fetch()."""
 
     @pytest.mark.asyncio
-    async def test_fetch_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_fetch_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.git_fetch()
         assert result.success is True
@@ -116,9 +110,7 @@ class TestGitFetch:
         assert cmd == ["jj", "git", "fetch", "--remote", "origin"]
 
     @pytest.mark.asyncio
-    async def test_fetch_custom_remote(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_fetch_custom_remote(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         await jj_client.git_fetch(remote="upstream")
 
@@ -126,12 +118,8 @@ class TestGitFetch:
         assert "upstream" in cmd
 
     @pytest.mark.asyncio
-    async def test_fetch_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=1, stderr="could not resolve host"
-        )
+    async def test_fetch_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=1, stderr="could not resolve host")
         with pytest.raises(JjError, match="jj git fetch failed"):
             await jj_client.git_fetch()
 
@@ -140,17 +128,13 @@ class TestGitPush:
     """Tests for JjClient.git_push()."""
 
     @pytest.mark.asyncio
-    async def test_push_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_push_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.git_push()
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_push_with_bookmark(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_push_with_bookmark(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         await jj_client.git_push(bookmark="feature-x")
 
@@ -159,9 +143,7 @@ class TestGitPush:
         assert "feature-x" in cmd
 
     @pytest.mark.asyncio
-    async def test_push_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_push_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(
             returncode=1, stderr="rejected: non-fast-forward"
         )
@@ -180,9 +162,7 @@ class TestDescribe:
     """Tests for JjClient.describe()."""
 
     @pytest.mark.asyncio
-    async def test_describe_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_describe_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.describe("wip: working on feature")
         assert result.success is True
@@ -203,12 +183,8 @@ class TestDescribe:
         assert "kxyz" in cmd
 
     @pytest.mark.asyncio
-    async def test_describe_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=1, stderr="revision not found"
-        )
+    async def test_describe_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=1, stderr="revision not found")
         with pytest.raises(JjError, match="jj describe failed"):
             await jj_client.describe("msg")
 
@@ -217,9 +193,7 @@ class TestNew:
     """Tests for JjClient.new()."""
 
     @pytest.mark.asyncio
-    async def test_new_default(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_new_default(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="Working copy now at: kxyz")
         result = await jj_client.new()
         assert result.success is True
@@ -228,9 +202,7 @@ class TestNew:
         assert cmd == ["jj", "new"]
 
     @pytest.mark.asyncio
-    async def test_new_with_parents(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_new_with_parents(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="kxyz")
         await jj_client.new(parents=["main", "feature"])
 
@@ -238,9 +210,7 @@ class TestNew:
         assert cmd == ["jj", "new", "-r", "main", "-r", "feature"]
 
     @pytest.mark.asyncio
-    async def test_new_with_message(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_new_with_message(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         await jj_client.new(message="start work")
 
@@ -253,9 +223,7 @@ class TestCommit:
     """Tests for JjClient.commit()."""
 
     @pytest.mark.asyncio
-    async def test_commit_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_commit_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="kxyz")
         result = await jj_client.commit("feat: add feature")
         assert result.success is True
@@ -264,12 +232,8 @@ class TestCommit:
         assert cmd == ["jj", "commit", "-m", "feat: add feature"]
 
     @pytest.mark.asyncio
-    async def test_commit_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=1, stderr="nothing to commit"
-        )
+    async def test_commit_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=1, stderr="nothing to commit")
         with pytest.raises(JjError, match="jj commit failed"):
             await jj_client.commit("msg")
 
@@ -283,9 +247,7 @@ class TestDiff:
     """Tests for JjClient.diff()."""
 
     @pytest.mark.asyncio
-    async def test_diff_default(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_diff_default(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="--- a/f\n+++ b/f\n+line")
         result = await jj_client.diff()
         assert "+line" in result.output
@@ -294,9 +256,7 @@ class TestDiff:
         assert cmd == ["jj", "diff", "--git", "-r", "@"]
 
     @pytest.mark.asyncio
-    async def test_diff_from_rev(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_diff_from_rev(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="diff output")
         await jj_client.diff(revision="@", from_rev="main")
 
@@ -313,8 +273,7 @@ class TestDiffStat:
     @pytest.mark.asyncio
     async def test_diff_stat(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         stat_output = (
-            " src/main.py | 10 +++++-----\n"
-            " 1 file changed, 5 insertions(+), 5 deletions(-)"
+            " src/main.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)"
         )
         mock_runner.run.return_value = make_result(stdout=stat_output)
         result = await jj_client.diff_stat()
@@ -365,9 +324,7 @@ class TestStatus:
     async def test_status_parses_change_id(
         self, jj_client: JjClient, mock_runner: AsyncMock
     ) -> None:
-        status_output = (
-            "Working copy changes:\nM src/main.py\nWorking copy : kxyz description\n"
-        )
+        status_output = "Working copy changes:\nM src/main.py\nWorking copy : kxyz description\n"
         mock_runner.run.return_value = make_result(stdout=status_output)
         result = await jj_client.status()
         assert result.success is True
@@ -389,9 +346,7 @@ class TestShow:
     """Tests for JjClient.show()."""
 
     @pytest.mark.asyncio
-    async def test_show_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_show_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="commit details...")
         result = await jj_client.show(revision="kxyz")
         assert result.output == "commit details..."
@@ -409,21 +364,15 @@ class TestSnapshotOperation:
     """Tests for JjClient.snapshot_operation()."""
 
     @pytest.mark.asyncio
-    async def test_snapshot_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_snapshot_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="op-abc123\n")
         result = await jj_client.snapshot_operation()
         assert result.success is True
         assert result.operation_id == "op-abc123"
 
     @pytest.mark.asyncio
-    async def test_snapshot_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=1, stderr="operation log corrupted"
-        )
+    async def test_snapshot_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=1, stderr="operation log corrupted")
         with pytest.raises(JjOperationError):
             await jj_client.snapshot_operation()
 
@@ -432,9 +381,7 @@ class TestRestoreOperation:
     """Tests for JjClient.restore_operation()."""
 
     @pytest.mark.asyncio
-    async def test_restore_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_restore_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.restore_operation("op-abc123")
         assert result.success is True
@@ -443,12 +390,8 @@ class TestRestoreOperation:
         assert cmd == ["jj", "op", "restore", "op-abc123"]
 
     @pytest.mark.asyncio
-    async def test_restore_failure(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
-        mock_runner.run.return_value = make_result(
-            returncode=1, stderr="unknown operation"
-        )
+    async def test_restore_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
+        mock_runner.run.return_value = make_result(returncode=1, stderr="unknown operation")
         with pytest.raises(JjOperationError) as exc_info:
             await jj_client.restore_operation("bad-op")
         assert exc_info.value.operation_id == "bad-op"
@@ -463,9 +406,7 @@ class TestSquash:
     """Tests for JjClient.squash()."""
 
     @pytest.mark.asyncio
-    async def test_squash_default(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_squash_default(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.squash()
         assert result.success is True
@@ -485,9 +426,7 @@ class TestSquash:
         assert "kxyz" in cmd
 
     @pytest.mark.asyncio
-    async def test_squash_into_target(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_squash_into_target(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         await jj_client.squash(into="main")
 
@@ -500,9 +439,7 @@ class TestAbsorb:
     """Tests for JjClient.absorb()."""
 
     @pytest.mark.asyncio
-    async def test_absorb_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_absorb_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(stdout="Absorbed into 3 commits")
         result = await jj_client.absorb()
         assert result.success is True
@@ -513,9 +450,7 @@ class TestRebase:
     """Tests for JjClient.rebase()."""
 
     @pytest.mark.asyncio
-    async def test_rebase_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_rebase_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.rebase(revision="kxyz", destination="main")
         assert result.success is True
@@ -533,9 +468,7 @@ class TestBookmarkSet:
     """Tests for JjClient.bookmark_set()."""
 
     @pytest.mark.asyncio
-    async def test_bookmark_set_success(
-        self, jj_client: JjClient, mock_runner: AsyncMock
-    ) -> None:
+    async def test_bookmark_set_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result()
         result = await jj_client.bookmark_set("feature-x", revision="kxyz")
         assert result.success is True

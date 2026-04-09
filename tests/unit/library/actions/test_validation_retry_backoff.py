@@ -24,12 +24,8 @@ class TestRunFixRetryLoopExponentialBackoff:
         validation_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
             # Patch asyncio.sleep which tenacity uses for async waiting
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
@@ -59,12 +55,8 @@ class TestRunFixRetryLoopExponentialBackoff:
         validation_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
             mock_fixer.return_value = create_fix_result(success=True)

@@ -190,9 +190,7 @@ class TestParseGitRemote:
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=mock_process
-        ) as mock_exec:
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
             result = await parse_git_remote(Path("/project"), remote_name="upstream")
 
         assert result.remote_name == "upstream"
@@ -225,9 +223,7 @@ class TestParseGitRemote:
         """Handle unparseable remote URL."""
         mock_process = AsyncMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"file:///local/repo\n", b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"file:///local/repo\n", b""))
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
@@ -278,9 +274,7 @@ class TestParseGitRemote:
     @pytest.mark.asyncio
     async def test_git_not_found(self) -> None:
         """Handle git command not found."""
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("git")
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("git")):
             result = await parse_git_remote(Path("/project"))
 
         assert result.owner is None
@@ -315,9 +309,7 @@ class TestParseGitRemote:
 
         project_path = Path("/my/project")
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=mock_process
-        ) as mock_exec:
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
             await parse_git_remote(project_path)
 
         # Check that cwd was set correctly

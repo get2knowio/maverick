@@ -64,7 +64,5 @@ class ExecutorResult:
             "output": self.output,
             "success": self.success,
             "usage": self.usage.to_dict() if self.usage else None,
-            "events": [
-                e.to_dict() if hasattr(e, "to_dict") else str(e) for e in self.events
-            ],
+            "events": [e.to_dict() if hasattr(e, "to_dict") else str(e) for e in self.events],
         }

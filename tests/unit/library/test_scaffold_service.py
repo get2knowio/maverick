@@ -246,9 +246,7 @@ def test_scaffold_creates_file_at_correct_path_python(
     assert result.output_path.parent == basic_python_request.output_dir
 
 
-def test_scaffold_creates_parent_directories_if_needed(
-    service: ScaffoldService, output_dir: Path
-):
+def test_scaffold_creates_parent_directories_if_needed(service: ScaffoldService, output_dir: Path):
     """Test that scaffold creates parent directories if they don't exist."""
     # Create request with nested directory that doesn't exist
     nested_dir = output_dir / "nested" / "path" / "to" / "workflows"
@@ -674,9 +672,7 @@ def test_rendered_python_is_valid_syntax(
 # =============================================================================
 
 
-def test_scaffold_with_empty_description_and_author(
-    service: ScaffoldService, output_dir: Path
-):
+def test_scaffold_with_empty_description_and_author(service: ScaffoldService, output_dir: Path):
     """Test scaffolding with empty description and author."""
     request = ScaffoldRequest(
         name="test-workflow",

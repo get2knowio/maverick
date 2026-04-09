@@ -17,16 +17,17 @@ class ACCheckActor(Actor):
             cwd = message.get("cwd")
 
             try:
-                result = asyncio.run(
-                    self._run_check(description, cwd)
-                )
+                result = asyncio.run(self._run_check(description, cwd))
                 self.send(sender, {"type": "ac_result", **result})
             except Exception as exc:
-                self.send(sender, {
-                    "type": "ac_result",
-                    "passed": False,
-                    "reasons": [str(exc)],
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "ac_result",
+                        "passed": False,
+                        "reasons": [str(exc)],
+                    },
+                )
 
     async def _run_check(self, description, cwd):
         from pathlib import Path

@@ -447,15 +447,17 @@ async def _brief_human(
                 continue
 
             state = details.state or {}
-            human_beads.append({
-                "id": bead.id,
-                "title": bead.title,
-                "priority": str(bead.priority),
-                "source_bead": state.get("source_bead", ""),
-                "escalation": state.get("escalation_type", ""),
-                "flight_plan": state.get("flight_plan", ""),
-                "description": details.description,
-            })
+            human_beads.append(
+                {
+                    "id": bead.id,
+                    "title": bead.title,
+                    "priority": str(bead.priority),
+                    "source_bead": state.get("source_bead", ""),
+                    "escalation": state.get("escalation_type", ""),
+                    "flight_plan": state.get("flight_plan", ""),
+                    "description": details.description,
+                }
+            )
         except Exception:
             continue
 
@@ -470,10 +472,7 @@ async def _brief_human(
         click.echo("All assumption reviews and escalations have been resolved.")
         return
 
-    click.echo(
-        f"Brief: {count} bead{'s' if count != 1 else ''} "
-        f"awaiting human review"
-    )
+    click.echo(f"Brief: {count} bead{'s' if count != 1 else ''} awaiting human review")
     click.echo("")
 
     rows = [

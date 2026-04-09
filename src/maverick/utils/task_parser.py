@@ -42,9 +42,7 @@ PHASE_HEADER_PATTERN = re.compile(r"^##\s+(.+)$")
 # =============================================================================
 
 
-def parse_task_line(
-    line: str, line_number: int, current_phase: str | None = None
-) -> Task | None:
+def parse_task_line(line: str, line_number: int, current_phase: str | None = None) -> Task | None:
     """Parse a single task line into a Task object.
 
     Args:

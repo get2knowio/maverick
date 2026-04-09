@@ -47,11 +47,7 @@ class TestValidateOutputHappyPath:
         assert result.value == 42
 
     def test_code_block_surrounded_by_prose(self) -> None:
-        raw = (
-            "Here is the result:\n\n"
-            + _wrap_json({"name": "bob", "value": 7})
-            + "\n\nDone."
-        )
+        raw = "Here is the result:\n\n" + _wrap_json({"name": "bob", "value": 7}) + "\n\nDone."
         result = validate_output(raw, SampleModel)
         assert result is not None
         assert result.name == "bob"
@@ -221,9 +217,7 @@ class TestStrictParameter:
         ],
         ids=["extraction", "json_parse", "validation"],
     )
-    def test_strict_true_raises_for_all_stages(
-        self, raw: str, expected_stage: str
-    ) -> None:
+    def test_strict_true_raises_for_all_stages(self, raw: str, expected_stage: str) -> None:
         with pytest.raises(OutputValidationError) as exc_info:
             validate_output(raw, SampleModel, strict=True)
         assert exc_info.value.stage == expected_stage

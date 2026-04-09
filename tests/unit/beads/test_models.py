@@ -162,9 +162,7 @@ class TestBeadDependency:
             dep.blocker_id = "changed"  # type: ignore[misc]
 
     def test_explicit_dep_type(self) -> None:
-        dep = BeadDependency(
-            blocker_id="a", blocked_id="b", dep_type=DependencyType.BLOCKS
-        )
+        dep = BeadDependency(blocker_id="a", blocked_id="b", dep_type=DependencyType.BLOCKS)
         assert dep.dep_type == DependencyType.BLOCKS
 
 

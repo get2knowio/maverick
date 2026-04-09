@@ -114,9 +114,7 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
     """
     if shutil.which("bd") is None:
         if verbose:
-            logger.debug(
-                "bd_not_found", message="bd CLI not on PATH, skipping beads init"
-            )
+            logger.debug("bd_not_found", message="bd CLI not on PATH, skipping beads init")
         return False
 
     try:

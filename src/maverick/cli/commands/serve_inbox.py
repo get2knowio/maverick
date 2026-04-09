@@ -34,13 +34,13 @@ def serve_inbox(tools: str, admin_port: int) -> None:
     Connects to a Thespian actor system and delivers validated
     MCP tool calls as messages to the supervisor actor.
     """
+    import asyncio
+
     from maverick.tools.supervisor_inbox import server as _server_module
     from maverick.tools.supervisor_inbox.server import (
         _build_mcp_tools,
         run_server,
     )
-
-    import asyncio
 
     requested = {t.strip() for t in tools.split(",") if t.strip()}
     _server_module._active_tools = _build_mcp_tools(requested)
@@ -65,9 +65,7 @@ def serve_inbox(tools: str, admin_port: int) -> None:
         capabilities={"Admin Port": admin_port},
     )
     # Discover supervisor by globalName
-    supervisor_addr = asys.createActor(
-        RefuelSupervisorActor, globalName="supervisor-inbox"
-    )
+    supervisor_addr = asys.createActor(RefuelSupervisorActor, globalName="supervisor-inbox")
     _server_module._thespian_system = asys
     _server_module._thespian_inbox = supervisor_addr
 

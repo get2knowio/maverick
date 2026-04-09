@@ -17,9 +17,7 @@ from maverick.config import MaverickConfig, load_config
 
 
 @pytest.fixture
-def sample_config(
-    clean_env: None, temp_dir: Path
-) -> Generator[MaverickConfig, None, None]:
+def sample_config(clean_env: None, temp_dir: Path) -> Generator[MaverickConfig, None, None]:
     """Create a sample MaverickConfig with typical test values.
 
     This fixture creates a temporary directory with a maverick.yaml file

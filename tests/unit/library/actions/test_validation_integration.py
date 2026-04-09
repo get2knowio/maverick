@@ -29,12 +29,8 @@ class TestRunFixRetryLoopIntegration:
         initial_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
             # Patch tenacity's wait to avoid actual delays
             patch("tenacity.nap.sleep"),
         ):
@@ -77,12 +73,8 @@ class TestRunFixRetryLoopIntegration:
         initial_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
         ):
             # Fixer reports failure but validation passes
             mock_fixer.return_value = create_fix_result(
@@ -110,19 +102,13 @@ class TestRunFixRetryLoopIntegration:
         initial_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
             # Patch tenacity's wait to avoid actual delays
             patch("tenacity.nap.sleep"),
         ):
             # All attempts fail
-            mock_fixer.return_value = create_fix_result(
-                success=True, changes_made="Applied fix"
-            )
+            mock_fixer.return_value = create_fix_result(success=True, changes_made="Applied fix")
             mock_validation.return_value = create_validation_result(success=False)
 
             result = await run_fix_retry_loop(
@@ -143,12 +129,8 @@ class TestRunFixRetryLoopIntegration:
         initial_result = create_validation_result(success=True)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
         ):
             result = await run_fix_retry_loop(
                 stages=["lint"],
@@ -170,12 +152,8 @@ class TestRunFixRetryLoopIntegration:
         initial_result = create_validation_result(success=False)
 
         with (
-            patch(
-                "maverick.library.actions.validation._invoke_fixer_agent"
-            ) as mock_fixer,
-            patch(
-                "maverick.library.actions.validation._run_validation"
-            ) as mock_validation,
+            patch("maverick.library.actions.validation._invoke_fixer_agent") as mock_fixer,
+            patch("maverick.library.actions.validation._run_validation") as mock_validation,
         ):
             result = await run_fix_retry_loop(
                 stages=["lint"],

@@ -81,9 +81,7 @@ def make_simple_decomposition_output() -> DecompositionOutput:
                 sequence=1,
                 task="Add User model with email/password fields",
                 acceptance_criteria=[
-                    AcceptanceCriterionSpec(
-                        text="User model created", trace_ref="SC-001"
-                    )
+                    AcceptanceCriterionSpec(text="User model created", trace_ref="SC-001")
                 ],
                 file_scope=FileScopeSpec(
                     create=["src/auth/models.py"],
@@ -99,9 +97,7 @@ def make_simple_decomposition_output() -> DecompositionOutput:
                 depends_on=["add-user-model"],
                 task="Add registration endpoint",
                 acceptance_criteria=[
-                    AcceptanceCriterionSpec(
-                        text="Registration works", trace_ref="SC-001"
-                    )
+                    AcceptanceCriterionSpec(text="Registration works", trace_ref="SC-001")
                 ],
                 file_scope=FileScopeSpec(
                     create=[],
@@ -117,9 +113,7 @@ def make_simple_decomposition_output() -> DecompositionOutput:
                 depends_on=["add-user-model"],
                 task="Add login endpoint returning session token",
                 acceptance_criteria=[
-                    AcceptanceCriterionSpec(
-                        text="Login returns token", trace_ref="SC-002"
-                    )
+                    AcceptanceCriterionSpec(text="Login returns token", trace_ref="SC-002")
                 ],
                 file_scope=FileScopeSpec(
                     create=[],

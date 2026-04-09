@@ -70,18 +70,10 @@ class BeadDefinition(BaseModel):
     priority: int = Field(ge=0, le=4, description="Priority (0 = highest, max 4)")
     category: BeadCategory = Field(description="Bead category")
     description: str = Field(default="", description="Full bead description")
-    phase_names: list[str] = Field(
-        default_factory=list, description="Source phase names"
-    )
-    user_story_id: str | None = Field(
-        default=None, description="User story ID (e.g., US1)"
-    )
-    task_ids: list[str] = Field(
-        default_factory=list, description="Task IDs from tasks.md"
-    )
-    assignee: str | None = Field(
-        default=None, description="Assignee: 'human' or agent name"
-    )
+    phase_names: list[str] = Field(default_factory=list, description="Source phase names")
+    user_story_id: str | None = Field(default=None, description="User story ID (e.g., US1)")
+    task_ids: list[str] = Field(default_factory=list, description="Task IDs from tasks.md")
+    assignee: str | None = Field(default=None, description="Assignee: 'human' or agent name")
     labels: list[str] = Field(
         default_factory=list, description="Labels for filtering and grouping"
     )
@@ -117,9 +109,7 @@ class BeadDependency(BaseModel):
 
     blocker_id: str = Field(min_length=1, description="Prerequisite bead ID")
     blocked_id: str = Field(min_length=1, description="Dependent bead ID")
-    dep_type: DependencyType = Field(
-        default=DependencyType.BLOCKS, description="Dependency type"
-    )
+    dep_type: DependencyType = Field(default=DependencyType.BLOCKS, description="Dependency type")
 
     model_config = ConfigDict(frozen=True)
 
@@ -135,9 +125,7 @@ class BeadGenerationResult(BaseModel):
     """
 
     epic: CreatedBead | None = Field(default=None, description="Epic bead")
-    work_beads: list[CreatedBead] = Field(
-        default_factory=list, description="Work beads"
-    )
+    work_beads: list[CreatedBead] = Field(default_factory=list, description="Work beads")
     dependencies: list[BeadDependency] = Field(
         default_factory=list, description="Dependencies wired"
     )

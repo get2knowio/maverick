@@ -143,9 +143,7 @@ class TestBuiltinProviderResolution:
 
     def test_gemini_includes_model_flag_when_default_model_set(self) -> None:
         providers = {
-            "gemini": AgentProviderConfig(
-                default=True, default_model="gemini-3.1-pro-preview"
-            ),
+            "gemini": AgentProviderConfig(default=True, default_model="gemini-3.1-pro-preview"),
         }
         registry = AgentProviderRegistry.from_config(providers)
         cfg = registry.get("gemini")

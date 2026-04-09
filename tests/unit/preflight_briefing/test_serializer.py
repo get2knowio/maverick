@@ -68,9 +68,7 @@ class TestSerializePreflightBriefing:
         assert "## Key Scope Items" not in result
 
     def test_scope_items_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(
-            update={"key_scope_items": ("Add auth", "Add tests")}
-        )
+        doc = _make_minimal_doc().model_copy(update={"key_scope_items": ("Add auth", "Add tests")})
         result = serialize_preflight_briefing(doc)
         assert "## Key Scope Items" in result
         assert "- Add auth" in result
@@ -83,9 +81,7 @@ class TestSerializePreflightBriefing:
         assert "- Tests pass" in result
 
     def test_open_questions_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(
-            update={"open_questions": ("Rate limiting?",)}
-        )
+        doc = _make_minimal_doc().model_copy(update={"open_questions": ("Rate limiting?",)})
         result = serialize_preflight_briefing(doc)
         assert "## Open Questions" in result
         assert "- Rate limiting?" in result

@@ -184,9 +184,7 @@ class TestGenerateSkeletonHtmlComments:
         body = _get_body(result)
 
         comment_count = body.count("<!--")
-        assert comment_count >= 6, (
-            f"Expected at least 6 HTML comments, got {comment_count}"
-        )
+        assert comment_count >= 6, f"Expected at least 6 HTML comments, got {comment_count}"
 
 
 class TestGenerateSkeletonCheckboxItems:
@@ -208,9 +206,7 @@ class TestGenerateSkeletonCheckboxItems:
         assert len(checkbox_lines) >= 1, "Expected at least one checkbox line"
         # At least one checkbox line should have a comment
         has_comment = any("<!--" in line for line in checkbox_lines)
-        assert has_comment, (
-            "Expected at least one checkbox line to contain an HTML comment"
-        )
+        assert has_comment, "Expected at least one checkbox line to contain an HTML comment"
 
 
 class TestGenerateSkeletonReturnType:

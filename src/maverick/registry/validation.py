@@ -137,8 +137,7 @@ def validate_agent_class(cls: Any, component_name: str) -> None:
     # First check if it's a class
     if not inspect.isclass(cls):
         raise TypeError(
-            f"Agent '{component_name}' must be a class, "
-            f"got {type(cls).__name__} instead."
+            f"Agent '{component_name}' must be a class, got {type(cls).__name__} instead."
         )
 
     # Check if it inherits from MaverickAgent
@@ -151,9 +150,7 @@ def validate_agent_class(cls: Any, component_name: str) -> None:
 
     # Check that it implements build_prompt (the ACP pattern)
     build_prompt_method = getattr(cls, "build_prompt", None)
-    if not build_prompt_method or getattr(
-        build_prompt_method, "__isabstractmethod__", False
-    ):
+    if not build_prompt_method or getattr(build_prompt_method, "__isabstractmethod__", False):
         methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
         raise TypeError(
             f"Agent class '{component_name}' must implement the "
@@ -179,8 +176,7 @@ def validate_generator_class(cls: Any, component_name: str) -> None:
     # First check if it's a class
     if not inspect.isclass(cls):
         raise TypeError(
-            f"Generator '{component_name}' must be a class, "
-            f"got {type(cls).__name__} instead."
+            f"Generator '{component_name}' must be a class, got {type(cls).__name__} instead."
         )
 
     # Check if it inherits from GeneratorAgent
@@ -193,9 +189,7 @@ def validate_generator_class(cls: Any, component_name: str) -> None:
 
     # Check that it implements build_prompt method (ACP-native interface)
     build_prompt_method = getattr(cls, "build_prompt", None)
-    if not build_prompt_method or getattr(
-        build_prompt_method, "__isabstractmethod__", False
-    ):
+    if not build_prompt_method or getattr(build_prompt_method, "__isabstractmethod__", False):
         methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
         raise TypeError(
             f"Generator class '{component_name}' must implement the "

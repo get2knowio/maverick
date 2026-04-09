@@ -199,18 +199,12 @@ class TestSecretPatternsComprehensive:
             ("User: john.doe@example.com", False),
         ],
     )
-    def test_pattern_detection(
-        self, secret_text: str, should_be_scrubbed: bool
-    ) -> None:
+    def test_pattern_detection(self, secret_text: str, should_be_scrubbed: bool) -> None:
         """Test that patterns are correctly detected and scrubbed."""
         result = scrub_secrets(secret_text)
         if should_be_scrubbed:
             # Should contain a redaction marker
-            assert "***" in result, (
-                f"Expected scrubbing in '{secret_text}' but got '{result}'"
-            )
+            assert "***" in result, f"Expected scrubbing in '{secret_text}' but got '{result}'"
         else:
             # Should be unchanged
-            assert result == secret_text, (
-                f"Unexpected scrubbing in '{secret_text}' -> '{result}'"
-            )
+            assert result == secret_text, f"Unexpected scrubbing in '{secret_text}' -> '{result}'"

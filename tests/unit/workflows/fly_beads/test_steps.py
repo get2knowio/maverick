@@ -44,7 +44,7 @@ def _make_wf(
     has_executor: bool = True,
 ) -> MagicMock:
     """Build a mock workflow with emit_* helpers and optional step executor."""
-    from maverick.config import MaverickConfig, ValidationConfig
+    from maverick.config import MaverickConfig
     from maverick.executor.config import StepConfig
 
     wf = MagicMock()
@@ -381,9 +381,7 @@ class TestRunReviewAndRemediate:
             patch(
                 f"{_STEPS_MOD}.run_review_fix_loop",
                 new_callable=AsyncMock,
-                return_value=MagicMock(
-                    to_dict=lambda: {"success": True, "issues_remaining": []}
-                ),
+                return_value=MagicMock(to_dict=lambda: {"success": True, "issues_remaining": []}),
             ),
             patch(
                 f"{_STEPS_MOD}.record_review_findings",

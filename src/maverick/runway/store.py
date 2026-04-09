@@ -149,9 +149,7 @@ class RunwayStore:
         Returns:
             List of matching BeadOutcome records.
         """
-        records = await self._read_jsonl(
-            self._path / _EPISODIC_DIR / _BEAD_OUTCOMES_FILE
-        )
+        records = await self._read_jsonl(self._path / _EPISODIC_DIR / _BEAD_OUTCOMES_FILE)
         results: list[BeadOutcome] = []
         for raw in records:
             outcome = BeadOutcome.from_dict(raw)
@@ -181,9 +179,7 @@ class RunwayStore:
         Returns:
             List of matching RunwayReviewFinding records.
         """
-        records = await self._read_jsonl(
-            self._path / _EPISODIC_DIR / _REVIEW_FINDINGS_FILE
-        )
+        records = await self._read_jsonl(self._path / _EPISODIC_DIR / _REVIEW_FINDINGS_FILE)
         results: list[RunwayReviewFinding] = []
         for raw in records:
             finding = RunwayReviewFinding.from_dict(raw)
@@ -211,9 +207,7 @@ class RunwayStore:
         Returns:
             List of matching FixAttemptRecord records.
         """
-        records = await self._read_jsonl(
-            self._path / _EPISODIC_DIR / _FIX_ATTEMPTS_FILE
-        )
+        records = await self._read_jsonl(self._path / _EPISODIC_DIR / _FIX_ATTEMPTS_FILE)
         results: list[FixAttemptRecord] = []
         for raw in records:
             attempt = FixAttemptRecord.from_dict(raw)
@@ -321,9 +315,7 @@ class RunwayStore:
         query_tokens = self._tokenize(query_text)
 
         if not query_tokens:
-            return RunwayQueryResult(
-                passages=[], query=query_text, total_candidates=len(passages)
-            )
+            return RunwayQueryResult(passages=[], query=query_text, total_candidates=len(passages))
 
         from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
@@ -331,9 +323,9 @@ class RunwayStore:
         scores = bm25.get_scores(query_tokens)
 
         # Pair passages with scores, sort descending
-        scored = sorted(
-            zip(scores, passages, strict=True), key=lambda x: x[0], reverse=True
-        )[:bm25_top_k]
+        scored = sorted(zip(scores, passages, strict=True), key=lambda x: x[0], reverse=True)[
+            :bm25_top_k
+        ]
 
         # Include passages where query tokens appear in content.
         # BM25 on tiny corpora can produce negative scores for valid matches
@@ -383,9 +375,7 @@ class RunwayStore:
 
         semantic_dir = self._path / _SEMANTIC_DIR
         semantic_files = [
-            f.name
-            for f in sorted(semantic_dir.iterdir())
-            if f.is_file() and f.name != ".gitkeep"
+            f.name for f in sorted(semantic_dir.iterdir()) if f.is_file() and f.name != ".gitkeep"
         ]
 
         total_size = sum(f.stat().st_size for f in self._path.rglob("*") if f.is_file())
@@ -430,9 +420,7 @@ class RunwayStore:
             [o.to_dict() for o in outcomes],
         )
 
-    async def rewrite_review_findings(
-        self, findings: list[RunwayReviewFinding]
-    ) -> None:
+    async def rewrite_review_findings(self, findings: list[RunwayReviewFinding]) -> None:
         """Rewrite the review-findings JSONL file with the given records.
 
         Args:

@@ -98,9 +98,7 @@ class TestBuildGeneratePrompt:
         """Prompt includes the raw PRD content."""
         from datetime import date
 
-        prompt = _build_generate_prompt(
-            "Build a hello world CLI", "my-plan", date.today()
-        )
+        prompt = _build_generate_prompt("Build a hello world CLI", "my-plan", date.today())
         assert "Build a hello world CLI" in prompt
 
     def test_prompt_contains_name(self) -> None:

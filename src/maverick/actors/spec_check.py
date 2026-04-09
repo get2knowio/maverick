@@ -98,14 +98,16 @@ class SpecCheckActor(Actor):
         for pattern, description, severity in checks:
             hits = self._grep_files(cwd, pattern, source_files)
             for file_path, line_num, line_text in hits:
-                findings.append({
-                    "file": file_path,
-                    "line": line_num,
-                    "pattern": pattern,
-                    "description": description,
-                    "severity": severity,
-                    "text": line_text.strip()[:200],
-                })
+                findings.append(
+                    {
+                        "file": file_path,
+                        "line": line_num,
+                        "pattern": pattern,
+                        "description": description,
+                        "severity": severity,
+                        "text": line_text.strip()[:200],
+                    }
+                )
 
         critical = [f for f in findings if f["severity"] == "critical"]
         passed = len(critical) == 0
@@ -114,12 +116,14 @@ class SpecCheckActor(Actor):
             print(
                 f"SPEC_CHECK: {len(findings)} findings "
                 f"({len(critical)} critical) in {len(source_files)} files",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             for f in findings[:5]:
                 print(
                     f"  {f['severity']}: {f['file']}:{f['line']} — {f['description']}",
-                    file=sys.stderr, flush=True,
+                    file=sys.stderr,
+                    flush=True,
                 )
 
         return {
@@ -131,8 +135,7 @@ class SpecCheckActor(Actor):
                 else "all checks passed"
             ),
             "findings": [
-                f"{f['file']}:{f['line']}: {f['description']} — `{f['text']}`"
-                for f in findings
+                f"{f['file']}:{f['line']}: {f['description']} — `{f['text']}`" for f in findings
             ],
         }
 
@@ -141,7 +144,10 @@ class SpecCheckActor(Actor):
         try:
             result = subprocess.run(
                 ["git", "diff", "HEAD", "--name-only", "--diff-filter=ACMR"],
-                capture_output=True, text=True, cwd=cwd, timeout=10,
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=10,
             )
             if result.returncode == 0:
                 return [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
@@ -159,9 +165,12 @@ class SpecCheckActor(Actor):
             if f.endswith("_test.rs") or f.endswith("_tests.rs"):
                 continue
             # Include source files
-            if self._project_type == "rust" and f.endswith(".rs"):
-                source_files.append(f)
-            elif self._project_type == "python" and f.endswith(".py"):
+            if (
+                self._project_type == "rust"
+                and f.endswith(".rs")
+                or self._project_type == "python"
+                and f.endswith(".py")
+            ):
                 source_files.append(f)
         return source_files
 
@@ -172,7 +181,11 @@ class SpecCheckActor(Actor):
             # Use grep with fixed string matching for safety
             cmd = ["grep", "-n", "-F", pattern] + files
             result = subprocess.run(
-                cmd, capture_output=True, text=True, cwd=cwd, timeout=10,
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=10,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n"):
@@ -202,6 +215,4 @@ class SpecCheckActor(Actor):
             return True  # Comments
         if "#[test]" in text or "#[cfg(test)]" in text:
             return True
-        if "assert!" in text or "assert_eq!" in text:
-            return True
-        return False
+        return bool("assert!" in text or "assert_eq!" in text)

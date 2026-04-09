@@ -102,13 +102,11 @@ class ValidationRunner:
                     hint = TOOL_INSTALLATION_HINTS.get(tool_name, "")
                     if hint:
                         errors.append(
-                            f"Tool '{tool_name}' (stage '{stage.name}') "
-                            f"not found on PATH. {hint}"
+                            f"Tool '{tool_name}' (stage '{stage.name}') not found on PATH. {hint}"
                         )
                     else:
                         errors.append(
-                            f"Tool '{tool_name}' (stage '{stage.name}') "
-                            "not found on PATH"
+                            f"Tool '{tool_name}' (stage '{stage.name}') not found on PATH"
                         )
                 else:
                     logger.debug(
@@ -118,9 +116,7 @@ class ValidationRunner:
                         stage.name,
                     )
             except Exception as exc:  # noqa: BLE001
-                errors.append(
-                    f"Error checking tool '{tool_name}' (stage '{stage.name}'): {exc}"
-                )
+                errors.append(f"Error checking tool '{tool_name}' (stage '{stage.name}'): {exc}")
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
 

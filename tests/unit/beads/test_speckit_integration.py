@@ -80,9 +80,7 @@ class TestGenerateBeadsFromSpeckit:
     async def test_dry_run(self, spec_dir_with_tasks: Path) -> None:
         client = AsyncMock(spec=BeadClient)
 
-        result = await generate_beads_from_speckit(
-            spec_dir_with_tasks, client, dry_run=True
-        )
+        result = await generate_beads_from_speckit(spec_dir_with_tasks, client, dry_run=True)
 
         assert result.success
         assert result.epic is not None
@@ -103,9 +101,7 @@ class TestGenerateBeadsFromSpeckit:
         assert "Epic creation failed" in result.errors[0]
 
     @pytest.mark.asyncio
-    async def test_partial_bead_creation_failure(
-        self, spec_dir_with_tasks: Path
-    ) -> None:
+    async def test_partial_bead_creation_failure(self, spec_dir_with_tasks: Path) -> None:
         call_count = [0]
 
         async def _create_with_failures(

@@ -55,10 +55,7 @@ async def seed(
     commit_count = len(context.git_log)
     config_count = len(context.config_files)
     file_count = sum(context.file_type_counts.values())
-    click.echo(
-        f"  {commit_count} commits, {config_count} config files, "
-        f"{file_count} source files"
-    )
+    click.echo(f"  {commit_count} commits, {config_count} config files, {file_count} source files")
     click.echo("")
 
     if dry_run:
@@ -100,8 +97,6 @@ async def seed(
 
     click.echo("")
     console.print(
-        format_success(
-            f"Runway seeded with {len(result.files_written)} semantic file(s)."
-        )
+        format_success(f"Runway seeded with {len(result.files_written)} semantic file(s).")
     )
     raise SystemExit(ExitCode.SUCCESS)

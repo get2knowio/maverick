@@ -279,9 +279,7 @@ class TestSpecKitContextExtractor:
         assert "T001" in desc
         assert "Spec directory" in desc
 
-    def test_extract_checkpoints_nonexistent_phase(
-        self, spec_dir_with_tasks: Path
-    ) -> None:
+    def test_extract_checkpoints_nonexistent_phase(self, spec_dir_with_tasks: Path) -> None:
         tasks_path = spec_dir_with_tasks / "tasks.md"
         task_file = TaskFile.parse(tasks_path)
         extractor = SpecKitContextExtractor(spec_dir_with_tasks, task_file)

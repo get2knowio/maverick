@@ -115,7 +115,7 @@ async def _probe_claude_models() -> ProviderModels:
         from maverick.executor.acp import _get_available_model_ids
 
         executor = create_default_executor()
-        session_id = await executor.create_session(
+        await executor.create_session(
             provider="claude",
             step_name="model_probe",
             agent_name="probe",
@@ -126,7 +126,7 @@ async def _probe_claude_models() -> ProviderModels:
         if cached:
             # Re-create session to get fresh model list
             session = await cached.conn.new_session(cwd=".", mcp_servers=[])
-            model_ids = _get_available_model_ids(session)
+            _get_available_model_ids(session)
 
             # Get display names
             models_info = []

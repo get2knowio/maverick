@@ -652,9 +652,7 @@ async def generate_beads_from_speckit(
 
     # 6. Wire dependencies
     tasks_content = tasks_path.read_text(encoding="utf-8")
-    dependencies = _compute_dependencies(
-        enriched_definitions, created_map, tasks_content
-    )
+    dependencies = _compute_dependencies(enriched_definitions, created_map, tasks_content)
 
     wired_deps: list[BeadDependency] = []
     for dep in dependencies:
@@ -662,9 +660,7 @@ async def generate_beads_from_speckit(
             await client.add_dependency(dep)
             wired_deps.append(dep)
         except Exception as e:
-            error_msg = (
-                f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
-            )
+            error_msg = f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
             logger.error(
                 "dependency_wiring_failed",
                 blocker_id=dep.blocker_id,

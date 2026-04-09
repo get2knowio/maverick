@@ -466,24 +466,14 @@ def _categorize_issue(description: str) -> str:
     """
     desc_lower = description.lower()
 
-    if any(
-        kw in desc_lower
-        for kw in ["security", "vulnerability", "injection", "xss", "auth"]
-    ):
+    if any(kw in desc_lower for kw in ["security", "vulnerability", "injection", "xss", "auth"]):
         return "security"
-    elif any(
-        kw in desc_lower
-        for kw in ["performance", "slow", "inefficient", "o(n²)", "memory"]
-    ):
+    elif any(kw in desc_lower for kw in ["performance", "slow", "inefficient", "o(n²)", "memory"]):
         return "performance"
-    elif any(
-        kw in desc_lower
-        for kw in ["spec", "requirement", "missing feature", "expected"]
-    ):
+    elif any(kw in desc_lower for kw in ["spec", "requirement", "missing feature", "expected"]):
         return "spec"
     elif any(
-        kw in desc_lower
-        for kw in ["style", "format", "naming", "convention", "readability"]
+        kw in desc_lower for kw in ["style", "format", "naming", "convention", "readability"]
     ):
         return "style"
     else:
@@ -584,7 +574,9 @@ async def run_review_fix_loop(
     if max_attempts <= 0:
         # Just run review once, no fixing
         review_result = await _run_dual_review(
-            review_input, base_branch, stream_callback,
+            review_input,
+            base_branch,
+            stream_callback,
             executor=executor,
             review_step_configs=review_step_configs,
         )
@@ -613,7 +605,9 @@ async def run_review_fix_loop(
 
         # Step 1: Run dual review (spec + technical in parallel)
         review_result = await _run_dual_review(
-            review_input, base_branch, stream_callback,
+            review_input,
+            base_branch,
+            stream_callback,
             executor=executor,
             review_step_configs=review_step_configs,
         )
@@ -624,9 +618,7 @@ async def run_review_fix_loop(
         if current_recommendation == "error":
             review_error = review_result.get("review_error", "unknown")
             review_errors.append(f"attempt {attempt_num}: {review_error}")
-            logger.warning(
-                "Review errored on attempt %d: %s", attempt_num, review_error
-            )
+            logger.warning("Review errored on attempt %d: %s", attempt_num, review_error)
             # Don't try to fix when we can't even review — skip to next attempt
             # so we get a fresh retry of the reviewers
             continue
@@ -671,9 +663,7 @@ async def run_review_fix_loop(
         # Don't fix on the last attempt - just report what's remaining
         if attempt_num < max_attempts:
             logger.info("Running review fixer agent")
-            fix_result = await _run_review_fixer(
-                review_result, review_input, stream_callback
-            )
+            fix_result = await _run_review_fixer(review_result, review_input, stream_callback)
             if fix_result.get("success", False):
                 # Count findings the fixer addressed (files it modified)
                 fixer_files = set(fix_result.get("files_modified", []))
@@ -685,9 +675,7 @@ async def run_review_fix_loop(
                     )
             else:
                 fix_error = fix_result.get("error", "unknown")
-                logger.warning(
-                    "Review fixer failed on attempt %d: %s", attempt_num, fix_error
-                )
+                logger.warning("Review fixer failed on attempt %d: %s", attempt_num, fix_error)
                 review_errors.append(f"attempt {attempt_num} fixer: {fix_error}")
                 # Continue to next iteration — the re-review will show whether
                 # the fixer managed partial progress before failing
@@ -746,9 +734,7 @@ async def _run_dual_review(
         )
 
         # Build context dict for reviewers — accept both old and new key names
-        review_meta = review_input.get(
-            "review_metadata", review_input.get("pr_metadata", {})
-        )
+        review_meta = review_input.get("review_metadata", review_input.get("pr_metadata", {}))
         if hasattr(review_meta, "to_dict"):
             review_meta = review_meta.to_dict()
 
@@ -847,12 +833,8 @@ async def _run_dual_review(
             # to text extraction via ExecutorResult.output
             completeness_groups: list[Any] = []
             correctness_groups: list[Any] = []
-            completeness_failed = isinstance(
-                completeness_result, Exception
-            )
-            correctness_failed = isinstance(
-                correctness_result, Exception
-            )
+            completeness_failed = isinstance(completeness_result, Exception)
+            correctness_failed = isinstance(correctness_result, Exception)
 
             def _load_from_file(
                 path: Path,
@@ -860,9 +842,7 @@ async def _run_dual_review(
                 if not path.exists():
                     return None
                 try:
-                    data = _json.loads(
-                        path.read_text(encoding="utf-8")
-                    )
+                    data = _json.loads(path.read_text(encoding="utf-8"))
                     return GroupedReviewResult.model_validate(data)
                 except Exception as exc:
                     logger.debug(
@@ -888,6 +868,7 @@ async def _run_dual_review(
                 # Try parsing raw text as JSON (markdown code block or bare)
                 if isinstance(output, str) and output.strip():
                     from maverick.agents.contracts import validate_output as _vo
+
                     parsed = _vo(output, GroupedReviewResult, strict=False)
                     if parsed is not None:
                         return parsed

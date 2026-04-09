@@ -158,9 +158,7 @@ class TestGatherCodebaseContext:
         assert ctx.missing_files == ()
         assert ctx.total_size == 0
 
-    async def test_unreadable_binary_file_handled_gracefully(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_unreadable_binary_file_handled_gracefully(self, tmp_path: Path) -> None:
         """Unreadable files (binary with invalid UTF-8) handled without crash."""
         # Create a binary file (not valid UTF-8)
         binary_file = tmp_path / "binary.bin"
@@ -540,9 +538,7 @@ class TestConvertSpecsToWorkUnits:
         spec = make_work_unit_spec("unit-a", sequence=1)
         path = tmp_path / "flight-plan.md"
 
-        units = convert_specs_to_work_units(
-            [spec], flight_plan_name="plan", source_path=path
-        )
+        units = convert_specs_to_work_units([spec], flight_plan_name="plan", source_path=path)
 
         assert units[0].source_path == path
 
@@ -601,9 +597,7 @@ class TestConvertSpecsToWorkUnits:
         ]
         path = tmp_path / "fp.md"
 
-        units = convert_specs_to_work_units(
-            specs, flight_plan_name="plan", source_path=path
-        )
+        units = convert_specs_to_work_units(specs, flight_plan_name="plan", source_path=path)
 
         assert all(u.source_path == path for u in units)
 

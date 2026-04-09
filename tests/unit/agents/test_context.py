@@ -46,8 +46,7 @@ def test_agent_context_frozen_immutable(temp_dir: Path) -> None:
 
     # Check that it's a dataclass frozen error
     assert (
-        "frozen" in str(exc_info.value).lower()
-        or "cannot assign" in str(exc_info.value).lower()
+        "frozen" in str(exc_info.value).lower() or "cannot assign" in str(exc_info.value).lower()
     )
 
 

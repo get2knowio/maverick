@@ -179,9 +179,7 @@ def validate_pr(pr_number: int) -> tuple[bool, str | None, dict[str, str] | None
         )
 
         if result.returncode != 0:
-            suggestion = (
-                "Check the PR number and ensure you have access to the repository"
-            )
+            suggestion = "Check the PR number and ensure you have access to the repository"
             error_msg = format_error(
                 f"Pull request #{pr_number} not found",
                 suggestion=suggestion,

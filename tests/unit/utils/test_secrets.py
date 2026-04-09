@@ -113,12 +113,7 @@ class TestDetectSecrets:
 
     def test_multiple_secrets_different_lines(self) -> None:
         """Detects secrets on multiple lines with correct line numbers."""
-        content = (
-            "line1\n"
-            "api_key = 'sk-12345678901234567890'\n"
-            "line3\n"
-            "password = 'secret123456'"
-        )
+        content = "line1\napi_key = 'sk-12345678901234567890'\nline3\npassword = 'secret123456'"
         findings = detect_secrets(content)
         assert len(findings) == 2
         # Both should be Secret Keyword type

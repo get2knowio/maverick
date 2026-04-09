@@ -52,11 +52,7 @@ class TestPromptsDoNotMentionGitOperations:
         if "execute git" in prompt:
             assert "do not" in prompt or "don't" in prompt
         if "git diff" in prompt:
-            assert (
-                "provided" in prompt
-                or "pre-gathered" in prompt
-                or "orchestration" in prompt
-            )
+            assert "provided" in prompt or "pre-gathered" in prompt or "orchestration" in prompt
 
     def test_correctness_reviewer_does_not_mention_git_commands(self) -> None:
         """Test CorrectnessReviewerAgent prompt doesn't mention running git commands."""

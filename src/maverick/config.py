@@ -81,9 +81,7 @@ class AgentProviderConfig(BaseModel, frozen=True):
             "(claude, copilot) — resolved automatically by the registry."
         ),
     )
-    env: dict[str, str] = Field(
-        default_factory=dict, description="Environment overrides"
-    )
+    env: dict[str, str] = Field(default_factory=dict, description="Environment overrides")
     permission_mode: PermissionMode = Field(
         default=PermissionMode.AUTO_APPROVE,
         description="Permission handling strategy",
@@ -114,8 +112,7 @@ class NotificationConfig(BaseModel):
     def check_topic_when_enabled(self) -> Self:
         if self.enabled and self.topic is None:
             logger.warning(
-                "Notifications enabled but no topic specified. "
-                "Notifications will not be sent."
+                "Notifications enabled but no topic specified. Notifications will not be sent."
             )
         return self
 
@@ -152,8 +149,7 @@ class ValidationConfig(BaseModel):
         """Warn if project_root path doesn't exist."""
         if v is not None and not v.exists():
             logger.warning(
-                f"Configured project_root does not exist: {v}. "
-                "Validation commands may fail."
+                f"Configured project_root does not exist: {v}. Validation commands may fail."
             )
         return v
 
@@ -303,9 +299,7 @@ class RunwayConfig(BaseModel):
 
     enabled: bool = True
     path: str = ".maverick/runway"
-    consolidation: RunwayConsolidationConfig = Field(
-        default_factory=RunwayConsolidationConfig
-    )
+    consolidation: RunwayConsolidationConfig = Field(default_factory=RunwayConsolidationConfig)
     retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
 
 
@@ -334,9 +328,7 @@ class YamlConfigSource(PydanticBaseSettingsSource):
                 with open(yaml_file) as f:
                     loaded = yaml.safe_load(f)
                     if loaded is None:
-                        logger.warning(
-                            f"Config file {yaml_file} is empty, using defaults."
-                        )
+                        logger.warning(f"Config file {yaml_file} is empty, using defaults.")
                     elif loaded:
                         self._config_data = loaded
             except yaml.YAMLError as e:
@@ -346,9 +338,7 @@ class YamlConfigSource(PydanticBaseSettingsSource):
                     value=None,
                 ) from e
 
-    def get_field_value(
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         """Get value for a specific field from the YAML config."""
         if field_name in self._config_data:
             return self._config_data[field_name], field_name, False
@@ -372,9 +362,7 @@ class MaverickConfig(BaseSettings):
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
-    preflight: PreflightValidationConfig = Field(
-        default_factory=PreflightValidationConfig
-    )
+    preflight: PreflightValidationConfig = Field(default_factory=PreflightValidationConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
@@ -505,9 +493,7 @@ class MaverickConfig(BaseSettings):
         """
         # Get user and project config paths
         user_config_path = get_user_config_path()
-        project_config_path = _project_config_path_var.get() or (
-            Path.cwd() / "maverick.yaml"
-        )
+        project_config_path = _project_config_path_var.get() or (Path.cwd() / "maverick.yaml")
 
         # Return sources from highest to lowest priority
         # (earlier sources override later ones)

@@ -14,9 +14,7 @@ from maverick.library.actions.types import RunwayConsolidationResult
 @pytest.mark.asyncio()
 async def test_no_consolidate_flag_skips() -> None:
     """When no_consolidate=True, _maybe_consolidate should do nothing."""
-    with patch(
-        "maverick.library.actions.consolidation.consolidate_runway"
-    ) as mock_consolidate:
+    with patch("maverick.library.actions.consolidation.consolidate_runway") as mock_consolidate:
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=True)
         mock_consolidate.assert_not_called()
 
@@ -29,9 +27,7 @@ async def test_consolidation_disabled_by_config() -> None:
 
     with (
         patch("maverick.config.load_config", return_value=mock_config),
-        patch(
-            "maverick.library.actions.consolidation.consolidate_runway"
-        ) as mock_consolidate,
+        patch("maverick.library.actions.consolidation.consolidate_runway") as mock_consolidate,
     ):
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=False)
         mock_consolidate.assert_not_called()
@@ -46,9 +42,7 @@ async def test_consolidation_disabled_by_auto_config() -> None:
 
     with (
         patch("maverick.config.load_config", return_value=mock_config),
-        patch(
-            "maverick.library.actions.consolidation.consolidate_runway"
-        ) as mock_consolidate,
+        patch("maverick.library.actions.consolidation.consolidate_runway") as mock_consolidate,
     ):
         await _maybe_consolidate(Path("/tmp/repo"), no_consolidate=False)
         mock_consolidate.assert_not_called()
@@ -142,9 +136,7 @@ async def test_force_when_workspace_differs_from_user_repo() -> None:
         call_kwargs = mock_consolidate.call_args[1]
         assert call_kwargs["force"] is True
         assert call_kwargs["cwd"] == Path("/tmp/workspace")
-        mock_sync.assert_called_once_with(
-            Path("/tmp/workspace"), Path("/tmp/user-repo")
-        )
+        mock_sync.assert_called_once_with(Path("/tmp/workspace"), Path("/tmp/user-repo"))
 
 
 @pytest.mark.asyncio()

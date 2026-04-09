@@ -145,9 +145,7 @@ class GitHubClient:
 
         # Initialize rate limiter if rate_limit is provided
         if rate_limit is not None:
-            period = (
-                rate_period if rate_period is not None else DEFAULT_GITHUB_RATE_PERIOD
-            )
+            period = rate_period if rate_period is not None else DEFAULT_GITHUB_RATE_PERIOD
             self._rate_limiter: AsyncLimiter | None = AsyncLimiter(rate_limit, period)
         else:
             self._rate_limiter = None
@@ -501,9 +499,7 @@ class GitHubClient:
                 check_runs = head_commit.get_check_runs()
                 return list(check_runs)
             except GithubException as e:
-                raise GitHubError(
-                    f"Failed to get checks for PR #{pr_number}: {e}"
-                ) from e
+                raise GitHubError(f"Failed to get checks for PR #{pr_number}: {e}") from e
 
         if self._rate_limiter is not None:
             async with self._rate_limiter:

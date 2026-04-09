@@ -18,34 +18,24 @@ ACTION_INTENTS: dict[str, str] = {
     ),
     # Workspace
     "init_workspace": ("Initialize the development workspace for the current project."),
-    "create_fly_workspace": (
-        "Create an isolated jj workspace clone for fly workflow execution."
-    ),
+    "create_fly_workspace": ("Create an isolated jj workspace clone for fly workflow execution."),
     # Dependencies
     "sync_dependencies": (
         "Synchronize project dependencies by running the configured install command."
     ),
     # Tasks
-    "get_phase_names": (
-        "Extract phase names from a tasks.md file for workflow orchestration."
-    ),
+    "get_phase_names": ("Extract phase names from a tasks.md file for workflow orchestration."),
     # Git
     "git_add": ("Stage specified files in the git index for the next commit."),
-    "git_commit": (
-        "Create a git commit with the specified message in the working directory."
-    ),
+    "git_commit": ("Create a git commit with the specified message in the working directory."),
     "git_push": ("Push local commits to the configured remote git repository."),
     "git_check_and_stage": ("Check for uncommitted changes and stage them for commit."),
-    "git_has_changes": (
-        "Detect whether the working directory has uncommitted changes."
-    ),
+    "git_has_changes": ("Detect whether the working directory has uncommitted changes."),
     "git_stage_all": ("Stage all modified and untracked files in the git index."),
     "git_merge": ("Merge the specified branch into the current branch."),
     "create_git_branch": ("Create and check out a new git branch with the given name."),
     # jj
-    "jj_commit_bead": (
-        "Create a jj commit for the current bead with the specified message."
-    ),
+    "jj_commit_bead": ("Create a jj commit for the current bead with the specified message."),
     "jj_describe": ("Update the description of a jj revision."),
     "jj_snapshot_operation": (
         "Capture a snapshot of the current jj operation for later rollback."
@@ -57,31 +47,23 @@ ACTION_INTENTS: dict[str, str] = {
     "jj_absorb": ("Absorb outstanding changes into the appropriate jj revisions."),
     "jj_log": ("Retrieve the jj revision log for inspection or display."),
     "jj_diff": ("Compute the diff of changes in the current jj revision."),
-    "curate_history": (
-        "Reorganize jj commit history into a clean, logical sequence for landing."
-    ),
+    "curate_history": ("Reorganize jj commit history into a clean, logical sequence for landing."),
     "gather_curation_context": (
         "Collect revision log and diff context needed for history curation."
     ),
     "execute_curation_plan": (
-        "Apply the curation plan to rewrite jj history "
-        "according to the curator's instructions."
+        "Apply the curation plan to rewrite jj history according to the curator's instructions."
     ),
     # GitHub
     "create_github_pr": ("Create a pull request on the remote GitHub repository."),
-    "fetch_github_issues": (
-        "Retrieve a list of GitHub issues matching the specified filters."
-    ),
-    "fetch_github_issue": (
-        "Retrieve a single GitHub issue by number with full details."
-    ),
+    "fetch_github_issues": ("Retrieve a list of GitHub issues matching the specified filters."),
+    "fetch_github_issue": ("Retrieve a single GitHub issue by number with full details."),
     # Review (unprefixed)
     "gather_local_review_context": (
         "Collect local review context from working directory diff and changed files."
     ),
     "analyze_review_findings": (
-        "Analyze combined review findings and build "
-        "an issue registry with deduplication."
+        "Analyze combined review findings and build an issue registry with deduplication."
     ),
     "run_review_fix_loop": (
         "Iterate review-fix cycles until all actionable "
@@ -92,8 +74,7 @@ ACTION_INTENTS: dict[str, str] = {
     ),
     # Review (prefixed aliases)
     "review.analyze_review_findings": (
-        "Analyze combined review findings and build "
-        "an issue registry with deduplication."
+        "Analyze combined review findings and build an issue registry with deduplication."
     ),
     "review.run_review_fix_loop": (
         "Iterate review-fix cycles until all actionable "
@@ -111,27 +92,19 @@ ACTION_INTENTS: dict[str, str] = {
     ),
     # Validation
     "run_fix_retry_loop": (
-        "Run validation with fix retry loop until all "
-        "checks pass or max attempts reached."
+        "Run validation with fix retry loop until all checks pass or max attempts reached."
     ),
     "generate_validation_report": (
-        "Generate a structured report summarizing validation "
-        "results and any remaining failures."
+        "Generate a structured report summarizing validation results and any remaining failures."
     ),
     "log_message": ("Log a structured message to the workflow event stream."),
     # Beads
-    "parse_speckit": (
-        "Parse a SpecKit specification directory to extract phases and tasks."
-    ),
-    "create_beads": (
-        "Create epic and work beads from parsed SpecKit tasks via the bd CLI."
-    ),
+    "parse_speckit": ("Parse a SpecKit specification directory to extract phases and tasks."),
+    "create_beads": ("Create epic and work beads from parsed SpecKit tasks via the bd CLI."),
     "wire_dependencies": (
         "Establish dependency relationships between beads based on task ordering."
     ),
-    "select_next_bead": (
-        "Select the next ready bead from the bead queue for processing."
-    ),
+    "select_next_bead": ("Select the next ready bead from the bead queue for processing."),
     "mark_bead_complete": (
         "Mark the specified bead as completed after successful implementation."
     ),
@@ -146,13 +119,11 @@ ACTION_INTENTS: dict[str, str] = {
         "Verify that a bead's implementation satisfies its acceptance criteria."
     ),
     "enrich_bead_descriptions": (
-        "Enhance bead descriptions with additional context "
-        "from spec files and codebase."
+        "Enhance bead descriptions with additional context from spec files and codebase."
     ),
     # Dry-run
     "log_dry_run": (
-        "Log a dry-run message indicating what would be "
-        "executed without performing the action."
+        "Log a dry-run message indicating what would be executed without performing the action."
     ),
 }
 

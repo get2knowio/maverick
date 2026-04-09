@@ -181,9 +181,7 @@ class TestRunCommandWithTimeout:
     ) -> None:
         """Test successful command execution returns output correctly."""
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"stdout output", b"stderr output")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"stdout output", b"stderr output"))
 
         with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
             stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
@@ -242,9 +240,7 @@ class TestRunCommandWithTimeout:
         assert stderr == "timeout error"
 
     @pytest.mark.asyncio
-    async def test_command_execution_error(
-        self, mock_subprocess_exec: AsyncMock
-    ) -> None:
+    async def test_command_execution_error(self, mock_subprocess_exec: AsyncMock) -> None:
         """Test command execution error raises ValidationToolsError."""
         mock_subprocess_exec.side_effect = OSError("Command not found")
 
@@ -263,9 +259,7 @@ class TestRunCommandWithTimeout:
         mock_process.communicate = AsyncMock(return_value=(b"", b"error message"))
 
         with patch(SUBPROCESS_EXEC_PATCH, mock_subprocess_exec):
-            stdout, stderr, return_code, timed_out = await _run_command_with_timeout(
-                ["exit", "1"]
-            )
+            stdout, stderr, return_code, timed_out = await _run_command_with_timeout(["exit", "1"])
 
         assert return_code == 1
         assert timed_out is False
@@ -370,9 +364,7 @@ class TestRunValidation:
         assert response_data["results"][0]["success"] is False
 
     @pytest.mark.asyncio
-    async def test_run_validation_invalid_type(
-        self, validation_config: ValidationConfig
-    ) -> None:
+    async def test_run_validation_invalid_type(self, validation_config: ValidationConfig) -> None:
         """Test validation with invalid type returns error."""
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -386,9 +378,7 @@ class TestRunValidation:
         assert "invalid_type" in response_data["message"]
 
     @pytest.mark.asyncio
-    async def test_run_validation_empty_types(
-        self, validation_config: ValidationConfig
-    ) -> None:
+    async def test_run_validation_empty_types(self, validation_config: ValidationConfig) -> None:
         """Test validation with empty types list returns success."""
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -471,9 +461,7 @@ class TestRunValidation:
     ) -> None:
         """Test that validation combines stdout and stderr in output."""
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"stdout message", b"stderr message")
-        )
+        mock_process.communicate = AsyncMock(return_value=(b"stdout message", b"stderr message"))
 
         server = create_validation_tools_server(config=validation_config)
         run_validation, _ = _get_tools_from_server(server)
@@ -650,9 +638,7 @@ class TestParseValidationOutput:
             errors.append(f"src/file{i}.py:{i}:1: E501 Error {i}")
         output = "\n".join(errors)
 
-        response = await parse_validation_output.handler(
-            {"output": output, "type": "lint"}
-        )
+        response = await parse_validation_output.handler({"output": output, "type": "lint"})
 
         response_data = json.loads(response["content"][0]["text"])
 
@@ -716,9 +702,7 @@ src/b.py:2:2: F401 Unused import
 src/c.py:3:3: W291 Trailing whitespace
 src/d.py:4:4: N802 Function name should be lowercase"""
 
-        response = await parse_validation_output.handler(
-            {"output": output, "type": "lint"}
-        )
+        response = await parse_validation_output.handler({"output": output, "type": "lint"})
         response_data = json.loads(response["content"][0]["text"])
 
         codes = [e["code"] for e in response_data["errors"]]
@@ -732,9 +716,7 @@ src/d.py:4:4: N802 Function name should be lowercase"""
 
         output = "src/foo.py:10: error: Some error without code"
 
-        response = await parse_validation_output.handler(
-            {"output": output, "type": "typecheck"}
-        )
+        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -748,9 +730,7 @@ src/d.py:4:4: N802 Function name should be lowercase"""
 
         output = "src/foo.py:10: error: Type error [type-arg]"
 
-        response = await parse_validation_output.handler(
-            {"output": output, "type": "typecheck"}
-        )
+        response = await parse_validation_output.handler({"output": output, "type": "typecheck"})
         response_data = json.loads(response["content"][0]["text"])
 
         assert len(response_data["errors"]) == 1
@@ -785,9 +765,7 @@ class TestCreateValidationToolsServer:
         assert isinstance(server, dict)
         assert server["name"] == SERVER_NAME
 
-    def test_create_validation_tools_server_custom_project_root(
-        self, tmp_path: Path
-    ) -> None:
+    def test_create_validation_tools_server_custom_project_root(self, tmp_path: Path) -> None:
         """Test creating server with custom project root."""
         server = create_validation_tools_server(project_root=tmp_path)
 
@@ -942,9 +920,7 @@ class TestValidationIntegration:
         """Test full flow: run validation, then parse output."""
         # Step 1: Run validation that returns ruff output
         mock_process.returncode = 1
-        mock_process.communicate = AsyncMock(
-            return_value=(sample_ruff_output.encode(), b"")
-        )
+        mock_process.communicate = AsyncMock(return_value=(sample_ruff_output.encode(), b""))
 
         server = create_validation_tools_server(config=validation_config)
         run_validation, parse_validation_output = _get_tools_from_server(server)
@@ -957,9 +933,7 @@ class TestValidationIntegration:
         output = run_data["results"][0]["output"]
 
         # Step 2: Parse the output
-        parse_response = await parse_validation_output.handler(
-            {"output": output, "type": "lint"}
-        )
+        parse_response = await parse_validation_output.handler({"output": output, "type": "lint"})
 
         parse_data = json.loads(parse_response["content"][0]["text"])
         assert len(parse_data["errors"]) == 4

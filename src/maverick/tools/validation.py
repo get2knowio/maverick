@@ -51,9 +51,7 @@ SERVER_VERSION: str = "1.0.0"
 VALIDATION_TYPES: set[str] = {"format", "lint", "build", "typecheck", "test", "sync"}
 
 #: Ruff output pattern: path:line:col: code message
-RUFF_PATTERN: re.Pattern[str] = re.compile(
-    r"^(.+):(\d+):(\d+): (\w+) (.+)$", re.MULTILINE
-)
+RUFF_PATTERN: re.Pattern[str] = re.compile(r"^(.+):(\d+):(\d+): (\w+) (.+)$", re.MULTILINE)
 
 #: Mypy output pattern: path:line: severity: message [code]
 MYPY_PATTERN: re.Pattern[str] = re.compile(
@@ -261,8 +259,7 @@ def create_validation_tools_server(
             if invalid_types:
                 logger.error("Invalid validation types: %s", invalid_types)
                 return _error_response(
-                    f"Invalid validation types: {invalid_types}. "
-                    f"Valid types: {VALIDATION_TYPES}",
+                    f"Invalid validation types: {invalid_types}. Valid types: {VALIDATION_TYPES}",
                     "INVALID_VALIDATION_TYPE",
                 )
 
@@ -407,8 +404,7 @@ def create_validation_tools_server(
             if parse_type not in {"lint", "typecheck"}:
                 logger.error("Invalid parse type: %s", parse_type)
                 return _error_response(
-                    f"Invalid parse type: {parse_type}. "
-                    f"Valid types: 'lint', 'typecheck'",
+                    f"Invalid parse type: {parse_type}. Valid types: 'lint', 'typecheck'",
                     "INVALID_PARSE_TYPE",
                 )
 

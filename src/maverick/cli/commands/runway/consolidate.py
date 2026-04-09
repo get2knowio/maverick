@@ -11,9 +11,7 @@ from maverick.cli.output import format_success, format_warning
 
 
 @runway.command()
-@click.option(
-    "--force", is_flag=True, default=False, help="Run even if below thresholds."
-)
+@click.option("--force", is_flag=True, default=False, help="Run even if below thresholds.")
 @click.pass_context
 @async_command
 async def consolidate(ctx: click.Context, force: bool) -> None:

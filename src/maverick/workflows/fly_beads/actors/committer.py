@@ -42,9 +42,7 @@ class CommitActor:
 
     async def receive(self, message: Message) -> list[Message]:
         if message.msg_type != MessageType.COMMIT_REQUEST:
-            logger.warning(
-                "commit_actor.unexpected_message", msg_type=message.msg_type
-            )
+            logger.warning("commit_actor.unexpected_message", msg_type=message.msg_type)
             return []
 
         tag = message.payload.get("tag")

@@ -35,9 +35,7 @@ def _make_summary(
     bead_type: str = "task",
     status: str = "open",
 ) -> BeadSummary:
-    return BeadSummary(
-        id=id, title=title, priority=priority, bead_type=bead_type, status=status
-    )
+    return BeadSummary(id=id, title=title, priority=priority, bead_type=bead_type, status=status)
 
 
 class TestBriefRegistered:

@@ -261,9 +261,7 @@ class TestStepConfig:
 
     def test_deterministic_accepts_operator_autonomy(self) -> None:
         """Deterministic mode accepts OPERATOR autonomy level."""
-        config = StepConfig(
-            mode=StepMode.DETERMINISTIC, autonomy=AutonomyLevel.OPERATOR
-        )
+        config = StepConfig(mode=StepMode.DETERMINISTIC, autonomy=AutonomyLevel.OPERATOR)
         assert config.mode == StepMode.DETERMINISTIC
         assert config.autonomy == AutonomyLevel.OPERATOR
 
@@ -432,10 +430,7 @@ class TestInferStepMode:
         assert infer_step_mode(StepType.AGENT, StepMode.AGENT) == StepMode.AGENT
 
     def test_explicit_deterministic_on_python_step(self):
-        assert (
-            infer_step_mode(StepType.PYTHON, StepMode.DETERMINISTIC)
-            == StepMode.DETERMINISTIC
-        )
+        assert infer_step_mode(StepType.PYTHON, StepMode.DETERMINISTIC) == StepMode.DETERMINISTIC
 
     # Mode/type mismatch rejection
     def test_mismatch_deterministic_on_agent_step(self):
@@ -470,10 +465,7 @@ class TestInferStepMode:
 
     def test_python_step_deterministic_explicit_still_works(self):
         """PYTHON + DETERMINISTIC (explicit) returns DETERMINISTIC."""
-        assert (
-            infer_step_mode(StepType.PYTHON, StepMode.DETERMINISTIC)
-            == StepMode.DETERMINISTIC
-        )
+        assert infer_step_mode(StepType.PYTHON, StepMode.DETERMINISTIC) == StepMode.DETERMINISTIC
 
     # All 8 step types covered
     def test_all_step_types_have_mapping(self):

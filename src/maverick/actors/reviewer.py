@@ -31,26 +31,25 @@ class ReviewerActor(Actor):
             self._session_id = None
             self._review_count = 0
             self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(
-                target=self._loop.run_forever, daemon=True
-            )
+            self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
             self._thread.start()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "new_bead":
             self._review_count = 0
             try:
-                future = asyncio.run_coroutine_threadsafe(
-                    self._new_session(), self._loop
-                )
+                future = asyncio.run_coroutine_threadsafe(self._new_session(), self._loop)
                 future.result(timeout=30)
                 self.send(sender, {"type": "session_ready"})
             except Exception as exc:
-                self.send(sender, {
-                    "type": "prompt_error",
-                    "phase": "new_bead",
-                    "error": str(exc),
-                })
+                self.send(
+                    sender,
+                    {
+                        "type": "prompt_error",
+                        "phase": "new_bead",
+                        "error": str(exc),
+                    },
+                )
 
         elif msg_type == "review":
             self._review_count += 1
@@ -62,9 +61,9 @@ class ReviewerActor(Actor):
         elif msg_type == "shutdown":
             if self._executor:
                 try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._executor.cleanup(), self._loop
-                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
+                        timeout=5
+                    )
                 except Exception:
                     pass
             self.send(sender, {"type": "shutdown_ok"})
@@ -72,45 +71,50 @@ class ReviewerActor(Actor):
     def _run_prompt(self, message, sender):
         print(
             f"REVIEWER: starting review #{self._review_count}...",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._send_review(message), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(self._send_review(message), self._loop)
             future.result(timeout=1200)
             print(
                 f"REVIEWER: review #{self._review_count} completed!",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
-            self.send(sender, {
-                "type": "prompt_sent",
-                "phase": "review",
-                "review_count": self._review_count,
-            })
+            self.send(
+                sender,
+                {
+                    "type": "prompt_sent",
+                    "phase": "review",
+                    "review_count": self._review_count,
+                },
+            )
         except Exception as exc:
             print(
                 f"REVIEWER: review FAILED: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
-            self.send(sender, {
-                "type": "prompt_error",
-                "phase": "review",
-                "error": str(exc),
-            })
+            self.send(
+                sender,
+                {
+                    "type": "prompt_error",
+                    "phase": "review",
+                    "error": str(exc),
+                },
+            )
 
     def _run_aggregate_review(self, message, sender):
         """Run post-flight aggregate review across all beads."""
         print(
-            f"REVIEWER: starting aggregate review "
-            f"({message.get('bead_count', 0)} beads)...",
-            file=sys.stderr, flush=True,
+            f"REVIEWER: starting aggregate review ({message.get('bead_count', 0)} beads)...",
+            file=sys.stderr,
+            flush=True,
         )
         try:
             # Create a fresh session for aggregate review
-            future = asyncio.run_coroutine_threadsafe(
-                self._new_session(), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(self._new_session(), self._loop)
             future.result(timeout=30)
 
             future = asyncio.run_coroutine_threadsafe(
@@ -119,45 +123,54 @@ class ReviewerActor(Actor):
             future.result(timeout=600)
             print(
                 "REVIEWER: aggregate review completed!",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
-            self.send(sender, {
-                "type": "aggregate_review_complete",
-                "findings": [],  # Findings delivered via MCP tool call
-            })
+            self.send(
+                sender,
+                {
+                    "type": "aggregate_review_complete",
+                    "findings": [],  # Findings delivered via MCP tool call
+                },
+            )
         except Exception as exc:
             print(
                 f"REVIEWER: aggregate review FAILED: {exc}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             # Don't block completion on aggregate review failure
-            self.send(sender, {
-                "type": "aggregate_review_complete",
-                "findings": [],
-            })
+            self.send(
+                sender,
+                {
+                    "type": "aggregate_review_complete",
+                    "findings": [],
+                },
+            )
 
     async def _ensure_executor(self):
         if self._executor is None:
             from maverick.executor import create_default_executor
+
             self._executor = create_default_executor()
 
     async def _new_session(self):
         from pathlib import Path
 
         from acp.schema import McpServerStdio
+
         await self._ensure_executor()
 
-        maverick_bin = (
-            shutil.which("maverick")
-            or str(Path(sys.executable).parent / "maverick")
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="supervisor-inbox",
             command=maverick_bin,
             args=[
                 "serve-inbox",
-                "--tools", "submit_review",
-                "--admin-port", str(self._admin_port),
+                "--tools",
+                "submit_review",
+                "--admin-port",
+                str(self._admin_port),
             ],
             env=[],
         )
@@ -189,20 +202,15 @@ class ReviewerActor(Actor):
             ]
 
             if work_unit_md:
-                parts.append(
-                    f"## Work Unit Specification\n\n{work_unit_md}\n"
-                )
+                parts.append(f"## Work Unit Specification\n\n{work_unit_md}\n")
             else:
-                parts.append(
-                    f"## Task Description\n\n{bead_description}\n"
-                )
+                parts.append(f"## Task Description\n\n{bead_description}\n")
 
             if briefing_context:
                 # Cap briefing to avoid overwhelming the reviewer
                 briefing_excerpt = briefing_context[:4000]
                 parts.append(
-                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n"
-                    f"{briefing_excerpt}\n"
+                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n{briefing_excerpt}\n"
                 )
 
             parts.append(

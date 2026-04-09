@@ -78,9 +78,7 @@ class TestConfigPatterns:
         assert sample_config.parallel.max_agents > 0
         assert sample_config.parallel.max_tasks > 0
 
-    def test_using_clean_env_and_temp_dir_directly(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_using_clean_env_and_temp_dir_directly(self, clean_env: None, temp_dir: Path) -> None:
         """Test using clean_env and temp_dir fixtures directly.
 
         This demonstrates:

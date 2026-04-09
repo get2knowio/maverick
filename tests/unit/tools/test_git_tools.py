@@ -121,9 +121,7 @@ class TestHelperFunctions:
 
     def test_format_commit_message_breaking(self) -> None:
         """Test _format_commit_message with breaking change."""
-        result = _format_commit_message(
-            "breaking change", commit_type="feat", breaking=True
-        )
+        result = _format_commit_message("breaking change", commit_type="feat", breaking=True)
         assert result == "feat!: breaking change"
 
     def test_format_commit_message_scope_and_breaking(self) -> None:
@@ -134,13 +132,9 @@ class TestHelperFunctions:
         assert result == "feat(api)!: breaking change"
 
     @pytest.mark.asyncio
-    async def test_verify_git_prerequisites_success(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_verify_git_prerequisites_success(self, mock_git_repo: MagicMock) -> None:
         """Test verify_git_prerequisites with all checks passing."""
-        with patch(
-            "maverick.tools.git.prereqs.GitRepository", return_value=mock_git_repo
-        ):
+        with patch("maverick.tools.git.prereqs.GitRepository", return_value=mock_git_repo):
             # Should not raise
             await verify_git_prerequisites()
 
@@ -197,9 +191,7 @@ class TestGitCommit:
         assert parsed["message"] == "feat: add feature"
 
     @pytest.mark.asyncio
-    async def test_git_commit_conventional_format(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_commit_conventional_format(self, mock_git_repo: MagicMock) -> None:
         """Test git_commit with type, scope, and breaking change (T065).
 
         Verifies conventional commit formatting:
@@ -242,9 +234,7 @@ class TestGitCommit:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["_tools"]["git_commit"].handler(
-                {"message": "test commit"}
-            )
+            result = await server["_tools"]["git_commit"].handler({"message": "test commit"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -572,9 +562,7 @@ class TestGitDiffStats:
         assert parsed["deletions"] == 0
 
     @pytest.mark.asyncio
-    async def test_git_diff_stats_insertions_only(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_diff_stats_insertions_only(self, mock_git_repo: MagicMock) -> None:
         """Test git_diff_stats with only insertions."""
         mock_git_repo.diff_stats = AsyncMock(
             return_value=DiffStats(
@@ -599,9 +587,7 @@ class TestGitDiffStats:
         assert parsed["deletions"] == 0
 
     @pytest.mark.asyncio
-    async def test_git_diff_stats_deletions_only(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_diff_stats_deletions_only(self, mock_git_repo: MagicMock) -> None:
         """Test git_diff_stats with only deletions."""
         mock_git_repo.diff_stats = AsyncMock(
             return_value=DiffStats(
@@ -649,9 +635,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["_tools"]["git_create_branch"].handler(
-                {"name": "feature"}
-            )
+            result = await server["_tools"]["git_create_branch"].handler({"name": "feature"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["success"] is True
@@ -689,9 +673,7 @@ class TestGitCreateBranch:
         - Appropriate error message
         """
         mock_git_repo.create_branch = AsyncMock(
-            side_effect=BranchExistsError(
-                "Branch 'feature' already exists", branch_name="feature"
-            )
+            side_effect=BranchExistsError("Branch 'feature' already exists", branch_name="feature")
         )
 
         with patch(
@@ -699,9 +681,7 @@ class TestGitCreateBranch:
             return_value=mock_git_repo,
         ):
             server = create_git_tools_server()
-            result = await server["_tools"]["git_create_branch"].handler(
-                {"name": "feature"}
-            )
+            result = await server["_tools"]["git_create_branch"].handler({"name": "feature"})
 
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
@@ -713,17 +693,13 @@ class TestGitCreateBranch:
         server = create_git_tools_server()
 
         # Test with spaces
-        result = await server["_tools"]["git_create_branch"].handler(
-            {"name": "invalid name"}
-        )
+        result = await server["_tools"]["git_create_branch"].handler({"name": "invalid name"})
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
 
         # Test with special characters
-        result = await server["_tools"]["git_create_branch"].handler(
-            {"name": "invalid~branch"}
-        )
+        result = await server["_tools"]["git_create_branch"].handler({"name": "invalid~branch"})
         parsed = json.loads(result["content"][0]["text"])
         assert parsed["isError"] is True
         assert parsed["error_code"] == "INVALID_INPUT"
@@ -738,9 +714,7 @@ class TestGitCreateBranch:
         assert parsed["error_code"] == "INVALID_INPUT"
 
     @pytest.mark.asyncio
-    async def test_git_create_branch_base_not_found(
-        self, mock_git_repo: MagicMock
-    ) -> None:
+    async def test_git_create_branch_base_not_found(self, mock_git_repo: MagicMock) -> None:
         """Test git_create_branch when base branch doesn't exist."""
         mock_git_repo.create_branch = AsyncMock(
             side_effect=GitError(

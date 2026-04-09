@@ -203,9 +203,7 @@ class TestGenerateConfig:
         """Discovery with no found providers yields empty agent_providers."""
         git_info = GitRemoteInfo()
         discovery = ProviderDiscoveryResult(
-            providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),
-            ),
+            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),),
             default_provider=None,
         )
         config = generate_config(
@@ -273,9 +271,7 @@ class TestWriteConfig:
         assert "existing content" not in content
         assert "github:" in content
 
-    def test_write_config_io_error_raises_config_write_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_config_io_error_raises_config_write_error(self, tmp_path: Path) -> None:
         """write_config raises ConfigWriteError on I/O errors."""
         config = InitConfig()
         # Use a path that cannot be written (directory)

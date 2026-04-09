@@ -78,9 +78,7 @@ index 1234567..abcdefg 100644
         """
         pr_number = 456
         # Create a large diff (larger than default 100KB)
-        large_diff = (
-            "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 150
-        )  # ~150KB
+        large_diff = "diff --git a/file.py b/file.py\n" + ("+" + "x" * 1000 + "\n") * 150  # ~150KB
         max_size = 50000  # 50KB limit
 
         with patch(

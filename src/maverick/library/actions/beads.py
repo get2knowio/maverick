@@ -181,9 +181,7 @@ async def create_beads(
     for defn in work_defs:
         try:
             created = await client.create_bead(defn, parent_id=epic.bd_id)
-            work_data.append(
-                {"bd_id": created.bd_id, "title": created.definition.title}
-            )
+            work_data.append({"bd_id": created.bd_id, "title": created.definition.title})
             created_map[defn.title] = created.bd_id
         except Exception as e:
             error_msg = f"Failed to create bead '{defn.title}': {e}"
@@ -289,9 +287,7 @@ async def wire_dependencies(
             us_to_id[defn.user_story_id] = bd_id
 
     try:
-        dep_pairs: list[list[str]] = (
-            json.loads(extracted_deps) if extracted_deps.strip() else []
-        )
+        dep_pairs: list[list[str]] = json.loads(extracted_deps) if extracted_deps.strip() else []
     except (json.JSONDecodeError, TypeError):
         logger.warning("invalid_extracted_deps", raw=extracted_deps[:200])
         dep_pairs = []
@@ -329,9 +325,7 @@ async def wire_dependencies(
             await client.add_dependency(dep)
             wired.append(dep)
         except Exception as e:
-            error_msg = (
-                f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
-            )
+            error_msg = f"Failed to wire: {dep.blocked_id} blocked-by {dep.blocker_id}: {e}"
             logger.debug(
                 "dependency_wiring_failed",
                 blocker_id=dep.blocker_id,
@@ -631,9 +625,7 @@ async def create_beads_from_failures(
                 bead_type=BeadType.TASK,
                 priority=priority,
                 category=BeadCategory.VALIDATION,
-                description=(
-                    f"Fix {stage_name} validation failures.\n\nErrors:\n{error_text}"
-                ),
+                description=(f"Fix {stage_name} validation failures.\n\nErrors:\n{error_text}"),
             )
         )
 
@@ -732,8 +724,7 @@ async def create_beads_from_findings(
                 priority=min_priority,
                 category=BeadCategory.REVIEW,
                 description=(
-                    f"Fix review findings in {file_path}.\n\n"
-                    f"Issues:\n{description_text}"
+                    f"Fix review findings in {file_path}.\n\nIssues:\n{description_text}"
                 ),
             )
         )
@@ -817,9 +808,7 @@ async def verify_bead_completion(
             # The review-fix loop may resolve all issues while keeping
             # the stale "request_changes" recommendation.
             if remaining > 0:
-                reasons.append(
-                    f"Review requests changes ({remaining} issues remaining)"
-                )
+                reasons.append(f"Review requests changes ({remaining} issues remaining)")
 
     passed = len(reasons) == 0
     if passed:

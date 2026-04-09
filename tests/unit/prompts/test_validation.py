@@ -55,9 +55,7 @@ class TestValidatePromptConfig:
         prompts = {
             "implement": PromptOverrideConfig(prompt_file="custom.md"),
         }
-        with pytest.raises(
-            PromptConfigError, match="does not allow full prompt replacement"
-        ):
+        with pytest.raises(PromptConfigError, match="does not allow full prompt replacement"):
             validate_prompt_config(prompts, validation_registry, project_root=tmp_path)
 
     def test_missing_prompt_file_raises_error(
@@ -96,9 +94,7 @@ class TestValidatePromptConfig:
             "pr_description": PromptOverrideConfig(prompt_file="../outside/evil.md"),
         }
         with pytest.raises(PromptConfigError, match="must be within project root"):
-            validate_prompt_config(
-                prompts, validation_registry, project_root=project_root
-            )
+            validate_prompt_config(prompts, validation_registry, project_root=project_root)
 
     def test_valid_config_passes(
         self, validation_registry: PromptRegistry, tmp_path: Path

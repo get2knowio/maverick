@@ -229,10 +229,7 @@ class ReviewFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         """
         parts = [f"# Fix Iteration {iteration}"]
         parts.append("")
-        parts.append(
-            f"You have **{len(findings)} finding(s)** to address. "
-            "Report on ALL of them."
-        )
+        parts.append(f"You have **{len(findings)} finding(s)** to address. Report on ALL of them.")
         parts.append("")
 
         if groups:
@@ -253,9 +250,7 @@ class ReviewFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
 
         parts.append("---")
         parts.append("")
-        parts.append(
-            "**REMINDER**: Output JSON with an entry for EVERY finding ID above."
-        )
+        parts.append("**REMINDER**: Output JSON with an entry for EVERY finding ID above.")
 
         return "\n".join(parts)
 

@@ -153,9 +153,7 @@ class TestWorkflowRunner:
             >>> runner.assert_stage_passed("test")  # Passes if test stage passed
         """
         if self.result is None:
-            raise AssertionError(
-                f"Cannot verify stage '{stage_name}': workflow result is None"
-            )
+            raise AssertionError(f"Cannot verify stage '{stage_name}': workflow result is None")
 
         # Access stage_results from the workflow result
         if not hasattr(self.result, "stage_results"):

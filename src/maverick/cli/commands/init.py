@@ -171,9 +171,7 @@ def _format_git_output(
                 lines.append(f"  Remote: {git_info.remote_url}")
             lines.append("")
     else:
-        lines.append(
-            "⚠ Warning: No git remote configured. GitHub owner/repo set to null."
-        )
+        lines.append("⚠ Warning: No git remote configured. GitHub owner/repo set to null.")
         lines.append("")
 
     return lines
@@ -387,17 +385,11 @@ async def init(
                     parse_model_specs,
                 )
 
-                user_specs = (
-                    parse_model_specs(model_specs)
-                    if model_specs
-                    else None
-                )
+                user_specs = parse_model_specs(model_specs) if model_specs else None
 
                 click.echo("")
                 click.echo("Model Discovery")
-                discovered = await discover_all_models(
-                    provider_list, user_specs
-                )
+                discovered = await discover_all_models(provider_list, user_specs)
                 for prov, pm in discovered.items():
                     source_label = {
                         "probe": "probed",
@@ -407,9 +399,7 @@ async def init(
                     models_str = ", ".join(pm.models[:5])
                     if len(pm.models) > 5:
                         models_str += f" (+{len(pm.models) - 5} more)"
-                    click.echo(
-                        f"  {prov} ({source_label}): {models_str}"
-                    )
+                    click.echo(f"  {prov} ({source_label}): {models_str}")
 
                 # Distribute models across actors
                 from maverick.init.actor_distribution import distribute_models
@@ -417,35 +407,28 @@ async def init(
                 default_prov = (
                     result.provider_discovery.default_provider
                     if result.provider_discovery
-                    else provider_list[0] if provider_list else "claude"
+                    else provider_list[0]
+                    if provider_list
+                    else "claude"
                 )
-                actor_configs = distribute_models(
-                    discovered, default_provider=default_prov
-                )
+                actor_configs = distribute_models(discovered, default_provider=default_prov)
 
                 click.echo("")
                 click.echo("Actor Assignment")
                 for workflow, actors in actor_configs.items():
                     for actor_name, ac in actors.items():
-                        click.echo(
-                            f"  {workflow}.{actor_name}: "
-                            f"{ac.provider}/{ac.model_id}"
-                        )
+                        click.echo(f"  {workflow}.{actor_name}: {ac.provider}/{ac.model_id}")
 
                 # Write actors section to the config file
-                import yaml as _yaml
                 from pathlib import Path as _Path
+
+                import yaml as _yaml
 
                 config_path = _Path(result.config_path)
                 if config_path.exists():
-                    config_data = _yaml.safe_load(
-                        config_path.read_text(encoding="utf-8")
-                    ) or {}
+                    config_data = _yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
                     config_data["actors"] = {
-                        wf: {
-                            name: ac.to_dict()
-                            for name, ac in actors.items()
-                        }
+                        wf: {name: ac.to_dict() for name, ac in actors.items()}
                         for wf, actors in actor_configs.items()
                     }
                     config_path.write_text(

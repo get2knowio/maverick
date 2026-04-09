@@ -52,9 +52,7 @@ def _get_github_runner() -> GitHubCLIRunner:
         try:
             _github_runner = GitHubCLIRunner()
         except GitHubCLINotFoundError as e:
-            raise GitHubError(
-                "GitHub CLI (gh) not found. Install: https://cli.github.com"
-            ) from e
+            raise GitHubError("GitHub CLI (gh) not found. Install: https://cli.github.com") from e
     return _github_runner
 
 

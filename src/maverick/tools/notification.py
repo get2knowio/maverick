@@ -187,9 +187,7 @@ async def _send_ntfy_request(
                         response_data = await resp.json()
                     except (ValueError, aiohttp.ContentTypeError) as e:
                         # Malformed JSON response - treat as retryable
-                        raise _RetryableNotificationError(
-                            f"Malformed JSON response: {e}"
-                        ) from e
+                        raise _RetryableNotificationError(f"Malformed JSON response: {e}") from e
                     notification_id = response_data.get("id")
                     logger.info("Notification sent (id: %s)", notification_id)
                     return (True, "Notification sent", notification_id)
@@ -207,9 +205,7 @@ async def _send_ntfy_request(
     try:
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(max_retries + 1),
-            wait=wait_exponential(
-                multiplier=RETRY_BASE_DELAY, min=RETRY_BASE_DELAY, max=4
-            ),
+            wait=wait_exponential(multiplier=RETRY_BASE_DELAY, min=RETRY_BASE_DELAY, max=4),
             retry=retry_if_exception_type(_RetryableNotificationError),
             reraise=True,
         ):
@@ -307,9 +303,7 @@ def create_notification_tools_server(
         )
     else:
         _rate_limiter = None
-        logger.info(
-            "Creating notification tools MCP server (version %s)", SERVER_VERSION
-        )
+        logger.info("Creating notification tools MCP server (version %s)", SERVER_VERSION)
 
     # =============================================================================
     # MCP Tools (defined within factory to capture config in closure)
@@ -497,9 +491,7 @@ def create_notification_tools_server(
         if tags is not None:
             # Validate tags is a list
             if not isinstance(tags, list):
-                logger.warning(
-                    "send_notification called with invalid tags type: %s", type(tags)
-                )
+                logger.warning("send_notification called with invalid tags type: %s", type(tags))
                 return _error_response(
                     "Tags must be a list of strings",
                     "INVALID_INPUT",
@@ -510,9 +502,7 @@ def create_notification_tools_server(
         # Validate priority (T045)
         valid_priorities = {"min", "low", "default", "high", "urgent"}
         if priority not in valid_priorities:
-            logger.warning(
-                "send_notification called with invalid priority: %s", priority
-            )
+            logger.warning("send_notification called with invalid priority: %s", priority)
             valid_list = ", ".join(sorted(valid_priorities))
             return _error_response(
                 f"Invalid priority '{priority}'. Must be one of: {valid_list}",

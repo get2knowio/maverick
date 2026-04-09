@@ -151,9 +151,7 @@ def get_project_type(config_path: Path | None = None) -> str:
         config_path = Path("maverick.yaml")
 
     if not config_path.exists():
-        logger.debug(
-            "Config not found at %s, using 'unknown' project type", config_path
-        )
+        logger.debug("Config not found at %s, using 'unknown' project type", config_path)
         return "unknown"
 
     try:
@@ -231,9 +229,7 @@ def render_prompt(
     # Read project-specific conventions from maverick.yaml
     raw_conventions = get_project_conventions(config_path)
     if raw_conventions.strip():
-        project_conventions = (
-            "\n## Project-Specific Conventions\n\n" + raw_conventions.strip()
-        )
+        project_conventions = "\n## Project-Specific Conventions\n\n" + raw_conventions.strip()
     else:
         project_conventions = ""
 

@@ -245,9 +245,7 @@ async def run_preflight_checks(
             elif not result.success:
                 providers_available = False
                 errors.extend(result.errors)
-                err_detail = (
-                    result.errors[0] if result.errors else "health check failed"
-                )
+                err_detail = result.errors[0] if result.errors else "health check failed"
                 await _emit_check(
                     event_callback,
                     f"ACP:{hc.provider_name}",
@@ -392,8 +390,7 @@ async def run_preflight_checks(
                 if proc.returncode != 0:
                     github_cli_available = False
                     warnings.append(
-                        "GitHub CLI is not authenticated. "
-                        "Run 'gh auth login' to authenticate."
+                        "GitHub CLI is not authenticated. Run 'gh auth login' to authenticate."
                     )
                     logger.warning("GitHub CLI not authenticated")
                     await _emit_check(
@@ -466,9 +463,7 @@ async def run_preflight_checks(
             cmd_display = " ".join(cmd[:2])
             if tool_path is None:
                 validation_tools_available = False
-                errors.append(
-                    f"Tool '{tool_name}' (stage '{stage_name}') not found on PATH"
-                )
+                errors.append(f"Tool '{tool_name}' (stage '{stage_name}') not found on PATH")
                 logger.debug(
                     "Validation tool check failed",
                     tool=tool_name,

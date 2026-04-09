@@ -184,9 +184,7 @@ Add payment processing.
             FlightPlanFile.load(dir_path)
         assert exc_info.value.path == dir_path
 
-    def test_load_missing_frontmatter_name_raises_validation_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_load_missing_frontmatter_name_raises_validation_error(self, tmp_path: Path) -> None:
         """load() raises FlightPlanValidationError when 'name' is absent."""
         from maverick.flight.errors import FlightPlanValidationError
         from maverick.flight.loader import FlightPlanFile
@@ -256,9 +254,7 @@ Add payment processing.
         assert exc_info.value.field == "created"
         assert exc_info.value.path == fp_file
 
-    def test_load_malformed_frontmatter_raises_parse_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_load_malformed_frontmatter_raises_parse_error(self, tmp_path: Path) -> None:
         """load() on content without --- delimiters raises FlightPlanParseError."""
         from maverick.flight.errors import FlightPlanParseError
         from maverick.flight.loader import FlightPlanFile
@@ -269,9 +265,7 @@ Add payment processing.
         with pytest.raises(FlightPlanParseError):
             FlightPlanFile.load(bad_file)
 
-    def test_load_missing_required_fields_raises_validation_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_load_missing_required_fields_raises_validation_error(self, tmp_path: Path) -> None:
         """load() on YAML missing required fields raises FlightPlanValidationError."""
         from maverick.flight.errors import FlightPlanValidationError
         from maverick.flight.loader import FlightPlanFile
@@ -588,9 +582,7 @@ class TestWorkUnitFileLoad:
         """load() populates provider_hints when section is present."""
         from maverick.flight.loader import WorkUnitFile
 
-        content_with_hints = (
-            SAMPLE_WORK_UNIT_MD + "\n## Provider Hints\n\nUse the fast path.\n"
-        )
+        content_with_hints = SAMPLE_WORK_UNIT_MD + "\n## Provider Hints\n\nUse the fast path.\n"
         wu_file = tmp_path / "001-hints.md"
         wu_file.write_text(content_with_hints)
 
@@ -633,9 +625,7 @@ class TestWorkUnitFileLoadDirectory:
         from maverick.flight.loader import WorkUnitFile
 
         (tmp_path / "001-setup-database.md").write_text(SAMPLE_WORK_UNIT_MD)
-        (tmp_path / "002-add-login-endpoint.md").write_text(
-            SAMPLE_WORK_UNIT_MD_WITH_PARALLEL
-        )
+        (tmp_path / "002-add-login-endpoint.md").write_text(SAMPLE_WORK_UNIT_MD_WITH_PARALLEL)
 
         units = WorkUnitFile.load_directory(tmp_path)
         assert len(units) == 2
@@ -645,9 +635,7 @@ class TestWorkUnitFileLoadDirectory:
         from maverick.flight.loader import WorkUnitFile
 
         # Write in reverse order on disk
-        (tmp_path / "002-add-login-endpoint.md").write_text(
-            SAMPLE_WORK_UNIT_MD_WITH_PARALLEL
-        )
+        (tmp_path / "002-add-login-endpoint.md").write_text(SAMPLE_WORK_UNIT_MD_WITH_PARALLEL)
         (tmp_path / "001-setup-database.md").write_text(SAMPLE_WORK_UNIT_MD)
 
         units = WorkUnitFile.load_directory(tmp_path)
@@ -696,9 +684,7 @@ class TestWorkUnitFileAloadDirectory:
         assert len(units) == 1
         assert units[0].id == "setup-database"
 
-    async def test_aload_directory_empty_returns_empty_list(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_aload_directory_empty_returns_empty_list(self, tmp_path: Path) -> None:
         """aload_directory() on empty directory returns empty list."""
         from maverick.flight.loader import WorkUnitFile
 

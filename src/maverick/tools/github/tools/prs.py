@@ -37,9 +37,7 @@ async def github_create_pr(args: dict[str, Any]) -> dict[str, Any]:
     if not body or not body.strip():
         return error_response("PR body cannot be empty", "INVALID_INPUT")
 
-    logger.info(
-        "Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft
-    )
+    logger.info("Creating PR: %s (head=%s -> base=%s, draft=%s)", title, head, base, draft)
 
     try:
         client = _get_client()
@@ -112,9 +110,7 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
         pr = await client.get_pr(repo_name=repo_name, pr_number=pr_number)
 
         # Get checks for the PR
-        check_runs = await client.get_pr_checks(
-            repo_name=repo_name, pr_number=pr_number
-        )
+        check_runs = await client.get_pr_checks(repo_name=repo_name, pr_number=pr_number)
 
         def _get_pr_details() -> dict[str, Any]:
             """Get PR details including reviews and merge state."""
@@ -149,9 +145,7 @@ async def github_pr_status(args: dict[str, Any]) -> dict[str, Any]:
                 mergeable_state = mergeable_state.lower()
 
             # Detect conflicts
-            has_conflicts = (
-                mergeable_state in ("dirty", "conflicting") or mergeable is False
-            )
+            has_conflicts = mergeable_state in ("dirty", "conflicting") or mergeable is False
 
             return {
                 "pr_number": pr_number,

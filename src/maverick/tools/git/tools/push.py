@@ -59,8 +59,7 @@ def _classify_push_error(error: Exception) -> tuple[str, str]:
     if any(pattern in error_msg for pattern in _AUTH_PATTERNS):
         return (
             "AUTHENTICATION_REQUIRED",
-            f"Authentication required: {error}. "
-            "Run 'gh auth login' or configure git credentials",
+            f"Authentication required: {error}. Run 'gh auth login' or configure git credentials",
         )
 
     # Check for network errors

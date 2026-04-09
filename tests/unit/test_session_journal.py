@@ -493,9 +493,7 @@ class TestSessionJournal:
         await journal.record(StepStarted("s1", StepType.PYTHON, 1.0))
         assert journal.event_count == 1
 
-        await journal.record(
-            StepCompleted("s1", StepType.PYTHON, True, 100, timestamp=1.0)
-        )
+        await journal.record(StepCompleted("s1", StepType.PYTHON, True, 100, timestamp=1.0))
         assert journal.event_count == 2
 
         journal.close()
@@ -508,9 +506,7 @@ class TestSessionJournal:
         with SessionJournal(log_path) as journal:
             journal.write_header("test-workflow", {"key": "value"})
 
-            await journal.record(
-                WorkflowStarted("test-workflow", {"key": "value"}, 1000.0)
-            )
+            await journal.record(WorkflowStarted("test-workflow", {"key": "value"}, 1000.0))
             await journal.record(StepStarted("step1", StepType.PYTHON, 1001.0))
             await journal.record(
                 StepCompleted("step1", StepType.PYTHON, True, 500, timestamp=1002.0)

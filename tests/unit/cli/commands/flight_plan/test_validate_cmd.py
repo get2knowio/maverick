@@ -239,9 +239,7 @@ class TestValidateFileNotFound:
         """validate error output includes the plan name in the path."""
         result = cli_runner.invoke(cli, ["plan", "validate", "does-not-exist"])
         joined = "".join(result.output.splitlines())
-        assert "does-not-exist" in joined, (
-            f"Expected plan name in output, got: {result.output!r}"
-        )
+        assert "does-not-exist" in joined, f"Expected plan name in output, got: {result.output!r}"
 
     def test_custom_plans_dir(
         self,
@@ -252,9 +250,7 @@ class TestValidateFileNotFound:
         custom = flight_plan_env / "custom-plans"
         plan_dir = custom / "my-plan"
         plan_dir.mkdir(parents=True)
-        (plan_dir / "flight-plan.md").write_text(
-            VALID_FLIGHT_PLAN_CONTENT, encoding="utf-8"
-        )
+        (plan_dir / "flight-plan.md").write_text(VALID_FLIGHT_PLAN_CONTENT, encoding="utf-8")
         result = cli_runner.invoke(
             cli,
             ["plan", "validate", "my-plan", "--plans-dir", str(custom)],

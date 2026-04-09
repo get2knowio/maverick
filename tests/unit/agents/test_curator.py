@@ -45,10 +45,7 @@ class TestCuratorParsePlan:
     def test_parse_valid_plan(self) -> None:
         """Parses a well-formed JSON plan."""
         agent = CuratorAgent()
-        raw = (
-            '[{"command": "squash", "args": ["-r", "abc123"],'
-            ' "reason": "Fix into parent"}]'
-        )
+        raw = '[{"command": "squash", "args": ["-r", "abc123"], "reason": "Fix into parent"}]'
         plan = agent.parse_plan(raw)
         assert len(plan) == 1
         assert plan[0]["command"] == "squash"
@@ -82,11 +79,7 @@ class TestCuratorParsePlan:
     def test_parse_handles_markdown_fences(self) -> None:
         """Strips markdown code fences from LLM output."""
         agent = CuratorAgent()
-        raw = (
-            "```json\n"
-            '[{"command": "squash", "args": ["-r", "x"],'
-            ' "reason": "fix"}]\n```'
-        )
+        raw = '```json\n[{"command": "squash", "args": ["-r", "x"], "reason": "fix"}]\n```'
         plan = agent.parse_plan(raw)
         assert len(plan) == 1
         assert plan[0]["command"] == "squash"

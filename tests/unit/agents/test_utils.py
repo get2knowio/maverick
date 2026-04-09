@@ -51,9 +51,7 @@ class TestDetectFileChanges:
             assert all(isinstance(c, FileChange) for c in changes)
 
     @pytest.mark.asyncio
-    async def test_detect_file_changes_parses_stats_correctly(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_detect_file_changes_parses_stats_correctly(self, tmp_path: Path) -> None:
         """Test correctly parses file stats into FileChange objects."""
         from maverick.git import DiffStats
 
@@ -78,9 +76,7 @@ class TestDetectFileChanges:
             assert changes[0].change_type == ChangeType.MODIFIED
 
     @pytest.mark.asyncio
-    async def test_detect_file_changes_handles_errors_gracefully(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_detect_file_changes_handles_errors_gracefully(self, tmp_path: Path) -> None:
         """Test returns empty list on git errors."""
         with patch(
             "maverick.git.AsyncGitRepository",

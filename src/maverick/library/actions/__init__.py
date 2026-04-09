@@ -308,9 +308,7 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("generate_review_fix_report", generate_review_fix_report)
     registry.actions.register("review.analyze_review_findings", analyze_review_findings)
     registry.actions.register("review.run_review_fix_loop", run_review_fix_loop)
-    registry.actions.register(
-        "review.generate_review_fix_report", generate_review_fix_report
-    )
+    registry.actions.register("review.generate_review_fix_report", generate_review_fix_report)
 
     # Cleanup actions - work with GitHub issues
     registry.actions.register(
@@ -331,9 +329,7 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("create_beads", create_beads, requires=("bd",))
     registry.actions.register("wire_dependencies", wire_dependencies, requires=("bd",))
     registry.actions.register("select_next_bead", select_next_bead, requires=("bd",))
-    registry.actions.register(
-        "mark_bead_complete", mark_bead_complete, requires=("bd",)
-    )
+    registry.actions.register("mark_bead_complete", mark_bead_complete, requires=("bd",))
     registry.actions.register("check_epic_done", check_epic_done, requires=("bd",))
     registry.actions.register(
         "create_beads_from_failures", create_beads_from_failures, requires=("bd",)

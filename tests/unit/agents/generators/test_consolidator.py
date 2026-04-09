@@ -13,9 +13,7 @@ class TestConsolidatorBuildPrompt:
         agent = ConsolidatorAgent()
         context = {
             "existing_summary": "# Existing Insights\nSome content.",
-            "bead_outcomes": [
-                {"bead_id": "b1", "title": "Test", "validation_passed": True}
-            ],
+            "bead_outcomes": [{"bead_id": "b1", "title": "Test", "validation_passed": True}],
             "review_findings": [
                 {"finding_id": "F1", "severity": "major", "category": "correctness"}
             ],

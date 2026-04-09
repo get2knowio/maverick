@@ -93,9 +93,7 @@ async def resolve_plan_epic_ids(
         if epic_id:
             resolved.append(ResolvedPlanDep(plan_name=name, epic_bd_id=epic_id))
         else:
-            errors.append(
-                f"Flight plan '{name}' not found in any epic's state metadata"
-            )
+            errors.append(f"Flight plan '{name}' not found in any epic's state metadata")
 
     return resolved, errors
 
@@ -150,9 +148,7 @@ async def wire_cross_plan_dependencies(
             resolved.append(ResolvedPlanDep(plan_name="", epic_bd_id=dep_epic_id))
             wired += 1
         except Exception as exc:
-            errors.append(
-                f"Failed to wire epic {new_epic_bd_id} blocked-by {dep_epic_id}: {exc}"
-            )
+            errors.append(f"Failed to wire epic {new_epic_bd_id} blocked-by {dep_epic_id}: {exc}")
 
     return CrossPlanDependencyResult(
         wired_count=wired,

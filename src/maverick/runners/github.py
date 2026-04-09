@@ -321,9 +321,7 @@ class GitHubCLIRunner:
                     if error_type == "auth":
                         raise GitHubAuthError()
                     if not is_retryable:
-                        raise RuntimeError(
-                            f"gh command failed ({error_type}): {result.stderr}"
-                        )
+                        raise RuntimeError(f"gh command failed ({error_type}): {result.stderr}")
 
                     # Raise retryable error to trigger retry
                     raise RetryableGitHubError(
@@ -464,13 +462,9 @@ class GitHubCLIRunner:
                 if "not logged" in stderr_lower or auth_result.returncode == 4:
                     errors.append("gh CLI is not authenticated. Run 'gh auth login'.")
                 elif "token" in stderr_lower and "expired" in stderr_lower:
-                    errors.append(
-                        "GitHub token has expired. Run 'gh auth refresh' to renew."
-                    )
+                    errors.append("GitHub token has expired. Run 'gh auth refresh' to renew.")
                 else:
-                    errors.append(
-                        f"gh auth status failed: {auth_result.stderr.strip()}"
-                    )
+                    errors.append(f"gh auth status failed: {auth_result.stderr.strip()}")
                 duration_ms = int((time.monotonic() - start_time) * 1000)
                 return ValidationResult(
                     success=False,
@@ -494,9 +488,7 @@ class GitHubCLIRunner:
         # Use 'gh auth status' output which shows token scopes
         try:
             # Get detailed auth status with token info
-            scope_result = await self._command_runner.run(
-                ["gh", "auth", "status", "--show-token"]
-            )
+            scope_result = await self._command_runner.run(["gh", "auth", "status", "--show-token"])
             # Parse output for scopes - gh auth status shows scopes in output
             output = scope_result.stdout + scope_result.stderr
             output_lower = output.lower()
@@ -594,9 +586,7 @@ class GitHubCLIRunner:
         """
         await self._ensure_authenticated()
         fields = "number,title,body,state,url,headRefName,baseRefName,mergeable,isDraft"
-        json_output = await self._run_gh_command(
-            "pr", "view", str(number), "--json", fields
-        )
+        json_output = await self._run_gh_command("pr", "view", str(number), "--json", fields)
         # Parse response using Pydantic
         response = GitHubPRResponse.model_validate_json(json_output)
 

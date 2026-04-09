@@ -355,9 +355,7 @@ def fly_workflow_no_executor(
 
 
 class TestFlyBeadsWorkflow:
-    async def test_happy_path(
-        self, fly_workflow: Any, mock_step_executor: AsyncMock
-    ) -> None:
+    async def test_happy_path(self, fly_workflow: Any, mock_step_executor: AsyncMock) -> None:
         """Complete workflow: preflight -> workspace -> bead -> commit -> done."""
         with _patch_all_actions():
             events = await _collect_events(
@@ -379,9 +377,7 @@ class TestFlyBeadsWorkflow:
     async def test_events_emitted(self, fly_workflow: Any) -> None:
         """WorkflowStarted, StepStarted/StepCompleted, WorkflowCompleted are emitted."""
         with _patch_all_actions():
-            events = await _collect_events(
-                fly_workflow, {"epic_id": "", "max_beads": 5}
-            )
+            events = await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
         event_types = {type(e).__name__ for e in events}
         assert "WorkflowStarted" in event_types
@@ -427,9 +423,7 @@ class TestFlyBeadsWorkflow:
             mv,
             restore={"return_value": {"success": True}},
         ) as mocks:
-            events = await _collect_events(
-                fly_workflow, {"epic_id": "", "max_beads": 5}
-            )
+            events = await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
         mocks["restore"].assert_called_once()
         mocks["commit"].assert_not_called()
@@ -504,9 +498,7 @@ class TestFlyBeadsWorkflow:
 
         with (
             _patch_all_actions(mv) as mocks,
-            patch.object(
-                fly_workflow, "load_checkpoint", AsyncMock(return_value=checkpoint_data)
-            ),
+            patch.object(fly_workflow, "load_checkpoint", AsyncMock(return_value=checkpoint_data)),
         ):
             async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
                 pass
@@ -522,8 +514,7 @@ class TestFlyBeadsWorkflow:
     async def test_max_beads_limit(self, fly_workflow: Any) -> None:
         """Stops after max_beads even if epic not done."""
         select_side_effect = [
-            _make_select_result(bead_id=f"b{i}", title=f"Bead {i}", done=False)
-            for i in range(10)
+            _make_select_result(bead_id=f"b{i}", title=f"Bead {i}", done=False) for i in range(10)
         ]
         mv = _make_mock_actions(
             select_side_effect=select_side_effect,
@@ -547,9 +538,7 @@ class TestFlyBeadsWorkflow:
         assert final["beads_succeeded"] == 3
         assert final["beads_processed"] == 3
 
-    async def test_no_executor_skips_implement(
-        self, fly_workflow_no_executor: Any
-    ) -> None:
+    async def test_no_executor_skips_implement(self, fly_workflow_no_executor: Any) -> None:
         """When step_executor is None, the implement step is skipped with a warning."""
         with _patch_all_actions():
             events = await _collect_events(
@@ -641,9 +630,7 @@ class TestFlyBeadsWorkflow:
         assert len(epic_calls) == 1
         assert "All child beads completed" in epic_calls[0].kwargs.get("reason", "")
 
-    async def test_epic_not_closed_when_children_still_open(
-        self, fly_workflow: Any
-    ) -> None:
+    async def test_epic_not_closed_when_children_still_open(self, fly_workflow: Any) -> None:
         """Epic bead stays open when some children are blocked."""
         mv = _make_mock_actions(
             check_done_result=CheckEpicDoneResult(

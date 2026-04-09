@@ -20,16 +20,12 @@ class FlightPlanOutput(BaseModel):
     name: str = Field(description="Kebab-case flight plan name")
     version: str = Field(default="1", description="Version string")
     objective: str = Field(description="High-level objective text")
-    success_criteria: list[str] = Field(
-        description="Success criteria texts (all unchecked)"
-    )
+    success_criteria: list[str] = Field(description="Success criteria texts (all unchecked)")
     in_scope: list[str] = Field(description="Items explicitly in scope")
     out_of_scope: list[str] = Field(description="Items explicitly out of scope")
     boundaries: list[str] = Field(description="Scope boundary conditions")
     context: str = Field(default="", description="Background context")
-    constraints: list[str] = Field(
-        default_factory=list, description="Technical constraints"
-    )
+    constraints: list[str] = Field(default_factory=list, description="Technical constraints")
     notes: str = Field(default="", description="Additional notes")
 
     @field_validator("notes", mode="before")

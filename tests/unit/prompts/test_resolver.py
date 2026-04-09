@@ -66,28 +66,20 @@ class TestResolvePromptSuffix:
     def test_suffix_appended_with_separator(self, sample_entries: dict) -> None:
         registry = PromptRegistry(sample_entries)
         override = PromptOverrideConfig(prompt_suffix="Use snake_case.")
-        result = resolve_prompt(
-            step_name="implement", registry=registry, override=override
-        )
-        expected = (
-            "You are a code implementer." + self.SUFFIX_SEPARATOR + "Use snake_case."
-        )
+        result = resolve_prompt(step_name="implement", registry=registry, override=override)
+        expected = "You are a code implementer." + self.SUFFIX_SEPARATOR + "Use snake_case."
         assert result.text == expected
 
     def test_source_is_suffix(self, sample_entries: dict) -> None:
         registry = PromptRegistry(sample_entries)
         override = PromptOverrideConfig(prompt_suffix="Use snake_case.")
-        result = resolve_prompt(
-            step_name="implement", registry=registry, override=override
-        )
+        result = resolve_prompt(step_name="implement", registry=registry, override=override)
         assert result.source == PromptSource.SUFFIX
 
     def test_override_applied_true(self, sample_entries: dict) -> None:
         registry = PromptRegistry(sample_entries)
         override = PromptOverrideConfig(prompt_suffix="Use snake_case.")
-        result = resolve_prompt(
-            step_name="implement", registry=registry, override=override
-        )
+        result = resolve_prompt(step_name="implement", registry=registry, override=override)
         assert result.override_applied is True
 
     def test_template_rendering_in_base_and_suffix(self) -> None:
@@ -99,9 +91,7 @@ class TestResolvePromptSuffix:
             ),
         }
         registry = PromptRegistry(entries)
-        override = PromptOverrideConfig(
-            prompt_suffix="Follow $project_conventions rules."
-        )
+        override = PromptOverrideConfig(prompt_suffix="Follow $project_conventions rules.")
         result = resolve_prompt(
             step_name="implement",
             registry=registry,
@@ -121,24 +111,18 @@ class TestResolvePromptProviderVariant:
     def test_provider_variant_selected(self, multi_provider_entries: dict) -> None:
         """When provider matches a registered variant, return that variant."""
         registry = PromptRegistry(multi_provider_entries)
-        result = resolve_prompt(
-            step_name="review", registry=registry, provider="gemini"
-        )
+        result = resolve_prompt(step_name="review", registry=registry, provider="gemini")
         assert "Gemini" in result.text
         assert result.source == PromptSource.PROVIDER_VARIANT
 
-    def test_generic_fallback_when_no_provider_variant(
-        self, multi_provider_entries: dict
-    ) -> None:
+    def test_generic_fallback_when_no_provider_variant(self, multi_provider_entries: dict) -> None:
         """When no provider is specified, fall back to generic entry."""
         registry = PromptRegistry(multi_provider_entries)
         result = resolve_prompt(step_name="review", registry=registry)
         assert "Gemini" not in result.text
         assert result.source == PromptSource.DEFAULT
 
-    def test_default_provider_returns_generic(
-        self, multi_provider_entries: dict
-    ) -> None:
+    def test_default_provider_returns_generic(self, multi_provider_entries: dict) -> None:
         """Explicitly passing GENERIC_PROVIDER returns the generic entry."""
         registry = PromptRegistry(multi_provider_entries)
         result = resolve_prompt(
@@ -149,14 +133,10 @@ class TestResolvePromptProviderVariant:
         assert result.source == PromptSource.DEFAULT
         assert "Gemini" not in result.text
 
-    def test_provider_variant_override_not_applied(
-        self, multi_provider_entries: dict
-    ) -> None:
+    def test_provider_variant_override_not_applied(self, multi_provider_entries: dict) -> None:
         """Provider variant with no user override has override_applied=False."""
         registry = PromptRegistry(multi_provider_entries)
-        result = resolve_prompt(
-            step_name="review", registry=registry, provider="gemini"
-        )
+        result = resolve_prompt(step_name="review", registry=registry, provider="gemini")
         assert result.override_applied is False
 
 

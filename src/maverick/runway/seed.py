@@ -193,9 +193,7 @@ async def _read_config_files(project_path: Path) -> dict[str, str]:
         fpath = project_path / name
         if fpath.is_file():
             try:
-                async with aiofiles.open(
-                    fpath, encoding="utf-8", errors="replace"
-                ) as f:
+                async with aiofiles.open(fpath, encoding="utf-8", errors="replace") as f:
                     content = await f.read(_MAX_CONFIG_CHARS)
                 result[name] = content
             except OSError:
@@ -290,8 +288,7 @@ async def run_seed(
             return SeedResult(
                 success=True,
                 files_written=(),
-                error=f"Semantic files already exist: {existing}. "
-                "Use --force to overwrite.",
+                error=f"Semantic files already exist: {existing}. Use --force to overwrite.",
             )
 
     # Ensure semantic output directory exists
@@ -300,9 +297,7 @@ async def run_seed(
 
     # Gather context if not provided
     if context is None:
-        context = await gather_seed_context(
-            project_path, output_dir=semantic_dir
-        )
+        context = await gather_seed_context(project_path, output_dir=semantic_dir)
 
     # Execute via ACP — the agent writes files directly to semantic_dir
     executor = create_default_executor()

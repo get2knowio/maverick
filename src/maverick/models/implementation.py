@@ -519,9 +519,7 @@ class TaskResult(BaseModel):
 
     task_id: str = Field(description="Task ID")
     status: TaskStatus = Field(description="Final task status")
-    files_changed: list[FileChange] = Field(
-        default_factory=list, description="Files modified"
-    )
+    files_changed: list[FileChange] = Field(default_factory=list, description="Files modified")
     tests_added: list[str] = Field(default_factory=list, description="Test files added")
     commit_sha: str | None = Field(default=None, description="Commit SHA if committed")
     error: str | None = Field(default=None, description="Error message if failed")
@@ -557,18 +555,12 @@ class ImplementationResult(BaseModel):
     tasks_completed: int = Field(ge=0, description="Count of completed tasks")
     tasks_failed: int = Field(ge=0, description="Count of failed tasks")
     tasks_skipped: int = Field(ge=0, description="Count of skipped tasks")
-    task_results: list[TaskResult] = Field(
-        default_factory=list, description="Results per task"
-    )
-    files_changed: list[FileChange] = Field(
-        default_factory=list, description="All file changes"
-    )
+    task_results: list[TaskResult] = Field(default_factory=list, description="Results per task")
+    files_changed: list[FileChange] = Field(default_factory=list, description="All file changes")
     commits: list[str] = Field(default_factory=list, description="Commit SHAs created")
     validation_passed: bool = Field(default=True, description="Final validation status")
     output: str = Field(default="", description="Raw output for debugging")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Additional context"
-    )
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional context")
     errors: list[str] = Field(default_factory=list, description="Error messages")
 
     @property
@@ -635,15 +627,9 @@ class ImplementerContext(BaseModel):
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")
     dry_run: bool = Field(default=False, description="Don't create commits")
-    briefing_context: str | None = Field(
-        default=None, description="Project briefing text"
-    )
-    previous_failures: str | None = Field(
-        default=None, description="Previous failure context"
-    )
-    runway_context: str | None = Field(
-        default=None, description="Historical runway context"
-    )
+    briefing_context: str | None = Field(default=None, description="Project briefing text")
+    previous_failures: str | None = Field(default=None, description="Previous failure context")
+    runway_context: str | None = Field(default=None, description="Historical runway context")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

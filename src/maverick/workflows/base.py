@@ -169,9 +169,7 @@ class PythonWorkflow(ABC):
     # Public template method
     # ------------------------------------------------------------------
 
-    async def execute(
-        self, inputs: dict[str, Any]
-    ) -> AsyncGenerator[ProgressEvent, None]:
+    async def execute(self, inputs: dict[str, Any]) -> AsyncGenerator[ProgressEvent, None]:
         """Execute the workflow, yielding progress events.
 
         Template method pattern:
@@ -474,13 +472,9 @@ class PythonWorkflow(ABC):
 
         # Resolve per-step config (provider, model, timeout, etc.) from the
         # 5-layer precedence chain so that per-step YAML overrides are honoured.
-        resolved = self.resolve_step_config(
-            step_name, StepType.PYTHON, agent_name=agent_name
-        )
+        resolved = self.resolve_step_config(step_name, StepType.PYTHON, agent_name=agent_name)
         # Config timeout takes precedence; fall back to caller-supplied value.
-        effective_timeout = (
-            resolved.timeout if resolved.timeout is not None else timeout
-        )
+        effective_timeout = resolved.timeout if resolved.timeout is not None else timeout
         resolved = resolved.model_copy(update={"timeout": effective_timeout})
 
         provider = resolved.provider or self._resolve_display_provider() or "default"
@@ -762,9 +756,7 @@ class PythonWorkflow(ABC):
             await self._event_queue.put(RollbackStarted(step_name=name))
             try:
                 await action()
-                await self._event_queue.put(
-                    RollbackCompleted(step_name=name, success=True)
-                )
+                await self._event_queue.put(RollbackCompleted(step_name=name, success=True))
             except Exception as rb_exc:
                 logger.warning(
                     "rollback_action_failed",

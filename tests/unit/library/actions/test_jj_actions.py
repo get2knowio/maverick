@@ -284,9 +284,7 @@ class TestJjDiff:
     async def test_custom_revision(self) -> None:
         """Test uses custom revision."""
         mock_client = make_mock_client()
-        mock_client.diff.return_value = JjDiffResult(
-            success=True, output="diff output\n"
-        )
+        mock_client.diff.return_value = JjDiffResult(success=True, output="diff output\n")
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_diff(revision="@-")
@@ -518,12 +516,8 @@ class TestCurateHistory:
                     commit_id="c2",
                     description="bead(9): fixup import order",
                 ),
-                JjChangeInfo(
-                    change_id="a3", commit_id="c3", description="bead(8): lint cleanup"
-                ),
-                JjChangeInfo(
-                    change_id="a4", commit_id="c4", description="bead(7): format code"
-                ),
+                JjChangeInfo(change_id="a3", commit_id="c3", description="bead(8): lint cleanup"),
+                JjChangeInfo(change_id="a4", commit_id="c4", description="bead(7): format code"),
                 JjChangeInfo(
                     change_id="a5",
                     commit_id="c5",
@@ -582,12 +576,8 @@ class TestGatherCurationContext:
             success=True,
             output="",
             changes=(
-                JjChangeInfo(
-                    change_id="abc123", commit_id="c1", description="add user auth"
-                ),
-                JjChangeInfo(
-                    change_id="def456", commit_id="c2", description="add login page"
-                ),
+                JjChangeInfo(change_id="abc123", commit_id="c1", description="add user auth"),
+                JjChangeInfo(change_id="def456", commit_id="c2", description="add login page"),
             ),
         )
         mock_client.diff_stat.side_effect = [

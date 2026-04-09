@@ -22,9 +22,7 @@ def test_load_defaults_when_no_config(clean_env: None, temp_dir: Path) -> None:
     assert config.verbosity == "warning"
 
 
-def test_load_project_config(
-    clean_env: None, temp_dir: Path, sample_config_yaml: str
-) -> None:
+def test_load_project_config(clean_env: None, temp_dir: Path, sample_config_yaml: str) -> None:
     """Test loading configuration from maverick.yaml."""
     import os
 
@@ -399,8 +397,7 @@ notifications:
     notification_warnings = [
         record
         for record in caplog.records
-        if "notifications" in record.message.lower()
-        and "topic" in record.message.lower()
+        if "notifications" in record.message.lower() and "topic" in record.message.lower()
     ]
     assert len(notification_warnings) == 0
 
@@ -434,8 +431,7 @@ notifications:
     notification_warnings = [
         record
         for record in caplog.records
-        if "notifications" in record.message.lower()
-        and "topic" in record.message.lower()
+        if "notifications" in record.message.lower() and "topic" in record.message.lower()
     ]
     assert len(notification_warnings) == 0
 
@@ -453,9 +449,7 @@ class TestMaverickConfigSteps:
         config = MaverickConfig()
         assert config.steps == {}
 
-    def test_steps_with_valid_step_config(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_steps_with_valid_step_config(self, clean_env: None, temp_dir: Path) -> None:
         """steps field accepts valid StepConfig values from YAML."""
         import os
 
@@ -506,9 +500,7 @@ steps:
         assert "implement_feature" in config.steps
         assert config.steps["implement_feature"].max_retries == 3
 
-    def test_steps_invalid_value_rejected(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_steps_invalid_value_rejected(self, clean_env: None, temp_dir: Path) -> None:
         """steps field rejects invalid StepConfig values."""
         import os
 
@@ -532,9 +524,7 @@ steps:
 class TestLoadConfigCustomPath:
     """Tests for load_config(config_path) respecting the provided path."""
 
-    def test_custom_config_path_is_loaded(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_custom_config_path_is_loaded(self, clean_env: None, temp_dir: Path) -> None:
         """load_config(custom_path) loads from the custom file, not maverick.yaml."""
         import os
 
@@ -584,9 +574,7 @@ github:
         config = load_config()
         assert config.github.owner == "cwd-org"
 
-    def test_custom_path_nonexistent_uses_defaults(
-        self, clean_env: None, temp_dir: Path
-    ) -> None:
+    def test_custom_path_nonexistent_uses_defaults(self, clean_env: None, temp_dir: Path) -> None:
         """load_config(missing_path) uses defaults when file doesn't exist."""
         import os
 

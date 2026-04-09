@@ -14,13 +14,12 @@ process-level learning.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from maverick.logging import get_logger
-from maverick.workflows.fly_beads.actors.protocol import Message
 from maverick.workflows.fly_beads.supervisor import BeadOutcome
 
 logger = get_logger(__name__)
@@ -87,7 +86,7 @@ def build_fly_report(
     Returns:
         Complete FlyReport ready for serialization.
     """
-    now = datetime.now(tz=timezone.utc).isoformat()
+    now = datetime.now(tz=UTC).isoformat()
 
     if bead_outcome.committed and not bead_outcome.needs_human_review:
         outcome = "committed"
@@ -111,9 +110,7 @@ def build_fly_report(
         findings_trajectory=bead_outcome.findings_trajectory,
         commit_sha=bead_outcome.commit_sha,
         files_changed=bead_outcome.files_changed,
-        human_review_tag=(
-            "needs-human-review" if bead_outcome.needs_human_review else None
-        ),
+        human_review_tag=("needs-human-review" if bead_outcome.needs_human_review else None),
     )
 
 

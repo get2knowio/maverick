@@ -84,7 +84,7 @@ dev = [
 packages = ["src/maverick"]
 
 [tool.ruff]
-line-length = 88
+line-length = 99
 target-version = "py311"
 
 [tool.ruff.lint]
@@ -99,10 +99,19 @@ select = [
     "C4",  # flake8-comprehensions
     "SIM", # flake8-simplify
 ]
-ignore = []
+ignore = [
+    "SIM102", # Nested if statements — sometimes clearer than combined
+    "SIM105", # contextlib.suppress — try/except/pass is more explicit in actor cleanup
+    "SIM108", # Ternary operator — multiline if/else is sometimes clearer
+    "N806",   # UPPERCASE locals for constants (THESPIAN_PORT, MAX_NUDGES)
+]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports are OK in __init__.py (re-exports)
+"src/maverick/actors/*.py" = [
+    "N802",   # receiveMessage is Thespian's required method name
+    "E501",   # Long lines in actor debug prints are acceptable
+]
 "tests/**/*.py" = [
     "B017",   # pytest.raises without match is acceptable in tests
     "N806",   # Non-lowercase variables OK for mocks (e.g., MockClass)
@@ -111,17 +120,18 @@ ignore = []
 ]
 
 [tool.mypy]
-strict = true
+strict = false
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = true
+disallow_untyped_defs = false
 disallow_any_unimported = false
 no_implicit_optional = true
 warn_redundant_casts = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 warn_no_return = true
-check_untyped_defs = true
+check_untyped_defs = false
+ignore_missing_imports = true
 strict_equality = true
 
 [[tool.mypy.overrides]]

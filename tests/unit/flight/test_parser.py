@@ -71,9 +71,7 @@ class TestParseFrontmatter:
         """Body can contain YAML-like text without interfering with frontmatter."""
         from maverick.flight.parser import parse_frontmatter
 
-        content = (
-            "---\nname: my-plan\n---\n\n## Section\n\nkey: value\nlist:\n  - item\n"
-        )
+        content = "---\nname: my-plan\n---\n\n## Section\n\nkey: value\nlist:\n  - item\n"
         fm, body = parse_frontmatter(content)
         assert fm == {"name": "my-plan"}
         assert "key: value" in body
@@ -100,9 +98,7 @@ class TestParseFrontmatter:
         """YAML value with '---' is not the closing delimiter."""
         from maverick.flight.parser import parse_frontmatter
 
-        content = (
-            "---\nname: my-plan\nseparator: '---'\n---\n\n## Objective\n\nHello.\n"
-        )
+        content = "---\nname: my-plan\nseparator: '---'\n---\n\n## Objective\n\nHello.\n"
         fm, body = parse_frontmatter(content)
         assert fm["name"] == "my-plan"
         assert fm["separator"] == "---"

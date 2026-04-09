@@ -43,8 +43,7 @@ class TestFlightPlanGroupHelp:
         assert "create" in output_lower
         # Verify a meaningful description word is present alongside 'create'
         assert any(
-            word in output_lower
-            for word in ("template", "flight plan", "new", "create a")
+            word in output_lower for word in ("template", "flight plan", "new", "create a")
         ), f"Expected description for create, got: {result.output!r}"
 
     def test_help_shows_validate_brief_description(self, cli_runner: CliRunner) -> None:
@@ -55,8 +54,7 @@ class TestFlightPlanGroupHelp:
         assert "validate" in output_lower
         # Verify a meaningful description word is present alongside 'validate'
         assert any(
-            word in output_lower
-            for word in ("structural", "flight plan", "issues", "validate a")
+            word in output_lower for word in ("structural", "flight plan", "issues", "validate a")
         ), f"Expected description for validate, got: {result.output!r}"
 
     def test_help_shows_group_description(self, cli_runner: CliRunner) -> None:
@@ -161,6 +159,5 @@ class TestFlightPlanValidateHelp:
         assert result.exit_code == 0
         output_lower = result.output.lower()
         assert any(
-            word in output_lower
-            for word in ("validate", "flight plan", "structural", "issues")
+            word in output_lower for word in ("validate", "flight plan", "structural", "issues")
         ), f"Expected description in validate --help, got: {result.output!r}"

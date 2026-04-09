@@ -187,9 +187,7 @@ class TestSessionUpdateAgentThoughtChunk:
     def test_thought_chunk_does_not_accumulate_text(self) -> None:
         """AgentThoughtChunk text is NOT added to accumulated text."""
         client = _make_client()
-        asyncio.run(
-            client.session_update("s1", _make_thought_chunk("internal thought"))
-        )
+        asyncio.run(client.session_update("s1", _make_thought_chunk("internal thought")))
         assert client.get_accumulated_text() == ""
 
 
@@ -407,9 +405,7 @@ class TestCircuitBreaker:
         """aborted=True when single tool reaches MAX_SAME_TOOL_CALLS."""
         client = _make_client()
         for i in range(MAX_SAME_TOOL_CALLS):
-            asyncio.run(
-                client.session_update("s1", _make_tool_call_start("Bash", f"tc{i}"))
-            )
+            asyncio.run(client.session_update("s1", _make_tool_call_start("Bash", f"tc{i}")))
 
         assert client.aborted is True
 
@@ -417,9 +413,7 @@ class TestCircuitBreaker:
         """aborted=False when tool call count is below MAX_SAME_TOOL_CALLS."""
         client = _make_client()
         for i in range(MAX_SAME_TOOL_CALLS - 1):
-            asyncio.run(
-                client.session_update("s1", _make_tool_call_start("Bash", f"tc{i}"))
-            )
+            asyncio.run(client.session_update("s1", _make_tool_call_start("Bash", f"tc{i}")))
 
         assert client.aborted is False
 
@@ -429,9 +423,7 @@ class TestCircuitBreaker:
         tools = ["Bash", "Read", "Write", "Edit", "Grep"]
         for i in range(MAX_SAME_TOOL_CALLS - 1):
             tool = tools[i % len(tools)]
-            asyncio.run(
-                client.session_update("s1", _make_tool_call_start(tool, f"tc{i}"))
-            )
+            asyncio.run(client.session_update("s1", _make_tool_call_start(tool, f"tc{i}")))
 
         assert client.aborted is False
 
@@ -445,9 +437,7 @@ class TestCircuitBreaker:
 
         async def _run() -> None:
             for i in range(MAX_SAME_TOOL_CALLS):
-                await client.session_update(
-                    "s1", _make_tool_call_start("Bash", f"tc{i}")
-                )
+                await client.session_update("s1", _make_tool_call_start("Bash", f"tc{i}"))
             await asyncio.sleep(0)
 
         asyncio.run(_run())

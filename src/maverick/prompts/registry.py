@@ -29,8 +29,8 @@ class PromptRegistry:
     def __init__(self, entries: dict[tuple[str, str], PromptEntry]) -> None:
         if not entries:
             raise PromptConfigError("Cannot create PromptRegistry with empty entries")
-        self._entries: MappingProxyType[tuple[str, str], PromptEntry] = (
-            MappingProxyType(dict(entries))
+        self._entries: MappingProxyType[tuple[str, str], PromptEntry] = MappingProxyType(
+            dict(entries)
         )
 
     def get(self, step_name: str, provider: str = GENERIC_PROVIDER) -> PromptEntry:
@@ -68,6 +68,5 @@ class PromptRegistry:
         prompt_file = getattr(override, "prompt_file", None)
         if prompt_file is not None and entry.policy == OverridePolicy.AUGMENT_ONLY:
             raise PromptConfigError(
-                f"Step '{step_name}' does not allow full prompt replacement "
-                f"(policy: augment_only)"
+                f"Step '{step_name}' does not allow full prompt replacement (policy: augment_only)"
             )

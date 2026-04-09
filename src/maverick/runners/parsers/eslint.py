@@ -37,9 +37,7 @@ class ESLintJSONParser:
                             line=msg.get("line", 1),
                             column=msg.get("column"),
                             message=msg.get("message", "Unknown error"),
-                            severity="error"
-                            if msg.get("severity", 2) == 2
-                            else "warning",
+                            severity="error" if msg.get("severity", 2) == 2 else "warning",
                             code=msg.get("ruleId"),
                         )
                     )

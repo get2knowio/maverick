@@ -153,9 +153,7 @@ async def test_partitions_by_age(runway_dir: Path) -> None:
 async def test_partitions_by_count(runway_dir: Path) -> None:
     """Excess oldest records should be consolidated when over max_records."""
     now = datetime.now().isoformat()
-    outcomes = [
-        {"bead_id": f"b{i}", "epic_id": "e1", "timestamp": now} for i in range(20)
-    ]
+    outcomes = [{"bead_id": f"b{i}", "epic_id": "e1", "timestamp": now} for i in range(20)]
     _write_outcomes(runway_dir, outcomes)
 
     with patch(

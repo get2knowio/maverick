@@ -204,9 +204,7 @@ async def fetch_github_issue(issue_number: int) -> FetchSingleIssueResult:
         result = await _runner.run(cmd)
 
         if not result.success:
-            logger.debug(
-                f"Failed to fetch GitHub issue #{issue_number}: {result.stderr}"
-            )
+            logger.debug(f"Failed to fetch GitHub issue #{issue_number}: {result.stderr}")
             return FetchSingleIssueResult(
                 success=False,
                 issue=None,
@@ -221,9 +219,7 @@ async def fetch_github_issue(issue_number: int) -> FetchSingleIssueResult:
             body=issue.get("body"),
             labels=tuple(label["name"] for label in issue.get("labels", [])),
             assignee=(
-                issue.get("assignees", [{}])[0].get("login")
-                if issue.get("assignees")
-                else None
+                issue.get("assignees", [{}])[0].get("login") if issue.get("assignees") else None
             ),
             url=issue["url"],
             state=issue["state"],

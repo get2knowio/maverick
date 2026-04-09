@@ -17,7 +17,6 @@ from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
     DECOMPOSE,
     DECOMPOSE_OUTLINE,
-    DERIVE_VERIFICATION,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     VALIDATE,
@@ -85,9 +84,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
         ):
             events, result = await collect_events(
                 workflow,
@@ -124,9 +121,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
         ):
             _events, workflow_result = await collect_events(
                 workflow,
@@ -163,9 +158,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
         ):
             await collect_events(
                 workflow,
@@ -197,9 +190,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
         ):
             await collect_events(
                 workflow,
@@ -244,9 +235,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(
-                f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)
-            ),
+            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
         ):
             events, result = await collect_events(
                 workflow,
@@ -494,9 +483,7 @@ class TestErrorHandling:
     ) -> None:
         """A non-existent flight plan path results in a failed parse_flight_plan step."""  # noqa: E501
         workflow = make_workflow(mock_config, mock_registry)
-        missing_path = (
-            tmp_path / ".maverick" / "plans" / "does-not-exist" / "flight-plan.md"
-        )
+        missing_path = tmp_path / ".maverick" / "plans" / "does-not-exist" / "flight-plan.md"
 
         events, result = await collect_events(
             workflow,

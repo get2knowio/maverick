@@ -98,21 +98,15 @@ def generate_config(
     # Build validation config from validation commands
     # Convert tuples to lists for Pydantic model compatibility
     validation_config = InitValidationConfig(
-        sync_cmd=list(validation_commands.sync_cmd)
-        if validation_commands.sync_cmd
-        else None,
+        sync_cmd=list(validation_commands.sync_cmd) if validation_commands.sync_cmd else None,
         format_cmd=list(validation_commands.format_cmd)
         if validation_commands.format_cmd
         else None,
-        lint_cmd=list(validation_commands.lint_cmd)
-        if validation_commands.lint_cmd
-        else None,
+        lint_cmd=list(validation_commands.lint_cmd) if validation_commands.lint_cmd else None,
         typecheck_cmd=list(validation_commands.typecheck_cmd)
         if validation_commands.typecheck_cmd
         else None,
-        test_cmd=list(validation_commands.test_cmd)
-        if validation_commands.test_cmd
-        else None,
+        test_cmd=list(validation_commands.test_cmd) if validation_commands.test_cmd else None,
     )
 
     # Build model config with defaults or custom model_id

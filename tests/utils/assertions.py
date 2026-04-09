@@ -69,8 +69,7 @@ class AgentResultAssertion:
             if not matching_errors:
                 actual_types = [type(e).__name__ for e in result.errors]
                 raise AssertionError(
-                    f"Expected error of type {error_type.__name__}, "
-                    f"but got: {actual_types}"
+                    f"Expected error of type {error_type.__name__}, but got: {actual_types}"
                 )
 
     @staticmethod
@@ -132,26 +131,18 @@ class AgentResultAssertion:
         total = result.usage.total_tokens
 
         if min_tokens is not None and total < min_tokens:
-            raise AssertionError(
-                f"Expected at least {min_tokens} tokens, but got {total}"
-            )
+            raise AssertionError(f"Expected at least {min_tokens} tokens, but got {total}")
 
         if max_tokens is not None and total > max_tokens:
-            raise AssertionError(
-                f"Expected at most {max_tokens} tokens, but got {total}"
-            )
+            raise AssertionError(f"Expected at most {max_tokens} tokens, but got {total}")
 
         if max_cost is not None:
             cost = result.usage.total_cost_usd
             if cost is not None and cost > max_cost:
-                raise AssertionError(
-                    f"Expected cost at most ${max_cost:.4f}, but got ${cost:.4f}"
-                )
+                raise AssertionError(f"Expected cost at most ${max_cost:.4f}, but got ${cost:.4f}")
 
     @staticmethod
-    def assert_metadata_contains(
-        result: AgentResult, key: str, value: object = ...
-    ) -> None:
+    def assert_metadata_contains(result: AgentResult, key: str, value: object = ...) -> None:
         """Assert that metadata contains a specific key (and optionally value).
 
         Args:

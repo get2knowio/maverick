@@ -588,9 +588,7 @@ class InitConfig(BaseModel):
     validation: InitValidationConfig = Field(default_factory=InitValidationConfig)
     model: InitModelConfig = Field(default_factory=InitModelConfig)
     notifications: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
-    parallel: dict[str, int] = Field(
-        default_factory=lambda: {"max_agents": 3, "max_tasks": 5}
-    )
+    parallel: dict[str, int] = Field(default_factory=lambda: {"max_agents": 3, "max_tasks": 5})
     agent_providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,

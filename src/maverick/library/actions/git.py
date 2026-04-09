@@ -334,9 +334,7 @@ async def git_commit(
         )
         stdout, _ = await proc.communicate()
         files_committed = (
-            tuple(stdout.decode().strip().split("\n"))
-            if stdout.decode().strip()
-            else ()
+            tuple(stdout.decode().strip().split("\n")) if stdout.decode().strip() else ()
         )
 
         return {
@@ -492,8 +490,7 @@ async def git_merge(
                 if proc.returncode != 0:
                     retry_combined = (stdout + stderr).decode(errors="replace")
                     raise RuntimeError(
-                        f"git merge failed after removing untracked conflicts: "
-                        f"{retry_combined}"
+                        f"git merge failed after removing untracked conflicts: {retry_combined}"
                     )
             else:
                 raise RuntimeError(f"git merge failed: {combined}")
@@ -554,7 +551,10 @@ async def _get_snapshot_diff_stats(
     try:
         # Get file list (staged + unstaged + untracked)
         proc = await asyncio.create_subprocess_exec(
-            "git", "diff", "--stat", "HEAD",
+            "git",
+            "diff",
+            "--stat",
+            "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
@@ -579,7 +579,10 @@ async def _get_snapshot_diff_stats(
 
         # Get file names
         proc2 = await asyncio.create_subprocess_exec(
-            "git", "diff", "--name-only", "HEAD",
+            "git",
+            "diff",
+            "--name-only",
+            "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,

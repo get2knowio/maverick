@@ -181,18 +181,14 @@ async def run_acceptance_check(
         for f in create:
             fpath = ctx.cwd / f if ctx.cwd else Path(f)
             if not fpath.exists():
-                reasons.append(
-                    f"File scope requires creating '{f}' but "
-                    f"it does not exist"
-                )
+                reasons.append(f"File scope requires creating '{f}' but it does not exist")
 
     # Check 2: Protected files must not be in the diff
     if protect and changed:
         for f in protect:
             if f in changed:
                 reasons.append(
-                    f"File '{f}' is marked as protected but was "
-                    f"modified by the implementation"
+                    f"File '{f}' is marked as protected but was modified by the implementation"
                 )
 
     # Check 3: Diff must overlap with Create+Modify scope
@@ -226,13 +222,9 @@ async def run_acceptance_check(
                 # Run through shell to support pipes, redirects
                 result = await runner.run(["sh", "-c", cmd_str])
                 if result.returncode != 0:
-                    reasons.append(
-                        f"Verification command failed: `{cmd_str}`"
-                    )
+                    reasons.append(f"Verification command failed: `{cmd_str}`")
             except Exception as exc:
-                reasons.append(
-                    f"Verification command error: `{cmd_str}`: {exc}"
-                )
+                reasons.append(f"Verification command error: `{cmd_str}`: {exc}")
 
     passed = len(reasons) == 0
     if passed:
@@ -331,11 +323,7 @@ async def run_spec_compliance_check(
 
     # Append VP tests inside the existing test module
     marker = "// --- SPEC_COMPLIANCE_MARKER ---"
-    vp_block = (
-        f"\n{marker}\n"
-        + "\n".join(f"    {fn}" for fn in test_fns)
-        + f"\n{marker}\n"
-    )
+    vp_block = f"\n{marker}\n" + "\n".join(f"    {fn}" for fn in test_fns) + f"\n{marker}\n"
 
     # Insert before the last closing brace of the test module
     # (or append at end if no test module found)
@@ -343,11 +331,7 @@ async def run_spec_compliance_check(
         # Find the last } in the file (closing the test module)
         last_brace = original_content.rfind("}")
         if last_brace > 0:
-            modified = (
-                original_content[:last_brace]
-                + vp_block
-                + original_content[last_brace:]
-            )
+            modified = original_content[:last_brace] + vp_block + original_content[last_brace:]
         else:
             modified = original_content + vp_block
     else:
@@ -369,9 +353,7 @@ async def run_spec_compliance_check(
         src_path.write_text(modified, encoding="utf-8")
 
         # Run only the verify_ tests
-        result = await runner.run(
-            ["sh", "-c", "cargo test verify_ 2>&1"]
-        )
+        result = await runner.run(["sh", "-c", "cargo test verify_ 2>&1"])
 
         output = (result.stdout or "") + (result.stderr or "")
 
@@ -382,31 +364,26 @@ async def run_spec_compliance_check(
             # Extract which tests failed and why
             for line in output.split("\n"):
                 stripped = line.strip()
-                if "FAILED" in stripped and "verify_" in stripped:
-                    reasons.append(stripped[:200])
-                elif "panicked at" in stripped:
-                    reasons.append(stripped[:200])
-                elif "left:" in stripped or "right:" in stripped:
+                if (
+                    "FAILED" in stripped
+                    and "verify_" in stripped
+                    or "panicked at" in stripped
+                    or "left:" in stripped
+                    or "right:" in stripped
+                ):  # noqa: E501
                     reasons.append(stripped[:200])
             if not reasons:
-                reasons.append(
-                    "Spec compliance tests FAILED. Check output."
-                )
+                reasons.append("Spec compliance tests FAILED. Check output.")
         elif "error" in output.lower() and result.returncode != 0:
             # Compilation error — VP tests can't find functions
             # This likely means the agent's code doesn't export
             # the functions properly
             for line in output.split("\n"):
                 if "error" in line.lower():
-                    reasons.append(
-                        f"Spec test compile error: "
-                        + line.strip()[:200]
-                    )
+                    reasons.append("Spec test compile error: " + line.strip()[:200])
                     break
             if not reasons:
-                reasons.append(
-                    "Spec compliance tests failed to compile"
-                )
+                reasons.append("Spec compliance tests failed to compile")
 
     except Exception as exc:
         reasons.append(f"Spec compliance check error: {exc}")
@@ -418,9 +395,7 @@ async def run_spec_compliance_check(
     if passed:
         await wf.emit_step_completed(SPEC_COMPLIANCE)
     else:
-        await wf.emit_step_failed(
-            SPEC_COMPLIANCE, "; ".join(reasons)
-        )
+        await wf.emit_step_failed(SPEC_COMPLIANCE, "; ".join(reasons))
 
     return passed, reasons
 
@@ -524,9 +499,7 @@ async def fetch_runway_context(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             return
 
         retrieval_cfg = getattr(runway_cfg, "retrieval", None)
-        max_passages = (
-            getattr(retrieval_cfg, "max_passages", 10) if retrieval_cfg else 10
-        )
+        max_passages = getattr(retrieval_cfg, "max_passages", 10) if retrieval_cfg else 10
         bm25_top_k = getattr(retrieval_cfg, "bm25_top_k", 20) if retrieval_cfg else 20
         max_context_chars = (
             getattr(retrieval_cfg, "max_context_chars", 4000) if retrieval_cfg else 4000
@@ -591,10 +564,7 @@ async def walk_discovered_from_chain(bead_id: str) -> list[str]:
             deps = _json.loads(result.stdout)
             if isinstance(deps, list):
                 for dep in deps:
-                    if (
-                        isinstance(dep, dict)
-                        and dep.get("dependency_type") == "discovered-from"
-                    ):
+                    if isinstance(dep, dict) and dep.get("dependency_type") == "discovered-from":
                         origin_id = dep.get("id", "")
                         break
 
@@ -661,10 +631,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
             desc_preview = origin_desc[:500]
             if len(origin_desc) > 500:
                 desc_preview += "..."
-            provenance_section += (
-                f"\n### Original Bead Description\n\n"
-                f"{desc_preview}\n"
-            )
+            provenance_section += f"\n### Original Bead Description\n\n{desc_preview}\n"
 
         ctx.description = ctx.description + provenance_section
 
@@ -738,20 +705,16 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
             )
         if parsed.get("file scope"):
             implement_prompt["file_scope"] = (
-                "File scope for this bead (Create/Modify/Protect):\n\n"
-                + parsed["file scope"]
+                "File scope for this bead (Create/Modify/Protect):\n\n" + parsed["file scope"]
             )
-        procedure_text = parsed.get("procedure") or parsed.get(
-            "instructions"
-        )
+        procedure_text = parsed.get("procedure") or parsed.get("instructions")
         if procedure_text:
             implement_prompt["procedure"] = (
                 "Follow this procedure STEP BY STEP. Complete each"
                 " step before moving to the next. MUST steps are"
                 " mandatory — do not skip them. Use the Read tool to"
                 " examine files at the specified line ranges before"
-                " making changes. Verify after each step.\n\n"
-                + procedure_text
+                " making changes. Verify after each step.\n\n" + procedure_text
             )
         if parsed.get("verification"):
             implement_prompt["verification_commands"] = (
@@ -762,8 +725,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
             implement_prompt["test_to_pass"] = (
                 "PRIORITY: Make this test pass FIRST, then implement "
                 "remaining acceptance criteria. This test defines the "
-                "minimum viable implementation target:\n\n"
-                + parsed["test specification"]
+                "minimum viable implementation target:\n\n" + parsed["test specification"]
             )
         if ctx.runway_context:
             implement_prompt["runway_context"] = ctx.runway_context
@@ -774,8 +736,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 "This bead failed in previous attempt(s). "
                 "Address these issues:\n"
                 + "\n".join(
-                    f"- Attempt {i + 1}: {reason}"
-                    for i, reason in enumerate(ctx.prior_failures)
+                    f"- Attempt {i + 1}: {reason}" for i, reason in enumerate(ctx.prior_failures)
                 )
             )
             # Inject detailed review findings so implementer knows WHAT to fix
@@ -793,8 +754,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
             implement_prompt["prior_attempt"] = (
                 "Your PREVIOUS attempt produced the code below. "
                 "Do NOT start from scratch — iterate on this code "
-                "and fix the specific issues identified above.\n\n"
-                + ctx.prior_attempt_context
+                "and fix the specific issues identified above.\n\n" + ctx.prior_attempt_context
             )
 
         # Constrain verification-only beads to read-only tools
@@ -818,8 +778,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
                 "IMPORTANT: This is a RESEARCH-ONLY bead. "
                 "Read the codebase to extract patterns and write your "
                 f"findings to `.maverick/context/{ctx.bead_id}.md`. "
-                "Do NOT modify any source code files.\n\n"
-                + implement_prompt["task_description"]
+                "Do NOT modify any source code files.\n\n" + implement_prompt["task_description"]
             )
 
         try:
@@ -952,8 +911,7 @@ async def run_gate_remediation(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
                 errors = sr.get("errors", [])
                 if errors:
                     error_msgs = [
-                        e.get("message", str(e)) if isinstance(e, dict) else str(e)
-                        for e in errors
+                        e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errors
                     ]
                     failure_details.append(f"- {stage_name}: {'; '.join(error_msgs)}")
                 elif output:
@@ -1140,9 +1098,7 @@ async def _get_uncommitted_files(cwd: Path | None) -> list[str]:
             ["git", "diff", "--name-only", "HEAD"],
         )
         if result.stdout:
-            return [
-                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
-            ]
+            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
     except Exception as exc:
         logger.debug("uncommitted_files_capture_failed", error=str(exc))
     return []
@@ -1162,9 +1118,7 @@ async def snapshot_prior_attempt(
     """
     import shutil
 
-    snapshot_dir = (
-        run_dir / "beads" / ctx.bead_id / f"attempt-{attempt}"
-    )
+    snapshot_dir = run_dir / "beads" / ctx.bead_id / f"attempt-{attempt}"
     try:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1194,13 +1148,9 @@ async def snapshot_prior_attempt(
         if ctx.gate_result and not ctx.gate_result.get("passed"):
             summary_lines.append("## Gate Failures")
             summary_lines.append("")
-            summary_lines.append(
-                ctx.gate_result.get("summary", "unknown")
-            )
+            summary_lines.append(ctx.gate_result.get("summary", "unknown"))
 
-        (snapshot_dir / "summary.md").write_text(
-            "\n".join(summary_lines), encoding="utf-8"
-        )
+        (snapshot_dir / "summary.md").write_text("\n".join(summary_lines), encoding="utf-8")
 
         logger.info(
             "prior_attempt_snapshot",
@@ -1231,9 +1181,7 @@ def load_prior_attempt_context(
     Returns a formatted string with the prior attempt's changed files
     and review summary, or None if no snapshot exists.
     """
-    snapshot_dir = (
-        run_dir / "beads" / bead_id / f"attempt-{attempt}"
-    )
+    snapshot_dir = run_dir / "beads" / bead_id / f"attempt-{attempt}"
     if not snapshot_dir.exists():
         return None
 
@@ -1246,9 +1194,7 @@ def load_prior_attempt_context(
 
     # Load changed source files (skip summary.md)
     source_files = sorted(
-        f
-        for f in snapshot_dir.rglob("*")
-        if f.is_file() and f.name != "summary.md"
+        f for f in snapshot_dir.rglob("*") if f.is_file() and f.name != "summary.md"
     )
     if source_files:
         parts.append("\n## Prior Attempt Code\n")
@@ -1277,9 +1223,7 @@ async def _get_files_changed(cwd: Path | None) -> list[str]:
             ["git", "diff", "--name-only", "HEAD~1"],
         )
         if result.stdout:
-            return [
-                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
-            ]
+            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
     except Exception as exc:
         logger.debug("files_changed_capture_failed", error=str(exc))
     return []
@@ -1403,10 +1347,15 @@ async def _create_followup_bead(
         title = f"Address review findings from {ctx.bead_id}: {ctx.title[:80]}"
         result = await runner.run(
             [
-                "bd", "create", title,
-                "--parent", ctx.epic_id,
-                "--type", "task",
-                "--description", followup_description,
+                "bd",
+                "create",
+                title,
+                "--parent",
+                ctx.epic_id,
+                "--type",
+                "task",
+                "--description",
+                followup_description,
                 "--json",
             ]
         )
@@ -1420,16 +1369,20 @@ async def _create_followup_bead(
         if followup_id:
             await runner.run(
                 [
-                    "bd", "dep", "add", followup_id, ctx.bead_id,
-                    "--type", "discovered-from",
+                    "bd",
+                    "dep",
+                    "add",
+                    followup_id,
+                    ctx.bead_id,
+                    "--type",
+                    "discovered-from",
                 ]
             )
 
         label = f" ({followup_id})" if followup_id else ""
         await wf.emit_output(
             COMMIT,
-            f"Created follow-up bead{label} for unresolved review"
-            f" issues from {ctx.bead_id}",
+            f"Created follow-up bead{label} for unresolved review issues from {ctx.bead_id}",
             level="warning",
         )
     except Exception as exc:
@@ -1481,8 +1434,9 @@ async def _escalate_to_replan(
     # --- Supersede the stuck chain (close old beads cleanly) ---
     for bid in full_chain:
         with contextlib.suppress(Exception):
-            await runner.run(["bd", "close", bid, "--reason",
-                              f"Superseded by re-planning from {ctx.bead_id}"])
+            await runner.run(
+                ["bd", "close", bid, "--reason", f"Superseded by re-planning from {ctx.bead_id}"]
+            )
 
     # --- Create re-planning bead ---
     try:
@@ -1492,11 +1446,17 @@ async def _escalate_to_replan(
         )
         result = await runner.run(
             [
-                "bd", "create", title,
-                "--parent", ctx.epic_id,
-                "--type", "task",
-                "--label", "needs-replan",
-                "--description", replan_description,
+                "bd",
+                "create",
+                title,
+                "--parent",
+                ctx.epic_id,
+                "--type",
+                "task",
+                "--label",
+                "needs-replan",
+                "--description",
+                replan_description,
                 "--json",
             ]
         )
@@ -1512,8 +1472,7 @@ async def _escalate_to_replan(
             for bid in full_chain:
                 with contextlib.suppress(Exception):
                     await runner.run(
-                        ["bd", "dep", "add", replan_id, bid,
-                         "--type", "discovered-from"]
+                        ["bd", "dep", "add", replan_id, bid, "--type", "discovered-from"]
                     )
 
         label = f" ({replan_id})" if replan_id else ""
@@ -1641,18 +1600,20 @@ def _build_escalation_description(
             parts.append(f"- Attempt {i}: {reason}")
         parts.append("")
 
-    parts.extend([
-        "## Instructions",
-        "",
-        "Re-decompose ONLY the work that failed. Do not re-plan"
-        " already-completed beads. The codebase has been updated with"
-        " the committed (but reviewer-rejected) changes — build on that"
-        " work rather than starting over.",
-        "",
-        "Consider whether the original decomposition drew the boundary"
-        " wrong (e.g., two beads that should have been one), or whether"
-        " the reviewer is flagging an architectural concern that requires"
-        " a different approach entirely.",
-    ])
+    parts.extend(
+        [
+            "## Instructions",
+            "",
+            "Re-decompose ONLY the work that failed. Do not re-plan"
+            " already-completed beads. The codebase has been updated with"
+            " the committed (but reviewer-rejected) changes — build on that"
+            " work rather than starting over.",
+            "",
+            "Consider whether the original decomposition drew the boundary"
+            " wrong (e.g., two beads that should have been one), or whether"
+            " the reviewer is flagging an architectural concern that requires"
+            " a different approach entirely.",
+        ]
+    )
 
     return "\n".join(parts)
