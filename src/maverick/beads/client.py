@@ -136,6 +136,12 @@ class BeadClient:
         if definition.description:
             cmd.extend(["--description", definition.description])
 
+        if definition.assignee:
+            cmd.extend(["--assignee", definition.assignee])
+
+        if definition.labels:
+            cmd.extend(["--labels", ",".join(definition.labels)])
+
         if parent_id:
             cmd.extend(["--parent", parent_id])
 

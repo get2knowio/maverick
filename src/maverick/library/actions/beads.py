@@ -361,9 +361,10 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
 
     client = BeadClient(cwd=Path.cwd())
 
-    # When epic_id is provided, query by parent; otherwise query all ready beads
+    # When epic_id is provided, query by parent; otherwise query all ready beads.
+    # Fetch more than 1 to allow filtering out human-assigned beads.
     parent = epic_id if epic_id else None
-    beads = await client.ready(parent, limit=1)
+    beads = await client.ready(parent, limit=10)
 
     if not beads:
         logger.info("no_ready_beads", epic_id=epic_id or "(any)")
@@ -377,7 +378,39 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
             done=True,
         )
 
-    bead = beads[0]
+    # Skip human-assigned beads — check labels via bd show
+    bead = None
+    for candidate in beads:
+        try:
+            details = await client.show(candidate.id)
+            labels = details.labels or []
+            if "needs-human-review" in labels or "assumption-review" in labels:
+                logger.info(
+                    "skipping_human_bead",
+                    bead_id=candidate.id,
+                    labels=labels,
+                )
+                continue
+        except Exception:
+            pass
+        bead = candidate
+        break
+
+    if bead is None:
+        logger.info(
+            "only_human_beads_remaining",
+            epic_id=epic_id or "(any)",
+            total_ready=len(beads),
+        )
+        return SelectNextBeadResult(
+            found=False,
+            bead_id="",
+            title="",
+            description="",
+            priority=0,
+            epic_id=epic_id,
+            done=True,
+        )
 
     # Resolve the epic_id from the bead when none was specified
     resolved_epic_id = epic_id or bead.parent_id or ""

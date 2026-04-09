@@ -252,6 +252,12 @@ async def _watch_loop(
     default=5.0,
     help="Refresh interval in seconds (requires --watch).",
 )
+@click.option(
+    "--human",
+    is_flag=True,
+    default=False,
+    help="Show only beads assigned to humans (assumption reviews, escalations).",
+)
 @click.pass_context
 @async_command
 async def brief(
@@ -261,18 +267,22 @@ async def brief(
     show_all: bool,
     watch: bool,
     interval: float,
+    human: bool,
 ) -> None:
     """Review queued beads before flying.
 
     Shows ready and blocked beads by default. Use --epic to see children
     of a specific epic. Use --all to include closed/completed beads.
     Use --watch to continuously refresh the display.
+    Use --human to show only beads assigned to humans for review.
 
     Examples:
 
         maverick brief
 
         maverick brief --epic 001-greet-cli
+
+        maverick brief --human
 
         maverick brief --format json
 
@@ -292,7 +302,9 @@ async def brief(
         click.echo(error_msg, err=True)
         raise SystemExit(ExitCode.FAILURE)
 
-    if watch:
+    if human:
+        await _brief_human(client, epic, output_format)
+    elif watch:
 
         async def fetch_fn() -> list[ReadyBead | BeadSummary]:
             if epic:
@@ -402,3 +414,76 @@ async def _brief_epic(
         )
 
     click.echo(format_table(_TABLE_HEADERS, rows))
+
+
+_HUMAN_TABLE_HEADERS = ["ID", "Title", "Priority", "Source Bead", "Escalation"]
+
+
+async def _brief_human(
+    client: BeadClient,
+    epic: str | None,
+    output_format: str,
+) -> None:
+    """Display beads assigned to humans for review.
+
+    Queries for beads with the 'needs-human-review' or 'assumption-review'
+    labels and enriches with state metadata (source bead, escalation type).
+
+    Args:
+        client: BeadClient instance.
+        epic: Optional epic ID to scope the query.
+        output_format: "text" or "json".
+    """
+    # Fetch all ready beads and filter to human-assigned ones
+    parent = epic if epic else None
+    ready_beads = await client.ready(parent, limit=_BRIEF_LIMIT)
+
+    human_beads: list[dict[str, str]] = []
+    for bead in ready_beads:
+        try:
+            details = await client.show(bead.id)
+            labels = details.labels or []
+            if "needs-human-review" not in labels and "assumption-review" not in labels:
+                continue
+
+            state = details.state or {}
+            human_beads.append({
+                "id": bead.id,
+                "title": bead.title,
+                "priority": str(bead.priority),
+                "source_bead": state.get("source_bead", ""),
+                "escalation": state.get("escalation_type", ""),
+                "flight_plan": state.get("flight_plan", ""),
+                "description": details.description,
+            })
+        except Exception:
+            continue
+
+    if output_format == "json":
+        click.echo(json.dumps(human_beads, indent=2))
+        return
+
+    count = len(human_beads)
+    if count == 0:
+        click.echo("Brief: No beads awaiting human review")
+        click.echo("")
+        click.echo("All assumption reviews and escalations have been resolved.")
+        return
+
+    click.echo(
+        f"Brief: {count} bead{'s' if count != 1 else ''} "
+        f"awaiting human review"
+    )
+    click.echo("")
+
+    rows = [
+        [b["id"], b["title"], b["priority"], b["source_bead"], b["escalation"]]
+        for b in human_beads
+    ]
+    click.echo(format_table(_HUMAN_TABLE_HEADERS, rows))
+
+    click.echo("")
+    click.echo(
+        "Review each bead and close with: "
+        "bd close <id> --reason 'approved' or 'rejected: <reason>'"
+    )

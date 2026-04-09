@@ -58,8 +58,9 @@ class FlySupervisorActor(Actor):
                 f"FLY_SUPERVISOR: prompt error: {message.get('error')}",
                 file=sys.stderr, flush=True,
             )
-            # Treat as gate failure — move on
-            self._commit_bead(tag="needs-human-review")
+            self._escalate_to_human(
+                f"Agent prompt error: {message.get('error', 'unknown')}"
+            )
             return
 
         # Gate result
@@ -370,7 +371,10 @@ class FlySupervisorActor(Actor):
                     "prompt": prompt,
                 })
             else:
-                self._commit_bead(tag="needs-human-review")
+                self._escalate_to_human(
+                    "Review rounds exhausted",
+                    [f.get("issue", "") for f in findings],
+                )
 
     def _handle_gate_result(self, message):
         passed = message.get("passed", False)
@@ -389,7 +393,10 @@ class FlySupervisorActor(Actor):
                 "prompt": f"Gate check failed:\n\n{summary}\n\nFix the issues.",
             })
         else:
-            self._commit_bead(tag="needs-human-review")
+            summary = message.get("summary", "Gate failed")
+            self._escalate_to_human(
+                "Gate fix attempts exhausted", [summary]
+            )
 
     def _handle_ac_result(self, message):
         passed = message.get("passed", False)
@@ -427,7 +434,10 @@ class FlySupervisorActor(Actor):
                 "prompt": prompt,
             })
         else:
-            self._commit_bead(tag="needs-human-review")
+            findings = message.get("findings", [])
+            self._escalate_to_human(
+                "Spec compliance fix attempts exhausted", findings
+            )
 
     def _commit_bead(self, tag=None):
         bead = self._current_bead
@@ -626,4 +636,77 @@ class FlySupervisorActor(Actor):
             bead_id=self._current_bead.get("bead_id", ""),
             review_result=review_result,
             cwd=self._cwd,
+        )
+
+    # ------------------------------------------------------------------
+    # Human-in-the-loop escalation
+    # ------------------------------------------------------------------
+
+    def _escalate_to_human(self, reason, findings=None):
+        """Create a human-assigned review bead and commit optimistically."""
+        try:
+            asyncio.run(self._async_create_human_bead(reason, findings))
+        except Exception as exc:
+            print(
+                f"FLY_SUPERVISOR: human bead creation failed: {exc}",
+                file=sys.stderr, flush=True,
+            )
+        # Commit optimistically — human bead is independent, not blocking
+        self._commit_bead(tag="needs-human-review")
+
+    async def _async_create_human_bead(self, reason, findings):
+        from maverick.beads.client import BeadClient
+        from maverick.beads.models import (
+            BeadCategory,
+            BeadDefinition,
+            BeadType,
+        )
+
+        client = BeadClient(cwd=Path(self._cwd))
+        bead = self._current_bead
+        bead_id = bead.get("bead_id", "")
+        bead_title = bead.get("title", bead_id)
+
+        findings_text = (
+            "\n".join(f"- {f}" for f in (findings or []))
+            if findings
+            else "None"
+        )
+
+        review_def = BeadDefinition(
+            title=f"Review: {bead_title[:150]}",
+            bead_type=BeadType.TASK,
+            priority=1,
+            category=BeadCategory.REVIEW,
+            description=(
+                f"## Escalation Reason\n\n{reason}\n\n"
+                f"## What Was Tried\n\n"
+                f"Gate fix attempts: {self._gate_fix_attempts}\n"
+                f"Spec fix attempts: {self._spec_fix_attempts}\n"
+                f"Review rounds: {self._review_rounds}\n\n"
+                f"## Findings\n\n{findings_text}"
+            ),
+            assignee="human",
+            labels=["assumption-review", "needs-human-review"],
+        )
+
+        created = await client.create_bead(
+            review_def, parent_id=self._epic_id
+        )
+
+        # Record context as state metadata
+        await client.set_state(
+            created.bd_id,
+            {
+                "source_bead": bead_id,
+                "escalation_type": "fix_exhaustion",
+                "flight_plan": self._flight_plan_name,
+            },
+            reason=f"Escalated from {bead_id}",
+        )
+
+        print(
+            f"FLY_SUPERVISOR: created human review bead "
+            f"{created.bd_id} for {bead_id}",
+            file=sys.stderr, flush=True,
         )

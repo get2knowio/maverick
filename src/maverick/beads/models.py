@@ -79,6 +79,12 @@ class BeadDefinition(BaseModel):
     task_ids: list[str] = Field(
         default_factory=list, description="Task IDs from tasks.md"
     )
+    assignee: str | None = Field(
+        default=None, description="Assignee: 'human' or agent name"
+    )
+    labels: list[str] = Field(
+        default_factory=list, description="Labels for filtering and grouping"
+    )
 
     model_config = ConfigDict(frozen=True)
 
