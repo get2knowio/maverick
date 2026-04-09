@@ -934,9 +934,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         error=str(exc),
                     )
 
-                # Wire cross-epic dependencies: new epic is blocked by
-                # any existing open epics. This serializes epic execution
-                # so fly processes them in order.
+                # Wire cross-epic dependency: new epic is blocked by the
+                # most recent existing open epic (the tail of the chain).
+                # This serializes epics without creating redundant fan-in
+                # dependencies — if A→B already exists, C only needs B→C.
                 try:
                     all_beads = await _bead_client.query(
                         "type=epic AND status=open"
@@ -945,24 +946,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         b for b in all_beads
                         if b.id != new_epic_id
                     ]
-                    for existing in existing_epics:
+                    if existing_epics:
+                        # Use the last one (most recently created = tail)
+                        tail_epic = existing_epics[-1]
                         await _bead_client.add_dependency(
                             BeadDependency(
-                                blocker_id=existing.id,
+                                blocker_id=tail_epic.id,
                                 blocked_id=new_epic_id,
                             )
                         )
                         logger.info(
                             "cross_epic_dep_wired",
-                            blocker=existing.id,
+                            blocker=tail_epic.id,
                             blocked=new_epic_id,
                         )
-                    if existing_epics:
                         await self.emit_output(
                             CREATE_BEADS,
-                            f"Wired {len(existing_epics)} cross-epic "
-                            f"dependency(ies) — new epic waits for "
-                            f"existing work to complete",
+                            f"New epic blocked by {tail_epic.id} "
+                            f"— tasks start when prior epic completes",
                         )
                 except Exception as exc:
                     logger.warning(
