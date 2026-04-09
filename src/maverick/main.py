@@ -39,6 +39,7 @@ from maverick.cli.commands.fly import fly  # noqa: E402
 from maverick.cli.commands.init import init  # noqa: E402
 from maverick.cli.commands.land import land  # noqa: E402
 from maverick.cli.commands.refuel import refuel  # noqa: E402
+from maverick.cli.commands.review import review  # noqa: E402
 from maverick.cli.commands.runway import runway  # noqa: E402
 from maverick.cli.commands.uninstall import uninstall  # noqa: E402
 from maverick.cli.commands.workspace import workspace  # noqa: E402
@@ -184,6 +185,7 @@ cli.add_command(fly)
 cli.add_command(init)
 cli.add_command(land)
 cli.add_command(refuel)
+cli.add_command(review)
 cli.add_command(runway)
 cli.add_command(uninstall)
 cli.add_command(workspace)
