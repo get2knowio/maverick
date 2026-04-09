@@ -911,21 +911,63 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 run_meta.status = "refueled"
                 write_metadata(run_dir, run_meta)
 
-            # Attach flight_plan_name to the epic for downstream lookup
+            # Attach flight_plan_name to the epic for downstream lookup,
+            # and wire cross-epic dependencies so new epics wait for
+            # existing open epics to complete first.
             if bead_result.epic:
                 from maverick.beads.client import BeadClient
+                from maverick.beads.models import BeadDependency
 
                 _bead_client = BeadClient(cwd=Path.cwd())
+                new_epic_id = bead_result.epic["bd_id"]
+
                 try:
                     await _bead_client.set_state(
-                        bead_result.epic["bd_id"],
+                        new_epic_id,
                         {"flight_plan_name": flight_plan.name},
                         reason="refuel: link epic to flight plan",
                     )
                 except Exception as exc:
                     logger.warning(
                         "set_flight_plan_state_failed",
-                        epic_id=bead_result.epic["bd_id"],
+                        epic_id=new_epic_id,
+                        error=str(exc),
+                    )
+
+                # Wire cross-epic dependencies: new epic is blocked by
+                # any existing open epics. This serializes epic execution
+                # so fly processes them in order.
+                try:
+                    all_beads = await _bead_client.query(
+                        "type=epic AND status=open"
+                    )
+                    existing_epics = [
+                        b for b in all_beads
+                        if b.id != new_epic_id
+                    ]
+                    for existing in existing_epics:
+                        await _bead_client.add_dependency(
+                            BeadDependency(
+                                blocker_id=existing.id,
+                                blocked_id=new_epic_id,
+                            )
+                        )
+                        logger.info(
+                            "cross_epic_dep_wired",
+                            blocker=existing.id,
+                            blocked=new_epic_id,
+                        )
+                    if existing_epics:
+                        await self.emit_output(
+                            CREATE_BEADS,
+                            f"Wired {len(existing_epics)} cross-epic "
+                            f"dependency(ies) — new epic waits for "
+                            f"existing work to complete",
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "cross_epic_dep_failed",
+                        epic_id=new_epic_id,
                         error=str(exc),
                     )
 

@@ -96,6 +96,9 @@ class FlySupervisorActor(Actor):
         self._epic_id = message.get("epic_id", "")
         self._cwd = message.get("cwd")
         self._config = message.get("config", {})
+        self._watch_mode = message.get("watch", False)
+        self._watch_interval = message.get("watch_interval", 30)
+        self._max_idle_polls = message.get("max_idle_polls", 60)  # 30min at 30s
 
         # Actor addresses
         self._implementer = message.get("implementer_addr")
@@ -119,6 +122,7 @@ class FlySupervisorActor(Actor):
         self._spec_fix_attempts = 0
         self._last_review_findings = []
         self._in_aggregate_review = False
+        self._idle_polls = 0
 
         self.send(sender, {"type": "init_ok"})
 
@@ -139,12 +143,27 @@ class FlySupervisorActor(Actor):
             return
 
         if select_result.get("done") or not select_result.get("found"):
+            if self._watch_mode and self._idle_polls < self._max_idle_polls:
+                self._idle_polls += 1
+                print(
+                    f"FLY_SUPERVISOR: no beads ready, waiting "
+                    f"({self._idle_polls}/{self._max_idle_polls})...",
+                    file=sys.stderr, flush=True,
+                )
+                import time
+                time.sleep(self._watch_interval)
+                self._next_bead()
+                return
+
             print(
                 f"FLY_SUPERVISOR: no more beads",
                 file=sys.stderr, flush=True,
             )
             self._complete()
             return
+
+        # Reset idle counter when we find work
+        self._idle_polls = 0
 
         bead_id = select_result["bead_id"]
         if bead_id in self._completed_beads:

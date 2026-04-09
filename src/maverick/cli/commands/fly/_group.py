@@ -87,6 +87,19 @@ _FLY_BEADS_STEPS = [
     default=None,
     help="Write session journal (JSONL) to this file path.",
 )
+@click.option(
+    "--watch",
+    is_flag=True,
+    default=False,
+    help="Keep running and poll for new beads when queue is empty.",
+)
+@click.option(
+    "--watch-interval",
+    type=int,
+    default=30,
+    show_default=True,
+    help="Seconds between polls when no beads are ready (requires --watch).",
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -98,6 +111,8 @@ async def fly(
     list_steps: bool,
     auto_commit: bool,
     session_log: Path | None,
+    watch: bool,
+    watch_interval: int,
 ) -> None:
     """Run a bead-driven development workflow.
 
@@ -108,11 +123,16 @@ async def fly(
     When --epic is provided, only beads under that epic are considered.
     When omitted, any ready bead across all epics may be selected.
 
+    With --watch, fly keeps running and polls for new beads when the
+    queue is empty. This enables concurrent plan/refuel in another
+    terminal while fly continuously drains work.
+
     Examples:
         maverick fly
         maverick fly --epic my-epic
         maverick fly --epic my-epic --dry-run
         maverick fly --skip-review --max-beads 5
+        maverick fly --watch
     """
     if list_steps:
         console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
@@ -133,6 +153,8 @@ async def fly(
                 "dry_run": dry_run,
                 "skip_review": skip_review,
                 "auto_commit": auto_commit,
+                "watch": watch,
+                "watch_interval": watch_interval,
             },
             session_log_path=session_log,
         ),

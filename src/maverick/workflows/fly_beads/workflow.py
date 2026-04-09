@@ -96,6 +96,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
         dry_run: bool = bool(inputs.get("dry_run", False))
         skip_review: bool = bool(inputs.get("skip_review", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
+        watch: bool = bool(inputs.get("watch", False))
+        watch_interval: int = int(inputs.get("watch_interval", 30))
         # Actor-mailbox architecture is the default, but falls back to
         # legacy path if the executor doesn't support multi-turn sessions
         # (e.g., in unit tests with mock executors).
@@ -967,6 +969,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 "spec_addr": spec,
                 "committer_addr": committer,
                 "config": {},
+                "watch": watch,
+                "watch_interval": watch_interval,
             }, timeout=10)
 
             await self.emit_output(
@@ -978,7 +982,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: asys.ask(supervisor, "start", timeout=7200),
+                lambda: asys.ask(
+                    supervisor, "start",
+                    timeout=86400 if watch else 7200,  # 24h for watch, 2h normal
+                ),
             )
 
         finally:
