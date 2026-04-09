@@ -561,10 +561,26 @@ async def execute_curation_plan(
 
             result = await client._runner.run(cmd, cwd=client.cwd)
             if not result.success:
+                stderr = result.stderr.strip()
+
+                # Skip steps targeting immutable commits rather than
+                # aborting the entire plan.  The curator agent sometimes
+                # proposes operations on commits that are already on main
+                # (e.g., squashing a workspace config tweak into the
+                # snapshot commit).  These are safe to skip.
+                if "is immutable" in stderr or "immutable commits" in stderr:
+                    logger.info(
+                        "execute_curation_plan: skipping immutable step",
+                        step=executed_count + 1,
+                        command=command,
+                        reason=reason[:80],
+                    )
+                    executed_count += 1
+                    continue
+
                 error_msg = (
                     f"Step {executed_count + 1}/{total_count} failed: "
-                    f"jj {command} {' '.join(args)}: "
-                    f"{result.stderr.strip()}"
+                    f"jj {command} {' '.join(args)}: {stderr}"
                 )
                 logger.debug(error_msg)
 
