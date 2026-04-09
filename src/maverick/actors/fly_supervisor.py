@@ -117,6 +117,7 @@ class FlySupervisorActor(Actor):
         self._gate_fix_attempts = 0
         self._spec_fix_attempts = 0
         self._last_review_findings = []
+        self._in_aggregate_review = False
 
         self.send(sender, {"type": "init_ok"})
 
@@ -297,6 +298,19 @@ class FlySupervisorActor(Actor):
             })
 
         elif tool == "submit_review":
+            # Route differently if this is the aggregate review
+            if self._in_aggregate_review:
+                findings = args.get("findings", [])
+                print(
+                    f"FLY_SUPERVISOR: aggregate review submitted "
+                    f"({len(findings)} findings)",
+                    file=sys.stderr, flush=True,
+                )
+                self._handle_aggregate_review_complete({
+                    "findings": findings,
+                })
+                return
+
             approved = args.get("approved", True)
             findings = args.get("findings", [])
             self._last_review_findings = findings
@@ -442,6 +456,7 @@ class FlySupervisorActor(Actor):
 
     def _run_aggregate_review(self):
         """Send aggregate review request to reviewer."""
+        self._in_aggregate_review = True
         import subprocess
 
         # Get diff stats from baseline to HEAD
