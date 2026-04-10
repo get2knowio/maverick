@@ -47,3 +47,4 @@ Thumbs.db
 .beads/
 test_bd.sh
 .claude/worktrees/
+/.maverick/runs
