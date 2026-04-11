@@ -604,6 +604,112 @@ class PythonWorkflow(ABC):
         )
 
     # ------------------------------------------------------------------
+    # Supervisor event drain (actor-mailbox workflows)
+    # ------------------------------------------------------------------
+
+    async def _drain_supervisor_events(
+        self,
+        *,
+        asys: Any,
+        supervisor: Any,
+        poll_interval: float = 0.25,
+        hard_timeout_seconds: float = 7200.0,
+        per_ask_timeout_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """Poll a Thespian supervisor actor for events until it reports done.
+
+        Actor-mailbox workflows hand control to a supervisor actor via
+        ``asys.tell(supervisor, "start")`` and then call this helper to
+        drain progress events while the supervisor runs. Each poll sends
+        a ``{"type": "get_events", "since": cursor}`` message; the reply
+        is a ``{"type": "events", ...}`` dict produced by
+        ``SupervisorEventBusMixin._handle_get_events``.
+
+        Drained ``ProgressEvent`` instances are pushed onto the workflow's
+        ``_event_queue`` so ``execute()``'s existing async generator yields
+        them to the CLI renderer with no changes upstream.
+
+        Args:
+            asys: Thespian ``ActorSystem`` instance.
+            supervisor: Actor address of the supervisor.
+            poll_interval: Seconds to sleep between polls when the supervisor
+                is still running.
+            hard_timeout_seconds: Raise ``WorkflowError`` if the drain takes
+                longer than this (guards against a wedged supervisor).
+            per_ask_timeout_seconds: Timeout for each individual ``asys.ask``
+                call. Must be comfortably longer than ``poll_interval`` but
+                short enough that a dead supervisor is detected quickly.
+
+        Returns:
+            The terminal ``result`` payload carried on the final ``done=True``
+            reply (the same dict that used to ride on the old ``"complete"``
+            message). ``None`` if the supervisor sent ``done=True`` without
+            a result.
+
+        Raises:
+            WorkflowError: If ``hard_timeout_seconds`` elapses, or the
+                supervisor replies with an unexpected message shape.
+        """
+        # Imported lazily to avoid a hard maverick.events → maverick.workflows
+        # dependency for modules that don't use the drain helper.
+        from maverick.events import event_from_dict
+
+        cursor = 0
+        deadline = time.monotonic() + hard_timeout_seconds
+        loop = asyncio.get_event_loop()
+
+        while True:
+            if time.monotonic() > deadline:
+                raise WorkflowError(
+                    f"supervisor drain exceeded {hard_timeout_seconds}s timeout",
+                    workflow_name=self._workflow_name,
+                )
+
+            # asys.ask is synchronous and blocks; keep the event loop
+            # responsive by offloading it to a thread.
+            def _ask(cursor_value: int = cursor) -> Any:
+                return asys.ask(
+                    supervisor,
+                    {"type": "get_events", "since": cursor_value},
+                    timeout=per_ask_timeout_seconds,
+                )
+
+            reply = await loop.run_in_executor(None, _ask)
+
+            if reply is None:
+                raise WorkflowError(
+                    "supervisor did not reply to get_events within "
+                    f"{per_ask_timeout_seconds}s",
+                    workflow_name=self._workflow_name,
+                )
+
+            if not isinstance(reply, dict) or reply.get("type") != "events":
+                raise WorkflowError(
+                    f"unexpected supervisor reply: {reply!r}",
+                    workflow_name=self._workflow_name,
+                )
+
+            for serialized in reply.get("events", []):
+                try:
+                    event = event_from_dict(serialized)
+                except ValueError as exc:
+                    logger.warning(
+                        "supervisor_event_drain.deserialize_failed",
+                        error=str(exc),
+                        serialized=serialized,
+                    )
+                    continue
+                await self._event_queue.put(event)
+
+            cursor = int(reply.get("next_cursor", cursor))
+
+            if reply.get("done"):
+                result = reply.get("result")
+                return result if isinstance(result, dict) or result is None else None
+
+            await asyncio.sleep(poll_interval)
+
+    # ------------------------------------------------------------------
     # Rollback
     # ------------------------------------------------------------------
 

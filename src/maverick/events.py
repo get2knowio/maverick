@@ -518,3 +518,90 @@ ProgressEvent = (
     | AgentStreamChunk
     | StepOutput
 )
+
+
+# ----------------------------------------------------------------------------
+# Deserialization
+# ----------------------------------------------------------------------------
+
+# Mapping of event class names to their concrete types. Used by
+# event_from_dict() to reconstruct a ProgressEvent from its serialized form.
+# RollbackError is intentionally omitted — it uses a non-standard to_dict() that
+# does not include the "event" key, and is only emitted by workflow base code,
+# never by supervisors crossing the Thespian boundary.
+_EVENT_CLASSES: dict[str, type] = {
+    "PreflightStarted": PreflightStarted,
+    "PreflightCheckPassed": PreflightCheckPassed,
+    "PreflightCheckFailed": PreflightCheckFailed,
+    "PreflightCompleted": PreflightCompleted,
+    "StepStarted": StepStarted,
+    "StepCompleted": StepCompleted,
+    "WorkflowStarted": WorkflowStarted,
+    "WorkflowCompleted": WorkflowCompleted,
+    "RollbackStarted": RollbackStarted,
+    "RollbackCompleted": RollbackCompleted,
+    "CheckpointSaved": CheckpointSaved,
+    "ValidationStarted": ValidationStarted,
+    "ValidationCompleted": ValidationCompleted,
+    "ValidationFailed": ValidationFailed,
+    "LoopIterationStarted": LoopIterationStarted,
+    "LoopIterationCompleted": LoopIterationCompleted,
+    "LoopConditionChecked": LoopConditionChecked,
+    "AgentStreamChunk": AgentStreamChunk,
+    "StepOutput": StepOutput,
+}
+
+# Fields that _event_to_dict() converts from tuple → list and must be restored
+# to tuples when rebuilding frozen dataclasses.
+_TUPLE_FIELDS: dict[str, tuple[str, ...]] = {
+    "PreflightStarted": ("prerequisites",),
+    "PreflightCheckFailed": ("affected_steps",),
+    "ValidationFailed": ("errors",),
+}
+
+# Fields that _event_to_dict() converts from StepType enum → str and must be
+# restored.
+_STEP_TYPE_FIELDS: dict[str, tuple[str, ...]] = {
+    "StepStarted": ("step_type",),
+    "StepCompleted": ("step_type",),
+}
+
+
+def event_from_dict(data: dict[str, Any]) -> ProgressEvent:
+    """Reconstruct a ProgressEvent from its serialized dict form.
+
+    Inverse of ``_event_to_dict()``. Used when events cross the Thespian
+    actor boundary as dicts and must be rehydrated in the workflow process.
+
+    Args:
+        data: Dictionary produced by ``event.to_dict()``. Must contain an
+            ``"event"`` key naming the ProgressEvent subclass.
+
+    Returns:
+        A frozen ProgressEvent dataclass instance.
+
+    Raises:
+        ValueError: If ``data`` lacks an ``"event"`` key or names an unknown
+            event class.
+    """
+    event_name = data.get("event")
+    if not event_name:
+        raise ValueError(f"serialized event missing 'event' key: {data!r}")
+
+    cls = _EVENT_CLASSES.get(event_name)
+    if cls is None:
+        raise ValueError(f"unknown event class: {event_name!r}")
+
+    kwargs = {k: v for k, v in data.items() if k != "event"}
+
+    # Restore tuple fields
+    for field_name in _TUPLE_FIELDS.get(event_name, ()):
+        if field_name in kwargs and isinstance(kwargs[field_name], list):
+            kwargs[field_name] = tuple(kwargs[field_name])
+
+    # Restore StepType enum fields
+    for field_name in _STEP_TYPE_FIELDS.get(event_name, ()):
+        if field_name in kwargs and isinstance(kwargs[field_name], str):
+            kwargs[field_name] = StepType(kwargs[field_name])
+
+    return cls(**kwargs)  # type: ignore[return-value]

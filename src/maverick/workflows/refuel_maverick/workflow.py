@@ -1198,11 +1198,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 timeout=10,
             )
 
-            # Start decomposition and wait for result
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: asys.ask(supervisor_addr, "start", timeout=3600),
+            # Start decomposition (fire-and-drain)
+            asys.tell(supervisor_addr, "start")
+
+            result = await self._drain_supervisor_events(
+                asys=asys,
+                supervisor=supervisor_addr,
+                poll_interval=0.25,
+                hard_timeout_seconds=3600.0,
             )
 
         finally:

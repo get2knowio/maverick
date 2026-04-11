@@ -12,12 +12,25 @@ import pytest
 
 from maverick.events import (
     AgentStreamChunk,
+    CheckpointSaved,
+    LoopConditionChecked,
     LoopIterationCompleted,
     LoopIterationStarted,
+    PreflightCheckFailed,
+    PreflightCheckPassed,
+    PreflightCompleted,
+    PreflightStarted,
+    RollbackCompleted,
+    RollbackStarted,
     StepCompleted,
+    StepOutput,
     StepStarted,
+    ValidationCompleted,
+    ValidationFailed,
+    ValidationStarted,
     WorkflowCompleted,
     WorkflowStarted,
+    event_from_dict,
 )
 from maverick.types import StepType
 
@@ -949,3 +962,179 @@ class TestAgentStreamChunkInteraction:
         for event in events:
             assert event.step_name == "complex_step"
             assert event.agent_name == "ThinkingAgent"
+
+
+class TestEventFromDict:
+    """Round-trip serialization: event -> to_dict() -> event_from_dict()."""
+
+    def _round_trip(self, event: object) -> object:
+        return event_from_dict(event.to_dict())  # type: ignore[attr-defined]
+
+    def test_step_started_with_enum(self) -> None:
+        event = StepStarted(
+            step_name="implement",
+            step_type=StepType.AGENT,
+            timestamp=1234.5,
+            step_path="wf.implement",
+            provider="claude",
+            model_id="claude-opus-4",
+        )
+        assert self._round_trip(event) == event
+
+    def test_step_completed_with_enum(self) -> None:
+        event = StepCompleted(
+            step_name="gate",
+            step_type=StepType.PYTHON,
+            success=True,
+            duration_ms=42,
+            timestamp=1000.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_step_output_all_levels(self) -> None:
+        for level in ("info", "success", "warning", "error"):
+            event = StepOutput(
+                step_name="fly",
+                message="progress update",
+                level=level,  # type: ignore[arg-type]
+                source="fly-supervisor",
+                metadata={"bead_id": "b-001"},
+                timestamp=5.5,
+            )
+            assert self._round_trip(event) == event
+
+    def test_preflight_started_tuple_round_trip(self) -> None:
+        event = PreflightStarted(
+            prerequisites=("git_identity", "jj_available"),
+            timestamp=2.0,
+        )
+        restored = self._round_trip(event)
+        assert restored == event
+        assert isinstance(restored.prerequisites, tuple)  # type: ignore[attr-defined]
+
+    def test_preflight_check_passed(self) -> None:
+        event = PreflightCheckPassed(
+            name="git_identity",
+            display_name="Git Identity",
+            duration_ms=5,
+            message="ok",
+            timestamp=3.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_preflight_check_failed_tuple_round_trip(self) -> None:
+        event = PreflightCheckFailed(
+            name="jj_available",
+            display_name="Jujutsu",
+            duration_ms=1,
+            message="not installed",
+            remediation="install jj",
+            affected_steps=("commit", "push"),
+            timestamp=4.0,
+        )
+        restored = self._round_trip(event)
+        assert restored == event
+        assert isinstance(restored.affected_steps, tuple)  # type: ignore[attr-defined]
+
+    def test_preflight_completed(self) -> None:
+        event = PreflightCompleted(
+            success=True,
+            total_duration_ms=6,
+            passed_count=2,
+            failed_count=0,
+            timestamp=7.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_workflow_started(self) -> None:
+        event = WorkflowStarted(
+            workflow_name="fly",
+            inputs={"epic_id": "e-001"},
+            timestamp=8.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_workflow_completed(self) -> None:
+        event = WorkflowCompleted(
+            workflow_name="fly",
+            success=True,
+            total_duration_ms=9000,
+            timestamp=9.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_rollback_started_and_completed(self) -> None:
+        started = RollbackStarted(step_name="commit", timestamp=10.0)
+        completed = RollbackCompleted(
+            step_name="commit", success=True, timestamp=11.0
+        )
+        assert self._round_trip(started) == started
+        assert self._round_trip(completed) == completed
+
+    def test_checkpoint_saved(self) -> None:
+        event = CheckpointSaved(
+            step_name="after_implement",
+            workflow_id="run-42",
+            timestamp=12.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_validation_events(self) -> None:
+        started = ValidationStarted(workflow_name="refuel", timestamp=13.0)
+        completed = ValidationCompleted(
+            workflow_name="refuel", warnings_count=0, timestamp=14.0
+        )
+        failed = ValidationFailed(
+            workflow_name="refuel",
+            errors=("missing objective", "no criteria"),
+            timestamp=15.0,
+        )
+        assert self._round_trip(started) == started
+        assert self._round_trip(completed) == completed
+        restored_failed = self._round_trip(failed)
+        assert restored_failed == failed
+        assert isinstance(restored_failed.errors, tuple)  # type: ignore[attr-defined]
+
+    def test_loop_events(self) -> None:
+        started = LoopIterationStarted(
+            step_name="phases",
+            iteration_index=0,
+            total_iterations=3,
+            item_label="Phase 1",
+            timestamp=16.0,
+        )
+        completed = LoopIterationCompleted(
+            step_name="phases",
+            iteration_index=0,
+            success=True,
+            duration_ms=500,
+            timestamp=17.0,
+        )
+        condition = LoopConditionChecked(
+            step_name="retry",
+            iteration_index=2,
+            condition_met=True,
+            condition_value="ok",
+            timestamp=18.0,
+        )
+        assert self._round_trip(started) == started
+        assert self._round_trip(completed) == completed
+        assert self._round_trip(condition) == condition
+
+    def test_agent_stream_chunk(self) -> None:
+        event = AgentStreamChunk(
+            step_name="implement",
+            agent_name="ImplementerAgent",
+            text="hello",
+            chunk_type="output",
+            timestamp=19.0,
+        )
+        assert self._round_trip(event) == event
+
+    def test_missing_event_key_raises(self) -> None:
+        with pytest.raises(ValueError, match="missing 'event' key"):
+            event_from_dict({"step_name": "x"})
+
+    def test_unknown_event_class_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown event class"):
+            event_from_dict({"event": "NotARealEvent"})

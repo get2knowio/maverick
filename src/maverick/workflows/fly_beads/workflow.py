@@ -933,14 +933,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 level="info",
             )
 
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: asys.ask(
-                    supervisor,
-                    "start",
-                    timeout=86400 if watch else 7200,  # 24h for watch, 2h normal
-                ),
+            # Fire-and-drain: supervisor runs asynchronously, workflow
+            # polls for events until done=True.
+            asys.tell(supervisor, "start")
+            result = await self._drain_supervisor_events(
+                asys=asys,
+                supervisor=supervisor,
+                poll_interval=0.25,
+                hard_timeout_seconds=86400.0 if watch else 7200.0,
             )
 
         finally:

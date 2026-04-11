@@ -3,15 +3,26 @@
 Routes messages between briefing agents (parallel fan-out),
 contrarian, generator, validator, and writer. Collects briefing
 results and synthesizes them inline.
+
+The workflow sends "start" and then drains progress events via
+``{"type": "get_events", "since": int}`` polls until the supervisor
+marks itself done. The terminal result rides on the final
+``done=True`` reply — see ``SupervisorEventBusMixin``.
 """
 
 import json
-import sys
 
 from thespian.actors import Actor
 
+from maverick.actors.event_bus import SupervisorEventBusMixin
+from maverick.logging import get_logger
 
-class PlanSupervisorActor(Actor):
+_SOURCE = "plan-supervisor"
+
+logger = get_logger(__name__)
+
+
+class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
     """Orchestrates flight plan generation via message routing.
 
     Fan-out: sends to 3 briefing agents simultaneously
@@ -20,11 +31,10 @@ class PlanSupervisorActor(Actor):
     """
 
     def receiveMessage(self, message, sender):
-        msg_preview = str(message)[:150] if message else "None"
-        print(
-            f"PLAN_SUPERVISOR: received from={sender} preview={msg_preview}",
-            file=sys.stderr,
-            flush=True,
+        logger.debug(
+            "plan_supervisor.received",
+            msg_type=type(message).__name__,
+            preview=str(message)[:150] if message else "None",
         )
 
         # --- Init ---
@@ -35,10 +45,20 @@ class PlanSupervisorActor(Actor):
         if isinstance(message, dict) and message.get("type") == "init_ok":
             return
 
+        # --- Event-bus drain poll (must precede other dict routing) ---
+        if isinstance(message, dict) and message.get("type") == "get_events":
+            self._handle_get_events(message, sender)
+            return
+
         # --- Start ---
         if message == "start":
-            self._workflow_sender = sender
             if self._skip_briefing:
+                self._emit_output(
+                    "plan",
+                    "Skipping briefing; sending directly to generator",
+                    level="info",
+                    source=_SOURCE,
+                )
                 self._send_to_generator()
             else:
                 self._start_briefing()
@@ -54,22 +74,11 @@ class PlanSupervisorActor(Actor):
         if isinstance(message, dict) and "tool" in message:
             tool = message["tool"]
             args = message.get("arguments", {})
-            print(
-                f"PLAN_SUPERVISOR: tool call: {tool} "
-                f"(args keys: {list(args.keys()) if args else 'none'})",
-                file=sys.stderr,
-                flush=True,
-            )
             self._handle_tool_call(tool, args)
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
             error = message.get("error", "unknown")
-            print(
-                f"PLAN_SUPERVISOR: prompt error: {error}",
-                file=sys.stderr,
-                flush=True,
-            )
             self._handle_error(f"Agent error: {error}")
             return
 
@@ -88,6 +97,7 @@ class PlanSupervisorActor(Actor):
     # ------------------------------------------------------------------
 
     def _init(self, message, sender):
+        self._init_event_bus()
         self._prd_content = message.get("prd_content", "")
         self._plan_name = message.get("plan_name", "")
         self._skip_briefing = message.get("skip_briefing", False)
@@ -105,7 +115,6 @@ class PlanSupervisorActor(Actor):
         self._briefs = {}
         self._briefing_markdown = ""
         self._flight_plan_data = {}
-        self._workflow_sender = None
 
         self.send(sender, {"type": "init_ok"})
 
@@ -121,17 +130,18 @@ class PlanSupervisorActor(Actor):
 
         prompt = build_preflight_briefing_prompt(self._prd_content)
 
+        self._emit_output(
+            "plan",
+            "Dispatching briefing to 3 parallel agents (scopist, analyst, criteria)",
+            level="info",
+            source=_SOURCE,
+        )
+
         # Fan-out: 3 messages sent, Thespian delivers to 3 separate
         # actor processes which run in parallel
         self.send(self._scopist, {"type": "briefing", "prompt": prompt})
         self.send(self._analyst, {"type": "briefing", "prompt": prompt})
         self.send(self._criteria, {"type": "briefing", "prompt": prompt})
-
-        print(
-            "PLAN_SUPERVISOR: briefing fan-out sent (3 agents)",
-            file=sys.stderr,
-            flush=True,
-        )
 
     # ------------------------------------------------------------------
     # Tool call routing
@@ -141,38 +151,69 @@ class PlanSupervisorActor(Actor):
         # Briefing results
         if tool == "submit_scope":
             self._briefs["scope"] = args
+            self._emit_output(
+                "plan",
+                "Scopist brief received",
+                level="success",
+                source=_SOURCE,
+            )
             self._check_briefing_complete()
 
         elif tool == "submit_analysis":
             self._briefs["analysis"] = args
+            self._emit_output(
+                "plan",
+                "Codebase analyst brief received",
+                level="success",
+                source=_SOURCE,
+            )
             self._check_briefing_complete()
 
         elif tool == "submit_criteria":
             self._briefs["criteria"] = args
+            self._emit_output(
+                "plan",
+                "Criteria writer brief received",
+                level="success",
+                source=_SOURCE,
+            )
             self._check_briefing_complete()
 
         elif tool == "submit_challenge":
             self._briefs["challenge"] = args
+            self._emit_output(
+                "plan",
+                "Contrarian challenge received; synthesizing briefing",
+                level="success",
+                source=_SOURCE,
+            )
             self._synthesize_and_generate()
 
         elif tool == "submit_flight_plan":
             self._flight_plan_data = args
+            sc_count = len(args.get("success_criteria", []))
+            self._emit_output(
+                "plan",
+                f"Flight plan generated ({sc_count} success criteria); validating",
+                level="success",
+                source=_SOURCE,
+                metadata={"success_criteria_count": sc_count},
+            )
             self._send_to_validator()
 
     def _check_briefing_complete(self):
         """Check if all 3 briefing results arrived."""
         needed = ("scope", "analysis", "criteria")
-        arrived = [k for k in needed if k in self._briefs]
-        print(
-            f"PLAN_SUPERVISOR: briefs collected: {arrived} (need all 3)",
-            file=sys.stderr,
-            flush=True,
-        )
-
         if all(k in self._briefs for k in needed):
             # Guard against duplicate triggers
             if not getattr(self, "_contrarian_sent", False):
                 self._contrarian_sent = True
+                self._emit_output(
+                    "plan",
+                    "All 3 briefs collected; sending to contrarian",
+                    level="info",
+                    source=_SOURCE,
+                )
                 self._send_to_contrarian()
 
     def _send_to_contrarian(self):
@@ -220,10 +261,11 @@ class PlanSupervisorActor(Actor):
             )
             self._briefing_markdown = serialize_preflight_briefing(briefing_doc)
         except Exception as exc:
-            print(
-                f"PLAN_SUPERVISOR: synthesis failed: {exc}, using raw JSON",
-                file=sys.stderr,
-                flush=True,
+            self._emit_output(
+                "plan",
+                f"Briefing synthesis failed ({exc}); falling back to raw JSON",
+                level="warning",
+                source=_SOURCE,
             )
             # Fallback: raw JSON of briefs
             parts = []
@@ -235,6 +277,12 @@ class PlanSupervisorActor(Actor):
 
     def _send_to_generator(self):
         """Send PRD + briefing to generator."""
+        self._emit_output(
+            "plan",
+            "Sending briefing to flight-plan generator",
+            level="info",
+            source=_SOURCE,
+        )
         parts = [f"## PRD Content\n\n{self._prd_content}"]
         if self._briefing_markdown:
             parts.append(f"## Pre-Flight Briefing\n\n{self._briefing_markdown}")
@@ -259,10 +307,20 @@ class PlanSupervisorActor(Actor):
     def _handle_validation(self, message):
         passed = message.get("passed", False)
         if not passed:
-            print(
-                f"PLAN_SUPERVISOR: validation failed: {message.get('warnings')}",
-                file=sys.stderr,
-                flush=True,
+            warnings = message.get("warnings", [])
+            self._emit_output(
+                "plan",
+                f"Validation warnings ({len(warnings)}); continuing to write",
+                level="warning",
+                source=_SOURCE,
+                metadata={"warning_count": len(warnings)},
+            )
+        else:
+            self._emit_output(
+                "plan",
+                "Validation passed",
+                level="success",
+                source=_SOURCE,
             )
         # Write regardless — validation is non-blocking for plan
         # Format flight plan data as markdown with YAML frontmatter
@@ -343,7 +401,7 @@ class PlanSupervisorActor(Actor):
         )
 
     def _handle_write_complete(self, message):
-        """Plan written — shutdown agents, send complete to workflow."""
+        """Plan written — shutdown agents, mark done."""
         # Shutdown agent actors (cleanup ACP subprocesses)
         for addr in [
             self._scopist,
@@ -356,23 +414,22 @@ class PlanSupervisorActor(Actor):
                 self.send(addr, {"type": "shutdown"})
 
         sc_count = len(self._flight_plan_data.get("success_criteria", []))
-        print(
-            f"PLAN_SUPERVISOR: complete ({sc_count} SCs)",
-            file=sys.stderr,
-            flush=True,
+        self._emit_output(
+            "plan",
+            f"Flight plan written ({sc_count} success criteria)",
+            level="success",
+            source=_SOURCE,
+            metadata={"success_criteria_count": sc_count},
         )
-        if self._workflow_sender:
-            self.send(
-                self._workflow_sender,
-                {
-                    "type": "complete",
-                    "success": True,
-                    "flight_plan_path": message.get("flight_plan_path", ""),
-                    "briefing_path": message.get("briefing_path"),
-                    "success_criteria_count": sc_count,
-                    "validation_passed": True,
-                },
-            )
+        self._mark_done(
+            {
+                "success": True,
+                "flight_plan_path": message.get("flight_plan_path", ""),
+                "briefing_path": message.get("briefing_path"),
+                "success_criteria_count": sc_count,
+                "validation_passed": True,
+            }
+        )
 
     def _handle_error(self, error_msg):
         for addr in [
@@ -385,12 +442,15 @@ class PlanSupervisorActor(Actor):
             if addr:
                 self.send(addr, {"type": "shutdown"})
 
-        if self._workflow_sender:
-            self.send(
-                self._workflow_sender,
-                {
-                    "type": "complete",
-                    "success": False,
-                    "error": error_msg,
-                },
-            )
+        self._emit_output(
+            "plan",
+            f"Plan generation failed: {error_msg}",
+            level="error",
+            source=_SOURCE,
+        )
+        self._mark_done(
+            {
+                "success": False,
+                "error": error_msg,
+            }
+        )

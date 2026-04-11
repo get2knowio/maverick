@@ -4,40 +4,45 @@ The supervisor IS the actor with the inbox. MCP tool calls arrive
 directly here. Routing logic is methods on this class. All inter-actor
 communication uses Thespian message passing.
 
-The workflow sends "start" and receives "complete" when done.
-Everything in between is Thespian messages.
+The workflow sends "start" and then drains progress events via
+``{"type": "get_events", "since": int}`` polls until the supervisor
+marks itself done. The terminal result payload rides on the final
+``done=True`` reply — see ``SupervisorEventBusMixin``.
 """
 
 import json
 
 from thespian.actors import Actor
 
+from maverick.actors.event_bus import SupervisorEventBusMixin
+from maverick.logging import get_logger
+
 MAX_FIX_ROUNDS = 3
 
+_SOURCE = "refuel-supervisor"
 
-class RefuelSupervisorActor(Actor):
+logger = get_logger(__name__)
+
+
+class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     """Orchestrates flight plan decomposition via message routing.
 
     Message protocol:
+    - {"type": "init"} → configure child actor addresses
     - "start" from workflow → kicks off outline phase
+    - {"type": "get_events", "since": int} → event-bus drain poll
     - {"tool": ...} from MCP server → tool call result
     - {"type": "prompt_sent"} from decomposer → informational
     - {"type": "prompt_error"} from decomposer → error
     - {"type": "validation_result"} from validator
     - {"type": "beads_created"} from bead creator
-    - {"type": "init"} → configure child actor addresses
     """
 
     def receiveMessage(self, message, sender):
-        import sys
-
-        # Log every message for debugging
-        msg_preview = str(message)[:200] if message else "None"
-        print(
-            f"SUPERVISOR: received msg type={type(message).__name__} "
-            f"from={sender} preview={msg_preview}",
-            file=sys.stderr,
-            flush=True,
+        logger.debug(
+            "refuel_supervisor.received",
+            msg_type=type(message).__name__,
+            preview=str(message)[:200] if message else "None",
         )
 
         # --- Init: receive config and child actor addresses ---
@@ -45,9 +50,19 @@ class RefuelSupervisorActor(Actor):
             self._init(message, sender)
             return
 
+        # --- Event-bus drain poll (must precede other dict routing) ---
+        if isinstance(message, dict) and message.get("type") == "get_events":
+            self._handle_get_events(message, sender)
+            return
+
         # --- Start signal from workflow ---
         if message == "start":
-            self._workflow_sender = sender
+            self._emit_output(
+                "refuel",
+                "Starting decomposition",
+                level="info",
+                source=_SOURCE,
+            )
             self._start_outline()
             return
 
@@ -55,26 +70,15 @@ class RefuelSupervisorActor(Actor):
         # Check BEFORE tool routing — prompt_sent may contain a "tool" key
         if isinstance(message, dict) and message.get("type") == "prompt_sent":
             phase = message.get("phase", "")
-            print(f"SUPERVISOR: prompt_sent phase={phase}", file=sys.stderr, flush=True)
             self._handle_prompt_sent(phase)
             return
 
         # --- Tool call from MCP server (via Thespian tell) ---
         if isinstance(message, dict) and "tool" in message:
-            print(
-                f"SUPERVISOR: tool call received: {message.get('tool')}",
-                file=sys.stderr,
-                flush=True,
-            )
             self._handle_tool_call(message)
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
-            print(
-                f"SUPERVISOR: prompt_error phase={message.get('phase')} error={message.get('error')}",
-                file=sys.stderr,
-                flush=True,
-            )
             self._handle_error(
                 f"Decomposer error ({message.get('phase')}): {message.get('error')}"
             )
@@ -100,6 +104,7 @@ class RefuelSupervisorActor(Actor):
 
     def _init(self, message, sender):
         """Store config and create child actors."""
+        self._init_event_bus()
         self._config = message.get("config", {})
         self._decomposer = message.get("decomposer_addr")
         self._validator = message.get("validator_addr")
@@ -111,7 +116,6 @@ class RefuelSupervisorActor(Actor):
         self._specs = []
         self._fix_rounds = 0
         self._nudge_count = 0
-        self._workflow_sender = None
         self._initial_payload = message.get("initial_payload", {})
 
         self.send(sender, {"type": "init_ok"})
@@ -122,6 +126,12 @@ class RefuelSupervisorActor(Actor):
 
     def _start_outline(self):
         """Kick off the outline phase."""
+        self._emit_output(
+            "refuel",
+            "Requesting outline from decomposer",
+            level="info",
+            source=_SOURCE,
+        )
         self.send(
             self._decomposer,
             {
@@ -132,8 +142,6 @@ class RefuelSupervisorActor(Actor):
 
     def _handle_prompt_sent(self, phase):
         """Check if expected tool call arrived; nudge if not."""
-        import sys
-
         MAX_NUDGES = 2
         # Map phase to expected tool and state check
         phase_tool_map = {
@@ -151,19 +159,21 @@ class RefuelSupervisorActor(Actor):
             return
 
         if self._nudge_count >= MAX_NUDGES:
-            print(
-                f"SUPERVISOR: max nudges reached for {phase}, skipping",
-                file=sys.stderr,
-                flush=True,
+            self._emit_output(
+                "refuel",
+                f"Max nudges reached for {phase}; skipping",
+                level="warning",
+                source=_SOURCE,
             )
             return
 
         self._nudge_count += 1
-        print(
-            f"SUPERVISOR: prompt completed but no {tool_name} received, "
-            f"nudging decomposer (attempt {self._nudge_count})",
-            file=sys.stderr,
-            flush=True,
+        self._emit_output(
+            "refuel",
+            f"No {tool_name} received; nudging decomposer "
+            f"(attempt {self._nudge_count})",
+            level="warning",
+            source=_SOURCE,
         )
         self.send(
             self._decomposer,
@@ -184,6 +194,13 @@ class RefuelSupervisorActor(Actor):
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
             ]
+            self._emit_output(
+                "refuel",
+                f"Outline received: {len(unit_ids)} work unit(s)",
+                level="success",
+                source=_SOURCE,
+                metadata={"unit_count": len(unit_ids)},
+            )
             outline_json = json.dumps(args)
 
             self.send(
@@ -202,6 +219,13 @@ class RefuelSupervisorActor(Actor):
         elif tool == "submit_details":
             self._details = args
             self._specs = self._merge_to_specs()
+            self._emit_output(
+                "refuel",
+                f"Details received; validating {len(self._specs)} spec(s)",
+                level="info",
+                source=_SOURCE,
+                metadata={"spec_count": len(self._specs)},
+            )
             self.send(
                 self._validator,
                 {
@@ -216,6 +240,12 @@ class RefuelSupervisorActor(Actor):
             if args.get("details"):
                 self._details = {"details": args["details"]}
             self._specs = self._merge_to_specs()
+            self._emit_output(
+                "refuel",
+                f"Fix submitted (round {self._fix_rounds}); re-validating",
+                level="info",
+                source=_SOURCE,
+            )
             self.send(
                 self._validator,
                 {
@@ -227,6 +257,12 @@ class RefuelSupervisorActor(Actor):
     def _handle_validation(self, message):
         """Route validation result."""
         if message.get("passed"):
+            self._emit_output(
+                "refuel",
+                f"Validation passed ({len(self._specs)} spec(s))",
+                level="success",
+                source=_SOURCE,
+            )
             deps = self._extract_deps()
             self.send(
                 self._bead_creator,
@@ -240,6 +276,14 @@ class RefuelSupervisorActor(Actor):
             self._fix_rounds += 1
             gaps = message.get("gaps", [])
             enriched = self._enrich_gaps(gaps)
+            self._emit_output(
+                "refuel",
+                f"Validation found {len(gaps)} gap(s); "
+                f"requesting fix (round {self._fix_rounds}/{MAX_FIX_ROUNDS})",
+                level="warning",
+                source=_SOURCE,
+                metadata={"gap_count": len(gaps), "fix_round": self._fix_rounds},
+            )
             self.send(
                 self._decomposer,
                 {
@@ -250,6 +294,12 @@ class RefuelSupervisorActor(Actor):
             )
         else:
             # Exhausted — proceed with what we have
+            self._emit_output(
+                "refuel",
+                f"Fix rounds exhausted ({MAX_FIX_ROUNDS}); proceeding with current specs",
+                level="warning",
+                source=_SOURCE,
+            )
             deps = self._extract_deps()
             self.send(
                 self._bead_creator,
@@ -261,37 +311,47 @@ class RefuelSupervisorActor(Actor):
             )
 
     def _handle_beads_created(self, message):
-        """Decomposition complete — shutdown agents, reply to workflow."""
+        """Decomposition complete — shutdown agents, mark done."""
         if self._decomposer:
             self.send(self._decomposer, {"type": "shutdown"})
-        if self._workflow_sender:
-            self.send(
-                self._workflow_sender,
-                {
-                    "type": "complete",
-                    "success": message.get("success", False),
-                    "epic_id": message.get("epic_id", ""),
-                    "bead_count": message.get("bead_count", 0),
-                    "specs": self._specs,
-                    "fix_rounds": self._fix_rounds,
-                },
-            )
+        bead_count = message.get("bead_count", 0)
+        success = message.get("success", False)
+        self._emit_output(
+            "refuel",
+            f"Created {bead_count} bead(s)"
+            + (f" in epic {message.get('epic_id', '')}" if message.get("epic_id") else ""),
+            level="success" if success else "error",
+            source=_SOURCE,
+            metadata={"bead_count": bead_count, "epic_id": message.get("epic_id", "")},
+        )
+        self._mark_done(
+            {
+                "success": success,
+                "epic_id": message.get("epic_id", ""),
+                "bead_count": bead_count,
+                "specs": self._specs,
+                "fix_rounds": self._fix_rounds,
+            }
+        )
 
     def _handle_error(self, error_msg):
         """Report error to workflow — shutdown agents first."""
         if self._decomposer:
             self.send(self._decomposer, {"type": "shutdown"})
-        if self._workflow_sender:
-            self.send(
-                self._workflow_sender,
-                {
-                    "type": "complete",
-                    "success": False,
-                    "error": error_msg,
-                    "specs": self._specs,
-                    "fix_rounds": self._fix_rounds,
-                },
-            )
+        self._emit_output(
+            "refuel",
+            f"Decomposition failed: {error_msg}",
+            level="error",
+            source=_SOURCE,
+        )
+        self._mark_done(
+            {
+                "success": False,
+                "error": error_msg,
+                "specs": self._specs,
+                "fix_rounds": self._fix_rounds,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Helpers
