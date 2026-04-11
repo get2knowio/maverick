@@ -70,10 +70,10 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["success"] is True
-            assert result["commit_sha"] == "abc123def456"
-            assert result["message"] == message
-            assert result["error"] is None
+            assert result.success is True
+            assert result.commit_sha == "abc123def456"
+            assert result.message == message
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_stages_all_changes_when_add_all_true(self) -> None:
@@ -90,7 +90,7 @@ class TestGitCommit:
 
             result = await git_commit(message, add_all=True)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify git add . was called
             add_call = mock_exec.call_args_list[0]
@@ -110,7 +110,7 @@ class TestGitCommit:
 
             result = await git_commit(message, add_all=False)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify first call is git commit, not git add
             first_call = mock_exec.call_args_list[0]
@@ -131,7 +131,7 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Check commit call includes attribution
             commit_call = mock_exec.call_args_list[1]
@@ -154,7 +154,7 @@ class TestGitCommit:
 
             result = await git_commit(message, include_attribution=False)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Check commit call does NOT include attribution
             commit_call = mock_exec.call_args_list[1]
@@ -178,7 +178,7 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["commit_sha"] == expected_sha
+            assert result.commit_sha == expected_sha
 
     @pytest.mark.asyncio
     async def test_returns_files_committed(self) -> None:
@@ -195,7 +195,7 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["files_committed"] == (
+            assert result.files_committed == (
                 "src/file1.py",
                 "src/file2.py",
                 "tests/test.py",
@@ -216,7 +216,7 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["files_committed"] == ()
+            assert result.files_committed == ()
 
     @pytest.mark.asyncio
     async def test_handles_nothing_to_commit(self) -> None:
@@ -231,10 +231,10 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["success"] is True
-            assert result["commit_sha"] is None
-            assert result["nothing_to_commit"] is True
-            assert result["message"] == message
+            assert result.success is True
+            assert result.commit_sha is None
+            assert result.nothing_to_commit is True
+            assert result.message == message
 
     @pytest.mark.asyncio
     async def test_handles_git_commit_failure(self) -> None:
@@ -249,9 +249,9 @@ class TestGitCommit:
 
             result = await git_commit(message)
 
-            assert result["success"] is False
-            assert result["commit_sha"] is None
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.commit_sha is None
+            assert result.error is not None
 
 
 class TestGitPush:
@@ -268,10 +268,10 @@ class TestGitPush:
 
             result = await git_push()
 
-            assert result["success"] is True
-            assert result["branch"] == "feature/test"
-            assert result["remote"] == "origin"
-            assert result["error"] is None
+            assert result.success is True
+            assert result.branch == "feature/test"
+            assert result.remote == "origin"
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_sets_upstream_by_default(self) -> None:
@@ -284,8 +284,8 @@ class TestGitPush:
 
             result = await git_push()
 
-            assert result["success"] is True
-            assert result["upstream_set"] is True
+            assert result.success is True
+            assert result.upstream_set is True
 
             # Verify push command includes -u flag
             push_call = mock_exec.call_args_list[1]
@@ -302,8 +302,8 @@ class TestGitPush:
 
             result = await git_push(set_upstream=False)
 
-            assert result["success"] is True
-            assert result["upstream_set"] is False
+            assert result.success is True
+            assert result.upstream_set is False
 
             # Verify push command does NOT include -u flag
             push_call = mock_exec.call_args_list[1]
@@ -320,9 +320,9 @@ class TestGitPush:
 
             result = await git_push()
 
-            assert result["success"] is False
-            assert result["upstream_set"] is False
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.upstream_set is False
+            assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_handles_branch_name_retrieval_failure(self) -> None:
@@ -334,9 +334,9 @@ class TestGitPush:
 
             result = await git_push()
 
-            assert result["success"] is False
-            assert result["branch"] == ""
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.branch == ""
+            assert result.error is not None
 
 
 class TestCreateGitBranch:
@@ -357,11 +357,11 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name, base)
 
-            assert result["success"] is True
-            assert result["branch_name"] == branch_name
-            assert result["base_branch"] == base
-            assert result["created"] is True
-            assert result["error"] is None
+            assert result.success is True
+            assert result.branch_name == branch_name
+            assert result.base_branch == base
+            assert result.created is True
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_checks_out_existing_branch(self) -> None:
@@ -377,9 +377,9 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name, base)
 
-            assert result["success"] is True
-            assert result["branch_name"] == branch_name
-            assert result["created"] is False
+            assert result.success is True
+            assert result.branch_name == branch_name
+            assert result.created is False
 
             # Verify only checkout was called, not checkout -b
             assert mock_exec.call_count == 2
@@ -400,8 +400,8 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name)
 
-            assert result["success"] is True
-            assert result["base_branch"] == "main"
+            assert result.success is True
+            assert result.base_branch == "main"
 
             # Verify checkout main was called
             checkout_base_call = mock_exec.call_args_list[1]
@@ -422,8 +422,8 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name, base)
 
-            assert result["success"] is True
-            assert result["base_branch"] == "develop"
+            assert result.success is True
+            assert result.base_branch == "develop"
 
             # Verify checkout develop was called
             checkout_base_call = mock_exec.call_args_list[1]
@@ -444,8 +444,8 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name, base)
 
-            assert result["success"] is True
-            assert result["created"] is True
+            assert result.success is True
+            assert result.created is True
 
             # Verify sequence: checkout base, then checkout -b new branch
             checkout_base_call = mock_exec.call_args_list[1]
@@ -468,9 +468,9 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name)
 
-            assert result["success"] is False
-            assert result["created"] is False
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.created is False
+            assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_handles_base_branch_checkout_failure(self) -> None:
@@ -486,9 +486,9 @@ class TestCreateGitBranch:
 
             result = await create_git_branch(branch_name, base)
 
-            assert result["success"] is False
-            assert result["created"] is False
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.created is False
+            assert result.error is not None
 
 
 class TestGitStageAll:
@@ -504,8 +504,8 @@ class TestGitStageAll:
 
             result = await git_stage_all()
 
-            assert result["success"] is True
-            assert result["error"] is None
+            assert result.success is True
+            assert result.error is None
 
             # Verify git add . was called
             add_call = mock_exec.call_args_list[0]
@@ -521,8 +521,8 @@ class TestGitStageAll:
 
             result = await git_stage_all()
 
-            assert result["success"] is False
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.error is not None
 
 
 class TestGitCheckAndStage:
@@ -545,8 +545,8 @@ class TestGitCheckAndStage:
 
             result = await git_check_and_stage()
 
-            assert result["has_any"] is True
-            assert result["has_staged"] is True
+            assert result.has_any is True
+            assert result.has_staged is True
             # Verify git add . was called (4th subprocess call)
             assert mock_exec.call_count == 4
             add_call = mock_exec.call_args_list[3]
@@ -565,10 +565,10 @@ class TestGitCheckAndStage:
 
             result = await git_check_and_stage()
 
-            assert result["has_staged"] is False
-            assert result["has_unstaged"] is True
-            assert result["has_untracked"] is True
-            assert result["has_any"] is True
+            assert result.has_staged is False
+            assert result.has_unstaged is True
+            assert result.has_untracked is True
+            assert result.has_any is True
 
     @pytest.mark.asyncio
     async def test_skips_staging_when_no_changes(self) -> None:
@@ -583,7 +583,7 @@ class TestGitCheckAndStage:
 
             result = await git_check_and_stage()
 
-            assert result["has_any"] is False
+            assert result.has_any is False
             # Only 3 calls (the 3 checks), no staging call
             assert mock_exec.call_count == 3
 
@@ -601,8 +601,8 @@ class TestGitCheckAndStage:
             result = await git_check_and_stage()
 
             # Should still return the status, even though staging failed
-            assert result["has_any"] is True
-            assert result["has_staged"] is True
+            assert result.has_any is True
+            assert result.has_staged is True
 
 
 class TestGitMerge:
@@ -622,10 +622,10 @@ class TestGitMerge:
 
             result = await git_merge(branch)
 
-            assert result["success"] is True
-            assert result["branch"] == branch
-            assert result["merge_commit"] == merge_sha
-            assert result["error"] is None
+            assert result.success is True
+            assert result.branch == branch
+            assert result.merge_commit == merge_sha
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_merge_uses_no_ff_flag(self) -> None:
@@ -640,7 +640,7 @@ class TestGitMerge:
 
             result = await git_merge(branch, no_ff=True)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify --no-ff was passed
             merge_call = mock_exec.call_args_list[0]
@@ -659,7 +659,7 @@ class TestGitMerge:
 
             result = await git_merge(branch)
 
-            assert result["success"] is True
+            assert result.success is True
 
             # Verify --no-ff was NOT passed
             merge_call = mock_exec.call_args_list[0]
@@ -677,11 +677,11 @@ class TestGitMerge:
 
             result = await git_merge(branch)
 
-            assert result["success"] is False
-            assert result["branch"] == branch
-            assert result["merge_commit"] is None
-            assert result["error"] is not None
-            assert "CONFLICT" in result["error"]
+            assert result.success is False
+            assert result.branch == branch
+            assert result.merge_commit is None
+            assert result.error is not None
+            assert "CONFLICT" in result.error
 
     @pytest.mark.asyncio
     async def test_handles_os_error(self) -> None:
@@ -691,9 +691,9 @@ class TestGitMerge:
 
             result = await git_merge("some-branch")
 
-            assert result["success"] is False
-            assert result["merge_commit"] is None
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.merge_commit is None
+            assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_retries_after_removing_untracked_conflicts(self) -> None:
@@ -717,8 +717,8 @@ class TestGitMerge:
 
             result = await git_merge(branch)
 
-            assert result["success"] is True
-            assert result["merge_commit"] == "abc123"
+            assert result.success is True
+            assert result.merge_commit == "abc123"
 
             # Verify rm was called for the conflicting file
             rm_call = mock_exec.call_args_list[1]
@@ -768,7 +768,7 @@ class TestGitAdd:
 
             result = await git_add()
 
-            assert result["success"] is True
+            assert result.success is True
             call_args = mock_exec.call_args_list[0][0]
             assert call_args == ("git", "add", ".")
 
@@ -780,7 +780,7 @@ class TestGitAdd:
 
             result = await git_add(paths=[".beads/issues.jsonl"])
 
-            assert result["success"] is True
+            assert result.success is True
             call_args = mock_exec.call_args_list[0][0]
             assert call_args == ("git", "add", ".beads/issues.jsonl")
 
@@ -792,7 +792,7 @@ class TestGitAdd:
 
             result = await git_add(paths=[".beads/issues.jsonl"], force=True)
 
-            assert result["success"] is True
+            assert result.success is True
             call_args = mock_exec.call_args_list[0][0]
             assert call_args == ("git", "add", "-f", ".beads/issues.jsonl")
 
@@ -804,5 +804,5 @@ class TestGitAdd:
 
             result = await git_add(paths=["missing.txt"])
 
-            assert result["success"] is False
-            assert result["error"] is not None
+            assert result.success is False
+            assert result.error is not None

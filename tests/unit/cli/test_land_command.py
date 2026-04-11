@@ -17,6 +17,8 @@ from maverick.cli.commands.land import (
     land,
 )
 from maverick.cli.context import ExitCode
+from maverick.jj.errors import JjError
+from maverick.library.actions.git_models import GitMergeResult
 
 
 def _mock_command_runner() -> patch:
@@ -116,7 +118,7 @@ class TestApprovePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={"success": True, "merge_commit": "abc123"},
+                return_value=GitMergeResult(success=True, branch="x", merge_commit="abc123"),
             ) as mock_merge,
             _mock_command_runner(),
         ):
@@ -150,7 +152,7 @@ class TestApprovePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={"success": True, "merge_commit": "abc"},
+                return_value=GitMergeResult(success=True, branch="x", merge_commit="abc"),
             ),
             _mock_command_runner(),
         ):
@@ -187,7 +189,7 @@ class TestApprovePath:
     async def test_approve_push_failure_exits(self) -> None:
         """Push failure raises SystemExit with FAILURE code."""
         mock_client = AsyncMock()
-        mock_client.bookmark_set.side_effect = RuntimeError("push failed")
+        mock_client.bookmark_set.side_effect = JjError("push failed")
         mock_manager = AsyncMock()
         mock_manager.exists = True
 
@@ -225,10 +227,11 @@ class TestApprovePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={
-                    "success": False,
-                    "error": "merge conflict",
-                },
+                return_value=GitMergeResult(
+                    success=False,
+                    branch="x",
+                    error="merge conflict",
+                ),
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -368,7 +371,7 @@ class TestEjectPath:
     async def test_eject_push_failure_exits(self) -> None:
         """Eject push failure raises SystemExit."""
         mock_client = AsyncMock()
-        mock_client.bookmark_set.side_effect = RuntimeError("network error")
+        mock_client.bookmark_set.side_effect = JjError("network error")
         mock_manager = AsyncMock()
 
         with (
@@ -421,10 +424,11 @@ class TestFinalizePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={
-                    "success": True,
-                    "merge_commit": "abc123",
-                },
+                return_value=GitMergeResult(
+                    success=True,
+                    branch="x",
+                    merge_commit="abc123",
+                ),
             ) as mock_merge,
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
@@ -448,7 +452,7 @@ class TestFinalizePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={"success": True, "merge_commit": "x"},
+                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
             ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
@@ -471,7 +475,7 @@ class TestFinalizePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={"success": True, "merge_commit": "x"},
+                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
             ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
@@ -495,7 +499,7 @@ class TestFinalizePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={"success": True, "merge_commit": "x"},
+                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
             ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
@@ -519,10 +523,11 @@ class TestFinalizePath:
             patch(
                 "maverick.library.actions.git.git_merge",
                 new_callable=AsyncMock,
-                return_value={
-                    "success": False,
-                    "error": "conflict",
-                },
+                return_value=GitMergeResult(
+                    success=False,
+                    branch="x",
+                    error="conflict",
+                ),
             ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",

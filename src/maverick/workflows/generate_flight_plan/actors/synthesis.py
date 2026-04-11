@@ -26,7 +26,7 @@ class SynthesisActor:
             return []
 
         from maverick.preflight_briefing.serializer import (
-            serialize_briefing_to_markdown,
+            serialize_preflight_briefing,
         )
         from maverick.preflight_briefing.synthesis import (
             synthesize_preflight_briefing,
@@ -78,7 +78,7 @@ class SynthesisActor:
                 criteria,
                 contrarian,
             )
-            briefing_md = serialize_briefing_to_markdown(briefing_doc)
+            briefing_md = serialize_preflight_briefing(briefing_doc)
         except Exception as exc:
             logger.warning("synthesis_actor.error", error=str(exc))
             # Fallback: simple markdown from raw dicts

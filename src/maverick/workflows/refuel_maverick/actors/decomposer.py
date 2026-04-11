@@ -76,12 +76,20 @@ class DecomposerActor:
 
     async def _handle_outline(self, message: Message) -> list[Message]:
         """Generate the work unit outline (turn 1)."""
-        from maverick.library.actions.decompose import build_outline_prompt
+        from maverick.library.actions.decompose import (
+            CodebaseContext,
+            build_outline_prompt,
+        )
 
         payload = message.payload
+        codebase_ctx = payload.get("codebase_context") or CodebaseContext(
+            files=(),
+            missing_files=(),
+            total_size=0,
+        )
         prompt_text = build_outline_prompt(
             payload["flight_plan_content"],
-            payload.get("codebase_context"),
+            codebase_ctx,
             briefing=payload.get("briefing"),
             runway_context=payload.get("runway_context"),
         )

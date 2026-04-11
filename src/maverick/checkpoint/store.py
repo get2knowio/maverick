@@ -118,7 +118,7 @@ class FileCheckpointStore:
         if not file_path.exists():
             return None
 
-        content = file_path.read_text()
+        content = file_path.read_text(encoding="utf-8")
         data = json.loads(content)
         return CheckpointData.from_dict(data)
 
@@ -134,7 +134,7 @@ class FileCheckpointStore:
 
         checkpoints: list[CheckpointData] = []
         for file_path in dir_path.glob("*.json"):
-            content = file_path.read_text()
+            content = file_path.read_text(encoding="utf-8")
             data = json.loads(content)
             checkpoints.append(CheckpointData.from_dict(data))
 

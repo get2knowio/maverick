@@ -6,6 +6,10 @@ validates SC coverage and dependency acyclicity, returns result.
 
 from thespian.actors import Actor
 
+from maverick.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class ValidatorActor(Actor):
     """Validates decomposition specs against flight plan criteria."""
@@ -55,9 +59,7 @@ class ValidatorActor(Actor):
                 )
 
             except Exception as exc:
-                import sys
-
-                print(f"VALIDATOR: error: {exc}", file=sys.stderr, flush=True)
+                logger.error("validator.error", error=str(exc))
                 self.send(
                     sender,
                     {

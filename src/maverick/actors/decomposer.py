@@ -9,14 +9,17 @@ This actor confirms "prompt sent" and the supervisor waits for the
 MCP tool call to arrive in its inbox.
 """
 
-import asyncio
 import sys
-import threading
 
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
+from maverick.logging import get_logger
 
-class DecomposerActor(Actor):
+logger = get_logger(__name__)
+
+
+class DecomposerActor(ActorAsyncBridge, Actor):
     """Sends ACP prompts for decomposition phases.
 
     Uses a persistent event loop in a background thread for async
@@ -35,20 +38,13 @@ class DecomposerActor(Actor):
             self._mcp_tools = message.get("mcp_tools", "")
             self._admin_port = message.get("admin_port", 19500)
             self._supervisor_addr = sender
-            # Create persistent event loop for async ACP calls
-            self._loop = asyncio.new_event_loop()
-            self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-            self._loop_thread.start()
+            self._executor = None
+            self._session_id = None
+            self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "shutdown":
-            if hasattr(self, "_executor") and self._executor:
-                try:
-                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
-                        timeout=5
-                    )
-                except Exception:
-                    pass
+            self._cleanup_executor()
             self.send(sender, {"type": "shutdown_ok"})
 
         elif msg_type == "outline_request":
@@ -81,17 +77,13 @@ class DecomposerActor(Actor):
 
     def _run_async(self, coro, sender, phase):
         """Run an async coroutine on the persistent event loop."""
-        print(f"DECOMPOSER: starting {phase}...", file=sys.stderr, flush=True)
+        logger.debug("decomposer.phase_starting", phase=phase)
         try:
-            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-            print(
-                f"DECOMPOSER: waiting for {phase} (timeout=1800s)...", file=sys.stderr, flush=True
-            )
-            future.result(timeout=1800)  # blocks until done
-            print(f"DECOMPOSER: {phase} completed!", file=sys.stderr, flush=True)
+            self._run_coro(coro, timeout=1800)
+            logger.debug("decomposer.phase_completed", phase=phase)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
-            print(f"DECOMPOSER: {phase} FAILED: {exc}", file=sys.stderr, flush=True)
+            logger.error("decomposer.phase_failed", phase=phase, error=str(exc))
             self.send(
                 sender,
                 {

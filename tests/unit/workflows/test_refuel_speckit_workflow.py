@@ -11,6 +11,11 @@ from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
+from maverick.library.actions.git_models import (
+    GitBranchResult,
+    GitCommitResult,
+    GitMergeResult,
+)
 from maverick.library.actions.types import (
     BeadCreationResult,
     DependencyWiringResult,
@@ -58,28 +63,25 @@ _WIRE_RESULT = DependencyWiringResult(
     success=True,
 )
 
-_CHECKOUT_RESULT = {
-    "success": True,
-    "branch_name": _SPEC,
-    "base_branch": "main",
-    "created": True,
-    "error": None,
-}
+_CHECKOUT_RESULT = GitBranchResult(
+    success=True,
+    branch_name=_SPEC,
+    base_branch="main",
+    created=True,
+)
 
-_COMMIT_RESULT = {
-    "success": True,
-    "commit_sha": "abc123",
-    "message": f"refuel(speckit): create beads for {_SPEC}",
-    "files_committed": [".beads/issues.jsonl"],
-    "error": None,
-}
+_COMMIT_RESULT = GitCommitResult(
+    success=True,
+    message=f"refuel(speckit): create beads for {_SPEC}",
+    commit_sha="abc123",
+    files_committed=(".beads/issues.jsonl",),
+)
 
-_MERGE_RESULT = {
-    "success": True,
-    "branch": _SPEC,
-    "merge_commit": "def456",
-    "error": None,
-}
+_MERGE_RESULT = GitMergeResult(
+    success=True,
+    branch=_SPEC,
+    merge_commit="def456",
+)
 
 
 def _make_workflow(
@@ -182,8 +184,8 @@ class TestRefuelSpeckitWorkflow:
         output = result.final_output
         assert output["epic"] == _BEAD_RESULT.epic
         assert output["work_beads"] == list(_BEAD_RESULT.work_beads)
-        assert output["commit"] == _COMMIT_RESULT["commit_sha"]
-        assert output["merge"] == _MERGE_RESULT["merge_commit"]
+        assert output["commit"] == _COMMIT_RESULT.commit_sha
+        assert output["merge"] == _MERGE_RESULT.merge_commit
 
     async def test_dry_run_skips_commit_and_merge(
         self,

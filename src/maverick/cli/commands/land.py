@@ -230,6 +230,7 @@ async def _approve(
 ) -> None:
     """Approve: push workspace commits to user repo and merge locally."""
     from maverick.jj.client import JjClient
+    from maverick.jj.errors import JjError
 
     branch_name = branch or f"maverick/{project_name}"
 
@@ -259,7 +260,7 @@ async def _approve(
         try:
             await client.bookmark_set(branch_name, revision="@-")
             await client.git_push(bookmark=branch_name)
-        except Exception as e:
+        except JjError as e:
             err_console.print(format_error(f"Push to local repo failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
 
@@ -267,10 +268,10 @@ async def _approve(
         from maverick.library.actions.git import git_merge
 
         merge_result = await git_merge(branch_name, cwd=repo_path)
-        if not merge_result["success"]:
+        if not merge_result.success:
             err_console.print(
                 format_error(
-                    f"Merge failed: {merge_result['error']}",
+                    f"Merge failed: {merge_result.error}",
                     suggestion=(
                         f"The branch '{branch_name}' exists in your local repo. "
                         "You can merge it manually with: "
@@ -333,13 +334,14 @@ async def _eject(
 
     if cwd is not None:
         from maverick.jj.client import JjClient
+        from maverick.jj.errors import JjError
 
         client = JjClient(cwd=cwd)
         try:
             await client.bookmark_set(preview_branch, revision="@-")
             # Push from workspace → user repo (creates local branch only)
             await client.git_push(bookmark=preview_branch)
-        except Exception as e:
+        except JjError as e:
             err_console.print(format_error(f"Eject push failed: {e}"))
             raise SystemExit(ExitCode.FAILURE) from e
 
@@ -380,7 +382,7 @@ async def _finalize(
 
     # Merge preview branch into current branch
     merge_result = await git_merge(preview_branch, cwd=user_repo)
-    if merge_result["success"]:
+    if merge_result.success:
         console.print(format_success(f"Merged {preview_branch} into local repo."))
         # Clean up the preview branch
         try:
@@ -401,7 +403,7 @@ async def _finalize(
     else:
         err_console.print(
             format_error(
-                f"Merge failed: {merge_result['error']}",
+                f"Merge failed: {merge_result.error}",
                 suggestion=(f"You can merge manually with: git merge {preview_branch}"),
             )
         )
@@ -673,8 +675,8 @@ def _display_human_review_manifest(cwd: Path) -> None:
         return
 
     try:
-        items = _json.loads(manifest_path.read_text())
-    except Exception:
+        items = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return
 
     if not items:

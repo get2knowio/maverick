@@ -40,13 +40,13 @@ def _get_store(cwd: str | Path | None) -> RunwayStore | None:
     return store
 
 
-def _get_run_store(run_dir: str | Path) -> RunwayStore | None:
+async def _get_run_store(run_dir: str | Path) -> RunwayStore | None:
     """Get or initialize a runway store under a run directory."""
     runway_path = Path(run_dir) / "runway"
     store = RunwayStore(runway_path)
     if not store.is_initialized:
         try:
-            store.initialize()
+            await store.initialize()
         except Exception:
             return None
     return store
@@ -118,7 +118,7 @@ async def record_bead_outcome(
 
         # Dual-write to per-run directory if available
         if run_dir:
-            run_store = _get_run_store(run_dir)
+            run_store = await _get_run_store(run_dir)
             if run_store:
                 await run_store.append_bead_outcome(outcome)
 
@@ -201,7 +201,7 @@ async def record_review_findings(
             )
             await store.append_review_finding(finding)
             if run_dir:
-                rs = _get_run_store(run_dir)
+                rs = await _get_run_store(run_dir)
                 if rs:
                     await rs.append_review_finding(finding)
             count += 1

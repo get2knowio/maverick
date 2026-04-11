@@ -31,7 +31,7 @@ class GateActor:
         self,
         *,
         cwd: str | None = None,
-        validation_commands: dict[str, list[str]] | None = None,
+        validation_commands: dict[str, tuple[str, ...]] | None = None,
         timeout_seconds: float = 600.0,
     ) -> None:
         self._cwd = cwd

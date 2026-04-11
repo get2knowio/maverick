@@ -205,25 +205,26 @@ class FlyBeadsWorkflow(PythonWorkflow):
             await self.emit_step_started(SNAPSHOT_UNCOMMITTED)
             try:
                 change_status = await git_has_changes()
-                if change_status["has_any"]:
+                if change_status.has_any:
                     if auto_commit:
                         snap = await snapshot_uncommitted_changes()
-                        if not snap["success"]:
-                            err = snap["error"] or "commit failed"
+                        if not snap.success:
+                            err = snap.error or "commit failed"
                             await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, err)
                             raise WorkflowError(
                                 f"Snapshot failed: {err}",
                                 workflow_name=WORKFLOW_NAME,
                             )
+                        sha_preview = (snap.commit_sha or "")[:8]
                         await self.emit_output(
                             SNAPSHOT_UNCOMMITTED,
-                            f"Committed uncommitted changes ({snap['commit_sha'][:8]})",
+                            f"Committed uncommitted changes ({sha_preview})",
                             level="info",
                         )
-                        if snap.get("warning"):
+                        if snap.warning:
                             await self.emit_output(
                                 SNAPSHOT_UNCOMMITTED,
-                                snap["warning"],
+                                snap.warning,
                                 level="warning",
                             )
                     else:
@@ -496,7 +497,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             # Load prior attempt context if this bead has been tried before
             prior_attempt_ctx: str | None = None
             prev_attempt = bead_attempt_count.get(bead_id, 0)
-            if prev_attempt > 0:
+            if prev_attempt > 0 and run_dir is not None:
                 prior_attempt_ctx = load_prior_attempt_context(run_dir, bead_id, prev_attempt)
 
             # Enrich bead description with full work unit markdown.
@@ -617,7 +618,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             )
                             ac_attempt = bead_attempt_count.get(bead_id, 0) + 1
                             bead_attempt_count[bead_id] = ac_attempt
-                            await snapshot_prior_attempt(run_dir, ctx, ac_attempt)
+                            if run_dir is not None:
+                                await snapshot_prior_attempt(run_dir, ctx, ac_attempt)
                             if ac_attempt < MAX_RETRIES_PER_BEAD:
                                 await rollback_bead(self, ctx)
                             beads_failed += 1
@@ -640,7 +642,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             )
                             sp_attempt = bead_attempt_count.get(bead_id, 0) + 1
                             bead_attempt_count[bead_id] = sp_attempt
-                            await snapshot_prior_attempt(run_dir, ctx, sp_attempt)
+                            if run_dir is not None:
+                                await snapshot_prior_attempt(run_dir, ctx, sp_attempt)
                             if sp_attempt < MAX_RETRIES_PER_BEAD:
                                 await rollback_bead(self, ctx)
                             beads_failed += 1
@@ -673,7 +676,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     else:
                         attempt_num = bead_attempt_count.get(bead_id, 0) + 1
                         bead_attempt_count[bead_id] = attempt_num
-                        await snapshot_prior_attempt(run_dir, ctx, attempt_num)
+                        if run_dir is not None:
+                            await snapshot_prior_attempt(run_dir, ctx, attempt_num)
                         is_last_attempt = attempt_num >= MAX_RETRIES_PER_BEAD
                         if not is_last_attempt:
                             await rollback_bead(self, ctx)
@@ -798,7 +802,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         watch_interval: int = 30,
     ) -> dict[str, Any]:
         """Run the fly bead loop using Thespian actor system."""
-        import asyncio
         import atexit
         import socket
 
@@ -829,8 +832,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 import time
 
                 time.sleep(1)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("stale_actor_system_shutdown_failed", error=str(exc))
 
         asys = ActorSystem(
             "multiprocTCPBase",
@@ -1068,7 +1071,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             )
 
         # Build validation commands from config (defensive for tests with mocks)
-        validation_commands: dict[str, list[str]] | None = None
+        validation_commands: dict[str, tuple[str, ...]] | None = None
         _timeout_secs = 600.0
         try:
             validation_commands = _build_validation_commands(self._config.validation)

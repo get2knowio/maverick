@@ -270,6 +270,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             and len(codebase_context.files) > 0
         )
         if _derive_vp:
+            assert self._step_executor is not None  # noqa: S101 — narrowed above
             await self.emit_step_started(DERIVE_VERIFICATION)
             try:
                 sc_text = "\n".join(
@@ -768,6 +769,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         await self.emit_step_started(WRITE_WORK_UNITS)
 
+        if decomposition is None:
+            raise WorkflowError("Decomposition loop exited without producing a result")
+
         # Determine output directory (colocated with flight plan)
         work_units_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
 
@@ -1053,9 +1057,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         *,
         flight_plan: Any,
         raw_content: str,
-        codebase_context: str,
+        codebase_context: Any,
         briefing_doc: Any,
-        runway_context_text: str,
+        runway_context_text: str | None,
         run_dir: Path | None,
     ) -> Any:
         """Decompose using actor-mailbox supervisor.
@@ -1065,7 +1069,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         Returns a DecompositionOutput (same type as the legacy loop).
         """
-        import asyncio
 
         from thespian.actors import ActorSystem
 

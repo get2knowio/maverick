@@ -86,10 +86,14 @@ class BeadCreatorActor:
             dep_result = None
             if extracted_deps:
                 dep_result = await wire_dependencies(
-                    creation_result=creation_result,
+                    work_definitions=work_defs,
+                    created_map=creation_result.created_map,
+                    tasks_content=payload.get("tasks_content", ""),
                     extracted_deps=extracted_deps,
                 )
 
+            epic = creation_result.epic
+            epic_id = (epic.get("bd_id", "") if isinstance(epic, dict) else "") if epic else ""
             return [
                 Message(
                     msg_type=MessageType.CREATE_BEADS_RESULT,
@@ -97,9 +101,9 @@ class BeadCreatorActor:
                     recipient="supervisor",
                     payload={
                         "success": True,
-                        "epic_id": creation_result.get("epic", {}).get("bd_id", ""),
-                        "bead_count": len(creation_result.get("work_beads", [])),
-                        "deps_wired": dep_result.get("wired_count", 0) if dep_result else 0,
+                        "epic_id": epic_id,
+                        "bead_count": len(creation_result.work_beads),
+                        "deps_wired": len(dep_result.dependencies) if dep_result else 0,
                     },
                     in_reply_to=message.sequence,
                 )

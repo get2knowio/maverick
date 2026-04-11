@@ -21,14 +21,35 @@ class PlanValidatorActor:
         if message.msg_type != MessageType.VALIDATE_PLAN_REQUEST:
             return []
 
-        from maverick.flight.validator import validate_flight_plan
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        from maverick.flight.validator import validate_flight_plan_file
 
         payload = message.payload
-        flight_plan = payload.get("flight_plan")
+        flight_plan = payload.get("flight_plan") or {}
 
+        warnings: list[str] = []
+        passed = True
         try:
-            warnings = validate_flight_plan(flight_plan)
-            passed = True
+            # Materialise the in-memory plan dict to a temp markdown file
+            # so the existing file-based validator can run its V1–V9 checks.
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".md",
+                delete=False,
+                encoding="utf-8",
+            ) as tmp:
+                frontmatter = yaml.safe_dump(flight_plan, sort_keys=False)
+                tmp.write(f"---\n{frontmatter}---\n")
+                tmp_path = Path(tmp.name)
+            try:
+                issues = validate_flight_plan_file(tmp_path)
+                warnings = [f"{i.location}: {i.message}" for i in issues]
+            finally:
+                tmp_path.unlink(missing_ok=True)
         except Exception as exc:
             warnings = [str(exc)]
             passed = False

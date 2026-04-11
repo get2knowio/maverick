@@ -12,9 +12,10 @@ marks itself done. The terminal result rides on the final
 """
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 
-from thespian.actors import Actor
+from thespian.actors import Actor, WakeupMessage
 
 from maverick.actors.event_bus import SupervisorEventBusMixin
 from maverick.logging import get_logger
@@ -22,6 +23,7 @@ from maverick.logging import get_logger
 MAX_REVIEW_ROUNDS = 3
 MAX_GATE_FIX_ATTEMPTS = 2
 MAX_SPEC_FIX_ATTEMPTS = 2
+MAX_BEAD_EVENTS = 500
 
 _SOURCE = "fly-supervisor"
 
@@ -37,6 +39,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             msg_type=type(message).__name__,
             preview=str(message)[:120] if message else "None",
         )
+
+        if isinstance(message, WakeupMessage):
+            self._next_bead()
+            return
 
         if isinstance(message, dict) and message.get("type") == "init":
             self._init(message, sender)
@@ -143,6 +149,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         self._last_review_findings = []
         self._in_aggregate_review = False
         self._idle_polls = 0
+        self._work_units_cache: dict[str, dict[str, str]] = {}
 
         self.send(sender, {"type": "init_ok"})
 
@@ -174,10 +181,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                     level="info",
                     source=_SOURCE,
                 )
-                import time
-
-                time.sleep(self._watch_interval)
-                self._next_bead()
+                self.wakeupAfter(timedelta(seconds=self._watch_interval))
                 return
 
             self._emit_output(
@@ -240,17 +244,19 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         self._current_bead.get("description", "")
 
         try:
-            work_units = {}
-            for md_file in sorted(plans_dir.glob("[0-9]*.md")):
-                content = md_file.read_text(encoding="utf-8")
-                # Extract work-unit ID from YAML frontmatter
-                wu_id = ""
-                for line in content.split("\n"):
-                    if line.startswith("work-unit:"):
-                        wu_id = line.split(":", 1)[1].strip()
-                        break
-                if wu_id:
-                    work_units[wu_id] = content
+            work_units = self._work_units_cache.get(self._flight_plan_name)
+            if work_units is None:
+                work_units = {}
+                for md_file in sorted(plans_dir.glob("[0-9]*.md")):
+                    content = md_file.read_text(encoding="utf-8")
+                    wu_id = ""
+                    for line in content.split("\n"):
+                        if line.startswith("work-unit:"):
+                            wu_id = line.split(":", 1)[1].strip()
+                            break
+                    if wu_id:
+                        work_units[wu_id] = content
+                self._work_units_cache[self._flight_plan_name] = work_units
 
             # Match: check if bead title contains the work unit ID
             # (bead titles are the task description which often includes
@@ -625,6 +631,8 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             "spec_fix_attempts": self._spec_fix_attempts,
         }
         self._bead_events.append(bead_event)
+        if len(self._bead_events) > MAX_BEAD_EVENTS:
+            del self._bead_events[: len(self._bead_events) - MAX_BEAD_EVENTS]
 
         # Record to runway (best-effort)
         self._record_bead_outcome(message)

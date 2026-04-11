@@ -33,24 +33,62 @@ if _dotenv_loaded:
         )
 
 from maverick import __version__  # noqa: E402
-from maverick.cli.commands.brief import brief  # noqa: E402
-from maverick.cli.commands.flight_plan import flight_plan  # noqa: E402
-from maverick.cli.commands.fly import fly  # noqa: E402
-from maverick.cli.commands.init import init  # noqa: E402
-from maverick.cli.commands.land import land  # noqa: E402
-from maverick.cli.commands.refuel import refuel  # noqa: E402
-from maverick.cli.commands.review import review  # noqa: E402
-from maverick.cli.commands.runway import runway  # noqa: E402
-from maverick.cli.commands.uninstall import uninstall  # noqa: E402
-from maverick.cli.commands.workspace import workspace  # noqa: E402
 from maverick.cli.context import CLIContext, ExitCode  # noqa: E402
+from maverick.cli.lazy_group import LazyGroup  # noqa: E402
 from maverick.cli.output import format_error  # noqa: E402
 from maverick.cli.validators import check_dependencies  # noqa: E402
 from maverick.config import load_config  # noqa: E402
 from maverick.exceptions import ConfigError  # noqa: E402
 
+_LAZY_COMMANDS: dict[str, tuple[str, str]] = {
+    "brief": (
+        "maverick.cli.commands.brief:brief",
+        "Review queued beads before flying.",
+    ),
+    "fly": (
+        "maverick.cli.commands.fly:fly",
+        "Run a bead-driven development workflow.",
+    ),
+    "init": (
+        "maverick.cli.commands.init:init",
+        "Initialize maverick configuration for the current project.",
+    ),
+    "land": (
+        "maverick.cli.commands.land:land",
+        "Curate commit history and apply to local repo.",
+    ),
+    "plan": (
+        "maverick.cli.commands.flight_plan:flight_plan",
+        "Create and validate flight plan files.",
+    ),
+    "refuel": (
+        "maverick.cli.commands.refuel:refuel",
+        "Load work into beads from a flight plan or SpecKit specification.",
+    ),
+    "review": (
+        "maverick.cli.commands.review:review",
+        "Review a human-assigned assumption bead.",
+    ),
+    "runway": (
+        "maverick.cli.commands.runway:runway",
+        "Manage the runway knowledge store.",
+    ),
+    "serve-inbox": (
+        "maverick.cli.commands.serve_inbox:serve_inbox",
+        "Start the MCP supervisor inbox server (internal).",
+    ),
+    "uninstall": (
+        "maverick.cli.commands.uninstall:uninstall",
+        "Remove Maverick-installed skills and optionally the CLI itself.",
+    ),
+    "workspace": (
+        "maverick.cli.commands.workspace:workspace",
+        "Manage hidden jj workspaces.",
+    ),
+}
 
-@click.group(invoke_without_command=True)
+
+@click.group(cls=LazyGroup, lazy_subcommands=_LAZY_COMMANDS, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="maverick")
 @click.option(
     "-c",
@@ -143,7 +181,6 @@ def cli(
         commands_needing_config = {"fly"}
 
         if ctx.invoked_subcommand in commands_needing_git_gh:
-            # Check for git and gh CLI tools
             dep_statuses = check_dependencies(["git", "gh"])
 
             # Report any missing dependencies
@@ -175,23 +212,6 @@ def cli(
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
-
-# Register commands
-cli.add_command(brief)
-cli.add_command(flight_plan)
-cli.add_command(fly)
-cli.add_command(init)
-cli.add_command(land)
-cli.add_command(refuel)
-cli.add_command(review)
-cli.add_command(runway)
-cli.add_command(uninstall)
-cli.add_command(workspace)
-
-# Internal commands (used by actor-mailbox infrastructure)
-from maverick.cli.commands.serve_inbox import serve_inbox  # noqa: E402
-
-cli.add_command(serve_inbox)
 
 if __name__ == "__main__":
     cli()

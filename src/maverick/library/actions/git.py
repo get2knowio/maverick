@@ -10,8 +10,17 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from typing import Any
 
+from maverick.library.actions.git_models import (
+    GitBranchResult,
+    GitCommitResult,
+    GitMergeResult,
+    GitOperationResult,
+    GitPushResult,
+    GitStatusResult,
+    SnapshotDiffStats,
+    SnapshotResult,
+)
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,18 +52,14 @@ def _parse_untracked_conflicts(git_output: str) -> list[str]:
 
 async def git_has_changes(
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitStatusResult:
     """Check if there are staged or unstaged changes to commit.
 
     Args:
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - has_staged: True if there are staged changes
-        - has_unstaged: True if there are unstaged changes
-        - has_untracked: True if there are untracked files
-        - has_any: True if any changes exist (staged, unstaged, or untracked)
+        :class:`GitStatusResult` with staged/unstaged/untracked/any flags.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -106,27 +111,27 @@ async def git_has_changes(
             has_any=has_any,
         )
 
-        return {
-            "has_staged": has_staged,
-            "has_unstaged": has_unstaged,
-            "has_untracked": has_untracked,
-            "has_any": has_any,
-        }
+        return GitStatusResult(
+            has_staged=has_staged,
+            has_unstaged=has_unstaged,
+            has_untracked=has_untracked,
+            has_any=has_any,
+        )
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git status check failed: {e}")
         # On error, assume there might be changes to be safe
-        return {
-            "has_staged": True,
-            "has_unstaged": True,
-            "has_untracked": True,
-            "has_any": True,
-        }
+        return GitStatusResult(
+            has_staged=True,
+            has_unstaged=True,
+            has_untracked=True,
+            has_any=True,
+        )
 
 
 async def git_check_and_stage(
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitStatusResult:
     """Check for changes and stage them if any exist.
 
     Combines the check and stage operations into a single action so that
@@ -137,19 +142,14 @@ async def git_check_and_stage(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - has_staged: True if there are staged changes
-        - has_unstaged: True if there are unstaged changes
-        - has_untracked: True if there are untracked files
-        - has_any: True if any changes exist (staged, unstaged, or untracked)
+        :class:`GitStatusResult` describing the change status.
     """
-    # Reuse git_has_changes for the detection logic
     status = await git_has_changes(cwd=cwd)
 
-    if status["has_any"]:
+    if status.has_any:
         stage_result = await git_stage_all(cwd=cwd)
-        if not stage_result["success"]:
-            logger.debug("Failed to stage changes: %s", stage_result.get("error"))
+        if not stage_result.success:
+            logger.debug("Failed to stage changes: %s", stage_result.error)
             # Still return the status so callers know changes exist even
             # though staging failed – downstream steps will see has_any=True
             # and attempt their own staging via git_commit(add_all=True).
@@ -161,7 +161,7 @@ async def git_add(
     paths: list[str] | None = None,
     force: bool = False,
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitOperationResult:
     """Stage specific paths (with optional force for excluded files).
 
     Args:
@@ -170,9 +170,7 @@ async def git_add(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - success: True if staging succeeded
-        - error: Error message if staging failed, None otherwise
+        :class:`GitOperationResult` with ``success`` / ``error``.
     """
     if not paths:
         paths = ["."]
@@ -195,16 +193,16 @@ async def git_add(
             raise RuntimeError(f"git add failed: {stderr.decode()}")
 
         logger.debug("Staged paths", paths=paths, force=force)
-        return {"success": True, "error": None}
+        return GitOperationResult(success=True)
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git add failed: {e}")
-        return {"success": False, "error": str(e)}
+        return GitOperationResult(success=False, error=str(e))
 
 
 async def git_stage_all(
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitOperationResult:
     """Stage all changes including untracked files (git add .).
 
     This is useful before generating commit messages, so that `git diff --cached`
@@ -214,9 +212,7 @@ async def git_stage_all(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - success: True if staging succeeded
-        - error: Error message if staging failed, None otherwise
+        :class:`GitOperationResult` with ``success`` / ``error``.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -234,11 +230,11 @@ async def git_stage_all(
             raise RuntimeError(f"git add failed: {stderr.decode()}")
 
         logger.debug("Staged all changes")
-        return {"success": True, "error": None}
+        return GitOperationResult(success=True)
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git stage all failed: {e}")
-        return {"success": False, "error": str(e)}
+        return GitOperationResult(success=False, error=str(e))
 
 
 async def git_commit(
@@ -246,7 +242,7 @@ async def git_commit(
     add_all: bool = True,
     include_attribution: bool = True,
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitCommitResult:
     """Create a git commit with the given message.
 
     Args:
@@ -256,7 +252,7 @@ async def git_commit(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        GitCommitResult as dict
+        :class:`GitCommitResult`.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -297,13 +293,11 @@ async def git_commit(
         if proc.returncode != 0:
             combined = (stdout_bytes + stderr_bytes).decode(errors="replace")
             if "nothing to commit" in combined:
-                return {
-                    "success": True,
-                    "commit_sha": None,
-                    "files_committed": [],
-                    "message": message,
-                    "nothing_to_commit": True,
-                }
+                return GitCommitResult(
+                    success=True,
+                    message=message,
+                    nothing_to_commit=True,
+                )
             raise RuntimeError(f"git commit failed: {combined}")
 
         # Get commit SHA
@@ -337,29 +331,26 @@ async def git_commit(
             tuple(stdout.decode().strip().split("\n")) if stdout.decode().strip() else ()
         )
 
-        return {
-            "success": True,
-            "commit_sha": commit_sha,
-            "message": message,
-            "files_committed": files_committed,
-            "error": None,
-        }
+        return GitCommitResult(
+            success=True,
+            message=message,
+            commit_sha=commit_sha,
+            files_committed=files_committed,
+        )
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git commit failed: {e}")
-        return {
-            "success": False,
-            "commit_sha": None,
-            "message": message,
-            "files_committed": (),
-            "error": str(e),
-        }
+        return GitCommitResult(
+            success=False,
+            message=message,
+            error=str(e),
+        )
 
 
 async def git_push(
     set_upstream: bool = True,
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitPushResult:
     """Push current branch to remote.
 
     Args:
@@ -367,7 +358,7 @@ async def git_push(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        GitPushResult as dict
+        :class:`GitPushResult`.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -404,30 +395,29 @@ async def git_push(
             stderr = await proc.stderr.read() if proc.stderr else b""
             raise RuntimeError(f"git push failed: {stderr.decode()}")
 
-        return {
-            "success": True,
-            "remote": "origin",
-            "branch": branch,
-            "upstream_set": set_upstream,
-            "error": None,
-        }
+        return GitPushResult(
+            success=True,
+            remote="origin",
+            branch=branch,
+            upstream_set=set_upstream,
+        )
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git push failed: {e}")
-        return {
-            "success": False,
-            "remote": "origin",
-            "branch": "",
-            "upstream_set": False,
-            "error": str(e),
-        }
+        return GitPushResult(
+            success=False,
+            remote="origin",
+            branch="",
+            upstream_set=False,
+            error=str(e),
+        )
 
 
 async def git_merge(
     branch: str,
     no_ff: bool = False,
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitMergeResult:
     """Merge a branch into the current branch.
 
     Args:
@@ -436,11 +426,7 @@ async def git_merge(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - success: True if merge succeeded
-        - branch: The branch that was merged
-        - merge_commit: SHA of the merge commit (or HEAD after fast-forward)
-        - error: Error message if merge failed, None otherwise
+        :class:`GitMergeResult`.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -511,21 +497,19 @@ async def git_merge(
 
         logger.info("Merged branch", branch=branch, merge_commit=merge_commit)
 
-        return {
-            "success": True,
-            "branch": branch,
-            "merge_commit": merge_commit,
-            "error": None,
-        }
+        return GitMergeResult(
+            success=True,
+            branch=branch,
+            merge_commit=merge_commit,
+        )
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Git merge failed: {e}")
-        return {
-            "success": False,
-            "branch": branch,
-            "merge_commit": None,
-            "error": str(e),
-        }
+        return GitMergeResult(
+            success=False,
+            branch=branch,
+            error=str(e),
+        )
 
 
 # Snapshot commits exceeding this many changed files get a warning
@@ -535,21 +519,15 @@ _SNAPSHOT_FILE_THRESHOLD = 10
 
 async def _get_snapshot_diff_stats(
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
-    """Get diff stats for uncommitted changes (files, insertions, deletions).
-
-    Returns dict with file_count, insertions, deletions, files list.
-    """
+) -> SnapshotDiffStats:
+    """Get diff stats for uncommitted changes (files, insertions, deletions)."""
     resolved = _resolve_cwd(cwd)
-    stats: dict[str, Any] = {
-        "file_count": 0,
-        "insertions": 0,
-        "deletions": 0,
-        "files": [],
-    }
+    file_count = 0
+    insertions = 0
+    deletions = 0
+    files: tuple[str, ...] = ()
 
     try:
-        # Get file list (staged + unstaged + untracked)
         proc = await asyncio.create_subprocess_exec(
             "git",
             "diff",
@@ -562,22 +540,19 @@ async def _get_snapshot_diff_stats(
         stdout, _ = await proc.communicate()
         if stdout:
             lines = stdout.decode("utf-8", errors="replace").strip().splitlines()
-            # Last line is summary: " N files changed, M insertions(+), K deletions(-)"
+            # Last line: " N files changed, M insertions(+), K deletions(-)"
             if lines:
                 summary = lines[-1]
-                import re
-
                 m = re.search(r"(\d+) files? changed", summary)
                 if m:
-                    stats["file_count"] = int(m.group(1))
+                    file_count = int(m.group(1))
                 m = re.search(r"(\d+) insertions?", summary)
                 if m:
-                    stats["insertions"] = int(m.group(1))
+                    insertions = int(m.group(1))
                 m = re.search(r"(\d+) deletions?", summary)
                 if m:
-                    stats["deletions"] = int(m.group(1))
+                    deletions = int(m.group(1))
 
-        # Get file names
         proc2 = await asyncio.create_subprocess_exec(
             "git",
             "diff",
@@ -589,22 +564,26 @@ async def _get_snapshot_diff_stats(
         )
         stdout2, _ = await proc2.communicate()
         if stdout2:
-            stats["files"] = [
+            files = tuple(
                 f.strip() for f in stdout2.decode().strip().splitlines() if f.strip()
-            ]
-            # Update count from name-only if stat didn't produce one
-            if not stats["file_count"]:
-                stats["file_count"] = len(stats["files"])
-    except Exception:
-        pass
+            )
+            if not file_count:
+                file_count = len(files)
+    except (RuntimeError, OSError) as e:
+        logger.debug("snapshot_diff_stats_failed", error=str(e))
 
-    return stats
+    return SnapshotDiffStats(
+        file_count=file_count,
+        insertions=insertions,
+        deletions=deletions,
+        files=files,
+    )
 
 
 async def snapshot_uncommitted_changes(
     message: str = "chore: snapshot uncommitted changes before fly",
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> SnapshotResult:
     """Stage and commit all uncommitted changes (staged, unstaged, untracked).
 
     Used by ``maverick fly`` to ensure ``jj git clone`` picks up all local
@@ -619,42 +598,27 @@ async def snapshot_uncommitted_changes(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        Dict with:
-        - success: True if a commit was created or there was nothing to commit
-        - committed: True if a new commit was created
-        - commit_sha: SHA of the new commit (if created)
-        - diff_stats: Dict with file_count, insertions, deletions
-        - warning: Human-readable warning if snapshot is large
-        - error: Error message on failure
+        :class:`SnapshotResult`.
     """
     status = await git_has_changes(cwd=cwd)
-    if not status["has_any"]:
-        return {
-            "success": True,
-            "committed": False,
-            "commit_sha": None,
-            "diff_stats": None,
-            "warning": None,
-            "error": None,
-        }
+    if not status.has_any:
+        return SnapshotResult(success=True, committed=False)
 
-    # Check diff size before committing
     diff_stats = await _get_snapshot_diff_stats(cwd=cwd)
     warning = None
 
-    # Annotate commit message if the snapshot is large
     effective_message = message
-    if diff_stats["file_count"] > _SNAPSHOT_FILE_THRESHOLD:
+    if diff_stats.file_count > _SNAPSHOT_FILE_THRESHOLD:
         warning = (
-            f"Large snapshot: {diff_stats['file_count']} files, "
-            f"+{diff_stats['insertions']}/-{diff_stats['deletions']} lines. "
+            f"Large snapshot: {diff_stats.file_count} files, "
+            f"+{diff_stats.insertions}/-{diff_stats.deletions} lines. "
             "Review before merging — may contain unrelated changes."
         )
         effective_message = (
             f"{message}\n\n"
             f"WARNING: {warning}\n\n"
-            f"Files ({diff_stats['file_count']}):\n"
-            + "\n".join(f"  {f}" for f in diff_stats.get("files", [])[:30])
+            f"Files ({diff_stats.file_count}):\n"
+            + "\n".join(f"  {f}" for f in diff_stats.files[:30])
         )
 
     result = await git_commit(
@@ -663,31 +627,29 @@ async def snapshot_uncommitted_changes(
         include_attribution=False,
         cwd=cwd,
     )
-    if not result["success"]:
-        return {
-            "success": False,
-            "committed": False,
-            "commit_sha": None,
-            "diff_stats": diff_stats,
-            "warning": warning,
-            "error": result.get("error", "commit failed"),
-        }
+    if not result.success:
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            diff_stats=diff_stats,
+            warning=warning,
+            error=result.error or "commit failed",
+        )
 
-    return {
-        "success": True,
-        "committed": True,
-        "commit_sha": result.get("commit_sha"),
-        "diff_stats": diff_stats,
-        "warning": warning,
-        "error": None,
-    }
+    return SnapshotResult(
+        success=True,
+        committed=True,
+        commit_sha=result.commit_sha,
+        diff_stats=diff_stats,
+        warning=warning,
+    )
 
 
 async def create_git_branch(
     branch_name: str,
     base: str = "main",
     cwd: str | Path | None = None,
-) -> dict[str, Any]:
+) -> GitBranchResult:
     """Create or checkout a git branch.
 
     Args:
@@ -696,7 +658,7 @@ async def create_git_branch(
         cwd: Working directory. Defaults to process cwd.
 
     Returns:
-        GitBranchResult as dict
+        :class:`GitBranchResult`.
     """
     resolved = _resolve_cwd(cwd)
     try:
@@ -758,20 +720,19 @@ async def create_git_branch(
                 raise RuntimeError(f"git checkout -b failed: {stderr.decode()}")
             created = True
 
-        return {
-            "success": True,
-            "branch_name": branch_name,
-            "base_branch": base,
-            "created": created,
-            "error": None,
-        }
+        return GitBranchResult(
+            success=True,
+            branch_name=branch_name,
+            base_branch=base,
+            created=created,
+        )
 
     except (RuntimeError, OSError) as e:
         logger.debug(f"Branch operation failed: {e}")
-        return {
-            "success": False,
-            "branch_name": branch_name,
-            "base_branch": base,
-            "created": False,
-            "error": str(e),
-        }
+        return GitBranchResult(
+            success=False,
+            branch_name=branch_name,
+            base_branch=base,
+            created=False,
+            error=str(e),
+        )

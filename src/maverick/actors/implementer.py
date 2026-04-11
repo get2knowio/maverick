@@ -5,15 +5,18 @@ Keeps ACP connection alive across beads. Calls submit_implementation
 and submit_fix_result MCP tools.
 """
 
-import asyncio
 import shutil
 import sys
-import threading
 
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
+from maverick.logging import get_logger
 
-class ImplementerActor(Actor):
+logger = get_logger(__name__)
+
+
+class ImplementerActor(ActorAsyncBridge, Actor):
     """Implements bead work and addresses fix requests."""
 
     def receiveMessage(self, message, sender):
@@ -28,16 +31,12 @@ class ImplementerActor(Actor):
             self._mcp_tools = "submit_implementation,submit_fix_result"
             self._executor = None
             self._session_id = None
-            self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-            self._thread.start()
+            self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "new_bead":
-            # Create fresh ACP session for this bead
             try:
-                future = asyncio.run_coroutine_threadsafe(self._new_session(), self._loop)
-                future.result(timeout=30)
+                self._run_coro(self._new_session(), timeout=30)
                 self.send(sender, {"type": "session_ready"})
             except Exception as exc:
                 self.send(
@@ -56,38 +55,17 @@ class ImplementerActor(Actor):
             self._run_prompt(message, sender, "fix")
 
         elif msg_type == "shutdown":
-            if self._executor:
-                try:
-                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
-                        timeout=5
-                    )
-                except Exception:
-                    pass
+            self._cleanup_executor()
             self.send(sender, {"type": "shutdown_ok"})
 
     def _run_prompt(self, message, sender, phase):
-        print(
-            f"IMPLEMENTER: starting {phase}...",
-            file=sys.stderr,
-            flush=True,
-        )
+        logger.debug("implementer.phase_starting", phase=phase)
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._send_prompt(message, phase), self._loop
-            )
-            future.result(timeout=1800)
-            print(
-                f"IMPLEMENTER: {phase} completed!",
-                file=sys.stderr,
-                flush=True,
-            )
+            self._run_coro(self._send_prompt(message, phase), timeout=1800)
+            logger.debug("implementer.phase_completed", phase=phase)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
-            print(
-                f"IMPLEMENTER: {phase} FAILED: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.error("implementer.phase_failed", phase=phase, error=str(exc))
             self.send(
                 sender,
                 {

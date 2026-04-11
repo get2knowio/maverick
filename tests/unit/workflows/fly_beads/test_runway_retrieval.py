@@ -10,7 +10,7 @@ from maverick.library.actions.types import RunwayRetrievalResult
 from maverick.workflows.fly_beads.models import BeadContext
 from maverick.workflows.fly_beads.steps import fetch_runway_context
 
-_STEPS_MOD = "maverick.workflows.fly_beads.steps"
+_STEPS_MOD = "maverick.workflows.fly_beads._runway"
 
 
 def _make_ctx(**overrides: Any) -> BeadContext:

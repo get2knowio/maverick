@@ -112,7 +112,7 @@ async def _probe_claude_models() -> ProviderModels:
     """Probe Claude for available models via ACP session."""
     try:
         from maverick.executor import create_default_executor
-        from maverick.executor.acp import _get_available_model_ids
+        from maverick.executor._model_resolver import get_available_model_ids
 
         executor = create_default_executor()
         await executor.create_session(
@@ -122,11 +122,11 @@ async def _probe_claude_models() -> ProviderModels:
         )
 
         # Read models from cached connection
-        cached = executor._connections.get("claude")
+        cached = executor._pool.cache.get("claude")
         if cached:
             # Re-create session to get fresh model list
             session = await cached.conn.new_session(cwd=".", mcp_servers=[])
-            _get_available_model_ids(session)
+            get_available_model_ids(session)
 
             # Get display names
             models_info = []

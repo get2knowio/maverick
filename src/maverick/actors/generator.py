@@ -4,15 +4,18 @@ Self-contained: spawns own ACP agent, sends prompt, agent calls
 submit_flight_plan MCP tool → supervisor receives result.
 """
 
-import asyncio
 import shutil
 import sys
-import threading
 
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
+from maverick.logging import get_logger
 
-class GeneratorActor(Actor):
+logger = get_logger(__name__)
+
+
+class GeneratorActor(ActorAsyncBridge, Actor):
     """Generates flight plan from PRD + briefing context."""
 
     def receiveMessage(self, message, sender):
@@ -26,30 +29,21 @@ class GeneratorActor(Actor):
             self._cwd = message.get("cwd")
             self._executor = None
             self._session_id = None
-            self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-            self._thread.start()
+            self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "shutdown":
-            if self._executor:
-                try:
-                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
-                        timeout=5
-                    )
-                except Exception:
-                    pass
+            self._cleanup_executor()
             self.send(sender, {"type": "shutdown_ok"})
 
         elif msg_type == "generate":
-            print("GENERATOR: starting prompt...", file=sys.stderr, flush=True)
+            logger.debug("generator.prompt_starting")
             try:
-                future = asyncio.run_coroutine_threadsafe(self._send_prompt(message), self._loop)
-                future.result(timeout=1800)
-                print("GENERATOR: prompt completed!", file=sys.stderr, flush=True)
+                self._run_coro(self._send_prompt(message), timeout=1800)
+                logger.debug("generator.prompt_completed")
                 self.send(sender, {"type": "prompt_sent", "phase": "generate"})
             except Exception as exc:
-                print(f"GENERATOR: FAILED: {exc}", file=sys.stderr, flush=True)
+                logger.error("generator.prompt_failed", error=str(exc))
                 self.send(
                     sender,
                     {
@@ -134,10 +128,10 @@ class GeneratorActor(Actor):
         text = getattr(result, "text", "") or ""
         output = getattr(result, "output", None)
         success = getattr(result, "success", None)
-        print(
-            f"GENERATOR: result success={success}, "
-            f"text_len={len(text)}, output_type={type(output).__name__}, "
-            f"output_preview={str(output)[:500]}",
-            file=sys.stderr,
-            flush=True,
+        logger.debug(
+            "generator.result",
+            success=success,
+            text_len=len(text),
+            output_type=type(output).__name__,
+            output_preview=str(output)[:500],
         )

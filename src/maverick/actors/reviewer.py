@@ -7,15 +7,18 @@ On follow-up reviews, the session preserves conversation history.
 Also handles aggregate (post-flight) reviews across all beads.
 """
 
-import asyncio
 import shutil
 import sys
-import threading
 
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
+from maverick.logging import get_logger
 
-class ReviewerActor(Actor):
+logger = get_logger(__name__)
+
+
+class ReviewerActor(ActorAsyncBridge, Actor):
     """Reviews code and delivers findings via MCP tool calls."""
 
     def receiveMessage(self, message, sender):
@@ -30,16 +33,13 @@ class ReviewerActor(Actor):
             self._executor = None
             self._session_id = None
             self._review_count = 0
-            self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-            self._thread.start()
+            self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "new_bead":
             self._review_count = 0
             try:
-                future = asyncio.run_coroutine_threadsafe(self._new_session(), self._loop)
-                future.result(timeout=30)
+                self._run_coro(self._new_session(), timeout=30)
                 self.send(sender, {"type": "session_ready"})
             except Exception as exc:
                 self.send(
@@ -59,29 +59,14 @@ class ReviewerActor(Actor):
             self._run_aggregate_review(message, sender)
 
         elif msg_type == "shutdown":
-            if self._executor:
-                try:
-                    asyncio.run_coroutine_threadsafe(self._executor.cleanup(), self._loop).result(
-                        timeout=5
-                    )
-                except Exception:
-                    pass
+            self._cleanup_executor()
             self.send(sender, {"type": "shutdown_ok"})
 
     def _run_prompt(self, message, sender):
-        print(
-            f"REVIEWER: starting review #{self._review_count}...",
-            file=sys.stderr,
-            flush=True,
-        )
+        logger.debug("reviewer.review_starting", review_count=self._review_count)
         try:
-            future = asyncio.run_coroutine_threadsafe(self._send_review(message), self._loop)
-            future.result(timeout=1200)
-            print(
-                f"REVIEWER: review #{self._review_count} completed!",
-                file=sys.stderr,
-                flush=True,
-            )
+            self._run_coro(self._send_review(message), timeout=1200)
+            logger.debug("reviewer.review_completed", review_count=self._review_count)
             self.send(
                 sender,
                 {
@@ -91,11 +76,7 @@ class ReviewerActor(Actor):
                 },
             )
         except Exception as exc:
-            print(
-                f"REVIEWER: review FAILED: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.error("reviewer.review_failed", error=str(exc))
             self.send(
                 sender,
                 {
@@ -107,25 +88,12 @@ class ReviewerActor(Actor):
 
     def _run_aggregate_review(self, message, sender):
         """Run post-flight aggregate review across all beads."""
-        print(
-            f"REVIEWER: starting aggregate review ({message.get('bead_count', 0)} beads)...",
-            file=sys.stderr,
-            flush=True,
-        )
+        bead_count = message.get("bead_count", 0)
+        logger.debug("reviewer.aggregate_starting", bead_count=bead_count)
         try:
-            # Create a fresh session for aggregate review
-            future = asyncio.run_coroutine_threadsafe(self._new_session(), self._loop)
-            future.result(timeout=30)
-
-            future = asyncio.run_coroutine_threadsafe(
-                self._send_aggregate_review(message), self._loop
-            )
-            future.result(timeout=600)
-            print(
-                "REVIEWER: aggregate review completed!",
-                file=sys.stderr,
-                flush=True,
-            )
+            self._run_coro(self._new_session(), timeout=30)
+            self._run_coro(self._send_aggregate_review(message), timeout=600)
+            logger.debug("reviewer.aggregate_completed")
             self.send(
                 sender,
                 {
@@ -134,12 +102,7 @@ class ReviewerActor(Actor):
                 },
             )
         except Exception as exc:
-            print(
-                f"REVIEWER: aggregate review FAILED: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
-            # Don't block completion on aggregate review failure
+            logger.error("reviewer.aggregate_failed", error=str(exc))
             self.send(
                 sender,
                 {

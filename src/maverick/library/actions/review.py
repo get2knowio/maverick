@@ -825,9 +825,11 @@ async def _run_dual_review(
                 output_schema=None,
                 config=_configs.get("correctness_review"),
             )
-            completeness_result, correctness_result = await asyncio.gather(
+            _gathered = await asyncio.gather(
                 completeness_task, correctness_task, return_exceptions=True
             )
+            completeness_result: Any = _gathered[0]
+            correctness_result: Any = _gathered[1]
 
             # Handle results — try file-based output first, fall back
             # to text extraction via ExecutorResult.output

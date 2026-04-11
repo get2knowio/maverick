@@ -53,10 +53,18 @@ class ValidatorActor:
         payload = message.payload
         specs = payload.get("specs", [])
 
+        sc_list = getattr(self._flight_plan, "success_criteria", []) if self._flight_plan else []
+        sc_count = len(sc_list)
+        sc_refs = [
+            getattr(sc, "ref", None) or f"SC-{i + 1:03d}"
+            for i, sc in enumerate(sc_list)
+        ] or self._sc_refs
+
         try:
             validate_decomposition(
                 specs=specs,
-                flight_plan=self._flight_plan,
+                success_criteria_count=sc_count,
+                expected_sc_refs=sc_refs or None,
             )
             return [
                 Message(

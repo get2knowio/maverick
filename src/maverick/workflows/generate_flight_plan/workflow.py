@@ -435,14 +435,14 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Final result
         # ------------------------------------------------------------------
-        result = GenerateFlightPlanResult(
+        final_result = GenerateFlightPlanResult(
             flight_plan_path=str(target_file),
             name=name,
             success_criteria_count=len(flight_plan_output.success_criteria),
             validation_passed=validation_passed,
             briefing_generated=briefing_generated,
         )
-        return result.to_dict()
+        return final_result.to_dict()
 
     async def _generate_with_supervisor(
         self,
@@ -593,7 +593,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         Creates actors for parallel briefing, contrarian, generator,
         validator, and writer. The supervisor routes messages.
         """
-        import asyncio
         import atexit
         import socket
 

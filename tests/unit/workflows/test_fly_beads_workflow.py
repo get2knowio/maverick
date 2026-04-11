@@ -14,6 +14,7 @@ from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
+from maverick.library.actions.git_models import GitStatusResult, SnapshotResult
 from maverick.library.actions.types import (
     CheckEpicDoneResult,
     MarkBeadCompleteResult,
@@ -27,6 +28,10 @@ from maverick.library.actions.types import (
 
 _WF_MOD = "maverick.workflows.fly_beads.workflow"
 _STEPS_MOD = "maverick.workflows.fly_beads.steps"
+_IMPL_MOD = "maverick.workflows.fly_beads._implement"
+_REVIEW_MOD = "maverick.workflows.fly_beads._review"
+_RUNWAY_MOD = "maverick.workflows.fly_beads._runway"
+_COMMIT_MOD = "maverick.workflows.fly_beads._commit"
 
 
 def _make_select_result(
@@ -101,18 +106,16 @@ def _make_mock_actions(
 
     return {
         "preflight_return": preflight,
-        "git_has_changes_return": {
-            "has_staged": False,
-            "has_unstaged": False,
-            "has_untracked": False,
-            "has_any": False,
-        },
-        "snapshot_uncommitted_return": {
-            "success": True,
-            "committed": False,
-            "commit_sha": None,
-            "error": None,
-        },
+        "git_has_changes_return": GitStatusResult(
+            has_staged=False,
+            has_unstaged=False,
+            has_untracked=False,
+            has_any=False,
+        ),
+        "snapshot_uncommitted_return": SnapshotResult(
+            success=True,
+            committed=False,
+        ),
         "workspace_return": {
             "success": True,
             "workspace_path": "/tmp/test_ws",
@@ -177,49 +180,49 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     ("workspace", f"{_WF_MOD}.create_fly_workspace", "workspace_return", _RV),
     ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
-    ("snapshot", f"{_STEPS_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
-    ("describe", f"{_STEPS_MOD}.jj_describe", "describe_return", _RV),
-    ("gate", f"{_STEPS_MOD}.run_independent_gate", "gate_return", _RV),
+    ("snapshot", f"{_IMPL_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
+    ("describe", f"{_IMPL_MOD}.jj_describe", "describe_return", _RV),
+    ("gate", f"{_IMPL_MOD}.run_independent_gate", "gate_return", _RV),
     (
         "gather_ctx",
-        f"{_STEPS_MOD}.gather_local_review_context",
+        f"{_REVIEW_MOD}.gather_local_review_context",
         "review_context_return",
         _RV,
     ),
-    ("review_loop", f"{_STEPS_MOD}.run_review_fix_loop", "review_loop_return", _RV),
+    ("review_loop", f"{_REVIEW_MOD}.run_review_fix_loop", "review_loop_return", _RV),
     (
         "create_findings",
-        f"{_STEPS_MOD}.create_beads_from_findings",
+        f"{_REVIEW_MOD}.create_beads_from_findings",
         "create_findings_return",
         _RV,
     ),
     ("verify", f"{_WF_MOD}.verify_bead_completion", "verify_return", _RV),
-    ("commit", f"{_STEPS_MOD}.jj_commit_bead", "commit_return", _RV),
+    ("commit", f"{_COMMIT_MOD}.jj_commit_bead", "commit_return", _RV),
     (
         "mark_complete_steps",
-        f"{_STEPS_MOD}.mark_bead_complete",
+        f"{_COMMIT_MOD}.mark_bead_complete",
         "mark_complete_return",
         _RV,
     ),
     ("mark_complete", f"{_WF_MOD}.mark_bead_complete", "mark_complete_return", _RV),
     ("check_done", f"{_WF_MOD}.check_epic_done", "check_done_return", _RV),
-    ("restore", f"{_STEPS_MOD}.jj_restore_operation", None, _RV),
+    ("restore", f"{_COMMIT_MOD}.jj_restore_operation", None, _RV),
     ("ws_manager", "maverick.workspace.manager.WorkspaceManager", None, _RV),
     (
         "record_bead_outcome",
-        f"{_STEPS_MOD}.record_bead_outcome",
+        f"{_RUNWAY_MOD}.record_bead_outcome",
         None,
         _RV,
     ),
     (
         "record_review_findings",
-        f"{_STEPS_MOD}.record_review_findings",
+        f"{_RUNWAY_MOD}.record_review_findings",
         None,
         _RV,
     ),
     (
         "retrieve_runway_context",
-        f"{_STEPS_MOD}.retrieve_runway_context",
+        f"{_RUNWAY_MOD}.retrieve_runway_context",
         None,
         _RV,
     ),

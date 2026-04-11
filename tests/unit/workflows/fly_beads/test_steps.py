@@ -20,6 +20,10 @@ from maverick.workflows.fly_beads.steps import (
 )
 
 _STEPS_MOD = "maverick.workflows.fly_beads.steps"
+_IMPL_MOD = "maverick.workflows.fly_beads._implement"
+_REVIEW_MOD = "maverick.workflows.fly_beads._review"
+_RUNWAY_MOD = "maverick.workflows.fly_beads._runway"
+_COMMIT_MOD = "maverick.workflows.fly_beads._commit"
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +90,7 @@ class TestLoadBriefingContext:
         assert load_briefing_context(None) is None
 
     def test_returns_none_for_missing_dir(self, tmp_path: Path) -> None:
-        with patch(f"{_STEPS_MOD}.Path") as mock_path:
+        with patch("maverick.workflows.fly_beads._plan_parsing.Path") as mock_path:
             mock_path.cwd.return_value = tmp_path
             result = load_briefing_context("nonexistent-plan")
         assert result is None
@@ -137,11 +141,11 @@ class TestSnapshotAndDescribe:
 
         with (
             patch(
-                f"{_STEPS_MOD}.jj_snapshot_operation",
+                f"{_IMPL_MOD}.jj_snapshot_operation",
                 new_callable=AsyncMock,
                 return_value={"operation_id": "op42"},
             ),
-            patch(f"{_STEPS_MOD}.jj_describe", new_callable=AsyncMock),
+            patch(f"{_IMPL_MOD}.jj_describe", new_callable=AsyncMock),
         ):
             await snapshot_and_describe(wf, ctx)
 
@@ -245,7 +249,7 @@ class TestRunGateCheck:
         }
 
         with patch(
-            f"{_STEPS_MOD}.run_independent_gate",
+            f"{_IMPL_MOD}.run_independent_gate",
             new_callable=AsyncMock,
             return_value=gate_result,
         ):
@@ -265,7 +269,7 @@ class TestRunGateCheck:
         }
 
         with patch(
-            f"{_STEPS_MOD}.run_independent_gate",
+            f"{_IMPL_MOD}.run_independent_gate",
             new_callable=AsyncMock,
             return_value=gate_result,
         ):
@@ -279,7 +283,7 @@ class TestRunGateCheck:
         ctx = _make_ctx()
 
         with patch(
-            f"{_STEPS_MOD}.run_independent_gate",
+            f"{_IMPL_MOD}.run_independent_gate",
             new_callable=AsyncMock,
             side_effect=RuntimeError("validation runner crashed"),
         ):
@@ -374,21 +378,21 @@ class TestRunReviewAndRemediate:
 
         with (
             patch(
-                f"{_STEPS_MOD}.gather_local_review_context",
+                f"{_REVIEW_MOD}.gather_local_review_context",
                 new_callable=AsyncMock,
                 return_value=MagicMock(to_dict=lambda: {}),
             ),
             patch(
-                f"{_STEPS_MOD}.run_review_fix_loop",
+                f"{_REVIEW_MOD}.run_review_fix_loop",
                 new_callable=AsyncMock,
                 return_value=MagicMock(to_dict=lambda: {"success": True, "issues_remaining": []}),
             ),
             patch(
-                f"{_STEPS_MOD}.record_review_findings",
+                f"{_RUNWAY_MOD}.record_review_findings",
                 new_callable=AsyncMock,
             ),
             patch(
-                f"{_STEPS_MOD}.create_beads_from_findings",
+                f"{_REVIEW_MOD}.create_beads_from_findings",
                 new_callable=AsyncMock,
             ),
         ):
@@ -403,23 +407,23 @@ class TestRunReviewAndRemediate:
 
         with (
             patch(
-                f"{_STEPS_MOD}.gather_local_review_context",
+                f"{_REVIEW_MOD}.gather_local_review_context",
                 new_callable=AsyncMock,
                 return_value=MagicMock(to_dict=lambda: {}),
             ),
             patch(
-                f"{_STEPS_MOD}.run_review_fix_loop",
+                f"{_REVIEW_MOD}.run_review_fix_loop",
                 new_callable=AsyncMock,
                 return_value=MagicMock(
                     to_dict=lambda: {"success": True, "issues_remaining": ["F001"]}
                 ),
             ),
             patch(
-                f"{_STEPS_MOD}.record_review_findings",
+                f"{_RUNWAY_MOD}.record_review_findings",
                 new_callable=AsyncMock,
             ),
             patch(
-                f"{_STEPS_MOD}.create_beads_from_findings",
+                f"{_REVIEW_MOD}.create_beads_from_findings",
                 new_callable=AsyncMock,
             ) as mock_create,
         ):
@@ -433,7 +437,7 @@ class TestRunReviewAndRemediate:
         ctx = _make_ctx()
 
         with patch(
-            f"{_STEPS_MOD}.gather_local_review_context",
+            f"{_REVIEW_MOD}.gather_local_review_context",
             new_callable=AsyncMock,
             side_effect=RuntimeError("review agent down"),
         ):
@@ -454,12 +458,12 @@ class TestCommitBead:
 
         with (
             patch(
-                f"{_STEPS_MOD}.jj_commit_bead",
+                f"{_COMMIT_MOD}.jj_commit_bead",
                 new_callable=AsyncMock,
                 return_value={"success": True},
             ) as mock_commit,
             patch(
-                f"{_STEPS_MOD}.mark_bead_complete",
+                f"{_COMMIT_MOD}.mark_bead_complete",
                 new_callable=AsyncMock,
             ) as mock_mark,
         ):
@@ -483,7 +487,7 @@ class TestRollbackBead:
         ctx = _make_ctx(operation_id="op99")
 
         with patch(
-            f"{_STEPS_MOD}.jj_restore_operation",
+            f"{_COMMIT_MOD}.jj_restore_operation",
             new_callable=AsyncMock,
         ) as mock_restore:
             await rollback_bead(wf, ctx)
@@ -496,7 +500,7 @@ class TestRollbackBead:
         ctx = _make_ctx(operation_id=None)
 
         with patch(
-            f"{_STEPS_MOD}.jj_restore_operation",
+            f"{_COMMIT_MOD}.jj_restore_operation",
             new_callable=AsyncMock,
         ) as mock_restore:
             await rollback_bead(wf, ctx)
@@ -510,7 +514,7 @@ class TestRollbackBead:
             passed=False, reasons=("lint failed", "test failed")
         )
 
-        with patch(f"{_STEPS_MOD}.jj_restore_operation", new_callable=AsyncMock):
+        with patch(f"{_COMMIT_MOD}.jj_restore_operation", new_callable=AsyncMock):
             await rollback_bead(wf, ctx)
 
         output_msg = wf.emit_output.call_args.args[1]

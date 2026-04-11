@@ -190,7 +190,7 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(COMMIT, str(exc))
                 raise
-            commit_sha = commit_result.get("commit_sha")
+            commit_sha = commit_result.commit_sha
             await self.emit_step_completed(COMMIT, output=commit_result)
 
             # Step 8: Checkout main
@@ -209,7 +209,7 @@ class RefuelSpeckitWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(MERGE, str(exc))
                 raise
-            merge_sha = merge_result.get("merge_commit")
+            merge_sha = merge_result.merge_commit
             await self.emit_step_completed(MERGE, output=merge_result)
 
         # ------------------------------------------------------------------

@@ -20,11 +20,13 @@ from maverick.exceptions.agent import (
 )
 from maverick.exceptions.config import ConfigError
 from maverick.exceptions.workflow import ReferenceResolutionError
-from maverick.executor.acp import (
-    AcpStepExecutor,
-    _get_available_model_ids,
-    _resolve_model_for_provider,
+from maverick.executor._model_resolver import (
+    get_available_model_ids as _get_available_model_ids,
 )
+from maverick.executor._model_resolver import (
+    resolve_model_for_provider as _resolve_model_for_provider,
+)
+from maverick.executor.acp import AcpStepExecutor
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
@@ -168,7 +170,7 @@ class TestAcpStepExecutorBasicExecute:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context(accumulated_text="agent output")
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
 
             # Patch get_accumulated_text on the client created by the executor
@@ -212,7 +214,7 @@ class TestAcpStepExecutorBasicExecute:
         )
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
@@ -228,7 +230,7 @@ class TestAcpStepExecutorBasicExecute:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="output"):
                 await executor.execute(
@@ -280,7 +282,7 @@ class TestInstructionsPrepended:
 
         executor = _make_executor(build_prompt_return="the raw prompt")
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
@@ -314,7 +316,7 @@ class TestInstructionsPrepended:
 
         executor = _make_executor(build_prompt_return="raw prompt only")
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""):
                 await executor.execute(
@@ -344,7 +346,7 @@ class TestStructuredOutputFenced:
         executor = _make_executor(build_prompt_return="x")
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -376,7 +378,7 @@ class TestStructuredOutputFenced:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -409,7 +411,7 @@ class TestStructuredOutputBraceMatched:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -445,7 +447,7 @@ class TestStructuredOutputValidationError:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -478,7 +480,7 @@ class TestStructuredOutputEdgeCases:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -501,7 +503,7 @@ class TestStructuredOutputEdgeCases:
         mock_conn, mock_proc = _mock_spawn_context()
 
         # Valid JSON syntax but wrong types for the schema
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -530,7 +532,7 @@ class TestStructuredOutputEdgeCases:
             '```json\n{"message": "last block", "count": 42}\n```'
         )
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -554,7 +556,7 @@ class TestStructuredOutputEdgeCases:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(
                 MaverickAcpClient,
@@ -582,7 +584,7 @@ class TestParseJsonLenient:
 
     def test_escaped_single_quotes_sanitized(self) -> None:
         """LLM-produced \\' in JSON strings should be stripped to bare '."""
-        from maverick.executor.acp import _parse_json_lenient
+        from maverick.executor._json_output import parse_json_lenient as _parse_json_lenient
 
         json_str = '{"summary": "The agent\\\'s output was correct", "count": 1}'
         result = _parse_json_lenient(json_str, "test_step")
@@ -591,7 +593,7 @@ class TestParseJsonLenient:
 
     def test_valid_json_unchanged(self) -> None:
         """Valid JSON passes through without modification."""
-        from maverick.executor.acp import _parse_json_lenient
+        from maverick.executor._json_output import parse_json_lenient as _parse_json_lenient
 
         json_str = '{"message": "hello", "count": 42}'
         result = _parse_json_lenient(json_str, "test_step")
@@ -599,7 +601,7 @@ class TestParseJsonLenient:
 
     def test_truncated_json_repaired(self) -> None:
         """Truncated JSON is repaired by closing open structures."""
-        from maverick.executor.acp import _parse_json_lenient
+        from maverick.executor._json_output import parse_json_lenient as _parse_json_lenient
 
         json_str = '{"message": "hello"'
         result = _parse_json_lenient(json_str, "test_step")
@@ -631,7 +633,7 @@ class TestConnectionCaching:
             async def __aexit__(self, *args: Any) -> None:
                 pass
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _CountingContextManager()
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -682,7 +684,7 @@ class TestConnectionCaching:
             _make_ctx(mock_conn2, mock_proc2, "p2"),
         ]
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.side_effect = side_effects
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -718,7 +720,7 @@ class TestCleanup:
         mock_conn, mock_proc = _mock_spawn_context()
         fake_ctx = _FakeAsyncContextManager(mock_conn, mock_proc)
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = fake_ctx
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -736,7 +738,7 @@ class TestCleanup:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -745,9 +747,9 @@ class TestCleanup:
                     prompt={},
                 )
 
-        assert len(executor._connections) == 1
+        assert len(executor._pool.cache) == 1
         await executor.cleanup()
-        assert len(executor._connections) == 0
+        assert len(executor._pool.cache) == 0
 
     async def test_cleanup_safe_when_no_connections(self) -> None:
         """cleanup() is safe to call with no cached connections."""
@@ -760,7 +762,7 @@ class TestCleanup:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -796,7 +798,7 @@ class TestLifecycleLogging:
 
         executor._logger.info = _capture_info  # type: ignore[assignment]
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -816,7 +818,7 @@ class TestLifecycleLogging:
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -847,7 +849,7 @@ class TestLifecycleLogging:
 
         executor._logger.debug = _capture_debug  # type: ignore[assignment]
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
@@ -890,7 +892,10 @@ class TestMultiProviderScenarios:
             captured_commands.append(command)
             return _FakeAsyncContextManager(mock_conn, mock_proc)
 
-        with patch("maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect):
+        with patch(
+            "maverick.executor._connection_pool.spawn_agent_process",
+            side_effect=_spawn_side_effect,
+        ):
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 await executor.execute(
                     step_name="s",
@@ -922,7 +927,10 @@ class TestMultiProviderScenarios:
             captured_commands.append(command)
             return _FakeAsyncContextManager(mock_conn, mock_proc)
 
-        with patch("maverick.executor.acp.spawn_agent_process", side_effect=_spawn_side_effect):
+        with patch(
+            "maverick.executor._connection_pool.spawn_agent_process",
+            side_effect=_spawn_side_effect,
+        ):
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="out"):
                 # No explicit provider — should use the default ("claude")
                 await executor.execute(
@@ -973,7 +981,7 @@ class TestErrorResilience:
         # Make conn.prompt raise asyncio.TimeoutError (simulates wait_for timeout)
         mock_conn.prompt = AsyncMock(side_effect=TimeoutError())
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with pytest.raises(MaverickTimeoutError):
                 await executor.execute(
@@ -999,7 +1007,7 @@ class TestErrorResilience:
 
         mock_conn.prompt = AsyncMock(side_effect=_prompt_side_effect)
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="success"):
                 with patch("maverick.executor.acp.wait_exponential"):
@@ -1019,7 +1027,7 @@ class TestErrorResilience:
         executor = _make_executor()
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=FileNotFoundError("fake-agent: not found"),
         ):
             with pytest.raises(CLINotFoundError):
@@ -1034,7 +1042,7 @@ class TestErrorResilience:
         executor = _make_executor()
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=OSError("failed to spawn"),
         ):
             with pytest.raises(ProcessError):
@@ -1060,7 +1068,7 @@ class TestErrorResilience:
             side_effect=AcpRequestError(code=500, message="ACP request failed")
         )
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with pytest.raises(NetworkError):
                 await executor.execute(
@@ -1109,7 +1117,7 @@ class TestTransparentReconnect:
             return _FakeAsyncContextManager(mock_conn2, mock_proc2)
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
             with patch.object(
@@ -1136,7 +1144,7 @@ class TestTransparentReconnect:
             side_effect=AcpRequestError(code=503, message="connection lost")
         )
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with pytest.raises(NetworkError):
                 await executor.execute(
@@ -1172,7 +1180,7 @@ class TestTransparentReconnect:
             return _FakeAsyncContextManager(mock_conn2, mock_proc2)
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
             with patch.object(
@@ -1208,7 +1216,7 @@ class TestTransparentReconnect:
             return _FakeAsyncContextManager(mock_conn2, mock_proc2)
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
@@ -1219,8 +1227,8 @@ class TestTransparentReconnect:
                 )
 
         # After reconnect, the cached connection should be the new one (conn2)
-        assert "claude" in executor._connections
-        assert executor._connections["claude"].conn is mock_conn2
+        assert "claude" in executor._pool.cache
+        assert executor._pool.cache["claude"].conn is mock_conn2
 
     async def test_reconnect_logs_attempt_and_success_at_info(self) -> None:
         """_reconnect() logs reconnect_attempt and reconnect_success at INFO level."""
@@ -1249,7 +1257,7 @@ class TestTransparentReconnect:
         executor._logger.info = _capture_info  # type: ignore[assignment]
 
         with patch(
-            "maverick.executor.acp.spawn_agent_process",
+            "maverick.executor._connection_pool.spawn_agent_process",
             side_effect=_spawn_side_effect,
         ):
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
@@ -1538,7 +1546,7 @@ class TestModelValidation:
         mock_session.models = MagicMock(available_models=[model_obj])
         mock_session.config_options = None
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with pytest.raises(AgentError, match="not available"):
                 await executor.execute(
@@ -1559,7 +1567,7 @@ class TestModelValidation:
         mock_session.models = MagicMock(available_models=[m1, m2])
         mock_session.config_options = None
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with pytest.raises(AgentError, match="haiku.*sonnet"):
                 await executor.execute(
@@ -1579,7 +1587,7 @@ class TestModelValidation:
         mock_session.models = MagicMock(available_models=[model_obj])
         mock_session.config_options = None
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="done"):
                 result = await executor.execute(
@@ -1600,7 +1608,7 @@ class TestModelValidation:
         mock_session.models = None
         mock_session.config_options = None
 
-        with patch("maverick.executor.acp.spawn_agent_process") as mock_spawn:
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
             mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
             with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
                 result = await executor.execute(
