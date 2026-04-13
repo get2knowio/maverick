@@ -94,7 +94,5 @@ async def seed(
         console.print(f"  [green]✓[/] {filename} [dim]({format_bytes(size)})[/]")
 
     console.print()
-    console.print(
-        f"[green]✓[/] Runway seeded with {len(result.files_written)} semantic file(s)."
-    )
+    console.print(f"[green]✓[/] Runway seeded with {len(result.files_written)} semantic file(s).")
     raise SystemExit(ExitCode.SUCCESS)

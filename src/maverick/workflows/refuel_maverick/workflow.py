@@ -1153,8 +1153,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             DECOMPOSER_POOL_SIZE = 4
             decomposer_addr = asys.createActor(DecomposerActor)
             decomposer_pool = [
-                asys.createActor(DecomposerActor)
-                for _ in range(DECOMPOSER_POOL_SIZE - 1)
+                asys.createActor(DecomposerActor) for _ in range(DECOMPOSER_POOL_SIZE - 1)
             ]
             validator_addr = asys.createActor(ValidatorActor)
             bead_creator_addr = asys.createActor(BeadCreatorActor)
@@ -1219,8 +1218,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # (~10min per wave) + up to 3 validation/fix rounds (~10min each).
             sc_count = len(flight_plan.success_criteria)
             estimated_units = max(1, int(sc_count * 1.5))
-            detail_waves = max(1, (estimated_units + DECOMPOSER_POOL_SIZE - 1)
-                               // DECOMPOSER_POOL_SIZE)
+            detail_waves = max(
+                1, (estimated_units + DECOMPOSER_POOL_SIZE - 1) // DECOMPOSER_POOL_SIZE
+            )
             # 600s per agent call × (1 outline + N waves + 3 fix rounds)
             drain_timeout = 600.0 * (1 + detail_waves + MAX_DECOMPOSE_ATTEMPTS)
             result = await self._drain_supervisor_events(

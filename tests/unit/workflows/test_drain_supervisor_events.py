@@ -32,9 +32,7 @@ class FakeActorSystem:
         self._replies = list(replies)
         self.asks: list[tuple[Any, dict[str, Any]]] = []
 
-    def ask(
-        self, target: Any, message: dict[str, Any], timeout: float
-    ) -> Any:
+    def ask(self, target: Any, message: dict[str, Any], timeout: float) -> Any:
         self.asks.append((target, dict(message)))
         if not self._replies:
             raise RuntimeError("FakeActorSystem ran out of scripted replies")
@@ -87,19 +85,21 @@ def _events_reply(
 
 def _output(message: str, level: str = "info") -> dict[str, Any]:
     return StepOutput(
-        step_name="fly", message=message, level=level  # type: ignore[arg-type]
+        step_name="fly",
+        message=message,
+        level=level,  # type: ignore[arg-type]
     ).to_dict()
 
 
 class TestDrainBasic:
     async def test_immediate_done_empty_buffer(self) -> None:
         wf = _make_workflow()
-        asys = FakeActorSystem([
-            _events_reply([], next_cursor=0, done=True, result={"success": True}),
-        ])
-        result = await wf._drain_supervisor_events(
-            asys=asys, supervisor="sup", poll_interval=0.01
+        asys = FakeActorSystem(
+            [
+                _events_reply([], next_cursor=0, done=True, result={"success": True}),
+            ]
         )
+        result = await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
         assert result == {"success": True}
         assert wf._event_queue.empty()
         # Exactly one ask, with since=0
@@ -108,17 +108,17 @@ class TestDrainBasic:
 
     async def test_drains_events_into_queue(self) -> None:
         wf = _make_workflow()
-        asys = FakeActorSystem([
-            _events_reply(
-                [_output("one"), _output("two")],
-                next_cursor=2,
-                done=True,
-                result={"success": True},
-            ),
-        ])
-        await wf._drain_supervisor_events(
-            asys=asys, supervisor="sup", poll_interval=0.01
+        asys = FakeActorSystem(
+            [
+                _events_reply(
+                    [_output("one"), _output("two")],
+                    next_cursor=2,
+                    done=True,
+                    result={"success": True},
+                ),
+            ]
         )
+        await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
         queued: list[Any] = []
         while not wf._event_queue.empty():
             queued.append(wf._event_queue.get_nowait())
@@ -129,16 +129,18 @@ class TestDrainBasic:
 
     async def test_multi_poll_advances_cursor(self) -> None:
         wf = _make_workflow()
-        asys = FakeActorSystem([
-            _events_reply([_output("one")], next_cursor=1, done=False),
-            _events_reply([_output("two")], next_cursor=2, done=False),
-            _events_reply(
-                [_output("three")],
-                next_cursor=3,
-                done=True,
-                result={"success": True, "count": 3},
-            ),
-        ])
+        asys = FakeActorSystem(
+            [
+                _events_reply([_output("one")], next_cursor=1, done=False),
+                _events_reply([_output("two")], next_cursor=2, done=False),
+                _events_reply(
+                    [_output("three")],
+                    next_cursor=3,
+                    done=True,
+                    result={"success": True, "count": 3},
+                ),
+            ]
+        )
         result = await wf._drain_supervisor_events(
             asys=asys, supervisor="sup", poll_interval=0.001
         )
@@ -154,43 +156,43 @@ class TestDrainBasic:
 
     async def test_returns_none_when_result_missing(self) -> None:
         wf = _make_workflow()
-        asys = FakeActorSystem([
-            _events_reply([], next_cursor=0, done=True, result=None),
-        ])
-        result = await wf._drain_supervisor_events(
-            asys=asys, supervisor="sup", poll_interval=0.01
+        asys = FakeActorSystem(
+            [
+                _events_reply([], next_cursor=0, done=True, result=None),
+            ]
         )
+        result = await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
         assert result is None
 
     async def test_rehydrates_typed_events(self) -> None:
         wf = _make_workflow()
         started = StepStarted(step_name="impl", step_type=StepType.AGENT).to_dict()
-        asys = FakeActorSystem([
-            _events_reply([started], next_cursor=1, done=True, result={}),
-        ])
-        await wf._drain_supervisor_events(
-            asys=asys, supervisor="sup", poll_interval=0.01
+        asys = FakeActorSystem(
+            [
+                _events_reply([started], next_cursor=1, done=True, result={}),
+            ]
         )
+        await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
         event = wf._event_queue.get_nowait()
         assert isinstance(event, StepStarted)
         assert event.step_type == StepType.AGENT
 
     async def test_skips_undecodable_event_with_warning(self) -> None:
         wf = _make_workflow()
-        asys = FakeActorSystem([
-            _events_reply(
-                [
-                    {"event": "NotARealEvent", "garbage": True},
-                    _output("good"),
-                ],
-                next_cursor=2,
-                done=True,
-                result={},
-            ),
-        ])
-        await wf._drain_supervisor_events(
-            asys=asys, supervisor="sup", poll_interval=0.01
+        asys = FakeActorSystem(
+            [
+                _events_reply(
+                    [
+                        {"event": "NotARealEvent", "garbage": True},
+                        _output("good"),
+                    ],
+                    next_cursor=2,
+                    done=True,
+                    result={},
+                ),
+            ]
         )
+        await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
         queued: list[Any] = []
         while not wf._event_queue.empty():
             queued.append(wf._event_queue.get_nowait())
@@ -203,17 +205,13 @@ class TestDrainErrors:
         wf = _make_workflow()
         asys = FakeActorSystem([{"type": "something_else"}])
         with pytest.raises(WorkflowError, match="unexpected supervisor reply"):
-            await wf._drain_supervisor_events(
-                asys=asys, supervisor="sup", poll_interval=0.01
-            )
+            await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
 
     async def test_none_reply_raises(self) -> None:
         wf = _make_workflow()
         asys = FakeActorSystem([None])
         with pytest.raises(WorkflowError, match="did not reply"):
-            await wf._drain_supervisor_events(
-                asys=asys, supervisor="sup", poll_interval=0.01
-            )
+            await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
 
     async def test_hard_timeout_raises(self) -> None:
         wf = _make_workflow()

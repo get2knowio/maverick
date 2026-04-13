@@ -355,7 +355,9 @@ async def _escalate_to_replan(
                 except Exception as exc:
                     logger.warning(
                         "escalation.dep_wiring_failed",
-                        replan_id=replan_id, bead_id=bid, error=str(exc),
+                        replan_id=replan_id,
+                        bead_id=bid,
+                        error=str(exc),
                     )
 
         label = f" ({replan_id})" if replan_id else ""
@@ -413,7 +415,8 @@ async def _defer_dependent_beads(
                         except Exception as exc:
                             logger.warning(
                                 "defer_bead_failed",
-                                bead_id=blocked_id, error=str(exc),
+                                bead_id=blocked_id,
+                                error=str(exc),
                             )
         except Exception as exc:
             logger.warning("defer_dep_query_failed", bead_id=bid, error=str(exc))

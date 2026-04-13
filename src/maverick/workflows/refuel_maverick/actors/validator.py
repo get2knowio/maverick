@@ -56,8 +56,7 @@ class ValidatorActor:
         sc_list = getattr(self._flight_plan, "success_criteria", []) if self._flight_plan else []
         sc_count = len(sc_list)
         sc_refs = [
-            getattr(sc, "ref", None) or f"SC-{i + 1:03d}"
-            for i, sc in enumerate(sc_list)
+            getattr(sc, "ref", None) or f"SC-{i + 1:03d}" for i, sc in enumerate(sc_list)
         ] or self._sc_refs
 
         try:

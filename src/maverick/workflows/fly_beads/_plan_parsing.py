@@ -134,9 +134,7 @@ def load_work_unit_files(
                 body = parts[2].strip() if len(parts) >= 3 else content
                 result[wu_id] = body
         except (OSError, UnicodeDecodeError) as exc:
-            logger.warning(
-                "work_unit_file_unreadable", file=str(md_file), error=str(exc)
-            )
+            logger.warning("work_unit_file_unreadable", file=str(md_file), error=str(exc))
             continue
 
     return result
@@ -182,7 +180,5 @@ def load_briefing_context(flight_plan_name: str | None) -> str | None:
             try:
                 return briefing_path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
-                logger.warning(
-                    "briefing_file_unreadable", file=str(briefing_path), error=str(exc)
-                )
+                logger.warning("briefing_file_unreadable", file=str(briefing_path), error=str(exc))
     return None

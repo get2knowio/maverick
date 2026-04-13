@@ -356,8 +356,7 @@ async def init(
                 for workflow, actors in actor_configs.items():
                     for actor_name, ac in actors.items():
                         console.print(
-                            f"  {workflow}.{actor_name}: "
-                            f"[cyan]{ac.provider}/{ac.model_id}[/]"
+                            f"  {workflow}.{actor_name}: [cyan]{ac.provider}/{ac.model_id}[/]"
                         )
 
                 # Write actors section to the config file
@@ -383,9 +382,7 @@ async def init(
 
             # Success message
             console.print()
-            console.print(
-                f"[green]✓[/] Configuration written to [bold]{result.config_path}[/]"
-            )
+            console.print(f"[green]✓[/] Configuration written to [bold]{result.config_path}[/]")
 
             # Suggest runway seed if runway initialized and providers available
             if (

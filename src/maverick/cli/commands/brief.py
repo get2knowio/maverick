@@ -397,9 +397,7 @@ async def _brief_human(
         console.print("[dim]All assumption reviews and escalations have been resolved.[/]")
         return
 
-    console.print(
-        f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} awaiting human review"
-    )
+    console.print(f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} awaiting human review")
     console.print()
 
     rows = [

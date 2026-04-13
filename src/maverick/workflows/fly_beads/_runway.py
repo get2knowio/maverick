@@ -148,9 +148,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
     try:
         origin = _json.loads(origin_result.stdout)
     except (ValueError, TypeError) as exc:
-        logger.warning(
-            "runway.provenance_parse_failed", bead_id=origin_id, error=str(exc)
-        )
+        logger.warning("runway.provenance_parse_failed", bead_id=origin_id, error=str(exc))
         return
 
     origin_title = origin.get("title", "")
@@ -164,8 +162,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
     )
     if len(chain) > 1:
         provenance_section += (
-            f"\nFull chain: {' → '.join(f'`{b}`' for b in chain)}"
-            f" → `{ctx.bead_id}` (current)\n"
+            f"\nFull chain: {' → '.join(f'`{b}`' for b in chain)} → `{ctx.bead_id}` (current)\n"
         )
     if origin_desc:
         desc_preview = origin_desc[:500]

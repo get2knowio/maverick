@@ -678,8 +678,7 @@ class PythonWorkflow(ABC):
 
             if reply is None:
                 raise WorkflowError(
-                    "supervisor did not reply to get_events within "
-                    f"{per_ask_timeout_seconds}s",
+                    f"supervisor did not reply to get_events within {per_ask_timeout_seconds}s",
                     workflow_name=self._workflow_name,
                 )
 

@@ -224,8 +224,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._nudge_count += 1
         self._emit_output(
             "refuel",
-            f"No {tool_name} received; nudging decomposer "
-            f"(attempt {self._nudge_count})",
+            f"No {tool_name} received; nudging decomposer (attempt {self._nudge_count})",
             level="warning",
             source=_SOURCE,
         )

@@ -1065,9 +1065,7 @@ class TestEventFromDict:
 
     def test_rollback_started_and_completed(self) -> None:
         started = RollbackStarted(step_name="commit", timestamp=10.0)
-        completed = RollbackCompleted(
-            step_name="commit", success=True, timestamp=11.0
-        )
+        completed = RollbackCompleted(step_name="commit", success=True, timestamp=11.0)
         assert self._round_trip(started) == started
         assert self._round_trip(completed) == completed
 
@@ -1081,9 +1079,7 @@ class TestEventFromDict:
 
     def test_validation_events(self) -> None:
         started = ValidationStarted(workflow_name="refuel", timestamp=13.0)
-        completed = ValidationCompleted(
-            workflow_name="refuel", warnings_count=0, timestamp=14.0
-        )
+        completed = ValidationCompleted(workflow_name="refuel", warnings_count=0, timestamp=14.0)
         failed = ValidationFailed(
             workflow_name="refuel",
             errors=("missing objective", "no criteria"),

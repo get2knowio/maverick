@@ -564,9 +564,7 @@ async def _get_snapshot_diff_stats(
         )
         stdout2, _ = await proc2.communicate()
         if stdout2:
-            files = tuple(
-                f.strip() for f in stdout2.decode().strip().splitlines() if f.strip()
-            )
+            files = tuple(f.strip() for f in stdout2.decode().strip().splitlines() if f.strip())
             if not file_count:
                 file_count = len(files)
     except (RuntimeError, OSError) as e:

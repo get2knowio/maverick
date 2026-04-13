@@ -147,9 +147,7 @@ async def _init_beads(project_path: Path, verbose: bool) -> bool:
                 + (f": {detail}" if detail else "")
             )
     except TimeoutError as exc:
-        raise InitError(
-            f"'bd init' timed out after {_BD_INIT_TIMEOUT_SECONDS}s"
-        ) from exc
+        raise InitError(f"'bd init' timed out after {_BD_INIT_TIMEOUT_SECONDS}s") from exc
     except OSError as exc:
         raise InitError(f"Failed to run 'bd init': {exc}") from exc
 

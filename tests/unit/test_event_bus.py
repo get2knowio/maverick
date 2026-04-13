@@ -132,11 +132,7 @@ class TestHandleGetEvents:
         sup = FakeSupervisor()
         sup._emit(StepStarted(step_name="impl", step_type=StepType.AGENT))
         sup._emit_output("fly", "progress")
-        sup._emit(
-            WorkflowCompleted(
-                workflow_name="fly", success=True, total_duration_ms=100
-            )
-        )
+        sup._emit(WorkflowCompleted(workflow_name="fly", success=True, total_duration_ms=100))
         sup._handle_get_events({"since": 0}, sender="wf")
         reply = sup.sent[0][1]
         assert [e["event"] for e in reply["events"]] == [

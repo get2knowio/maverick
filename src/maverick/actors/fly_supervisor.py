@@ -176,8 +176,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                 self._idle_polls += 1
                 self._emit_output(
                     "fly",
-                    f"No beads ready; waiting "
-                    f"({self._idle_polls}/{self._max_idle_polls})",
+                    f"No beads ready; waiting ({self._idle_polls}/{self._max_idle_polls})",
                     level="info",
                     source=_SOURCE,
                 )
@@ -641,8 +640,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         tag_note = f" [{tag}]" if tag else ""
         self._emit_output(
             "fly",
-            f"Bead {bead_id} committed{tag_note} "
-            f"(total: {len(self._completed_beads)})",
+            f"Bead {bead_id} committed{tag_note} (total: {len(self._completed_beads)})",
             level="warning" if tag == "needs-human-review" else "success",
             source=_SOURCE,
             metadata={
@@ -736,9 +734,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         aggregate = getattr(self, "_aggregate_findings", [])
         has_concerns = len(aggregate) > 0
 
-        concerns_note = (
-            f", {len(aggregate)} aggregate concern(s)" if has_concerns else ""
-        )
+        concerns_note = f", {len(aggregate)} aggregate concern(s)" if has_concerns else ""
         self._emit_output(
             "fly",
             f"Fly complete: {len(self._completed_beads)} bead(s){concerns_note}",
@@ -803,9 +799,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         try:
             asyncio.run(self._async_record_review(findings))
         except Exception as exc:
-            logger.warning(
-                "fly_supervisor.runway_review_record_failed", error=str(exc)
-            )
+            logger.warning("fly_supervisor.runway_review_record_failed", error=str(exc))
 
     async def _async_record_review(self, findings):
         from maverick.library.actions.runway import record_review_findings
