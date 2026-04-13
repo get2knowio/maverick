@@ -380,8 +380,13 @@ async def execute_python_workflow(
         # Display workflow header.
         console.print(f"[bold cyan]Executing workflow: {workflow_name}[/]")
         if run_config.inputs:
-            input_summary = ", ".join(f"{k}=[yellow]{v}[/]" for k, v in run_config.inputs.items())
-            console.print(f"Inputs: {input_summary}")
+            parts: list[str] = []
+            for k, v in run_config.inputs.items():
+                s = str(v)
+                if len(s) > 120:
+                    s = f"({len(s):,} chars)"
+                parts.append(f"{k}=[yellow]{s}[/]")
+            console.print(f"Inputs: {', '.join(parts)}")
         else:
             console.print("Inputs: (none)")
         console.print()
