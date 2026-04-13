@@ -27,6 +27,25 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _work_unit_guidance(flight_plan_content: str) -> str:
+    """Build the work unit count guidance line based on SC count.
+
+    Counts success criteria (``- [ ] ...`` checkboxes) in the flight plan
+    and scales the guidance so the agent produces enough work units to
+    keep each bead independently implementable.
+    """
+    sc_count = flight_plan_content.count("- [ ] ")
+    min_units = max(3, sc_count // 3)
+    suggested_max = max(min_units + 2, int(sc_count * 1.5))
+    return (
+        f"- Produce at least {min_units} work units. For this flight plan"
+        f" ({sc_count} success criteria), up to {suggested_max} work units"
+        f" is reasonable — use as many as needed to keep each bead"
+        f" independently implementable. Do not artificially constrain the"
+        f" count; more focused beads are better than fewer overloaded ones."
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FileContent:
     """Content of a single file for codebase context.
@@ -306,7 +325,7 @@ def build_decomposition_prompt(
 
     instructions = "\n".join(
         [
-            "- Produce 3-15 work units (exceed only with justification)",
+            _work_unit_guidance(flight_plan_content),
             "- Each work unit = one logical change",
             "- CRITICAL: Each work unit should cover at most 2-3 success"
             " criteria. If a single feature area spans 4+ SC items, split it"
@@ -407,7 +426,7 @@ def build_outline_prompt(
 
     instructions = "\n".join(
         [
-            "- Produce 3-15 work units (exceed only with justification)",
+            _work_unit_guidance(flight_plan_content),
             "- Each work unit = one logical change",
             "- CRITICAL CONSTRAINT — INDEPENDENT IMPLEMENTABILITY: Each work"
             " unit must be implementable in a single agent session without"
