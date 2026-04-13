@@ -37,6 +37,13 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
+@pytest.fixture(autouse=True)
+def _mock_bd_init():
+    """Mock bd init — CI doesn't have bd installed."""
+    with patch("maverick.init._init_beads", new_callable=AsyncMock, return_value=True):
+        yield
+
+
 @pytest.fixture
 def git_repo(temp_dir: Path) -> Path:
     """Create a minimal git repository for testing."""

@@ -40,6 +40,12 @@ class TestRefuelGroupRegistered:
 class TestRefuelSpeckitCommand:
     """Tests for 'maverick refuel --from speckit' command."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_bd_available(self):
+        """Mock bd availability — CI doesn't have bd installed."""
+        with patch("shutil.which", return_value="/usr/bin/bd"):
+            yield
+
     def test_missing_name_arg(
         self,
         cli_runner: CliRunner,
