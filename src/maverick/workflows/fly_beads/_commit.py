@@ -288,11 +288,14 @@ async def _escalate_to_replan(
     # --- Gather failure context ---
     chain_titles: dict[str, str] = {}
     for bid in full_chain:
-        with contextlib.suppress(Exception):
+        try:
             r = await runner.run(["bd", "show", bid, "--json"])
             if r.stdout:
                 data = _json.loads(r.stdout)
                 chain_titles[bid] = data.get("title", bid)
+        except Exception as exc:
+            logger.warning("escalation.chain_title_failed", bead_id=bid, error=str(exc))
+            chain_titles[bid] = bid  # fallback to raw ID
 
     review_report = ""
     if ctx.review_result:
@@ -305,10 +308,12 @@ async def _escalate_to_replan(
 
     # --- Supersede the stuck chain (close old beads cleanly) ---
     for bid in full_chain:
-        with contextlib.suppress(Exception):
+        try:
             await runner.run(
                 ["bd", "close", bid, "--reason", f"Superseded by re-planning from {ctx.bead_id}"]
             )
+        except Exception as exc:
+            logger.warning("escalation.close_failed", bead_id=bid, error=str(exc))
 
     # --- Create re-planning bead ---
     try:
@@ -335,15 +340,22 @@ async def _escalate_to_replan(
 
         replan_id = ""
         if result.stdout:
-            with contextlib.suppress(Exception):
+            try:
                 data = _json.loads(result.stdout)
                 replan_id = data.get("id", "")
+            except (ValueError, TypeError) as exc:
+                logger.warning("escalation.replan_parse_failed", error=str(exc))
 
         if replan_id:
             for bid in full_chain:
-                with contextlib.suppress(Exception):
+                try:
                     await runner.run(
                         ["bd", "dep", "add", replan_id, bid, "--type", "discovered-from"]
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "escalation.dep_wiring_failed",
+                        replan_id=replan_id, bead_id=bid, error=str(exc),
                     )
 
         label = f" ({replan_id})" if replan_id else ""
@@ -379,7 +391,7 @@ async def _defer_dependent_beads(
     deferred: set[str] = set()
 
     for bid in chain:
-        with contextlib.suppress(Exception):
+        try:
             r = await runner.run(["bd", "dep", "list", bid, "--json"])
             if not r.stdout:
                 continue
@@ -392,12 +404,19 @@ async def _defer_dependent_beads(
                 if dep.get("type") == "blocks":
                     blocked_id = dep.get("issue_id", "")
                     if blocked_id and blocked_id not in deferred:
-                        with contextlib.suppress(Exception):
+                        try:
                             await defer_bead(
                                 bead_id=blocked_id,
                                 reason=f"Blocked by stuck chain: {' → '.join(chain)}",
                             )
                             deferred.add(blocked_id)
+                        except Exception as exc:
+                            logger.warning(
+                                "defer_bead_failed",
+                                bead_id=blocked_id, error=str(exc),
+                            )
+        except Exception as exc:
+            logger.warning("defer_dep_query_failed", bead_id=bid, error=str(exc))
 
 
 def _build_followup_description(

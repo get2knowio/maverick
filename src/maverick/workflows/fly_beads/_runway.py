@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -94,13 +93,15 @@ async def walk_discovered_from_chain(bead_id: str) -> list[str]:
             break
 
         origin_id = ""
-        with contextlib.suppress(Exception):
+        try:
             deps = _json.loads(result.stdout)
             if isinstance(deps, list):
                 for dep in deps:
                     if isinstance(dep, dict) and dep.get("dependency_type") == "discovered-from":
                         origin_id = dep.get("id", "")
                         break
+        except (ValueError, TypeError) as exc:
+            logger.warning("runway.chain_parse_failed", bead_id=current, error=str(exc))
 
         if not origin_id or origin_id in seen:
             break
@@ -144,29 +145,35 @@ async def resolve_provenance(ctx: BeadContext) -> None:
     if not origin_result.stdout:
         return
 
-    with contextlib.suppress(Exception):
+    try:
         origin = _json.loads(origin_result.stdout)
-        origin_title = origin.get("title", "")
-        origin_desc = origin.get("description", "")
-
-        provenance_section = (
-            f"\n\n## Provenance\n\n"
-            f"This bead was created to address unresolved review"
-            f" findings from bead `{origin_id}`"
-            f" ({origin_title}).\n"
+    except (ValueError, TypeError) as exc:
+        logger.warning(
+            "runway.provenance_parse_failed", bead_id=origin_id, error=str(exc)
         )
-        if len(chain) > 1:
-            provenance_section += (
-                f"\nFull chain: {' → '.join(f'`{b}`' for b in chain)}"
-                f" → `{ctx.bead_id}` (current)\n"
-            )
-        if origin_desc:
-            desc_preview = origin_desc[:500]
-            if len(origin_desc) > 500:
-                desc_preview += "..."
-            provenance_section += f"\n### Original Bead Description\n\n{desc_preview}\n"
+        return
 
-        ctx.description = ctx.description + provenance_section
+    origin_title = origin.get("title", "")
+    origin_desc = origin.get("description", "")
+
+    provenance_section = (
+        f"\n\n## Provenance\n\n"
+        f"This bead was created to address unresolved review"
+        f" findings from bead `{origin_id}`"
+        f" ({origin_title}).\n"
+    )
+    if len(chain) > 1:
+        provenance_section += (
+            f"\nFull chain: {' → '.join(f'`{b}`' for b in chain)}"
+            f" → `{ctx.bead_id}` (current)\n"
+        )
+    if origin_desc:
+        desc_preview = origin_desc[:500]
+        if len(origin_desc) > 500:
+            desc_preview += "..."
+        provenance_section += f"\n### Original Bead Description\n\n{desc_preview}\n"
+
+    ctx.description = ctx.description + provenance_section
 
 
 async def record_runway_outcome(

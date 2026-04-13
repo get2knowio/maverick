@@ -6,12 +6,15 @@ command building. Pure functions — no ACP, no subprocesses.
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from maverick.logging import get_logger
+
 if TYPE_CHECKING:
     from maverick.config import ValidationConfig
+
+logger = get_logger(__name__)
 
 
 def _build_validation_commands(
@@ -130,7 +133,10 @@ def load_work_unit_files(
                 parts = content.split("---", 2)
                 body = parts[2].strip() if len(parts) >= 3 else content
                 result[wu_id] = body
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning(
+                "work_unit_file_unreadable", file=str(md_file), error=str(exc)
+            )
             continue
 
     return result
@@ -173,6 +179,10 @@ def load_briefing_context(flight_plan_name: str | None) -> str | None:
     for candidate in ("refuel-briefing.md", "briefing.md"):
         briefing_path = plan_dir / candidate
         if briefing_path.is_file():
-            with contextlib.suppress(OSError, UnicodeDecodeError):
+            try:
                 return briefing_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                logger.warning(
+                    "briefing_file_unreadable", file=str(briefing_path), error=str(exc)
+                )
     return None

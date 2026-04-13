@@ -343,10 +343,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             await self.emit_step_completed(DERIVE_VERIFICATION)
 
         # Re-read raw content in case VP was appended
-        import contextlib
-
-        with contextlib.suppress(Exception):
+        try:
             raw_content = await asyncio.to_thread(flight_plan_path.read_text, "utf-8")
+        except OSError as exc:
+            logger.warning(
+                "refuel.flight_plan_reread_failed",
+                path=str(flight_plan_path),
+                error=str(exc),
+            )
 
         briefing_doc = None
         briefing_path_str: str | None = None

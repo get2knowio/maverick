@@ -69,10 +69,10 @@ async def wait_for_process(proc: Any, timeout: float = 3.0) -> None:
     except (TimeoutError, asyncio.CancelledError):
         with contextlib.suppress(OSError, ProcessLookupError):
             proc.kill()
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
             await asyncio.wait_for(proc.wait(), timeout=1.0)
-    except Exception:
-        pass
+    except (OSError, ProcessLookupError, TypeError):
+        pass  # Process already gone or not a real subprocess
 
 
 class ConnectionPool:

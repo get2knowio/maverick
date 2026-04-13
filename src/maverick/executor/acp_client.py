@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -291,11 +290,10 @@ def _extract_text_content(content: Any) -> str:
 
 
 async def _fire_callback(callback: EventCallback | None, chunk: AgentStreamChunk) -> None:
-    """Await async callback directly (best-effort; exceptions are swallowed).
+    """Await async event callback.
 
-    Because session_update is async, we can await the callback directly rather
-    than scheduling a fire-and-forget task. This avoids unhandled task
-    exceptions and removes the deprecated asyncio.get_event_loop() call.
+    Exceptions are logged at warning level but not propagated — a broken
+    progress indicator should not crash the agent execution.
 
     Args:
         callback: Async event callback, or None.
@@ -303,8 +301,10 @@ async def _fire_callback(callback: EventCallback | None, chunk: AgentStreamChunk
     """
     if callback is None:
         return
-    with contextlib.suppress(Exception):
+    try:
         await callback(chunk)
+    except Exception:
+        get_logger(__name__).warning("event_callback_failed")
 
 
 def _make_allow_response(options: list[PermissionOption]) -> RequestPermissionResponse:
