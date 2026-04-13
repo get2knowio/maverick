@@ -162,26 +162,16 @@ class PlanSupervisor:
         from maverick.agents.preflight_briefing.prompts import (
             build_preflight_contrarian_prompt,
         )
-        from maverick.preflight_briefing.models import (
-            CodebaseAnalystBrief,
-            CriteriaWriterBrief,
-            ScopistBrief,
-        )
 
         contrarian = self._actors.get("contrarian")
         if contrarian is None:
             return
 
-        def _coerce(data: Any, model: type[Any]) -> Any:
-            if isinstance(data, model):
-                return data
-            return model.model_validate(data or {})
-
         prompt = build_preflight_contrarian_prompt(
             self._prd_content,
-            _coerce(self._briefs.get("scopist"), ScopistBrief),
-            _coerce(self._briefs.get("codebase_analyst"), CodebaseAnalystBrief),
-            _coerce(self._briefs.get("criteria_writer"), CriteriaWriterBrief),
+            self._briefs.get("scopist") or {},
+            self._briefs.get("codebase_analyst") or {},
+            self._briefs.get("criteria_writer") or {},
         )
 
         msg = self._make_message(

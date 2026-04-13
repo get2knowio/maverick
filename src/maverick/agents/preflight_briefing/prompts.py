@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from maverick.preflight_briefing.models import (
-        CodebaseAnalystBrief,
-        CriteriaWriterBrief,
-        ScopistBrief,
-    )
+import json
+from typing import Any
 
 
 def build_preflight_briefing_prompt(prd_content: str) -> str:
@@ -30,9 +24,9 @@ def build_preflight_briefing_prompt(prd_content: str) -> str:
 
 def build_preflight_contrarian_prompt(
     prd_content: str,
-    scopist: ScopistBrief,
-    codebase_analyst: CodebaseAnalystBrief,
-    criteria_writer: CriteriaWriterBrief,
+    scopist: dict[str, Any],
+    codebase_analyst: dict[str, Any],
+    criteria_writer: dict[str, Any],
 ) -> str:
     """Build the prompt for the PreFlightContrarian agent.
 
@@ -40,16 +34,16 @@ def build_preflight_contrarian_prompt(
 
     Args:
         prd_content: Raw PRD Markdown content.
-        scopist: ScopistBrief from the scopist agent.
-        codebase_analyst: CodebaseAnalystBrief from the codebase analyst agent.
-        criteria_writer: CriteriaWriterBrief from the criteria writer agent.
+        scopist: Raw dict from scopist MCP tool call.
+        codebase_analyst: Raw dict from codebase analyst MCP tool call.
+        criteria_writer: Raw dict from criteria writer MCP tool call.
 
     Returns:
         Formatted prompt with PRD and all 3 agent briefs.
     """
-    scopist_json = scopist.model_dump_json(indent=2)
-    analyst_json = codebase_analyst.model_dump_json(indent=2)
-    criteria_json = criteria_writer.model_dump_json(indent=2)
+    scopist_json = json.dumps(scopist, indent=2)
+    analyst_json = json.dumps(codebase_analyst, indent=2)
+    criteria_json = json.dumps(criteria_writer, indent=2)
     return (
         f"## PRD Content\n\n{prd_content}"
         f"\n\n## Scopist Brief\n\n```json\n{scopist_json}\n```"

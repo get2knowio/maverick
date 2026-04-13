@@ -198,7 +198,7 @@ def test_sample_config_structure(sample_config: MaverickConfig) -> None:
     assert sample_config.github.owner == "test-org"
     assert sample_config.github.repo == "test-repo"
     assert sample_config.github.default_branch == "main"
-    assert sample_config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert sample_config.model.model_id == "sonnet"
     assert sample_config.model.max_tokens == 4096
     assert sample_config.parallel.max_agents == 2
 
@@ -419,7 +419,7 @@ async def test_agent_with_config_and_mock_client(
     mock_sdk_client.queue_response([mock_text_message("Review complete"), mock_result_message()])
 
     # Verify config is available
-    assert sample_config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert sample_config.model.model_id == "sonnet"
 
     # Verify mock client works
     messages = [msg async for msg in mock_sdk_client.receive_response()]

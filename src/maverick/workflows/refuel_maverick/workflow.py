@@ -923,14 +923,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         error=str(exc),
                     )
 
-            await self.emit_output(
-                CREATE_BEADS,
-                f"Created epic: {flight_plan.name}",
-            )
-            await self.emit_output(
-                CREATE_BEADS,
-                f"Created {len(bead_result.work_beads)} task beads",
-            )
             if bead_result.errors:
                 for error in bead_result.errors:
                     await self.emit_output(
@@ -939,6 +931,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         level="error",
                     )
                 raise WorkflowError(f"Failed to create {len(bead_result.errors)} beads")
+
+            await self.emit_output(
+                CREATE_BEADS,
+                f"Created epic: {flight_plan.name}",
+            )
+            await self.emit_output(
+                CREATE_BEADS,
+                f"Created {len(bead_result.work_beads)} task beads",
+            )
             await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
 
             # Step 7: Wire dependencies

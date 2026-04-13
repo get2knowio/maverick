@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.preflight_briefing.models import PreFlightContrarianBrief
 
 PREFLIGHT_CONTRARIAN_SYSTEM_PROMPT = f"""You are a devil's advocate for PRD analysis.
 
@@ -79,7 +78,6 @@ class PreFlightContrarianAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=PreFlightContrarianBrief,
         )
 
     def build_prompt(self, context: str) -> str:

@@ -2,142 +2,124 @@
 
 from __future__ import annotations
 
-from maverick.preflight_briefing.models import (
-    CodebaseAnalystBrief,
-    CriteriaWriterBrief,
-    PreFlightBriefingDocument,
-    PreFlightContrarianBrief,
-    ScopistBrief,
-)
-from maverick.preflight_briefing.serializer import serialize_preflight_briefing
+from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
 
 
-def _make_minimal_doc() -> PreFlightBriefingDocument:
-    return PreFlightBriefingDocument(
-        prd_name="test-prd",
-        created="2026-03-06T00:00:00+00:00",
-        scopist=ScopistBrief(
-            in_scope_items=(),
-            out_of_scope_items=(),
-            boundaries=(),
-            scope_rationale="",
-            summary="Scopist summary",
-        ),
-        codebase_analyst=CodebaseAnalystBrief(
-            relevant_modules=(),
-            existing_patterns=(),
-            integration_points=(),
-            complexity_assessment="",
-            summary="Analyst summary",
-        ),
-        criteria_writer=CriteriaWriterBrief(
-            success_criteria=(),
-            objective_draft="",
-            measurability_notes="",
-            summary="Criteria summary",
-        ),
-        contrarian=PreFlightContrarianBrief(
-            scope_challenges=(),
-            criteria_challenges=(),
-            missing_considerations=(),
-            consensus_points=(),
-            summary="Contrarian summary",
-        ),
-        key_scope_items=(),
-        key_criteria=(),
-        open_questions=(),
-    )
-
-
-class TestSerializePreflightBriefing:
+class TestSerializeBriefsToMarkdown:
     def test_has_title(self) -> None:
-        result = serialize_preflight_briefing(_make_minimal_doc())
+        result = serialize_briefs_to_markdown("test-prd")
+        # No briefs → empty string
+        assert result == ""
+
+    def test_scope_in_scope_items(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            scope={"in_scope": ["Add auth", "Add tests"]},
+        )
         assert "# Pre-Flight Briefing: test-prd" in result
-
-    def test_has_summary_section(self) -> None:
-        result = serialize_preflight_briefing(_make_minimal_doc())
-        assert "## Agent Summaries" in result
-        assert "### Scopist" in result
-        assert "Scopist summary" in result
-        assert "### Codebase Analyst" in result
-        assert "### Criteria Writer" in result
-        assert "### Contrarian" in result
-
-    def test_scope_items_omitted_when_empty(self) -> None:
-        result = serialize_preflight_briefing(_make_minimal_doc())
-        assert "## Key Scope Items" not in result
-
-    def test_scope_items_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(update={"key_scope_items": ("Add auth", "Add tests")})
-        result = serialize_preflight_briefing(doc)
-        assert "## Key Scope Items" in result
+        assert "## In Scope" in result
         assert "- Add auth" in result
         assert "- Add tests" in result
 
-    def test_criteria_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(update={"key_criteria": ("Tests pass",)})
-        result = serialize_preflight_briefing(doc)
-        assert "## Success Criteria" in result
-        assert "- Tests pass" in result
-
-    def test_open_questions_present_when_populated(self) -> None:
-        doc = _make_minimal_doc().model_copy(update={"open_questions": ("Rate limiting?",)})
-        result = serialize_preflight_briefing(doc)
-        assert "## Open Questions" in result
-        assert "- Rate limiting?" in result
-
-    def test_out_of_scope_rendered(self) -> None:
-        scopist = ScopistBrief(
-            in_scope_items=(),
-            out_of_scope_items=("Mobile app",),
-            boundaries=(),
-            scope_rationale="",
-            summary="S",
+    def test_scope_out_of_scope(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            scope={"in_scope": ["X"], "out_scope": ["Mobile app"]},
         )
-        doc = _make_minimal_doc().model_copy(update={"scopist": scopist})
-        result = serialize_preflight_briefing(doc)
         assert "## Out of Scope" in result
         assert "- Mobile app" in result
 
-    def test_relevant_modules_rendered(self) -> None:
-        analyst = CodebaseAnalystBrief(
-            relevant_modules=("src/auth/",),
-            existing_patterns=(),
-            integration_points=(),
-            complexity_assessment="",
-            summary="A",
+    def test_scope_boundaries(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            scope={"in_scope": ["X"], "boundaries": ["Server-side only"]},
         )
-        doc = _make_minimal_doc().model_copy(update={"codebase_analyst": analyst})
-        result = serialize_preflight_briefing(doc)
+        assert "## Scope Boundaries" in result
+        assert "- Server-side only" in result
+
+    def test_analysis_modules(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            analysis={"modules": ["src/auth/"]},
+        )
         assert "## Relevant Modules" in result
         assert "- src/auth/" in result
 
-    def test_scope_challenges_rendered(self) -> None:
-        contrarian = PreFlightContrarianBrief(
-            scope_challenges=("Too broad",),
-            criteria_challenges=(),
-            missing_considerations=(),
-            consensus_points=(),
-            summary="C",
+    def test_analysis_patterns(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            analysis={"modules": ["X"], "patterns": ["MaverickAgent pattern"]},
         )
-        doc = _make_minimal_doc().model_copy(update={"contrarian": contrarian})
-        result = serialize_preflight_briefing(doc)
-        assert "## Scope Challenges" in result
+        assert "## Existing Patterns" in result
+        assert "- MaverickAgent pattern" in result
+
+    def test_criteria_list(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            criteria={"criteria": ["Tests pass", "Lint clean"]},
+        )
+        assert "## Success Criteria" in result
+        assert "- Tests pass" in result
+        assert "- Lint clean" in result
+
+    def test_challenge_risks(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            challenge={"risks": ["Too broad"]},
+        )
+        assert "## Risks & Challenges" in result
         assert "- Too broad" in result
 
-    def test_consensus_rendered(self) -> None:
-        contrarian = PreFlightContrarianBrief(
-            scope_challenges=(),
-            criteria_challenges=(),
-            missing_considerations=(),
-            consensus_points=("Use existing patterns",),
-            summary="C",
+    def test_challenge_open_questions(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            challenge={"risks": ["X"], "open_questions": ["Rate limiting?"]},
         )
-        doc = _make_minimal_doc().model_copy(update={"contrarian": contrarian})
-        result = serialize_preflight_briefing(doc)
+        assert "## Open Questions" in result
+        assert "- Rate limiting?" in result
+
+    def test_challenge_consensus(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "test-prd",
+            challenge={"risks": ["X"], "consensus_points": ["Use existing patterns"]},
+        )
         assert "## Consensus Points" in result
         assert "- Use existing patterns" in result
 
+    def test_all_briefs_combined(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "plan",
+            scope={"in_scope": ["Auth"]},
+            analysis={"modules": ["src/auth/"]},
+            criteria={"criteria": ["Tests pass"]},
+            challenge={"risks": ["Scope creep"]},
+        )
+        assert "## In Scope" in result
+        assert "## Relevant Modules" in result
+        assert "## Success Criteria" in result
+        assert "## Risks & Challenges" in result
+
     def test_returns_string(self) -> None:
-        result = serialize_preflight_briefing(_make_minimal_doc())
+        result = serialize_briefs_to_markdown(
+            "plan",
+            scope={"in_scope": ["X"]},
+        )
         assert isinstance(result, str)
+
+    def test_tolerates_legacy_field_names(self) -> None:
+        """Accepts both MCP tool field names and legacy Pydantic field names."""
+        result = serialize_briefs_to_markdown(
+            "plan",
+            scope={"in_scope_items": ["Auth"], "out_of_scope_items": ["Mobile"]},
+        )
+        assert "- Auth" in result
+        assert "- Mobile" in result
+
+    def test_summary_fields(self) -> None:
+        result = serialize_briefs_to_markdown(
+            "plan",
+            scope={"in_scope": ["X"], "summary": "Scope is tight"},
+            analysis={"modules": ["Y"], "summary": "Codebase is clean"},
+        )
+        assert "Scope is tight" in result
+        assert "Codebase is clean" in result

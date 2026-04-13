@@ -232,18 +232,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 build_preflight_briefing_prompt,
                 build_preflight_contrarian_prompt,
             )
-            from maverick.preflight_briefing.models import (
-                CodebaseAnalystBrief,
-                CriteriaWriterBrief,
-                PreFlightContrarianBrief,
-                ScopistBrief,
-            )
-            from maverick.preflight_briefing.serializer import (
-                serialize_preflight_briefing,
-            )
-            from maverick.preflight_briefing.synthesis import (
-                synthesize_preflight_briefing,
-            )
+            from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
 
             await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
 
@@ -257,7 +246,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                         agent_name="scopist",
                         label="Scopist",
                         prompt=briefing_prompt,
-                        output_schema=ScopistBrief,
                         parent_step=BRIEFING,
                     ),
                     self.execute_agent(
@@ -265,7 +253,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                         agent_name="codebase_analyst",
                         label="CodebaseAnalyst",
                         prompt=briefing_prompt,
-                        output_schema=CodebaseAnalystBrief,
                         parent_step=BRIEFING,
                     ),
                     self.execute_agent(
@@ -273,7 +260,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                         agent_name="criteria_writer",
                         label="CriteriaWriter",
                         prompt=briefing_prompt,
-                        output_schema=CriteriaWriterBrief,
                         parent_step=BRIEFING,
                     ),
                 )
@@ -297,43 +283,28 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     agent_name="preflight_contrarian",
                     label="Contrarian",
                     prompt=contrarian_prompt,
-                    output_schema=PreFlightContrarianBrief,
                     parent_step=BRIEFING,
                 )
 
                 if not contrarian_result.output:
                     raise WorkflowError("Contrarian agent returned no output")
 
-                # Synthesize (deterministic)
-                briefing_doc = synthesize_preflight_briefing(
+                # Synthesize to markdown (deterministic)
+                briefing_content = serialize_briefs_to_markdown(
                     name,
-                    scopist_result.output,
-                    analyst_result.output,
-                    criteria_result.output,
-                    contrarian_result.output,
+                    scope=scopist_result.output,
+                    analysis=analyst_result.output,
+                    criteria=criteria_result.output,
+                    challenge=contrarian_result.output,
                 )
-
-                briefing_content = serialize_preflight_briefing(briefing_doc)
                 briefing_generated = True
 
             except Exception as exc:
                 await self.emit_step_failed(BRIEFING, str(exc))
                 raise
 
-            await self.emit_output(
-                BRIEFING,
-                f"Briefing complete: {len(briefing_doc.key_scope_items)} scope items, "
-                f"{len(briefing_doc.key_criteria)} criteria, "
-                f"{len(briefing_doc.open_questions)} open questions",
-            )
-            await self.emit_step_completed(
-                BRIEFING,
-                output={
-                    "key_scope_items": list(briefing_doc.key_scope_items),
-                    "key_criteria": list(briefing_doc.key_criteria),
-                    "open_questions": list(briefing_doc.open_questions),
-                },
-            )
+            await self.emit_output(BRIEFING, "Briefing complete")
+            await self.emit_step_completed(BRIEFING)
 
         # ------------------------------------------------------------------
         # Step 3: Generate flight plan via agent

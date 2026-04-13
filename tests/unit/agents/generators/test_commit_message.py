@@ -17,7 +17,7 @@ class TestCommitMessageGeneratorConstruction:
 
         assert generator.name == "commit-message-generator"
         assert "conventional commit" in generator.system_prompt.lower()
-        assert generator.model == "claude-sonnet-4-5-20250929"
+        assert generator.model == "sonnet"
 
     def test_construction_with_custom_model(self) -> None:
         """Test construction with custom model."""

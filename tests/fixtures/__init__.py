@@ -71,7 +71,7 @@ Fixtures:
 Example:
     >>> def test_config_usage(sample_config):
     ...     assert sample_config.github.owner == "test-org"
-    ...     assert sample_config.model.model_id == "claude-sonnet-4-5-20250929"
+    ...     assert sample_config.model.model_id == "sonnet"
 
 Sample Responses (from tests/fixtures/responses.py)
 ---------------------------------------------------

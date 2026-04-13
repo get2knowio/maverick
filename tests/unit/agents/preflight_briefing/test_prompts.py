@@ -6,40 +6,18 @@ from maverick.agents.preflight_briefing.prompts import (
     build_preflight_briefing_prompt,
     build_preflight_contrarian_prompt,
 )
-from maverick.preflight_briefing.models import (
-    CodebaseAnalystBrief,
-    CriteriaWriterBrief,
-    ScopistBrief,
-)
 
 
-def _make_scopist() -> ScopistBrief:
-    return ScopistBrief(
-        in_scope_items=("Add auth",),
-        out_of_scope_items=(),
-        boundaries=(),
-        scope_rationale="Core requirement",
-        summary="Scopist summary",
-    )
+def _make_scopist() -> dict:
+    return {"in_scope": ["Add auth"], "summary": "Scopist summary"}
 
 
-def _make_codebase_analyst() -> CodebaseAnalystBrief:
-    return CodebaseAnalystBrief(
-        relevant_modules=("src/auth/",),
-        existing_patterns=(),
-        integration_points=(),
-        complexity_assessment="Low",
-        summary="Analyst summary",
-    )
+def _make_codebase_analyst() -> dict:
+    return {"modules": ["src/auth/"], "summary": "Analyst summary"}
 
 
-def _make_criteria_writer() -> CriteriaWriterBrief:
-    return CriteriaWriterBrief(
-        success_criteria=("Tests pass",),
-        objective_draft="Implement auth",
-        measurability_notes="All testable",
-        summary="Criteria summary",
-    )
+def _make_criteria_writer() -> dict:
+    return {"criteria": ["Tests pass"], "summary": "Criteria summary"}
 
 
 class TestBuildPreflightBriefingPrompt:

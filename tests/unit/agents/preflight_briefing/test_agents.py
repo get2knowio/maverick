@@ -20,12 +20,6 @@ from maverick.agents.preflight_briefing.scopist import (
     ScopistAgent,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.preflight_briefing.models import (
-    CodebaseAnalystBrief,
-    CriteriaWriterBrief,
-    PreFlightContrarianBrief,
-    ScopistBrief,
-)
 
 
 class TestScopistAgent:
@@ -48,11 +42,10 @@ class TestScopistAgent:
         agent = ScopistAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
+    def test_no_output_model(self) -> None:
+        """Agents use MCP tools, not output_schema."""
         agent = ScopistAgent()
-        assert agent._output_model is ScopistBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
+        assert agent._output_model is None
 
     def test_build_prompt_passthrough(self) -> None:
         agent = ScopistAgent()
@@ -62,8 +55,8 @@ class TestScopistAgent:
         assert "scope" in SCOPIST_SYSTEM_PROMPT.lower()
 
     def test_custom_model(self) -> None:
-        agent = ScopistAgent(model="claude-sonnet-4-5-20250929")
-        assert agent.model == "claude-sonnet-4-5-20250929"
+        agent = ScopistAgent(model="claude-sonnet-4-6-20250514")
+        assert agent.model == "claude-sonnet-4-6-20250514"
 
 
 class TestCodebaseAnalystAgent:
@@ -79,11 +72,9 @@ class TestCodebaseAnalystAgent:
         agent = CodebaseAnalystAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
+    def test_no_output_model(self) -> None:
         agent = CodebaseAnalystAgent()
-        assert agent._output_model is CodebaseAnalystBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
+        assert agent._output_model is None
 
     def test_build_prompt_passthrough(self) -> None:
         agent = CodebaseAnalystAgent()
@@ -106,11 +97,9 @@ class TestCriteriaWriterAgent:
         agent = CriteriaWriterAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
+    def test_no_output_model(self) -> None:
         agent = CriteriaWriterAgent()
-        assert agent._output_model is CriteriaWriterBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
+        assert agent._output_model is None
 
     def test_build_prompt_passthrough(self) -> None:
         agent = CriteriaWriterAgent()
@@ -133,11 +122,9 @@ class TestPreFlightContrarianAgent:
         agent = PreFlightContrarianAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
+    def test_no_output_model(self) -> None:
         agent = PreFlightContrarianAgent()
-        assert agent._output_model is PreFlightContrarianBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
+        assert agent._output_model is None
 
     def test_build_prompt_passthrough(self) -> None:
         agent = PreFlightContrarianAgent()

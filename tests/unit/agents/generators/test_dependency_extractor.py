@@ -13,7 +13,7 @@ class TestDependencyExtractorConstruction:
 
         assert extractor.name == "dependency-extractor"
         assert "dependency" in extractor.system_prompt.lower()
-        assert extractor.model == "claude-sonnet-4-5-20250929"
+        assert extractor.model == "sonnet"
 
     def test_construction_with_custom_model(self) -> None:
         extractor = DependencyExtractor(model="claude-opus-4-5-20250929")

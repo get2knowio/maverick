@@ -26,7 +26,7 @@ def sample_config() -> dict[str, Any]:
             "default_branch": "main",
         },
         "model": {
-            "model_id": "claude-sonnet-4-5-20250929",
+            "model_id": "sonnet",
             "max_tokens": 4096,
             "temperature": 0.0,
         },

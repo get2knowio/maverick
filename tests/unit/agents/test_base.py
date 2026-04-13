@@ -134,7 +134,7 @@ class TestMaverickAgentInitialization:
         )
 
         assert agent.model == DEFAULT_MODEL
-        assert agent.model == "claude-sonnet-4-5-20250929"
+        assert agent.model == "sonnet"
 
     def test_model_can_be_overridden(self) -> None:
         """Test model can be overridden with custom value."""

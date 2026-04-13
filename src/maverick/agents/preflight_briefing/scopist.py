@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.preflight_briefing.models import ScopistBrief
 
 SCOPIST_SYSTEM_PROMPT = f"""You are a scope analysis specialist for software PRDs.
 
@@ -56,9 +55,8 @@ You have access to: **Read, Glob, Grep**
 class ScopistAgent(MaverickAgent[str, dict[str, Any]]):
     """Agent that analyzes PRD scope against the codebase.
 
-    Type Parameters:
-        Context: str — the full prompt text.
-        Result: dict[str, Any] — structured output matching ScopistBrief.
+    Output is delivered via the ``submit_scope`` MCP tool call, not
+    via structured JSON in the text response.
     """
 
     def __init__(
@@ -76,7 +74,6 @@ class ScopistAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=ScopistBrief,
         )
 
     def build_prompt(self, context: str) -> str:

@@ -54,7 +54,7 @@ notifications:
   enabled: false
 
 model:
-  model_id: "claude-sonnet-4-5-20250929"
+  model_id: "sonnet"
   max_tokens: 4096
   temperature: 0.5
 

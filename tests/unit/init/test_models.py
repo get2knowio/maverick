@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from maverick.constants import CLAUDE_HAIKU_LATEST
+from maverick.constants import CLAUDE_HAIKU_LATEST, CLAUDE_OPUS_LATEST, CLAUDE_SONNET_LATEST
 from maverick.init.models import (
     MARKER_FILE_MAP,
     MODEL_NAME_MAP,
@@ -1041,7 +1041,7 @@ class TestInitModelConfig:
     def test_create_with_defaults(self) -> None:
         """Test creating InitModelConfig with default values."""
         config = InitModelConfig()
-        assert config.model_id == "claude-sonnet-4-5-20250929"
+        assert config.model_id == "sonnet"
         assert config.max_tokens == 64000
         assert config.temperature == 0.0
 
@@ -1061,7 +1061,7 @@ class TestInitModelConfig:
         config = InitModelConfig()
         output = config.model_dump()
         assert output == {
-            "model_id": "claude-sonnet-4-5-20250929",
+            "model_id": "sonnet",
             "max_tokens": 64000,
             "temperature": 0.0,
         }
@@ -1381,11 +1381,11 @@ class TestModelNameMap:
 
     def test_opus_maps_to_correct_model(self) -> None:
         """Test opus maps to correct full model ID."""
-        assert MODEL_NAME_MAP["opus"] == "claude-opus-4-5-20251101"
+        assert MODEL_NAME_MAP["opus"] == CLAUDE_OPUS_LATEST
 
     def test_sonnet_maps_to_correct_model(self) -> None:
         """Test sonnet maps to correct full model ID."""
-        assert MODEL_NAME_MAP["sonnet"] == "claude-sonnet-4-5-20250929"
+        assert MODEL_NAME_MAP["sonnet"] == CLAUDE_SONNET_LATEST
 
     def test_haiku_maps_to_correct_model(self) -> None:
         """Test haiku maps to correct full model ID."""
@@ -1398,12 +1398,12 @@ class TestResolveModelId:
     def test_resolve_simple_name_opus(self) -> None:
         """Test resolving 'opus' to full model ID."""
         result = resolve_model_id("opus")
-        assert result == "claude-opus-4-5-20251101"
+        assert result == CLAUDE_OPUS_LATEST
 
     def test_resolve_simple_name_sonnet(self) -> None:
         """Test resolving 'sonnet' to full model ID."""
         result = resolve_model_id("sonnet")
-        assert result == "claude-sonnet-4-5-20250929"
+        assert result == CLAUDE_SONNET_LATEST
 
     def test_resolve_simple_name_haiku(self) -> None:
         """Test resolving 'haiku' to full model ID."""
@@ -1413,12 +1413,12 @@ class TestResolveModelId:
     def test_resolve_uppercase_name(self) -> None:
         """Test that uppercase names are normalized."""
         result = resolve_model_id("OPUS")
-        assert result == "claude-opus-4-5-20251101"
+        assert result == CLAUDE_OPUS_LATEST
 
     def test_resolve_mixed_case_name(self) -> None:
         """Test that mixed case names are normalized."""
         result = resolve_model_id("Sonnet")
-        assert result == "claude-sonnet-4-5-20250929"
+        assert result == CLAUDE_SONNET_LATEST
 
     def test_resolve_name_with_whitespace(self) -> None:
         """Test that whitespace is stripped."""
@@ -1427,7 +1427,7 @@ class TestResolveModelId:
 
     def test_full_model_id_returned_unchanged(self) -> None:
         """Test that full model IDs are returned as-is."""
-        full_id = "claude-opus-4-5-20251101"
+        full_id = CLAUDE_OPUS_LATEST
         result = resolve_model_id(full_id)
         assert result == full_id
 

@@ -237,41 +237,15 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _synthesize_and_generate(self):
         """Contrarian done — synthesize briefing and send to generator."""
-        from maverick.preflight_briefing.models import (
-            CodebaseAnalystBrief,
-            CriteriaWriterBrief,
-            PreFlightContrarianBrief,
-            ScopistBrief,
-        )
-        from maverick.preflight_briefing.serializer import (
-            serialize_preflight_briefing,
-        )
-        from maverick.preflight_briefing.synthesis import (
-            synthesize_preflight_briefing,
-        )
+        from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
 
-        try:
-            scopist = ScopistBrief.model_validate(self._briefs.get("scope", {}))
-            analyst = CodebaseAnalystBrief.model_validate(self._briefs.get("analysis", {}))
-            criteria = CriteriaWriterBrief.model_validate(self._briefs.get("criteria", {}))
-            contrarian = PreFlightContrarianBrief.model_validate(self._briefs.get("challenge", {}))
-
-            briefing_doc = synthesize_preflight_briefing(
-                self._plan_name, scopist, analyst, criteria, contrarian
-            )
-            self._briefing_markdown = serialize_preflight_briefing(briefing_doc)
-        except Exception as exc:
-            self._emit_output(
-                "plan",
-                f"Briefing synthesis failed ({exc}); falling back to raw JSON",
-                level="warning",
-                source=_SOURCE,
-            )
-            # Fallback: raw JSON of briefs
-            parts = []
-            for key, data in self._briefs.items():
-                parts.append(f"## {key}\n\n{json.dumps(data, indent=2)}")
-            self._briefing_markdown = "\n\n".join(parts)
+        self._briefing_markdown = serialize_briefs_to_markdown(
+            self._plan_name,
+            scope=self._briefs.get("scope"),
+            analysis=self._briefs.get("analysis"),
+            criteria=self._briefs.get("criteria"),
+            challenge=self._briefs.get("challenge"),
+        )
 
         self._send_to_generator()
 

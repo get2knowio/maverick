@@ -44,7 +44,7 @@ def mock_config() -> dict[str, Any]:
             "max_errors": 50,
         },
         "model": {
-            "model_id": "claude-sonnet-4-5-20250929",
+            "model_id": "sonnet",
             "max_tokens": 8192,
             "temperature": 0.0,
         },

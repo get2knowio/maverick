@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.preflight_briefing.models import CodebaseAnalystBrief
 
 CODEBASE_ANALYST_SYSTEM_PROMPT = f"""You are a codebase analysis specialist.
 
@@ -79,7 +78,6 @@ class CodebaseAnalystAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=CodebaseAnalystBrief,
         )
 
     def build_prompt(self, context: str) -> str:

@@ -151,4 +151,4 @@ class TestConstants:
 
     def test_default_model(self) -> None:
         """Test DEFAULT_MODEL is set correctly."""
-        assert DEFAULT_MODEL == "claude-sonnet-4-5-20250929"
+        assert DEFAULT_MODEL == "sonnet"

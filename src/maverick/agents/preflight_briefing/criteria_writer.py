@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.preflight_briefing.models import CriteriaWriterBrief
 
 CRITERIA_WRITER_SYSTEM_PROMPT = f"""You are a success criteria and objective specialist.
 
@@ -84,7 +83,6 @@ class CriteriaWriterAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=CriteriaWriterBrief,
         )
 
     def build_prompt(self, context: str) -> str:

@@ -84,7 +84,8 @@ class BeadClient:
         """
         result = await self._runner.run(cmd, cwd=self._cwd)
         if not result.success:
-            raise error_cls(f"{error_msg}: {result.stderr.strip()}", **error_kwargs)
+            detail = result.stderr.strip() or "(no output — command may have timed out)"
+            raise error_cls(f"{error_msg}: {detail}", **error_kwargs)
         try:
             parsed: dict[str, Any] | list[Any] = json.loads(result.stdout)
             return parsed
@@ -148,8 +149,9 @@ class BeadClient:
         result = await self._runner.run(cmd, cwd=self._cwd)
 
         if not result.success:
+            detail = result.stderr.strip() or "(no output — command may have timed out)"
             raise BeadCreationError(
-                f"Failed to create bead '{definition.title}': {result.stderr.strip()}",
+                f"Failed to create bead '{definition.title}': {detail}",
                 bead_title=definition.title,
             )
 

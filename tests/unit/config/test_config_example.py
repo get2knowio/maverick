@@ -56,7 +56,7 @@ class TestConfigPatterns:
         - Verifying numeric constraints
         """
         # Model config should have expected test values
-        assert sample_config.model.model_id == "claude-sonnet-4-5-20250929"
+        assert sample_config.model.model_id == "sonnet"
         assert sample_config.model.max_tokens == 4096
         assert sample_config.model.temperature == 0.5
 

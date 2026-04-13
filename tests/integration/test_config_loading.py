@@ -85,7 +85,7 @@ model:
         assert config.github.owner is None
         assert config.github.default_branch == "main"
         assert config.notifications.enabled is False
-        assert config.model.model_id == "claude-sonnet-4-5-20250929"
+        assert config.model.model_id == "sonnet"
         assert config.model.max_tokens == 64000
         assert config.parallel.max_agents == 3
         assert config.verbosity == "warning"

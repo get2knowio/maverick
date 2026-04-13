@@ -13,7 +13,7 @@ class TestBeadEnricherConstruction:
 
         assert enricher.name == "bead-enricher"
         assert "enricher" in enricher.system_prompt.lower()
-        assert enricher.model == "claude-sonnet-4-5-20250929"
+        assert enricher.model == "sonnet"
 
     def test_construction_with_custom_model(self) -> None:
         enricher = BeadEnricherGenerator(model="claude-opus-4-5-20250929")

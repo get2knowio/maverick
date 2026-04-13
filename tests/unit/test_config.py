@@ -16,7 +16,7 @@ def test_load_defaults_when_no_config(clean_env: None, temp_dir: Path) -> None:
     config = load_config()
     assert isinstance(config, MaverickConfig)
     # Check defaults
-    assert config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert config.model.model_id == "sonnet"
     assert config.model.max_tokens == 64000
     assert config.parallel.max_agents == 3
     assert config.verbosity == "warning"
@@ -237,7 +237,7 @@ verbosity: "debug"
     assert config.github.repo == "my-project"
     assert config.verbosity == "debug"
     # Defaults for unset values
-    assert config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert config.model.model_id == "sonnet"
 
 
 def test_empty_config_file_uses_defaults_with_warning(
@@ -259,7 +259,7 @@ def test_empty_config_file_uses_defaults_with_warning(
         config = load_config()
 
     # Should use defaults
-    assert config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert config.model.model_id == "sonnet"
     assert config.model.max_tokens == 64000
     assert config.parallel.max_agents == 3
 
@@ -292,7 +292,7 @@ def test_empty_config_with_comments_uses_defaults(
         config = load_config()
 
     # Should use defaults
-    assert config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert config.model.model_id == "sonnet"
     assert config.verbosity == "warning"
 
     # Should log a warning
@@ -334,7 +334,7 @@ def test_missing_user_config_directory_works(
 
     config = load_config()
     # Should use defaults without error
-    assert config.model.model_id == "claude-sonnet-4-5-20250929"
+    assert config.model.model_id == "sonnet"
 
 
 def test_notification_enabled_without_topic_logs_warning(
@@ -583,5 +583,5 @@ github:
         from maverick.config import load_config
 
         config = load_config(config_path=temp_dir / "nonexistent.yaml")
-        assert config.model.model_id == "claude-sonnet-4-5-20250929"
+        assert config.model.model_id == "sonnet"
         assert config.model.max_tokens == 64000

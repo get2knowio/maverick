@@ -165,7 +165,7 @@ class TestGenerateConfig:
 
         config = generate_config(git_info=git_info, detection=None)
 
-        assert config.model.model_id == "claude-sonnet-4-5-20250929"
+        assert config.model.model_id == "sonnet"
         assert config.model.max_tokens == 64000
         assert config.model.temperature == 0.0
 
