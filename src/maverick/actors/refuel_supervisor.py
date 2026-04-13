@@ -268,10 +268,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             remaining = len(self._pending_detail_ids)
             done = len(self._accumulated_details)
             if remaining > 0:
-                logger.debug(
-                    "refuel_supervisor.details_progress",
-                    done=done,
-                    remaining=remaining,
+                self._emit_output(
+                    "refuel",
+                    f"Detail {done}/{done + remaining} complete",
+                    level="info",
+                    source=_SOURCE,
                 )
             else:
                 # All units detailed — merge and validate
