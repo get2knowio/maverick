@@ -18,7 +18,7 @@ import asyncio
 import shutil
 from pathlib import Path
 
-from maverick.exceptions.init import ConfigExistsError, PrerequisiteError
+from maverick.exceptions.init import ConfigExistsError, InitError, PrerequisiteError
 from maverick.init.config_generator import generate_config, write_config
 from maverick.init.detector import detect_project_type
 from maverick.init.git_parser import parse_git_remote
@@ -89,33 +89,38 @@ logger = get_logger(__name__)
 
 
 # =============================================================================
-# Beads Initialization (best-effort)
+# Beads Initialization
 # =============================================================================
 
 _BD_INIT_TIMEOUT_SECONDS = 10
 
 
-async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
-    """Initialize beads if ``bd`` is available.
+async def _init_beads(project_path: Path, verbose: bool) -> bool:
+    """Initialize beads via ``bd init``.
 
     Uses ``--force`` to handle both fresh and re-init cases. Beads are
     initialized in normal (non-stealth) mode so that ``.beads/issues.jsonl``
     is tracked in git and flows naturally with branches and merges.
 
-    This is best-effort: if ``bd`` isn't installed or ``bd init`` fails, the
-    error is logged but never raised.
+    Raises :class:`InitError` if ``bd`` is not installed or ``bd init`` fails,
+    since beads are required for ``refuel`` and ``fly`` workflows.
 
     Args:
         project_path: Project root directory.
         verbose: Whether to log progress.
 
     Returns:
-        True if beads were successfully initialized, False otherwise.
+        True if beads were successfully initialized.
+
+    Raises:
+        InitError: If ``bd`` is not found or initialization fails.
     """
     if shutil.which("bd") is None:
-        if verbose:
-            logger.debug("bd_not_found", message="bd CLI not on PATH, skipping beads init")
-        return False
+        raise InitError(
+            "The 'bd' CLI is required but not found on PATH. "
+            "Install it with: cargo install bd-cli (or see "
+            "https://github.com/get2knowio/bd)"
+        )
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -136,15 +141,17 @@ async def _maybe_init_beads(project_path: Path, verbose: bool) -> bool:
                 logger.info("beads_initialized", path=str(project_path / ".beads"))
             return True
         else:
-            logger.debug(
-                "bd_init_failed",
-                returncode=proc.returncode,
-                stderr=stderr.decode(errors="replace").strip(),
+            detail = stderr.decode(errors="replace").strip()
+            raise InitError(
+                f"'bd init' failed (exit code {proc.returncode})"
+                + (f": {detail}" if detail else "")
             )
-            return False
-    except (TimeoutError, OSError) as exc:
-        logger.debug("bd_init_error", error=str(exc))
-        return False
+    except TimeoutError as exc:
+        raise InitError(
+            f"'bd init' timed out after {_BD_INIT_TIMEOUT_SECONDS}s"
+        ) from exc
+    except OSError as exc:
+        raise InitError(f"Failed to run 'bd init': {exc}") from exc
 
 
 # =============================================================================
@@ -387,8 +394,8 @@ async def run_init(
     if verbose:
         logger.info("config_written", config_path=str(config_path))
 
-    # Step 6: Initialize beads (best-effort, if bd is available)
-    beads_initialized = await _maybe_init_beads(effective_path, verbose)
+    # Step 6: Initialize beads (required — refuel and fly depend on bd)
+    beads_initialized = await _init_beads(effective_path, verbose)
 
     # Step 7: Initialize runway (best-effort)
     runway_initialized = await _maybe_init_runway(effective_path, verbose)

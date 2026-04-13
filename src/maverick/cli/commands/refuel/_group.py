@@ -94,6 +94,17 @@ async def refuel(
 
         maverick refuel --from speckit 001-greet-cli --dry-run
     """
+    # Preflight: verify bd is available before starting a long workflow
+    import shutil
+
+    if shutil.which("bd") is None:
+        console.print(
+            "[red]Error:[/red] The [bold]bd[/bold] CLI is required but not found on PATH.\n"
+            "Install it with: [cyan]cargo install bd-cli[/cyan] "
+            "(or see https://github.com/get2knowio/bd)"
+        )
+        raise SystemExit(ExitCode.FAILURE)
+
     if source_type == "plan":
         await _refuel_from_plan(
             ctx,
