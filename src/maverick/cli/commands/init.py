@@ -12,6 +12,7 @@ from pathlib import Path
 import click
 
 from maverick.cli.common import cli_error_handler
+from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
 from maverick.exceptions.init import ConfigExistsError, PrerequisiteError
 from maverick.init import (
@@ -28,48 +29,20 @@ from maverick.logging import get_logger
 CONFIG_EXISTS_EXIT_CODE = 2
 
 
-def _format_check_status(
-    passed: bool,
-    message: str,
-    display_name: str | None = None,
-) -> str:
-    """Format a single check status line.
-
-    Args:
-        passed: Whether the check passed.
-        message: Message to display.
-        display_name: Optional display name (used for consistency).
-
-    Returns:
-        Formatted status line.
-    """
-    symbol = "✓" if passed else "✗"
-    return f"  {symbol} {message}"
-
-
 def _format_preflight_output(
     result: InitResult,
     verbose: bool = False,
 ) -> list[str]:
-    """Format preflight check output.
-
-    Args:
-        result: Init result containing preflight data.
-        verbose: Whether to show verbose output.
-
-    Returns:
-        List of formatted output lines.
-    """
-    lines: list[str] = []
-    lines.append("Prerequisites")
+    """Format preflight check output."""
+    lines: list[str] = ["[bold]Prerequisites[/]"]
 
     for check in result.preflight.checks:
         if check.status == PreflightStatus.PASS:
-            lines.append(f"  ✓ {check.message}")
+            lines.append(f"  [green]✓[/] {check.message}")
         elif check.status == PreflightStatus.FAIL:
-            lines.append(f"  ✗ {check.message}")
+            lines.append(f"  [red]✗[/] {check.message}")
         elif check.status == PreflightStatus.SKIP and verbose:
-            lines.append(f"  ○ {check.message}")
+            lines.append(f"  [dim]○[/] {check.message}")
 
     lines.append("")
     return lines
@@ -79,24 +52,16 @@ def _format_detection_output(
     result: InitResult,
     verbose: bool = False,
 ) -> list[str]:
-    """Format project detection output.
-
-    Args:
-        result: Init result containing detection data.
-        verbose: Whether to show verbose output.
-
-    Returns:
-        List of formatted output lines.
-    """
+    """Format project detection output."""
     lines: list[str] = []
 
     if result.detection is None:
         return lines
 
     detection = result.detection
-    lines.append("Project Detection")
     primary_display = detection.primary_type.value.replace("_", " ").title()
-    lines.append(f"  Primary type: {primary_display}")
+    lines.append("[bold]Project Detection[/]")
+    lines.append(f"  Primary type: [cyan]{primary_display}[/]")
 
     if verbose:
         detected_types = ", ".join(
@@ -108,11 +73,10 @@ def _format_detection_output(
     lines.append(f"  Detection method: {detection.detection_method}")
     lines.append("")
 
-    # Findings
     if verbose and detection.findings:
-        lines.append("Findings")
+        lines.append("[bold]Findings[/]")
         for finding in detection.findings:
-            lines.append(f"  • {finding}")
+            lines.append(f"  [dim]•[/] {finding}")
         lines.append("")
 
     return lines
@@ -121,26 +85,19 @@ def _format_detection_output(
 def _format_provider_output(
     discovery: ProviderDiscoveryResult | None,
 ) -> list[str]:
-    """Format ACP provider discovery output.
-
-    Args:
-        discovery: Provider discovery result, or None if skipped.
-
-    Returns:
-        List of formatted output lines.
-    """
+    """Format ACP provider discovery output."""
     if discovery is None:
         return []
 
-    lines: list[str] = ["ACP Providers"]
+    lines: list[str] = ["[bold]ACP Providers[/]"]
 
     for probe in discovery.providers:
-        symbol = "✓" if probe.found else "✗"
-        suffix = " (default)" if probe.name == discovery.default_provider else ""
+        symbol = "[green]✓[/]" if probe.found else "[red]✗[/]"
+        suffix = " [dim](default)[/]" if probe.name == discovery.default_provider else ""
         lines.append(f"  {symbol} {probe.display_name} ({probe.binary}){suffix}")
 
     if not discovery.found_providers:
-        lines.append("  ⚠ No ACP providers found on PATH.")
+        lines.append("  [yellow]⚠[/] No ACP providers found on PATH.")
 
     lines.append("")
     return lines
@@ -150,28 +107,20 @@ def _format_git_output(
     result: InitResult,
     verbose: bool = False,
 ) -> list[str]:
-    """Format git remote output.
-
-    Args:
-        result: Init result containing git info.
-        verbose: Whether to show verbose output.
-
-    Returns:
-        List of formatted output lines.
-    """
+    """Format git remote output."""
     lines: list[str] = []
     git_info = result.git_info
 
     if git_info.owner and git_info.repo:
         if verbose:
-            lines.append("Git Remote")
+            lines.append("[bold]Git Remote[/]")
             lines.append(f"  Owner: {git_info.owner}")
             lines.append(f"  Repo: {git_info.repo}")
             if git_info.remote_url:
                 lines.append(f"  Remote: {git_info.remote_url}")
             lines.append("")
     else:
-        lines.append("⚠ Warning: No git remote configured. GitHub owner/repo set to null.")
+        lines.append("[yellow]⚠[/] No git remote configured. GitHub owner/repo set to null.")
         lines.append("")
 
     return lines
@@ -181,31 +130,23 @@ def _format_config_output(
     result: InitResult,
     verbose: bool = False,
 ) -> list[str]:
-    """Format generated configuration output.
-
-    Args:
-        result: Init result containing config data.
-        verbose: Whether to show verbose output.
-
-    Returns:
-        List of formatted output lines.
-    """
+    """Format generated configuration output."""
     lines: list[str] = []
 
     if not verbose:
         return lines
 
     config = result.config
-    lines.append("Generated Configuration")
+    lines.append("[bold]Generated Configuration[/]")
 
     if config.validation.format_cmd:
-        lines.append(f"  Format: {' '.join(config.validation.format_cmd)}")
+        lines.append(f"  Format: [dim]{' '.join(config.validation.format_cmd)}[/]")
     if config.validation.lint_cmd:
-        lines.append(f"  Lint: {' '.join(config.validation.lint_cmd)}")
+        lines.append(f"  Lint: [dim]{' '.join(config.validation.lint_cmd)}[/]")
     if config.validation.typecheck_cmd:
-        lines.append(f"  Typecheck: {' '.join(config.validation.typecheck_cmd)}")
+        lines.append(f"  Typecheck: [dim]{' '.join(config.validation.typecheck_cmd)}[/]")
     if config.validation.test_cmd:
-        lines.append(f"  Test: {' '.join(config.validation.test_cmd)}")
+        lines.append(f"  Test: [dim]{' '.join(config.validation.test_cmd)}[/]")
 
     lines.append("")
     return lines
@@ -307,10 +248,8 @@ async def init(
     """
     _logger = get_logger(__name__)  # noqa: F841 - Reserved for future use
 
-    # Print header
-    click.echo("Maverick Init")
-    click.echo("=============")
-    click.echo("")
+    console.print("[bold cyan]Maverick Init[/]")
+    console.print()
 
     # Convert project_type string to ProjectType enum if provided
     type_override: ProjectType | None = None
@@ -323,7 +262,7 @@ async def init(
         try:
             model_id = resolve_model_id(model_name)
         except ValueError as e:
-            click.echo(f"Error: {e}", err=True)
+            err_console.print(f"[red]Error:[/red] {e}")
             raise SystemExit(ExitCode.FAILURE) from None
 
     # Determine if we should use Claude
@@ -350,13 +289,12 @@ async def init(
             lines.extend(_format_git_output(result, verbose))
             lines.extend(_format_config_output(result, verbose))
 
-            # Print all lines
             for line in lines:
-                click.echo(line)
+                console.print(line)
 
-            # Beads init status (only show if initialized)
+            # Beads init status
             if result.beads_initialized:
-                click.echo("✓ Beads initialized (.beads/)")
+                console.print("[green]✓[/] Beads initialized (.beads/)")
 
             # Write provider MCP config files
             provider_list = (
@@ -376,7 +314,7 @@ async def init(
 
                 mcp_written = write_provider_mcp_configs(provider_list)
                 for prov, path in mcp_written.items():
-                    click.echo(f"✓ MCP config written for {prov}: {path}")
+                    console.print(f"[green]✓[/] MCP config written for {prov}: [dim]{path}[/]")
 
             # Model discovery
             if provider_list:
@@ -387,8 +325,8 @@ async def init(
 
                 user_specs = parse_model_specs(model_specs) if model_specs else None
 
-                click.echo("")
-                click.echo("Model Discovery")
+                console.print()
+                console.print("[bold]Model Discovery[/]")
                 discovered = await discover_all_models(provider_list, user_specs)
                 for prov, pm in discovered.items():
                     source_label = {
@@ -399,7 +337,7 @@ async def init(
                     models_str = ", ".join(pm.models[:5])
                     if len(pm.models) > 5:
                         models_str += f" (+{len(pm.models) - 5} more)"
-                    click.echo(f"  {prov} ({source_label}): {models_str}")
+                    console.print(f"  {prov} [dim]({source_label})[/]: {models_str}")
 
                 # Distribute models across actors
                 from maverick.init.actor_distribution import distribute_models
@@ -413,11 +351,14 @@ async def init(
                 )
                 actor_configs = distribute_models(discovered, default_provider=default_prov)
 
-                click.echo("")
-                click.echo("Actor Assignment")
+                console.print()
+                console.print("[bold]Actor Assignment[/]")
                 for workflow, actors in actor_configs.items():
                     for actor_name, ac in actors.items():
-                        click.echo(f"  {workflow}.{actor_name}: {ac.provider}/{ac.model_id}")
+                        console.print(
+                            f"  {workflow}.{actor_name}: "
+                            f"[cyan]{ac.provider}/{ac.model_id}[/]"
+                        )
 
                 # Write actors section to the config file
                 from pathlib import Path as _Path
@@ -441,7 +382,10 @@ async def init(
                     )
 
             # Success message
-            click.echo(f"\n✓ Configuration written to {result.config_path}")
+            console.print()
+            console.print(
+                f"[green]✓[/] Configuration written to [bold]{result.config_path}[/]"
+            )
 
             # Suggest runway seed if runway initialized and providers available
             if (
@@ -449,25 +393,26 @@ async def init(
                 and result.provider_discovery
                 and result.provider_discovery.found_providers
             ):
-                click.echo("")
-                click.echo("Tip: Run 'maverick runway seed' to pre-populate the runway")
-                click.echo("     knowledge store with AI-generated codebase insights.")
+                console.print()
+                console.print(
+                    "[dim]Tip: Run 'maverick runway seed' to pre-populate the runway\n"
+                    "     knowledge store with AI-generated codebase insights.[/]"
+                )
 
             raise SystemExit(ExitCode.SUCCESS)
 
         except PrerequisiteError as e:
-            # Show preflight output with failure
-            click.echo("Prerequisites")
-            click.echo(f"  ✗ {e.check.display_name}: {e.check.message}")
-            click.echo("")
-            click.echo(f"Error: {e.message}")
-            click.echo("")
+            err_console.print("[bold]Prerequisites[/]")
+            err_console.print(f"  [red]✗[/] {e.check.display_name}: {e.check.message}")
+            err_console.print()
+            err_console.print(f"[red]Error:[/red] {e.message}")
             if e.check.remediation:
-                click.echo(f"Remediation: {e.check.remediation}")
+                err_console.print()
+                err_console.print(f"[yellow]Remediation:[/yellow] {e.check.remediation}")
             raise SystemExit(ExitCode.FAILURE) from None
 
         except ConfigExistsError as e:
-            click.echo(f"Error: {e.config_path} already exists.")
-            click.echo("")
-            click.echo("Use --force to overwrite the existing configuration.")
+            err_console.print(f"[red]Error:[/red] {e.config_path} already exists.")
+            err_console.print()
+            err_console.print("Use [bold]--force[/] to overwrite the existing configuration.")
             raise SystemExit(CONFIG_EXISTS_EXIT_CODE) from None

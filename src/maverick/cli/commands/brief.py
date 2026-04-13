@@ -17,9 +17,9 @@ from rich.table import Table
 
 from maverick.beads.client import BeadClient
 from maverick.beads.models import BeadSummary, ReadyBead
-from maverick.cli.console import console
+from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
-from maverick.cli.output import format_error, format_table
+from maverick.cli.output import format_table
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,14 +39,7 @@ _STATUS_STYLES: dict[str, str] = {
 
 
 def _beads_to_rows(beads: Sequence[ReadyBead | BeadSummary]) -> list[list[str]]:
-    """Convert bead models to table rows.
-
-    Args:
-        beads: List of ReadyBead or BeadSummary models.
-
-    Returns:
-        List of row lists suitable for format_table.
-    """
+    """Convert bead models to table rows."""
     rows: list[list[str]] = []
     for bead in beads:
         bead_type = getattr(bead, "bead_type", "task")
@@ -57,14 +50,7 @@ def _beads_to_rows(beads: Sequence[ReadyBead | BeadSummary]) -> list[list[str]]:
 
 
 def _beads_to_dicts(beads: Sequence[ReadyBead | BeadSummary]) -> list[dict[str, str]]:
-    """Convert bead models to JSON-serializable dicts.
-
-    Args:
-        beads: List of ReadyBead or BeadSummary models.
-
-    Returns:
-        List of dicts with bead fields.
-    """
+    """Convert bead models to JSON-serializable dicts."""
     result: list[dict[str, str]] = []
     for bead in beads:
         bead_type = getattr(bead, "bead_type", "task")
@@ -88,15 +74,7 @@ def _build_rich_table(
     beads: list[ReadyBead | BeadSummary],
     epic: str | None = None,
 ) -> Table:
-    """Build a Rich Table with color-coded status for watch mode.
-
-    Args:
-        beads: Combined list of bead models.
-        epic: Epic ID if in epic mode, None for global mode.
-
-    Returns:
-        A Rich Table ready for Live display.
-    """
+    """Build a Rich Table with color-coded status for watch mode."""
     title = f'Brief: Epic "{epic}"' if epic else "Brief: Dashboard"
     table = Table(title=title, show_lines=False)
     for header in _TABLE_HEADERS:
@@ -121,19 +99,10 @@ async def _fetch_beads_global(
     client: BeadClient,
     show_all: bool,
 ) -> list[ReadyBead | BeadSummary]:
-    """Fetch beads for global (non-epic) mode.
-
-    Args:
-        client: BeadClient instance.
-        show_all: Whether to include closed/done beads.
-
-    Returns:
-        Combined list of ready and blocked beads (and closed if show_all).
-    """
+    """Fetch beads for global (non-epic) mode."""
     ready_beads = await client.ready(limit=_BRIEF_LIMIT)
     blocked_beads = await client.query("status=blocked")
 
-    # Deduplicate by ID, ready beads take precedence
     seen_ids: set[str] = set()
     combined: list[ReadyBead | BeadSummary] = []
     for rb in ready_beads:
@@ -152,7 +121,6 @@ async def _fetch_beads_global(
                 seen_ids.add(cb.id)
                 combined.append(cb)
 
-    # Sort by priority (lower number = higher priority)
     combined.sort(key=lambda b: b.priority)
     return combined
 
@@ -162,16 +130,7 @@ async def _fetch_beads_epic(
     epic: str,
     show_all: bool,
 ) -> list[ReadyBead | BeadSummary]:
-    """Fetch beads for epic mode.
-
-    Args:
-        client: BeadClient instance.
-        epic: Epic bead ID.
-        show_all: Whether to include closed/done beads.
-
-    Returns:
-        List of children with statuses enriched (ready beads marked).
-    """
+    """Fetch beads for epic mode."""
     children = await client.children(epic)
     ready_beads = await client.ready(parent_id=epic, limit=_BRIEF_LIMIT)
     ready_ids = {b.id for b in ready_beads}
@@ -180,7 +139,6 @@ async def _fetch_beads_epic(
     for child in children:
         if not show_all and child.status in _CLOSED_STATUSES:
             continue
-        # Enrich status: mark beads in the ready set
         if child.id in ready_ids and child.status not in _CLOSED_STATUSES:
             result.append(
                 BeadSummary(
@@ -202,13 +160,7 @@ async def _watch_loop(
     interval: float,
     epic: str | None,
 ) -> None:
-    """Poll beads and refresh Rich Live display.
-
-    Args:
-        fetch_fn: Async callable that returns beads to display.
-        interval: Refresh interval in seconds.
-        epic: Epic ID if in epic mode, None for global.
-    """
+    """Poll beads and refresh Rich Live display."""
     with Live(console=console, refresh_per_second=1) as live:
         try:
             while True:
@@ -295,11 +247,10 @@ async def brief(
 
     # Verify bd is available
     if not await client.verify_available():
-        error_msg = format_error(
-            "bd is not available",
-            suggestion="Install bd from https://github.com/steveyegge/beads",
+        err_console.print(
+            "[red]Error:[/red] [bold]bd[/bold] is not available.\n"
+            "[yellow]Suggestion:[/yellow] Install bd from https://github.com/get2knowio/bd"
         )
-        click.echo(error_msg, err=True)
         raise SystemExit(ExitCode.FAILURE)
 
     if human:
@@ -323,33 +274,27 @@ async def _brief_ready(
     output_format: str,
     show_all: bool,
 ) -> None:
-    """Display ready and blocked beads globally.
-
-    Args:
-        client: BeadClient instance.
-        output_format: "text" or "json".
-        show_all: Whether to include closed/done beads.
-    """
+    """Display ready and blocked beads globally."""
     beads = await _fetch_beads_global(client, show_all)
 
     if output_format == "json":
-        click.echo(json.dumps(_beads_to_dicts(beads), indent=2))
+        console.print_json(json.dumps(_beads_to_dicts(beads)))
         return
 
     count = len(beads)
     if count == 0:
-        click.echo("Brief: No beads ready")
-        click.echo("")
-        click.echo("All beads are either completed or blocked.")
+        console.print("[bold]Brief:[/] No beads ready")
+        console.print()
+        console.print("[dim]All beads are either completed or blocked.[/]")
         return
 
-    click.echo(f"Brief: {count} bead{'s' if count != 1 else ''} ready")
-    click.echo("")
-    click.echo(format_table(_TABLE_HEADERS, _beads_to_rows(beads)))
-    click.echo("")
-    click.echo(
-        "Use 'maverick fly' to start executing, "
-        "or 'maverick fly --epic <id>' to focus on one epic."
+    console.print(f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} ready")
+    console.print()
+    console.print(format_table(_TABLE_HEADERS, _beads_to_rows(beads)))
+    console.print()
+    console.print(
+        "[dim]Use 'maverick fly' to start executing, "
+        "or 'maverick fly --epic <id>' to focus on one epic.[/]"
     )
 
 
@@ -359,45 +304,35 @@ async def _brief_epic(
     output_format: str,
     show_all: bool,
 ) -> None:
-    """Display children of an epic with status.
-
-    Args:
-        client: BeadClient instance.
-        epic: Epic bead ID.
-        output_format: "text" or "json".
-        show_all: Whether to include closed/done beads.
-    """
+    """Display children of an epic with status."""
     children = await client.children(epic)
     ready_beads = await client.ready(parent_id=epic, limit=_BRIEF_LIMIT)
     ready_ids = {b.id for b in ready_beads}
 
-    # Filter closed beads unless --all
     if not show_all:
         children = [c for c in children if c.status not in _CLOSED_STATUSES]
 
     if output_format == "json":
         dicts = _beads_to_dicts(children)
-        # Enrich status: mark beads that are in the ready set
         for d in dicts:
             if d["id"] in ready_ids and d["status"] not in _CLOSED_STATUSES:
                 d["status"] = "ready"
-        click.echo(json.dumps(dicts, indent=2))
+        console.print_json(json.dumps(dicts))
         return
 
     ready_count = len(ready_ids)
     total_count = len(children)
 
     if total_count == 0:
-        click.echo(f'Brief: Epic "{epic}" has no children')
+        console.print(f'[bold]Brief:[/] Epic "[cyan]{epic}[/]" has no children')
         return
 
-    click.echo(
-        f'Brief: Epic "{epic}" — '
+    console.print(
+        f'[bold]Brief:[/] Epic "[cyan]{epic}[/]" — '
         f"{ready_count} of {total_count} bead{'s' if total_count != 1 else ''} ready"
     )
-    click.echo("")
+    console.print()
 
-    # Build rows, enriching status for ready beads
     rows: list[list[str]] = []
     for child in children:
         status = child.status
@@ -413,7 +348,7 @@ async def _brief_epic(
             ]
         )
 
-    click.echo(format_table(_TABLE_HEADERS, rows))
+    console.print(format_table(_TABLE_HEADERS, rows))
 
 
 _HUMAN_TABLE_HEADERS = ["ID", "Title", "Priority", "Source Bead", "Escalation"]
@@ -424,17 +359,7 @@ async def _brief_human(
     epic: str | None,
     output_format: str,
 ) -> None:
-    """Display beads assigned to humans for review.
-
-    Queries for beads with the 'needs-human-review' or 'assumption-review'
-    labels and enriches with state metadata (source bead, escalation type).
-
-    Args:
-        client: BeadClient instance.
-        epic: Optional epic ID to scope the query.
-        output_format: "text" or "json".
-    """
-    # Fetch all ready beads and filter to human-assigned ones
+    """Display beads assigned to humans for review."""
     parent = epic if epic else None
     ready_beads = await client.ready(parent, limit=_BRIEF_LIMIT)
 
@@ -462,27 +387,29 @@ async def _brief_human(
             continue
 
     if output_format == "json":
-        click.echo(json.dumps(human_beads, indent=2))
+        console.print_json(json.dumps(human_beads))
         return
 
     count = len(human_beads)
     if count == 0:
-        click.echo("Brief: No beads awaiting human review")
-        click.echo("")
-        click.echo("All assumption reviews and escalations have been resolved.")
+        console.print("[bold]Brief:[/] No beads awaiting human review")
+        console.print()
+        console.print("[dim]All assumption reviews and escalations have been resolved.[/]")
         return
 
-    click.echo(f"Brief: {count} bead{'s' if count != 1 else ''} awaiting human review")
-    click.echo("")
+    console.print(
+        f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} awaiting human review"
+    )
+    console.print()
 
     rows = [
         [b["id"], b["title"], b["priority"], b["source_bead"], b["escalation"]]
         for b in human_beads
     ]
-    click.echo(format_table(_HUMAN_TABLE_HEADERS, rows))
+    console.print(format_table(_HUMAN_TABLE_HEADERS, rows))
 
-    click.echo("")
-    click.echo(
-        "Review each bead and close with: "
-        "bd close <id> --reason 'approved' or 'rejected: <reason>'"
+    console.print()
+    console.print(
+        "[dim]Review each bead and close with: "
+        "bd close <id> --reason 'approved' or 'rejected: <reason>'[/]"
     )

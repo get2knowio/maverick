@@ -7,9 +7,9 @@ from pathlib import Path
 import click
 
 from maverick.cli.commands.runway._group import runway
-from maverick.cli.console import console
+from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
-from maverick.cli.output import format_bytes, format_success, format_warning
+from maverick.cli.output import format_bytes
 
 
 @runway.command()
@@ -44,26 +44,27 @@ async def seed(
 
     project_path = Path.cwd().resolve()
 
-    click.echo("Runway Seed")
-    click.echo("===========")
-    click.echo("")
+    console.print("[bold cyan]Runway Seed[/]")
+    console.print()
 
     # Show context gathering progress
-    click.echo("Gathering project context...")
+    console.print("Gathering project context...")
     context = await gather_seed_context(project_path)
 
     commit_count = len(context.git_log)
     config_count = len(context.config_files)
     file_count = sum(context.file_type_counts.values())
-    click.echo(f"  {commit_count} commits, {config_count} config files, {file_count} source files")
-    click.echo("")
+    console.print(
+        f"  {commit_count} commits, {config_count} config files, {file_count} source files"
+    )
+    console.print()
 
     if dry_run:
-        click.echo("Dry run — would analyze and generate semantic files.")
+        console.print("[dim]Dry run — would analyze and generate semantic files.[/]")
         raise SystemExit(ExitCode.SUCCESS)
 
     # Run seed — pass pre-gathered context to avoid re-gathering
-    click.echo("Analyzing codebase via ACP provider...")
+    console.print("Analyzing codebase via ACP provider...")
     result = await run_seed(
         project_path,
         provider=provider,
@@ -72,31 +73,28 @@ async def seed(
     )
 
     if not result.success:
-        console.print(
-            format_warning(
-                f"Seed failed: {result.error}\n"
-                "  Runway will build knowledge organically during fly cycles."
-            )
+        err_console.print(
+            f"[yellow]Warning:[/yellow] Seed failed: {result.error}\n"
+            "  Runway will build knowledge organically during fly cycles."
         )
         raise SystemExit(ExitCode.FAILURE)
 
     if not result.files_written:
         # Existing files, no --force
-        click.echo(f"  {result.error}")
-        click.echo("  Use --force to overwrite.")
+        console.print(f"  [dim]{result.error}[/]")
+        console.print("  Use [bold]--force[/] to overwrite.")
         raise SystemExit(ExitCode.SUCCESS)
 
     # Show results
-    click.echo("")
-    click.echo("Writing semantic files...")
+    console.print()
+    console.print("Writing semantic files...")
     for filename in result.files_written:
-        # Read back to show size
         fpath = project_path / ".maverick" / "runway" / "semantic" / filename
         size = fpath.stat().st_size if fpath.exists() else 0
-        click.echo(f"  ✓ {filename} ({format_bytes(size)})")
+        console.print(f"  [green]✓[/] {filename} [dim]({format_bytes(size)})[/]")
 
-    click.echo("")
+    console.print()
     console.print(
-        format_success(f"Runway seeded with {len(result.files_written)} semantic file(s).")
+        f"[green]✓[/] Runway seeded with {len(result.files_written)} semantic file(s)."
     )
     raise SystemExit(ExitCode.SUCCESS)
