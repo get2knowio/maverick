@@ -356,6 +356,86 @@ buffer limit via `transport_kwargs={"limit": 1_048_576}` to handle this.
 - For agents that produce file artifacts: add `"Write"` to allowed_tools
 - Only include `"Bash"` when the agent needs to run commands
 
+## CLI Output Guidelines
+
+All CLI output MUST use Rich `console` / `err_console` from `maverick.cli.console`.
+Never use `click.echo()` or `print()` for user-facing output.
+
+### Output Principles
+
+1. **Human-readable phase names** — use natural language ("Gathering context..."), not
+   snake_case identifiers (`gather_context`).
+2. **No implementation labels** — don't show `(python)` or `(agentic)`. The user doesn't
+   care whether a phase runs Python or an agent.
+3. **No emoji** — use Rich markup for emphasis (`[green]✓[/]`, `[red]✗[/]`), not emoji
+   characters (no 🤖, no 🎉).
+4. **Structured warnings** — never let raw structlog lines leak into the CLI output.
+   Format warnings with `[yellow]Warning:[/yellow]` Rich markup.
+5. **Progress for fan-out** — when multiple agents run in parallel, use Rich Live to
+   show a table that updates in place as results arrive.
+6. **Completion-only for sequential ops** — for single-agent steps, show one line when
+   done with timing (`✓ Outline (312.0s)`), not separate start/end lines.
+
+### Formatting Patterns
+
+```python
+from maverick.cli.console import console, err_console
+
+# Phase headers
+console.print("[bold cyan]Maverick Init[/]")
+
+# Success
+console.print("[green]✓[/] Configuration written to [bold]maverick.yaml[/]")
+
+# Errors (always to stderr)
+err_console.print("[red]Error:[/red] bd is not available")
+
+# Warnings
+console.print("[yellow]Warning:[/yellow] No git remote configured")
+
+# Hints / dim text
+console.print("[dim]Tip: Run 'maverick runway seed' to populate knowledge store[/]")
+
+# Agent fan-out progress (Rich Live)
+from rich.live import Live
+from rich.table import Table
+
+with Live(console=console, refresh_per_second=4) as live:
+    table = _build_agent_table(agents_status)
+    live.update(table)
+```
+
+### Agent Fan-Out Rendering (Rich Live)
+
+When multiple agents run concurrently (briefing room, decompose detail pass), render
+a Rich Live table that updates in place:
+
+```
+Briefing
+  Navigator        228.4s  ✓
+  Structuralist    208.7s  ✓
+  Recon             ⠙
+  Contrarian             (waiting)
+```
+
+- Show all agents immediately (pending = `(waiting)`, active = spinner, done = timing + ✓)
+- Update individual rows as results arrive
+- Freeze the table when all agents complete, then resume normal sequential output
+
+### Phase Output Structure
+
+```
+Phase Name...
+  Key detail or summary line
+  ✓ Sub-result (timing)
+
+Phase Name (N agents)
+  ┌─────────────────────────────┐
+  │ Agent table (Rich Live)     │
+  └─────────────────────────────┘
+  Summary: N decisions, M risks
+```
+
 ## Code Style
 
 | Element   | Convention           | Example                            |

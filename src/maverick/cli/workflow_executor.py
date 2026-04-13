@@ -8,7 +8,6 @@ See docs/cli-output-rules.md for the rendering rules.
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
 from dataclasses import dataclass, field
@@ -16,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
+from rich.live import Live
+from rich.table import Table
 
 from maverick.cli.common import (
     cli_error_handler,
@@ -36,6 +37,120 @@ if TYPE_CHECKING:
     from maverick.workflows.base import PythonWorkflow
 
 
+# ---------------------------------------------------------------------------
+# Agent fan-out tracker (Rich Live table)
+# ---------------------------------------------------------------------------
+
+# Pattern: "Label... (provider/model)" — agent start message
+_AGENT_START_RE = re.compile(r"^(.+?)\.\.\. \((.+)\)$")
+# Pattern: "✓ Label (123.4s)" — agent completion message
+_AGENT_END_RE = re.compile(r"^✓ (.+?) \((\d+\.?\d*)s\)$")
+# Pattern: "Detail N/M complete" — detail fan-out progress
+_DETAIL_PROGRESS_RE = re.compile(r"^Detail (\d+)/(\d+) complete$")
+
+
+class _AgentTracker:
+    """Tracks concurrent agent status and renders a Rich Live table.
+
+    Used during fan-out phases (briefing, decompose detail) to show
+    all agents in a single updating table instead of interleaved
+    start/end lines.
+    """
+
+    def __init__(self, console_obj: Any, phase_name: str) -> None:
+        self._console = console_obj
+        self._phase_name = phase_name
+        self._agents: dict[str, dict[str, str]] = {}  # label → {status, timing, provider}
+        self._order: list[str] = []  # insertion order
+        self._live: Live | None = None
+        self._non_agent_messages: list[str] = []  # messages to show after Live ends
+
+    @property
+    def active(self) -> bool:
+        return self._live is not None
+
+    @property
+    def has_pending(self) -> bool:
+        return any(a["status"] == "running" for a in self._agents.values())
+
+    def agent_started(self, label: str, provider: str) -> None:
+        if label not in self._agents:
+            self._order.append(label)
+        self._agents[label] = {"status": "running", "timing": "", "provider": provider}
+        self._ensure_live()
+        self._refresh()
+
+    def agent_completed(self, label: str, timing: str) -> None:
+        if label in self._agents:
+            self._agents[label]["status"] = "done"
+            self._agents[label]["timing"] = timing
+        self._refresh()
+        if not self.has_pending:
+            self._freeze()
+
+    def add_message(self, message: str) -> None:
+        """Buffer a non-agent message to show after the Live table."""
+        self._non_agent_messages.append(message)
+
+    def force_close(self) -> None:
+        """Close the Live display if still open."""
+        self._freeze()
+
+    def _ensure_live(self) -> None:
+        if self._live is None:
+            self._live = Live(console=self._console, refresh_per_second=4)
+            self._live.start()
+
+    def _build_table(self) -> Table:
+        table = Table(
+            show_header=False,
+            show_edge=False,
+            pad_edge=False,
+            box=None,
+            padding=(0, 1),
+        )
+        table.add_column("agent", min_width=20)
+        table.add_column("timing", justify="right", min_width=8)
+        table.add_column("status", min_width=3)
+
+        for label in self._order:
+            info = self._agents[label]
+            if info["status"] == "done":
+                timing = f"[dim]{info['timing']}[/]"
+                status = "[green]✓[/]"
+            else:
+                timing = "[dim]...[/]"
+                status = "[cyan]⠙[/]"
+            table.add_row(f"  {label}", timing, status)
+
+        return table
+
+    def _refresh(self) -> None:
+        if self._live is not None:
+            self._live.update(self._build_table())
+
+    def _freeze(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+            # Print frozen final state
+            for label in self._order:
+                info = self._agents[label]
+                if info["status"] == "done":
+                    self._console.print(f"  [green]✓[/] {label} [dim]({info['timing']})[/]")
+                else:
+                    self._console.print(f"  [yellow]?[/] {label} [dim](no response)[/]")
+            # Print buffered non-agent messages
+            for msg in self._non_agent_messages:
+                self._console.print(f"  [cyan]∟[/] {msg}")
+            self._non_agent_messages.clear()
+
+
+# ---------------------------------------------------------------------------
+# Event renderer
+# ---------------------------------------------------------------------------
+
+
 async def render_workflow_events(
     events: AsyncIterator[ProgressEvent],
     console_obj: Any,
@@ -46,15 +161,8 @@ async def render_workflow_events(
 ) -> None:
     """Render workflow progress events to the console.
 
-    Implements the CLI Output Rules (docs/cli-output-rules.md):
-    - R1: step start (⚙) / completion (✓/✗) with step name + timing
-    - R2: meaningful messages shown as interim ∟ lines only
-    - R3: interim lines use ``∟`` prefix, no step name repetition
-    - R4: agent lifecycle interims with start and ✓ end
-    - R5: trivial steps may have no interim lines
-    - R6: semantic icons (⚙ ✓ ✗)
-    - R7: start line shows (python) or (agent)/(agents)
-    - R8: agent interims show actual provider/model
+    Uses Rich Live tables for agent fan-out phases (briefing, decompose
+    detail) and sequential output for everything else.
 
     Args:
         events: Async iterator of ProgressEvent instances.
@@ -86,14 +194,13 @@ async def render_workflow_events(
     )
 
     step_index = 0
-    workflow_depth = 0  # Track nesting: 1 = main workflow, 2+ = subworkflows
+    workflow_depth = 0
     _total_steps = total_steps if total_steps is not None else 0
-    _agent_streaming = False  # Whether we're mid-agent-stream (for newline mgmt)
+    _agent_streaming = False
     _verbose = verbosity > 0
-    _spinner: Any = None  # Active Rich Status spinner, if any
-
-    # Track current step name for context
+    _spinner: Any = None
     _current_step_name: str = ""
+    _agent_tracker: _AgentTracker | None = None
 
     def _stop_spinner() -> None:
         nonlocal _spinner
@@ -101,7 +208,6 @@ async def render_workflow_events(
             _spinner.stop()
             _spinner = None
 
-    # R3: style map for interim ∟ lines
     _level_styles = {
         "info": "[cyan]",
         "success": "[green]",
@@ -110,7 +216,6 @@ async def render_workflow_events(
     }
 
     async for event in events:
-        # Record event to session journal if active
         if session_journal is not None:
             await session_journal.record(event)
 
@@ -118,13 +223,13 @@ async def render_workflow_events(
             console_obj.print("[cyan]Validating workflow...[/]", end="")
 
         elif isinstance(event, ValidationCompleted):
-            console_obj.print(" [bold green]\u2713[/]")
+            console_obj.print(" [bold green]✓[/]")
             if event.warnings_count > 0:
                 console_obj.print(f"  [yellow]({event.warnings_count} warning(s))[/]")
             console_obj.print()
 
         elif isinstance(event, ValidationFailed):
-            console_obj.print(" [bold red]\u2717[/]")
+            console_obj.print(" [bold red]✗[/]")
             console_obj.print()
             error_msg = format_error(
                 "Workflow validation failed",
@@ -139,10 +244,10 @@ async def render_workflow_events(
                 console_obj.print("[cyan]Running preflight checks...[/]")
 
         elif isinstance(event, PreflightCheckPassed):
-            console_obj.print(f"  [green]\u2713[/] [bold]{event.name}[/]")
+            console_obj.print(f"  [green]✓[/] [bold]{event.name}[/]")
 
         elif isinstance(event, PreflightCheckFailed):
-            console_obj.print(f"  [red]\u2717[/] [bold]{event.name}[/]: {event.message}")
+            console_obj.print(f"  [red]✗[/] [bold]{event.name}[/]: {event.message}")
             if event.remediation:
                 console_obj.print(f"    [dim]Hint: {event.remediation}[/]")
 
@@ -161,14 +266,10 @@ async def render_workflow_events(
         elif isinstance(event, StepStarted):
             _current_step_name = event.step_name
 
-            # R7: type annotation is (python) or (agentic)
             step_type_value = event.step_type.value
             type_annotation = "agentic" if step_type_value == "agent" else step_type_value
 
-            # R6: ⚙ for all step starts
-            icon = "\u2699"
-
-            # Use a spinner for long-running step types (agent/python)
+            icon = "⚙"
             _use_spinner = step_type_value in ("agent", "python")
 
             if workflow_depth == 1:
@@ -205,35 +306,32 @@ async def render_workflow_events(
 
             _stop_spinner()
 
-            # If we were streaming agent output, close that section
+            # Close any active agent tracker
+            if _agent_tracker is not None and _agent_tracker.active:
+                _agent_tracker.force_close()
+            _agent_tracker = None
+
             if _agent_streaming:
                 console_obj.print()
                 _agent_streaming = False
 
             duration_sec = event.duration_ms / 1000
-
-            # R1: completion line — step name + timing only.
             step_name = event.step_name
 
             if event.success:
-                console_obj.print(
-                    f"[bold green]\u2713[/] {step_name} [dim]({duration_sec:.2f}s)[/]"
-                )
+                console_obj.print(f"[bold green]✓[/] {step_name} [dim]({duration_sec:.2f}s)[/]")
             else:
                 error_detail = f": {event.error}" if event.error else ""
                 console_obj.print(
-                    f"[bold red]\u2717[/] {step_name}{error_detail} [dim]({duration_sec:.2f}s)[/]"
+                    f"[bold red]✗[/] {step_name}{error_detail} [dim]({duration_sec:.2f}s)[/]"
                 )
 
         elif isinstance(event, AgentStreamChunk):
             if _verbose:
-                # Verbose mode: show raw agent stream, dim [TOOL] lines
                 text = event.text
                 if text.startswith("[TOOL] "):
                     tool_name = text.removeprefix("[TOOL] ").strip()
-                    console_obj.print(
-                        f"[dim]  \u21b3 {tool_name}[/]",
-                    )
+                    console_obj.print(f"[dim]  ↳ {tool_name}[/]")
                 else:
                     if not _agent_streaming:
                         _agent_streaming = True
@@ -243,30 +341,49 @@ async def render_workflow_events(
                         highlight=False,
                         markup=False,
                     )
-            # Normal mode: suppress raw agent stream entirely.
 
         elif isinstance(event, StepOutput):
-            # R3: all interim lines use ∟ prefix
-            style = _level_styles.get(event.level, "[cyan]")
-            console_obj.print(f"  {style}\u221f[/] {event.message}")
+            message = event.message
+
+            # Check for agent lifecycle messages → route to tracker
+            start_match = _AGENT_START_RE.match(message)
+            end_match = _AGENT_END_RE.match(message)
+
+            if start_match:
+                label, provider = start_match.groups()
+                if _agent_tracker is None:
+                    _stop_spinner()
+                    _agent_tracker = _AgentTracker(console_obj, _current_step_name)
+                _agent_tracker.agent_started(label, provider)
+
+            elif end_match and _agent_tracker is not None:
+                label, timing = end_match.groups()
+                _agent_tracker.agent_completed(label, f"{timing}s")
+
+            elif _agent_tracker is not None and _agent_tracker.active:
+                # Non-agent message while tracker is active — buffer it
+                _agent_tracker.add_message(message)
+
+            else:
+                # Normal interim line
+                style = _level_styles.get(event.level, "[cyan]")
+                console_obj.print(f"  {style}∟[/] {message}")
 
         elif isinstance(event, RollbackStarted):
-            console_obj.print(f"[yellow]  \u21a9 Rolling back: {event.step_name}...[/]")
+            console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
 
         elif isinstance(event, RollbackCompleted):
             if event.success:
-                console_obj.print(f"[green]  \u2713 Rollback succeeded: {event.step_name}[/]")
+                console_obj.print(f"[green]  ✓ Rollback succeeded: {event.step_name}[/]")
             else:
                 error_detail = f" ({event.error})" if event.error else ""
-                console_obj.print(
-                    f"[red]  \u2717 Rollback failed: {event.step_name}{error_detail}[/]"
-                )
+                console_obj.print(f"[red]  ✗ Rollback failed: {event.step_name}{error_detail}[/]")
 
         elif isinstance(event, LoopIterationStarted):
             label = event.item_label or f"iteration {event.iteration_index + 1}"
             total = event.total_iterations
             idx = event.iteration_index + 1
-            console_obj.print(f"\n[cyan]\u2500\u2500 [{idx}/{total}] {label} \u2500\u2500[/]")
+            console_obj.print(f"\n[cyan]── [{idx}/{total}] {label} ──[/]")
 
         elif isinstance(event, LoopIterationCompleted):
             duration_sec = event.duration_ms / 1000
@@ -283,10 +400,14 @@ async def render_workflow_events(
                 )
 
         elif isinstance(event, CheckpointSaved):
-            console_obj.print(f"[dim]  \U0001f4be Checkpoint saved: {event.step_name}[/]")
+            console_obj.print(f"[dim]  💾 Checkpoint saved: {event.step_name}[/]")
 
         elif isinstance(event, WorkflowCompleted):
             _stop_spinner()
+            if _agent_tracker is not None and _agent_tracker.active:
+                _agent_tracker.force_close()
+            _agent_tracker = None
+
             workflow_depth -= 1
 
             if workflow_depth > 0:
@@ -326,47 +447,49 @@ async def execute_python_workflow(
     ctx: click.Context,
     run_config: PythonWorkflowRunConfig,
 ) -> None:
-    """Execute a Python workflow from a CLI command.
+    """Execute a PythonWorkflow subclass from a CLI command.
 
-    Instantiates a PythonWorkflow subclass, sets up the checkpoint store
-    and session journal (if configured), streams events through
-    ``render_workflow_events``, and displays a final summary.
+    Handles:
+    - Registry creation and dependency injection
+    - Checkpoint loading and resume logic
+    - Event rendering via ``render_workflow_events``
+    - Session journal (JSONL) recording
+    - Error handling and exit codes
 
     Args:
-        ctx: Click context (used to retrieve MaverickConfig).
-        run_config: Configuration describing which workflow to run
-            and how to run it.
+        ctx: Click context for accessing CLI-level settings.
+        run_config: Configuration for the workflow execution.
     """
+    from maverick.checkpoint.store import CheckpointStore
+    from maverick.session_journal import SessionJournal
+    from maverick.types import StepType
+
+    workflow_name = run_config.workflow_class.workflow_name()
+
     with cli_error_handler():
-        from maverick.checkpoint.store import FileCheckpointStore
-        from maverick.config import load_config
-        from maverick.session_journal import SessionJournal
+        registry = create_registered_registry(ctx)
+        workflow_class = run_config.workflow_class
 
-        # Retrieve config from CLI context (populated by the root ``cli`` group).
-        config = ctx.obj.get("config") if ctx.obj else None
-        if config is None:
-            config = load_config()
+        # Ensure workflow_class is a class, not a string.
+        if isinstance(workflow_class, str):
+            module_path, class_name = workflow_class.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            workflow_class = getattr(module, class_name)
 
-        # Create registry with all built-in components registered.
-        registry = create_registered_registry()
+        # Instantiate and inject dependencies
+        wf = workflow_class()
+        step_executor = registry.get("step_executor")
+        if step_executor is not None:
+            wf.set_step_executor(step_executor)
 
-        # Create checkpoint store.
-        checkpoint_store = FileCheckpointStore()
+        # Checkpoint support
+        checkpoint_dir = Path(".maverick/checkpoints")
+        checkpoint_store = CheckpointStore(checkpoint_dir)
 
-        # Determine workflow name from class (check WORKFLOW_NAME constant first).
-        wf_cls = run_config.workflow_class
-        workflow_name: str = getattr(wf_cls, "WORKFLOW_NAME", None) or (
-            # Derive from constants module if available.
-            _derive_workflow_name(wf_cls)
-        )
-
-        # Handle restart: clear existing checkpoint.
         if run_config.restart:
-            existing = await checkpoint_store.load_latest(workflow_name)
-            if existing:
-                await checkpoint_store.clear(workflow_name)
-                console.print("[yellow]Restarting workflow (cleared existing checkpoint)[/]")
-                console.print()
+            await checkpoint_store.clear(workflow_name)
+            console.print("[yellow]Cleared existing checkpoint.[/]")
+            console.print()
         else:
             existing = await checkpoint_store.load_latest(workflow_name)
             if existing:
@@ -397,160 +520,49 @@ async def execute_python_workflow(
             journal = SessionJournal(run_config.session_log_path)
             journal.write_header(workflow_name, run_config.inputs)
             console.print(f"[dim]Session log: {run_config.session_log_path}[/]")
-            console.print()
 
-        # Create agent step executor using ACP-based executor.
-        from maverick.executor.acp import AcpStepExecutor
-        from maverick.executor.provider_registry import AgentProviderRegistry
+        # Determine verbosity from Click context.
+        verbosity = ctx.obj.get("verbosity", 0) if ctx.obj else 0
 
-        provider_registry = AgentProviderRegistry.from_config(config.agent_providers)
-        step_executor = AcpStepExecutor(
-            provider_registry=provider_registry,
-            agent_registry=registry,
+        # Count workflow steps for progress display.
+        steps_meta = getattr(workflow_class, "STEPS", None) or {}
+        step_count = len(steps_meta) if isinstance(steps_meta, dict) else 0
+
+        # Count agent steps for display purposes.
+        agent_steps = sum(
+            1
+            for meta in (steps_meta.values() if isinstance(steps_meta, dict) else [])
+            if getattr(meta, "step_type", None) == StepType.AGENT
         )
+        if agent_steps > 0:
+            logger.debug(
+                "workflow_executor.agent_steps_detected",
+                agent_steps=agent_steps,
+            )
 
-        # Instantiate the workflow.
-        workflow = wf_cls(
-            config=config,
-            registry=registry,
+        # Run the workflow and render events.
+        events = wf.run(
+            run_config.inputs,
             checkpoint_store=checkpoint_store,
-            step_executor=step_executor,
-            workflow_name=workflow_name,
         )
-
-        # Thread verbosity from CLI context to event renderer.
-        cli_ctx = ctx.obj.get("cli_ctx") if ctx.obj else None
-        _verbosity = getattr(cli_ctx, "verbosity", 0) if cli_ctx else 0
-        # Also check raw obj dict for backwards compat.
-        if _verbosity == 0 and ctx.obj:
-            _verbosity = ctx.obj.get("verbose", 0)
 
         try:
             await render_workflow_events(
-                workflow.execute(run_config.inputs),
+                events,
                 console,
                 session_journal=journal,
                 workflow_name=workflow_name,
-                verbosity=_verbosity,
+                total_steps=step_count,
+                verbosity=verbosity,
             )
-        finally:
-            # Clean up ACP agent subprocesses (FR-019).
-            # Use a timeout to prevent cleanup from hanging when the
-            # subprocess is unresponsive (e.g. after Ctrl-C).
-            # Temporarily suppress asyncio's noisy async-generator
-            # cleanup warnings (RuntimeError from spawn_agent_process).
-            import logging as _logging
-
-            # Suppress both asyncio and root logger noise during ACP
-            # teardown.  The ACP library's background receive loop fires
-            # _on_done callbacks that log "Receive loop failed" /
-            # "message queue already closed" at ERROR to the root logger.
-            _root_logger = _logging.getLogger()
-            _asyncio_logger = _logging.getLogger("asyncio")
-            _prev_root = _root_logger.level
-            _prev_asyncio = _asyncio_logger.level
-            _root_logger.setLevel(_logging.CRITICAL)
-            _asyncio_logger.setLevel(_logging.CRITICAL)
-            try:
-                if hasattr(step_executor, "cleanup"):
-                    try:
-                        await asyncio.wait_for(step_executor.cleanup(), timeout=3.0)
-                    except (TimeoutError, asyncio.CancelledError):
-                        logger.warning("step_executor_cleanup_timeout")
-                        _force_kill_connections(step_executor)
-                    except Exception as exc:
-                        logger.warning("step_executor_cleanup_failed", error=str(exc))
-            finally:
-                _root_logger.setLevel(_prev_root)
-                _asyncio_logger.setLevel(_prev_asyncio)
-
-            if journal is not None:
-                try:
-                    wf_result = workflow.result
-                    if wf_result is not None:
-                        journal.write_summary(
-                            {
-                                "success": wf_result.success,
-                                "total_duration_ms": wf_result.total_duration_ms,
-                            }
-                        )
-                    else:
-                        journal.write_summary({"success": False})
-                except Exception as exc:
-                    logger.warning("journal_summary_failed", error=str(exc))
-                    journal.write_summary({"success": False})
-                journal.close()
-
-        # Display final summary.
-        result = workflow.result
-        if result is None:
-            err_console.print(format_error("Workflow produced no result"))
-            raise SystemExit(ExitCode.FAILURE)
-
-        if result.success:
-            raise SystemExit(ExitCode.SUCCESS)
-        else:
-            failed_step = result.failed_step
-            if failed_step:
-                console.print()
-                error_msg = format_error(
-                    f"Step '{failed_step.name}' failed",
-                    details=[failed_step.error] if failed_step.error else None,
-                    suggestion="Check the step configuration and try again.",
+        except SystemExit:
+            raise
+        except Exception as exc:
+            console.print()
+            err_console.print(
+                format_error(
+                    "Workflow failed after execution",
+                    details=[str(exc)],
                 )
-                err_console.print(error_msg)
-            raise SystemExit(ExitCode.FAILURE)
-
-
-def _derive_workflow_name(wf_cls: type) -> str:
-    """Derive a kebab-case workflow name from a class name.
-
-    Checks the class's constants module for WORKFLOW_NAME first. Falls back
-    to converting the class name to lowercase kebab-case.
-
-    Args:
-        wf_cls: PythonWorkflow subclass.
-
-    Returns:
-        Kebab-case workflow name string.
-    """
-    # Try to find WORKFLOW_NAME in the class's module package.
-    module_name = getattr(wf_cls, "__module__", "") or ""
-    # e.g. maverick.workflows.fly_beads.workflow
-    #   -> maverick.workflows.fly_beads.constants
-    pkg = ".".join(module_name.split(".")[:-1])
-    if pkg:
-        try:
-            constants_mod = importlib.import_module(f"{pkg}.constants")
-            name = getattr(constants_mod, "WORKFLOW_NAME", None)
-            if name:
-                return str(name)
-        except ImportError:
-            pass
-
-    # Fall back: class name → kebab-case (e.g. FlyBeadsWorkflow → fly-beads-workflow)
-    class_name = wf_cls.__name__
-    # Insert hyphens before uppercase letters following lowercase letters.
-    kebab = re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", class_name).lower()
-    # Remove trailing -workflow suffix if present.
-    kebab = re.sub(r"-workflow$", "", kebab)
-    return kebab
-
-
-def _force_kill_connections(step_executor: Any) -> None:
-    """Force-kill ACP subprocess connections when graceful cleanup times out.
-
-    Sends SIGKILL to any backing subprocess that is still alive. This is a
-    last-resort fallback so the CLI can exit promptly after Ctrl-C.
-    """
-    connections: dict[str, Any] = getattr(step_executor, "_connections", {})
-    for name, cached in connections.items():
-        proc = getattr(cached, "proc", None)
-        if proc is None:
-            continue
-        try:
-            proc.kill()
-        except (OSError, ProcessLookupError):
-            pass
-        else:
-            logger.debug("force_killed_subprocess", provider=name)
+            )
+            raise SystemExit(ExitCode.FAILURE) from exc
