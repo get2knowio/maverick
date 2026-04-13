@@ -1144,8 +1144,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         atexit.register(_cleanup_actor_system)
 
         try:
-            # Create child actors
+            # Create child actors — primary decomposer handles outline + fixes,
+            # pool members handle detail pass in parallel.
+            DECOMPOSER_POOL_SIZE = 4
             decomposer_addr = asys.createActor(DecomposerActor)
+            decomposer_pool = [
+                asys.createActor(DecomposerActor)
+                for _ in range(DECOMPOSER_POOL_SIZE - 1)
+            ]
             validator_addr = asys.createActor(ValidatorActor)
             bead_creator_addr = asys.createActor(BeadCreatorActor)
 
@@ -1155,17 +1161,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 globalName="supervisor-inbox",
             )
 
-            # Init child actors
-            asys.ask(
-                decomposer_addr,
-                {
-                    "type": "init",
-                    "cwd": str(Path.cwd()),
-                    "mcp_tools": "submit_outline,submit_details,submit_fix",
-                    "admin_port": THESPIAN_PORT,
-                },
-                timeout=10,
-            )
+            # Init all decomposer actors (primary + pool)
+            decomposer_init = {
+                "type": "init",
+                "cwd": str(Path.cwd()),
+                "mcp_tools": "submit_outline,submit_details,submit_fix",
+                "admin_port": THESPIAN_PORT,
+            }
+            asys.ask(decomposer_addr, decomposer_init, timeout=10)
+            for pool_addr in decomposer_pool:
+                asys.ask(pool_addr, decomposer_init, timeout=10)
 
             asys.ask(
                 validator_addr,
@@ -1194,6 +1199,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 {
                     "type": "init",
                     "decomposer_addr": decomposer_addr,
+                    "decomposer_pool": decomposer_pool,
                     "validator_addr": validator_addr,
                     "bead_creator_addr": bead_creator_addr,
                     "initial_payload": initial_payload,
@@ -1205,11 +1211,19 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # Start decomposition (fire-and-drain)
             asys.tell(supervisor_addr, "start")
 
+            # Scale timeout: outline (~10min) + parallel detail waves
+            # (~10min per wave) + up to 3 validation/fix rounds (~10min each).
+            sc_count = len(flight_plan.success_criteria)
+            estimated_units = max(1, int(sc_count * 1.5))
+            detail_waves = max(1, (estimated_units + DECOMPOSER_POOL_SIZE - 1)
+                               // DECOMPOSER_POOL_SIZE)
+            # 600s per agent call × (1 outline + N waves + 3 fix rounds)
+            drain_timeout = 600.0 * (1 + detail_waves + MAX_DECOMPOSE_ATTEMPTS)
             result = await self._drain_supervisor_events(
                 asys=asys,
                 supervisor=supervisor_addr,
                 poll_interval=0.25,
-                hard_timeout_seconds=3600.0,
+                hard_timeout_seconds=drain_timeout,
             )
 
         finally:

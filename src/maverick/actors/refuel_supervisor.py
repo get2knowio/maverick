@@ -8,6 +8,13 @@ The workflow sends "start" and then drains progress events via
 ``{"type": "get_events", "since": int}`` polls until the supervisor
 marks itself done. The terminal result payload rides on the final
 ``done=True`` reply — see ``SupervisorEventBusMixin``.
+
+Detail pass parallelism: the supervisor creates a pool of decomposer
+actors (each with its own ACP connection). After the outline arrives,
+individual work unit IDs are fanned out round-robin across the pool.
+Each actor produces one ``submit_details`` call per unit. The supervisor
+collects all responses and proceeds to validation once every unit has
+been detailed.
 """
 
 import json
@@ -110,6 +117,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._validator = message.get("validator_addr")
         self._bead_creator = message.get("bead_creator_addr")
 
+        # Decomposer pool: the primary decomposer handles outlines/fixes.
+        # Additional pool members handle detail requests in parallel.
+        self._decomposer_pool: list = message.get("decomposer_pool", [])
+
         # State
         self._outline = None
         self._details = None
@@ -117,6 +128,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._fix_rounds = 0
         self._nudge_count = 0
         self._initial_payload = message.get("initial_payload", {})
+
+        # Detail fan-out state
+        self._pending_detail_ids: set[str] = set()
+        self._accumulated_details: list[dict] = []
 
         self.send(sender, {"type": "init_ok"})
 
@@ -140,13 +155,52 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             },
         )
 
+    def _fan_out_details(self, unit_ids):
+        """Dispatch individual detail requests across the decomposer pool.
+
+        Uses round-robin assignment across all available decomposer actors
+        (primary + pool members). Each actor gets its own ACP connection
+        and processes units concurrently.
+        """
+        all_decomposers = [self._decomposer] + list(self._decomposer_pool)
+        pool_size = len(all_decomposers)
+        outline_json = json.dumps(self._outline)
+        fp_content = self._initial_payload.get("flight_plan_content", "")
+        verif_props = self._initial_payload.get("verification_properties", "")
+
+        self._pending_detail_ids = set(unit_ids)
+        self._accumulated_details = []
+
+        self._emit_output(
+            "refuel",
+            f"Detailing {len(unit_ids)} unit(s) across {pool_size} actor(s)",
+            level="info",
+            source=_SOURCE,
+        )
+
+        for i, uid in enumerate(unit_ids):
+            target = all_decomposers[i % pool_size]
+            self.send(
+                target,
+                {
+                    "type": "detail_request",
+                    "unit_ids": [uid],
+                    "outline_json": outline_json,
+                    "flight_plan_content": fp_content,
+                    "verification_properties": verif_props,
+                },
+            )
+
     def _handle_prompt_sent(self, phase):
         """Check if expected tool call arrived; nudge if not."""
         MAX_NUDGES = 2
         # Map phase to expected tool and state check
         phase_tool_map = {
             "outline": ("submit_outline", lambda: self._outline is not None),
-            "detail": ("submit_details", lambda: self._details is not None),
+            "detail": (
+                "submit_details",
+                lambda: len(self._pending_detail_ids) == 0,
+            ),
             "fix": ("submit_fix", lambda: self._fix_rounds > 0 and self._details is not None),
         }
 
@@ -201,38 +255,42 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 source=_SOURCE,
                 metadata={"unit_count": len(unit_ids)},
             )
-            outline_json = json.dumps(args)
-
-            self.send(
-                self._decomposer,
-                {
-                    "type": "detail_request",
-                    "unit_ids": unit_ids,
-                    "outline_json": outline_json,
-                    "flight_plan_content": self._initial_payload.get("flight_plan_content", ""),
-                    "verification_properties": self._initial_payload.get(
-                        "verification_properties", ""
-                    ),
-                },
-            )
+            self._fan_out_details(unit_ids)
 
         elif tool == "submit_details":
-            self._details = args
-            self._specs = self._merge_to_specs()
-            self._emit_output(
-                "refuel",
-                f"Details received; validating {len(self._specs)} spec(s)",
-                level="info",
-                source=_SOURCE,
-                metadata={"spec_count": len(self._specs)},
-            )
-            self.send(
-                self._validator,
-                {
-                    "type": "validate",
-                    "specs": self._specs,
-                },
-            )
+            # Collect details and mark units as done
+            batch_details = args.get("details", [])
+            for d in batch_details:
+                if isinstance(d, dict):
+                    self._accumulated_details.append(d)
+                    self._pending_detail_ids.discard(d.get("id", ""))
+
+            remaining = len(self._pending_detail_ids)
+            done = len(self._accumulated_details)
+            if remaining > 0:
+                logger.debug(
+                    "refuel_supervisor.details_progress",
+                    done=done,
+                    remaining=remaining,
+                )
+            else:
+                # All units detailed — merge and validate
+                self._details = {"details": self._accumulated_details}
+                self._specs = self._merge_to_specs()
+                self._emit_output(
+                    "refuel",
+                    f"Details received; validating {len(self._specs)} spec(s)",
+                    level="info",
+                    source=_SOURCE,
+                    metadata={"spec_count": len(self._specs)},
+                )
+                self.send(
+                    self._validator,
+                    {
+                        "type": "validate",
+                        "specs": self._specs,
+                    },
+                )
 
         elif tool == "submit_fix":
             if args.get("work_units"):
@@ -312,8 +370,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _handle_beads_created(self, message):
         """Decomposition complete — shutdown agents, mark done."""
-        if self._decomposer:
-            self.send(self._decomposer, {"type": "shutdown"})
+        # Shutdown all decomposer actors (primary + pool)
+        for addr in [self._decomposer] + list(self._decomposer_pool):
+            if addr:
+                self.send(addr, {"type": "shutdown"})
         bead_count = message.get("bead_count", 0)
         success = message.get("success", False)
         self._emit_output(
@@ -336,8 +396,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _handle_error(self, error_msg):
         """Report error to workflow — shutdown agents first."""
-        if self._decomposer:
-            self.send(self._decomposer, {"type": "shutdown"})
+        for addr in [self._decomposer] + list(self._decomposer_pool):
+            if addr:
+                self.send(addr, {"type": "shutdown"})
         self._emit_output(
             "refuel",
             f"Decomposition failed: {error_msg}",

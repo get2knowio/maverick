@@ -16,7 +16,9 @@ DECOMPOSE_OUTLINE = "decompose_outline"
 DECOMPOSE_DETAIL = "decompose_detail"
 
 #: Maximum work units per detail batch to stay within output token limits.
-DETAIL_BATCH_SIZE = 5
+#: 10 balances token budget against the number of sequential agent calls
+#: needed for large decompositions (e.g. 46 units = 5 batches, not 10).
+DETAIL_BATCH_SIZE = 10
 
 #: Maximum decompose → validate attempts before giving up.
 MAX_DECOMPOSE_ATTEMPTS = 3
