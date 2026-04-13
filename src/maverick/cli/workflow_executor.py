@@ -50,9 +50,9 @@ async def render_workflow_events(
     - R1: step start (⚙) / completion (✓/✗) with step name + timing
     - R2: meaningful messages shown as interim ∟ lines only
     - R3: interim lines use ``∟`` prefix, no step name repetition
-    - R4: agent lifecycle interims with 🤖 start and ✓ end
+    - R4: agent lifecycle interims with start and ✓ end
     - R5: trivial steps may have no interim lines
-    - R6: semantic icons (⚙ 🤖 ✓ ✗)
+    - R6: semantic icons (⚙ ✓ ✗)
     - R7: start line shows (python) or (agent)/(agents)
     - R8: agent interims show actual provider/model
 

@@ -414,7 +414,7 @@ class PythonWorkflow(ABC):
         """Execute an agent with retry, progress messaging, and timing.
 
         Wraps ``self._step_executor.execute()`` with:
-        - R4/R8 agent lifecycle interims (🤖 start, ✓ end)
+        - R4/R8 agent lifecycle interims (start, ✓ end)
         - Exponential-backoff retry on transient/timeout errors
         - Retry progress messages (↻ label retry N/max...)
 
@@ -480,10 +480,10 @@ class PythonWorkflow(ABC):
         provider = resolved.provider or self._resolve_display_provider() or "default"
         model = resolved.model_id or self._resolve_display_model() or "default"
 
-        # R4/R8: 🤖 start
+        # R4/R8: agent start
         await self.emit_output(
             emit_step,
-            f"\U0001f916 {label}... ({provider}/{model})",
+            f"{label}... ({provider}/{model})",
             level="info",
         )
 
