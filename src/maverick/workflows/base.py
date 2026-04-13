@@ -677,10 +677,16 @@ class PythonWorkflow(ABC):
             reply = await loop.run_in_executor(None, _ask)
 
             if reply is None:
-                raise WorkflowError(
-                    f"supervisor did not reply to get_events within {per_ask_timeout_seconds}s",
-                    workflow_name=self._workflow_name,
+                # Supervisor may be temporarily busy (Thespian message
+                # backlog during heavy fan-out). Retry a few times before
+                # giving up — the hard deadline still guards against a
+                # truly wedged supervisor.
+                logger.warning(
+                    "drain.ask_timeout",
+                    per_ask_timeout=per_ask_timeout_seconds,
                 )
+                await asyncio.sleep(poll_interval)
+                continue
 
             if not isinstance(reply, dict) or reply.get("type") != "events":
                 raise WorkflowError(

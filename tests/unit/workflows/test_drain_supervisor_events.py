@@ -207,11 +207,17 @@ class TestDrainErrors:
         with pytest.raises(WorkflowError, match="unexpected supervisor reply"):
             await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
 
-    async def test_none_reply_raises(self) -> None:
+    async def test_none_reply_retries_then_times_out(self) -> None:
+        """None replies (supervisor busy) are retried until hard timeout."""
         wf = _make_workflow()
-        asys = FakeActorSystem([None])
-        with pytest.raises(WorkflowError, match="did not reply"):
-            await wf._drain_supervisor_events(asys=asys, supervisor="sup", poll_interval=0.01)
+        asys = FakeActorSystem([None] * 100)
+        with pytest.raises(WorkflowError, match="exceeded"):
+            await wf._drain_supervisor_events(
+                asys=asys,
+                supervisor="sup",
+                poll_interval=0.001,
+                hard_timeout_seconds=0.05,
+            )
 
     async def test_hard_timeout_raises(self) -> None:
         wf = _make_workflow()
