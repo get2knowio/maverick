@@ -48,6 +48,63 @@ _AGENT_END_RE = re.compile(r"^✓ (.+?) \((\d+\.?\d*)s\)$")
 # Pattern: "Detail N/M complete" — detail fan-out progress
 _DETAIL_PROGRESS_RE = re.compile(r"^Detail (\d+)/(\d+) complete$")
 
+# Human-readable display names for workflow step identifiers.
+# Steps not in this map are displayed as title-cased with underscores removed.
+_STEP_DISPLAY_NAMES: dict[str, str] = {
+    # plan generate
+    "read_prd": "Reading PRD",
+    "briefing": "Briefing",
+    "generate": "Generating flight plan",
+    "write_flight_plan": "Writing flight plan",
+    # refuel
+    "parse_flight_plan": "Parsing flight plan",
+    "gather_context": "Gathering context",
+    "analyze_open_beads": "Checking open beads",
+    "derive_verification": "Deriving verification criteria",
+    "decompose": "Decomposing",
+    "decompose_outline": "Decompose (outline)",
+    "decompose_detail": "Decompose (detail)",
+    "validate": "Validating",
+    "write_work_units": "Writing work units",
+    "create_beads": "Creating beads",
+    "wire_deps": "Wiring dependencies",
+    "wire_cross_plan_deps": "Wiring cross-plan dependencies",
+    # fly
+    "preflight": "Pre-flight checks",
+    "snapshot_uncommitted": "Snapshotting uncommitted changes",
+    "create_workspace": "Creating workspace",
+    "baseline_gate": "Baseline gate check",
+    "select_bead": "Selecting bead",
+    "implement_and_validate": "Implementing",
+    "gate_check": "Gate validation",
+    "gate_remediation": "Gate remediation",
+    "review": "Reviewing",
+    "acceptance_check": "Acceptance check",
+    "spec_compliance": "Spec compliance",
+    "commit": "Committing",
+    "record_runway": "Recording runway metrics",
+    # refuel speckit
+    "checkout": "Checking out branch",
+    "checkout_main": "Checking out main",
+    "parse_spec": "Parsing specification",
+    "extract_deps": "Extracting dependencies",
+    "enrich_beads": "Enriching bead descriptions",
+    "merge": "Merging",
+    # briefing sub-agents
+    "briefing_navigator": "Briefing: Navigator",
+    "briefing_structuralist": "Briefing: Structuralist",
+    "briefing_recon": "Briefing: Recon",
+    "briefing_contrarian": "Briefing: Contrarian",
+    "briefing_scopist": "Briefing: Scopist",
+    "briefing_codebase_analyst": "Briefing: Codebase Analyst",
+    "briefing_criteria_writer": "Briefing: Criteria Writer",
+}
+
+
+def _display_name(step_name: str) -> str:
+    """Get human-readable display name for a step identifier."""
+    return _STEP_DISPLAY_NAMES.get(step_name, step_name.replace("_", " ").title())
+
 
 class _AgentTracker:
     """Tracks concurrent agent status and renders a Rich Live table.
@@ -265,40 +322,28 @@ async def render_workflow_events(
 
         elif isinstance(event, StepStarted):
             _current_step_name = event.step_name
-
+            display = _display_name(event.step_name)
             step_type_value = event.step_type.value
-            type_annotation = "agentic" if step_type_value == "agent" else step_type_value
-
-            icon = "⚙"
             _use_spinner = step_type_value in ("agent", "python")
 
             if workflow_depth == 1:
                 step_index += 1
-                if _total_steps > 0:
-                    step_label = (
-                        f"[{step_index}/{_total_steps}] "
-                        f"{icon} {event.step_name} ({type_annotation})"
-                    )
-                else:
-                    step_label = f"{icon} {event.step_name} ({type_annotation})"
 
                 if _use_spinner and hasattr(console_obj, "status"):
-                    console_obj.print(f"[blue]{step_label}[/]")
+                    console_obj.print(f"[bold]{display}[/]")
                     _spinner = console_obj.status(
-                        f"[dim]{event.step_name}...[/]",
+                        f"[dim]{display}...[/]",
                         spinner="dots",
                     )
                     _spinner.start()
                 else:
-                    console_obj.print(f"[blue]{step_label}[/]")
+                    console_obj.print(f"[bold]{display}[/]")
 
                 if step_type_value in ("loop", "subworkflow"):
                     workflow_depth += 1
             else:
                 indent = "  " * (workflow_depth - 1)
-                console_obj.print(
-                    f"[dim cyan]{indent}{icon} {event.step_name}[/] ({type_annotation})"
-                )
+                console_obj.print(f"[dim]{indent}{display}[/]")
 
         elif isinstance(event, StepCompleted):
             if event.step_type.value in ("loop", "subworkflow"):
@@ -316,14 +361,14 @@ async def render_workflow_events(
                 _agent_streaming = False
 
             duration_sec = event.duration_ms / 1000
-            step_name = event.step_name
+            display = _display_name(event.step_name)
 
             if event.success:
-                console_obj.print(f"[bold green]✓[/] {step_name} [dim]({duration_sec:.2f}s)[/]")
+                console_obj.print(f"[bold green]✓[/] {display} [dim]({duration_sec:.2f}s)[/]")
             else:
                 error_detail = f": {event.error}" if event.error else ""
                 console_obj.print(
-                    f"[bold red]✗[/] {step_name}{error_detail} [dim]({duration_sec:.2f}s)[/]"
+                    f"[bold red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
                 )
 
         elif isinstance(event, AgentStreamChunk):
@@ -400,7 +445,7 @@ async def render_workflow_events(
                 )
 
         elif isinstance(event, CheckpointSaved):
-            console_obj.print(f"[dim]  💾 Checkpoint saved: {event.step_name}[/]")
+            console_obj.print(f"[dim]  Checkpoint saved: {_display_name(event.step_name)}[/]")
 
         elif isinstance(event, WorkflowCompleted):
             _stop_spinner()

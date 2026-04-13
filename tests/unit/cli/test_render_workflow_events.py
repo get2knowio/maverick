@@ -177,7 +177,7 @@ class TestCheckpointSavedRendering:
                 CheckpointSaved(step_name="after_install", workflow_id="fly-beads"),
             ]
         )
-        assert "after_install" in output
+        assert "After Install" in output
 
     async def test_checkpoint_saved_contains_checkpoint_text(self) -> None:
         """CheckpointSaved event includes 'Checkpoint saved' text."""
@@ -188,14 +188,14 @@ class TestCheckpointSavedRendering:
         )
         assert "Checkpoint saved" in output
 
-    async def test_checkpoint_saved_contains_floppy_icon(self) -> None:
-        """CheckpointSaved event includes the floppy disk icon."""
+    async def test_checkpoint_saved_contains_checkpoint_label(self) -> None:
+        """CheckpointSaved event includes 'Checkpoint saved' text."""
         output = await _render_events(
             [
                 CheckpointSaved(step_name="after_install", workflow_id="fly-beads"),
             ]
         )
-        assert "\U0001f4be" in output
+        assert "Checkpoint saved" in output
 
 
 class TestAgentStreamChunkRendering:
@@ -286,11 +286,11 @@ class TestAgentStreamChunkRendering:
         assert "\u2713" in output
 
 
-class TestStepTypeAnnotation:
-    """R7: StepStarted shows (python) or (agentic) annotation."""
+class TestStepDisplayNames:
+    """StepStarted shows human-readable display names without type annotations."""
 
-    async def test_python_step_shows_python_annotation(self) -> None:
-        """Python step shows (python) annotation."""
+    async def test_python_step_shows_display_name(self) -> None:
+        """Python step shows human-readable name, no (python) annotation."""
         output = await _render_events(
             [
                 StepStarted(
@@ -299,10 +299,11 @@ class TestStepTypeAnnotation:
                 ),
             ],
         )
-        assert "(python)" in output
+        assert "Pre-flight checks" in output
+        assert "(python)" not in output
 
-    async def test_agent_step_shows_agentic_annotation(self) -> None:
-        """Agent step shows (agentic), not provider/model."""
+    async def test_agent_step_shows_display_name(self) -> None:
+        """Agent step shows human-readable name, no (agentic) annotation."""
         output = await _render_events(
             [
                 StepStarted(
@@ -313,10 +314,22 @@ class TestStepTypeAnnotation:
                 ),
             ],
         )
-        assert "(agentic)" in output
-        # R7: provider/model must NOT appear on the start line
+        assert "Decomposing" in output
+        assert "(agentic)" not in output
         assert "copilot" not in output
         assert "sonnet" not in output
+
+    async def test_unknown_step_falls_back_to_title_case(self) -> None:
+        """Unknown step names are title-cased with underscores removed."""
+        output = await _render_events(
+            [
+                StepStarted(
+                    step_name="custom_new_step",
+                    step_type=StepType.PYTHON,
+                ),
+            ],
+        )
+        assert "Custom New Step" in output
 
 
 class TestLoopIterationRendering:
@@ -398,8 +411,8 @@ class TestStepLifecycleRendering:
                 ),
             ],
         )
-        assert "\u2713" in output
-        assert "read_prd" in output
+        assert "✓" in output
+        assert "Reading PRD" in output
         assert "0.01s" in output
 
     async def test_completion_line_has_no_message(self) -> None:
@@ -417,7 +430,7 @@ class TestStepLifecycleRendering:
             ],
         )
         lines = output.strip().splitlines()
-        completion = [ln for ln in lines if "\u2713" in ln and "validate" in ln]
+        completion = [ln for ln in lines if "✓" in ln and "Validating" in ln]
         assert len(completion) == 1
         # No colon — message is not promoted to the completion line
         assert ":" not in completion[0]
@@ -437,8 +450,8 @@ class TestStepLifecycleRendering:
                 ),
             ],
         )
-        assert "\u2717" in output
-        assert "validate" in output
+        assert "✗" in output
+        assert "Validating" in output
         assert "schema invalid" in output
 
 
