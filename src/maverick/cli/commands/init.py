@@ -120,7 +120,9 @@ def _format_git_output(
                 lines.append(f"  Remote: {git_info.remote_url}")
             lines.append("")
     else:
-        lines.append("[yellow]⚠[/] No git remote configured. GitHub owner/repo set to null.")
+        lines.append(
+            "[yellow]Warning:[/yellow] No git remote configured. GitHub owner/repo set to null."
+        )
         lines.append("")
 
     return lines

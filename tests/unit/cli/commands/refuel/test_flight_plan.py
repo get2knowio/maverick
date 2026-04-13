@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from maverick.main import cli
@@ -42,6 +43,12 @@ class TestRefuelHelp:
 
 class TestRefuelFromPlan:
     """Tests for 'maverick refuel <name>' (default --from plan)."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_bd_available(self):
+        """Mock bd availability — CI doesn't have bd installed."""
+        with patch("shutil.which", return_value="/usr/bin/bd"):
+            yield
 
     def test_list_steps_prints_step_names_and_exits(
         self,
@@ -191,6 +198,12 @@ class TestRefuelFromPlan:
 
 class TestRefuelFromSpeckit:
     """Tests for 'maverick refuel --from speckit <spec>'."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_bd_available(self):
+        """Mock bd availability — CI doesn't have bd installed."""
+        with patch("shutil.which", return_value="/usr/bin/bd"):
+            yield
 
     def test_list_steps_speckit(
         self,

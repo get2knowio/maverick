@@ -40,6 +40,12 @@ if TYPE_CHECKING:
 class TestInitCommandIntegration:
     """Integration tests for maverick init CLI command."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_bd(self):
+        """Mock bd init — CI doesn't have bd installed."""
+        with patch("maverick.init._init_beads", new_callable=AsyncMock, return_value=True):
+            yield
+
     @pytest.fixture
     def git_repo(self, temp_dir: Path) -> Path:
         """Create a temporary git repository with Python project markers."""
@@ -584,6 +590,12 @@ asyncio_mode = "auto"
 
 class TestInitCommandEdgeCases:
     """Edge case tests for init command."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_bd(self):
+        """Mock bd init — CI doesn't have bd installed."""
+        with patch("maverick.init._init_beads", new_callable=AsyncMock, return_value=True):
+            yield
 
     @pytest.fixture
     def mock_success_preflight(self) -> InitPreflightResult:
